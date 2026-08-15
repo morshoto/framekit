@@ -1,0 +1,27 @@
+{
+  "name": "playhead",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentic video editing runtime spikes",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "test:watch": "tsx --test --watch test/*.test.ts",
+    "mcp": "tsx src/mcp-server/main.ts",
+    "xcode:check": "bash nix/check-xcode.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "fast-xml-parser": "^5.10.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

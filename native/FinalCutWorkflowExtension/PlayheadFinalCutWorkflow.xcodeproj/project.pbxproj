@@ -1,0 +1,450 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		33EA772704D9A05AE9FE87C0 /* ProExtensionHostShim in Resources */ = {isa = PBXBuildFile; fileRef = AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */; };
+		4750FA18026AB67BBC16BC29 /* FinalCutLiveWorkflowExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */; };
+		81BE37D2435C97C1E26E9839 /* ContainerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7EC786F1448B2996E0510F /* ContainerApp.swift */; };
+		FB8A39B20AC58439969A8724 /* PlayheadFinalCutWorkflowExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E09328E1DA303336F8109727 /* PlayheadFinalCutWorkflowExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DDC1FF4E679059444B52BD6E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3EE7229095F4E7E9009036FA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA8DBB46D98CA8A43A1F9C50;
+			remoteInfo = PlayheadFinalCutWorkflowExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		37B6F70EC22966915BB4B0E2 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FB8A39B20AC58439969A8724 /* PlayheadFinalCutWorkflowExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		02934DD27114CEE17E5731EC /* Container.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Container.entitlements; sourceTree = "<group>"; };
+		0A7EC786F1448B2996E0510F /* ContainerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContainerApp.swift; sourceTree = "<group>"; };
+		242E0D0323DCF4DC632E44F4 /* PlayheadFinalCutWorkflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayheadFinalCutWorkflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9D8FCF869BDB6FE0A93FA683 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ProExtensionHostShim; sourceTree = SOURCE_ROOT; };
+		E09328E1DA303336F8109727 /* PlayheadFinalCutWorkflowExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PlayheadFinalCutWorkflowExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalCutLiveWorkflowExtension.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		3B44E11F411F1B3A2B4CC671 = {
+			isa = PBXGroup;
+			children = (
+				FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */,
+				AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */,
+				A3E54EED3337F0C79DCD0FDD /* Container */,
+				3C5A9DBD65609D588D2E9E1C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3C5A9DBD65609D588D2E9E1C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				242E0D0323DCF4DC632E44F4 /* PlayheadFinalCutWorkflow.app */,
+				E09328E1DA303336F8109727 /* PlayheadFinalCutWorkflowExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A3E54EED3337F0C79DCD0FDD /* Container */ = {
+			isa = PBXGroup;
+			children = (
+				02934DD27114CEE17E5731EC /* Container.entitlements */,
+				0A7EC786F1448B2996E0510F /* ContainerApp.swift */,
+				9D8FCF869BDB6FE0A93FA683 /* Info.plist */,
+			);
+			path = Container;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		76D0C261DEEDA61156AD5C23 /* PlayheadFinalCutWorkflow */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E7DC9B84F5F185983B001876 /* Build configuration list for PBXNativeTarget "PlayheadFinalCutWorkflow" */;
+			buildPhases = (
+				DA2E89A0A3B62D75C52F8A5C /* Sources */,
+				37B6F70EC22966915BB4B0E2 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D3E587DFE4D1554817AA41FF /* PBXTargetDependency */,
+			);
+			name = PlayheadFinalCutWorkflow;
+			packageProductDependencies = (
+			);
+			productName = PlayheadFinalCutWorkflow;
+			productReference = 242E0D0323DCF4DC632E44F4 /* PlayheadFinalCutWorkflow.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AA8DBB46D98CA8A43A1F9C50 /* PlayheadFinalCutWorkflowExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 731EE41603D1CD9ECE5DF9EA /* Build configuration list for PBXNativeTarget "PlayheadFinalCutWorkflowExtension" */;
+			buildPhases = (
+				470B6C5A2A48B877CCF179D5 /* Sources */,
+				B36636462DFA88D7146D48DA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PlayheadFinalCutWorkflowExtension;
+			packageProductDependencies = (
+			);
+			productName = PlayheadFinalCutWorkflowExtension;
+			productReference = E09328E1DA303336F8109727 /* PlayheadFinalCutWorkflowExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3EE7229095F4E7E9009036FA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = C1874D4ADB52535C83AD5941 /* Build configuration list for PBXProject "PlayheadFinalCutWorkflow" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 3B44E11F411F1B3A2B4CC671;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3C5A9DBD65609D588D2E9E1C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				76D0C261DEEDA61156AD5C23 /* PlayheadFinalCutWorkflow */,
+				AA8DBB46D98CA8A43A1F9C50 /* PlayheadFinalCutWorkflowExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B36636462DFA88D7146D48DA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33EA772704D9A05AE9FE87C0 /* ProExtensionHostShim in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		470B6C5A2A48B877CCF179D5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4750FA18026AB67BBC16BC29 /* FinalCutLiveWorkflowExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DA2E89A0A3B62D75C52F8A5C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				81BE37D2435C97C1E26E9839 /* ContainerApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D3E587DFE4D1554817AA41FF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA8DBB46D98CA8A43A1F9C50 /* PlayheadFinalCutWorkflowExtension */;
+			targetProxy = DDC1FF4E679059444B52BD6E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		07D857AB5100DB16809DC856 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		1C9AD661FC420FF82EB1D967 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = FinalCutWorkflowExtension.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/playhead-finalcut-frameworks",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/playhead-finalcut-frameworks",
+					"@loader_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-e",
+					_ProExtensionMain,
+					"-framework",
+					ProExtension,
+					"-framework",
+					ProExtensionHost,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.playhead.finalcut.workflow.extension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
+			};
+			name = Release;
+		};
+		557A664EC37289D70AB28E87 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = FinalCutWorkflowExtension.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/playhead-finalcut-frameworks",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/playhead-finalcut-frameworks",
+					"@loader_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-e",
+					_ProExtensionMain,
+					"-framework",
+					ProExtension,
+					"-framework",
+					ProExtensionHost,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.playhead.finalcut.workflow.extension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
+			};
+			name = Debug;
+		};
+		9A689341F56BBD57F0A93643 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BBC11ED14D43245AFA6FBFFC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = Container/Container.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Container/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.playhead.finalcut.workflow;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		F05643A414D827A1C4B7C8EB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = Container/Container.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Container/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.playhead.finalcut.workflow;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		731EE41603D1CD9ECE5DF9EA /* Build configuration list for PBXNativeTarget "PlayheadFinalCutWorkflowExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				557A664EC37289D70AB28E87 /* Debug */,
+				1C9AD661FC420FF82EB1D967 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C1874D4ADB52535C83AD5941 /* Build configuration list for PBXProject "PlayheadFinalCutWorkflow" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A689341F56BBD57F0A93643 /* Debug */,
+				07D857AB5100DB16809DC856 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E7DC9B84F5F185983B001876 /* Build configuration list for PBXNativeTarget "PlayheadFinalCutWorkflow" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F05643A414D827A1C4B7C8EB /* Debug */,
+				BBC11ED14D43245AFA6FBFFC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3EE7229095F4E7E9009036FA /* Project object */;
+}

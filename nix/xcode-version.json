@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "target": {
+    "xcode": {
+      "version": "16.4",
+      "build": null
+    },
+    "macOSSDK": "15.5",
+    "finalCutPro": {
+      "bundleIdentifier": "com.apple.FinalCut",
+      "version": "10.7.1"
+    },
+    "requiredFramework": "ProExtensionHost"
+  },
+  "observed": {
+    "developerDirectory": "/Library/Developer/CommandLineTools",
+    "fullXcodeInstalled": false,
+    "xcode": {
+      "version": null,
+      "build": null
+    },
+    "swift": "6.1.2",
+    "macOSSDK": "15.5",
+    "recordedAt": "2026-08-15"
+  }
+}
