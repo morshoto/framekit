@@ -1,5 +1,3 @@
-The biggest change is that the product is no longer just “MCP + editing operations.” It is becoming a local agent runtime that continuously translates an NLE session into agent-usable context, including the editor’s own assets/effects, then gives the agent verifiable editing primitives. That distinction is important enough to revise the architecture around it.
-
 Product Requirements Document
 
 Agentic Video Editing Runtime
