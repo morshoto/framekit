@@ -174,6 +174,9 @@ export class AgentVideoRuntime {
       this.options.audioAnalyzer?.analyze(input),
       this.options.visualAnalyzer?.analyze(input),
     ]);
+    if (!speech && !audio && !visual) {
+      throw new Error("CAPABILITY_UNAVAILABLE: media understanding");
+    }
     const understanding: MediaUnderstanding = {
       mediaId: media.mediaId,
       source: media.source,

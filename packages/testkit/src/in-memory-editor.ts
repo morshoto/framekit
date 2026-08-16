@@ -76,7 +76,7 @@ export class InMemoryEditorAdapter implements EditorPort {
   }
 
   public async getIdentity(): Promise<EditorIdentity> {
-    return { name: "In-memory Editor", version: "phase-1-fixture", backend: "fixture" };
+    return { name: "In-memory Editor", version: "phase-2-fixture", backend: "fixture" };
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {

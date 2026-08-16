@@ -1,15 +1,16 @@
 # Framekit
 
-Agentic video editing runtime. Phase 1 extends the Phase 0 read → write →
-read-after-write → diff loop with a Final Cut XML adapter, timeline context,
-speech/audio analysis ports, verification, rollback, and MCP stdio tools.
+Agentic video editing runtime. Phase 2 extends the Phase 0 read → write →
+read-after-write → diff loop with incremental context synchronization, visual
+analysis, combined media understanding, native asset discovery, and the Phase
+1 Final Cut runtime.
 
 ## Development
 
 ```sh
-npm install
-npm test
-npm run build
+pnpm install --frozen-lockfile
+pnpm run test
+pnpm run build
 ```
 
 The documentation index is in [`docs/README.md`](docs/README.md). The MCP
@@ -18,14 +19,14 @@ Phase 1, and Final Cut live tests are documented in [`docs/tests/`](docs/tests/)
 
 The reproducible Node shell and native toolchain contract live under
 [`nix/`](nix/). Enter it with `nix develop ./nix`, then run
-`npm run xcode:check` before building the Final Cut Workflow Extension.
+`pnpm run xcode:check` before building the Final Cut Workflow Extension.
 
 ## MCP server
 
-The local MCP server uses the deterministic in-memory Phase 0 fixture:
+The local MCP server uses the deterministic in-memory Phase 2 fixture:
 
 ```sh
-npm run mcp
+pnpm run mcp
 ```
 
 It exposes these tools over stdio:
@@ -39,8 +40,11 @@ It exposes these tools over stdio:
 - `media.search`
 - `speech.analyze`
 - `audio.analyze`
-- `visual.analyze` (explicitly unavailable until Phase 2)
-- `editor.assets`
+- `visual.analyze`
+- `media.understand`
+- `editor.assets` (queryable native asset registry)
+- `context.inspect`
+- `context.changes`
 - `edit.diff`
 - `edit.verify`
 - `edit.undo`
@@ -56,8 +60,9 @@ live Workflow Extension provider. Set `FRAMEKIT_FCPXML_PATH` alongside
 The live bridge uses the shared `/tmp/framekit-finalcut.sock` endpoint (or the
 same explicit `FRAMEKIT_FINAL_CUT_SOCKET` override on both processes). It
 exposes live project/sequence metadata, playhead, selected range, and change
-events. Full clip/media enumeration remains explicitly unavailable until Final
-Cut exposes it through a supported native surface. Editor and analyzer
+events. Full clip/media enumeration, visual analysis, and native asset
+discovery remain explicitly unavailable until Final Cut exposes supported
+native surfaces or external providers are connected. Editor and analyzer
 capabilities are reported separately by `editor.inspect`.
 
 See [`docs/tests/final-cut-live-e2e.md`](docs/tests/final-cut-live-e2e.md) for

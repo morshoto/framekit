@@ -27,11 +27,13 @@ export class ContextEngine {
   }
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
-    const incremental = await this.editor.readChanges?.(revision);
-    if (incremental?.timeline) return incremental.timeline;
+    const capabilities = await this.editor.getCapabilities();
+    if (capabilities.editor.incrementalChanges) {
+      const incremental = await this.editor.readChanges?.(revision);
+      if (incremental?.timeline) return incremental.timeline;
+    }
 
     const before = this.snapshots.get(revision.id);
-    const capabilities = await this.editor.getCapabilities();
     if (!capabilities.editor.timelineSnapshotRead) {
       throw new Error("CAPABILITY_UNAVAILABLE: canonical timeline changes");
     }
@@ -40,7 +42,10 @@ export class ContextEngine {
   }
 
   public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
-    const incremental = await this.editor.readChanges?.(revision);
+    const capabilities = await this.editor.getCapabilities();
+    const incremental = capabilities.editor.incrementalChanges
+      ? await this.editor.readChanges?.(revision)
+      : undefined;
     const timeline = incremental?.timeline ?? await this.optionalTimelineChanges(revision);
     const stateChanges = [
       ...(incremental?.stateChanges ?? []),

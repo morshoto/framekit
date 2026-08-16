@@ -88,6 +88,11 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       arguments: { sequence: 0 },
     });
     assert.equal(JSON.parse(textFrom(changes)).modified[0].itemId, "clip-1");
+    const contextChanges = await client.callTool({
+      name: "context.changes",
+      arguments: { sequence: 0 },
+    });
+    assert.equal(JSON.parse(textFrom(contextChanges)).timeline.modified[0].itemId, "clip-1");
 
     const speech = await client.callTool({ name: "speech.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(speech)).words[0].filler, true);
