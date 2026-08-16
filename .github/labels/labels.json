@@ -1,0 +1,112 @@
+[
+  {
+    "name": "Group: Frontend",
+    "color": "FEF2C0",
+    "description": ""
+  },
+  {
+    "name": "Group: Backend",
+    "color": "FEF2C0",
+    "description": ""
+  },
+  {
+    "name": "Group: Database",
+    "color": "FEF2C0",
+    "description": ""
+  },
+  {
+    "name": "Group: Machine Learning",
+    "color": "FEF2C0",
+    "description": ""
+  },
+  {
+    "name": "Group: Infrastructure",
+    "color": "FEF2C0",
+    "description": ""
+  },
+  {
+    "name": "Type: Design",
+    "color": "0052CC",
+    "description": ""
+  },
+  {
+    "name": "Type: Document",
+    "color": "0052CC",
+    "description": ""
+  },
+  {
+    "name": "Type: Improvement",
+    "color": "0052CC",
+    "description": ""
+  },
+  {
+    "name": "Type: New Feature",
+    "color": "0052CC",
+    "description": ""
+  },
+  {
+    "name": "tagpr",
+    "color": "ededed",
+    "description": ""
+  },
+  {
+    "name": "Close: Duplicate",
+    "color": "D4C5F9",
+    "description": ""
+  },
+  {
+    "name": "Close: Invalid",
+    "color": "D4C5F9",
+    "description": ""
+  },
+  {
+    "name": "Close: Won't fix",
+    "color": "D4C5F9",
+    "description": ""
+  },
+  {
+    "name": "O: Good 1st Issue",
+    "color": "0E8A16",
+    "description": ""
+  },
+  {
+    "name": "O: Help Wanted",
+    "color": "0E8A16",
+    "description": ""
+  },
+  {
+    "name": "Priority: High",
+    "color": "D93F0B",
+    "description": ""
+  },
+  {
+    "name": "Priority: Mid",
+    "color": "F9D0C4",
+    "description": ""
+  },
+  {
+    "name": "Priority: Low",
+    "color": "C5DEF5",
+    "description": ""
+  },
+  {
+    "name": "Feedback: Feature Request",
+    "color": "FBCA04",
+    "description": ""
+  },
+  {
+    "name": "Feedback: Question",
+    "color": "FBCA04",
+    "description": ""
+  },
+  {
+    "name": "Problem: Bug",
+    "color": "B60205",
+    "description": ""
+  },
+  {
+    "name": "Problem: Security",
+    "color": "B60205",
+    "description": ""
+  }
+]
