@@ -33,6 +33,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       tools.tools.map((tool) => tool.name).sort(),
       [
         "audio.analyze",
+        "context.changes",
+        "context.inspect",
         "edit.diff",
         "edit.undo",
         "edit.verify",
@@ -42,6 +44,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.live.inspect",
         "media.inspect",
         "media.search",
+        "media.understand",
         "project.inspect",
         "speech.analyze",
         "timeline.changes",
@@ -63,7 +66,10 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const search = await client.callTool({ name: "media.search", arguments: { query: "wav" } });
     assert.equal(JSON.parse(textFrom(search)).length, 1);
     const assets = await client.callTool({ name: "editor.assets", arguments: {} });
-    assert.deepEqual(JSON.parse(textFrom(assets)), []);
+    assert.equal(JSON.parse(textFrom(assets))[0].name, "Cross Dissolve");
+
+    const context = await client.callTool({ name: "context.inspect", arguments: {} });
+    assert.equal(JSON.parse(textFrom(context)).project.projectName, "Phase 2 Fixture");
 
     const inspected = await client.callTool({ name: "project.inspect", arguments: {} });
     const before = JSON.parse(textFrom(inspected));
@@ -87,6 +93,10 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(JSON.parse(textFrom(speech)).words[0].filler, true);
     const audio = await client.callTool({ name: "audio.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(audio)).integratedLufs, -18);
+    const visual = await client.callTool({ name: "visual.analyze", arguments: { mediaId: "media-1" } });
+    assert.equal(JSON.parse(textFrom(visual)).scenes[0].label, "interview");
+    const understanding = await client.callTool({ name: "media.understand", arguments: { mediaId: "media-1" } });
+    assert.equal(JSON.parse(textFrom(understanding)).visual.subjects[0].label, "person");
 
     const diff = await client.callTool({
       name: "edit.diff",
@@ -110,9 +120,6 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       },
     });
     assert.equal(JSON.parse(textFrom(markerEdit)).diff.markerChanges[0].type, "MARKER_ADDED");
-
-    const visual = await client.callTool({ name: "visual.analyze", arguments: { mediaId: "media-1" } });
-    assert.equal(visual.isError, true);
 
     const undone = await client.callTool({ name: "edit.undo", arguments: { transactionId: transaction.id } });
     assert.equal(JSON.parse(textFrom(undone)).timeline.clips[0].name, "Interview");

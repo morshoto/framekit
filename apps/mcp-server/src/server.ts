@@ -49,8 +49,25 @@ export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
   }, async () => jsonResult(await runtime.inspectProject()));
 
   server.registerTool("editor.inspect", {
-    description: "Read editor identity and machine-readable Phase 1 capabilities.",
+    description: "Read editor identity and machine-readable Phase 2 capabilities.",
   }, async () => jsonResult(await runtime.inspectEditor()));
+
+  server.registerTool("context.inspect", {
+    description: "Read the queryable agent editing context and its current revision.",
+    inputSchema: {},
+  }, async () => jsonResult(await runtime.inspectContext()));
+
+  server.registerTool("context.changes", {
+    description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
+    inputSchema: {
+      sequence: z.number().int().nonnegative(),
+      waitMs: z.number().int().min(0).max(30_000).optional(),
+    },
+  }, async ({ sequence, waitMs }) => jsonResult(await runtime.contextChangesSince({
+    id: `rev-${sequence}`,
+    sequence,
+    timestamp: new Date(sequence).toISOString(),
+  }, waitMs ?? 0)));
 
   server.registerTool("editor.live.inspect", {
     description: "Read live Final Cut Workflow Extension state: project, active sequence, playhead, and selected range.",
@@ -84,14 +101,26 @@ export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
   }, async ({ query }) => jsonResult(await runtime.searchMedia(query)));
 
   server.registerTool("visual.analyze", {
-    description: "Analyze visual content; unavailable until the Phase 2 visual analyzer is installed.",
+    description: "Analyze scenes, subjects, motion, and keyframes for one media item.",
+    inputSchema: {
+      mediaId: z.string().min(1),
+      range: rangeSchema.optional(),
+    },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
+
+  server.registerTool("media.understand", {
+    description: "Return combined speech, audio, and visual understanding for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
-  }, async () => jsonResult(await runtime.analyzeVisual()));
+  }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
 
   server.registerTool("editor.assets", {
-    description: "List editor-native assets when the selected backend supports discovery.",
-    inputSchema: {},
-  }, async () => jsonResult(await runtime.listAssets()));
+    description: "Search editor-native transitions, effects, titles, generators, and templates.",
+    inputSchema: {
+      query: z.string().optional(),
+      kind: z.enum(["transition", "effect", "title", "generator", "audio-effect", "template"]).optional(),
+      vendor: z.string().optional(),
+    },
+  }, async (query) => jsonResult(await runtime.listAssets(query)));
 
   server.registerTool("timeline.changes", {
     description: "Return the canonical timeline diff since a previously observed revision.",
@@ -106,7 +135,7 @@ export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
   });
 
   server.registerTool("timeline.edit", {
-    description: "Apply one supported Phase 0 edit and return read-after-write plus its diff.",
+    description: "Apply one supported edit and return read-after-write plus its diff.",
     inputSchema: editOperationSchema,
   }, async (operation) => jsonResult(await runtime.edit(operation)));
 

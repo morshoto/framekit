@@ -1,13 +1,13 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createFinalCutLiveAdapter, FcpxmlDocumentAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
-import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer } from "@framekit/testkit";
+import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
-  projectName: "Phase 0 Fixture",
+  projectName: "Phase 2 Fixture",
   timelineId: "timeline-1",
   timelineName: "Main Edit",
   clips: [
@@ -18,6 +18,19 @@ const fixture = new InMemoryEditorAdapter({
     source: "interview.wav",
     speech: { words: [{ text: "um", start: 0, end: 0.3, confidence: 0.98, filler: true }] },
     audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 120 },
+    visual: {
+      scenes: [{ id: "scene-1", start: 0, end: 10, label: "interview", confidence: 0.97 }],
+      subjects: [{ id: "subject-1", label: "person", confidence: 0.99, start: 0, end: 10 }],
+      motion: { score: 0.12, label: "low" },
+      keyframes: [{ time: 1, source: "interview.wav", labels: ["person", "interview"] }],
+    },
+  }],
+  assets: [{
+    id: "transition-cross-dissolve",
+    kind: "transition",
+    name: "Cross Dissolve",
+    vendor: "Framekit Fixture",
+    metadata: { durationFrames: 12 },
   }],
 });
 
@@ -36,6 +49,7 @@ const editor = process.env.FRAMEKIT_EDITOR === "final-cut-live"
 const runtime = new AgentVideoRuntime(editor, {
   speechAnalyzer: new FixtureSpeechAnalyzer(),
   audioAnalyzer: new FixtureAudioAnalyzer(),
+  visualAnalyzer: new FixtureVisualAnalyzer(),
 });
 const server = createMcpServer(runtime);
 const transport = new StdioServerTransport();

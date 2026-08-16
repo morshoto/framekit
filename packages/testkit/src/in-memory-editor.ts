@@ -1,17 +1,20 @@
 import type {
   Clip,
+  ContextChangeSet,
   ContextRevision,
   EditOperation,
   EditorCapabilities,
   EditorIdentity,
   EditorPort,
   EditorAsset,
+  AssetSearchQuery,
   MediaContext,
   Marker,
   ProjectSnapshot,
   RationalTime,
   RuntimeCapabilities,
 } from "@framekit/runtime";
+import { diffSnapshots } from "@framekit/runtime";
 
 export interface InMemoryFixture {
   projectId: string;
@@ -27,6 +30,7 @@ export interface InMemoryFixture {
 export class InMemoryEditorAdapter implements EditorPort {
   private snapshot: ProjectSnapshot;
   private readonly assets: EditorAsset[];
+  private readonly history = new Map<string, ProjectSnapshot>();
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
@@ -60,6 +64,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         timestamp: new Date(0).toISOString(),
       },
     };
+    this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
   }
 
   public async read(): Promise<ProjectSnapshot> {
@@ -97,8 +102,26 @@ export class InMemoryEditorAdapter implements EditorPort {
     };
   }
 
-  public async listAssets(): Promise<EditorAsset[]> {
-    return structuredClone(this.assets ?? []);
+  public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
+    const normalized = query?.query?.trim().toLowerCase();
+    return structuredClone(this.assets.filter((asset) => {
+      if (normalized && ![asset.id, asset.name, asset.vendor].some((value) => value.toLowerCase().includes(normalized))) return false;
+      if (query?.kind && asset.kind !== query.kind) return false;
+      if (query?.vendor && asset.vendor.toLowerCase() !== query.vendor.trim().toLowerCase()) return false;
+      return true;
+    }));
+  }
+
+  public async readChanges(since: ContextRevision): Promise<ContextChangeSet> {
+    const before = this.history.get(since.id);
+    if (!before) throw new Error(`REVISION_NOT_FOUND: ${since.id}`);
+    return {
+      from: before.revision,
+      to: this.snapshot.revision,
+      timeline: diffSnapshots(before, this.snapshot),
+      stateChanges: [],
+      assetChanges: [],
+    };
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
@@ -182,6 +205,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         timestamp: new Date().toISOString(),
       },
     };
+    this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
   }
 
   private applyRippleDelete(timelineId: string, start: number, end: number): void {
@@ -226,7 +250,7 @@ export class InMemoryEditorAdapter implements EditorPort {
   }
 
   private nextSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
-    return {
+    const next = {
       ...snapshot,
       timeline: {
         ...snapshot.timeline,
@@ -238,6 +262,8 @@ export class InMemoryEditorAdapter implements EditorPort {
         timestamp: new Date().toISOString(),
       },
     };
+    this.history.set(next.revision.id, structuredClone(next));
+    return next;
   }
 }
 
