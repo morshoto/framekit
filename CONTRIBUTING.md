@@ -4,7 +4,7 @@
 
 Requirements:
 
-- Node.js 22 or newer;
+- Node.js 20 or newer (CI runs Node.js 22);
 - pnpm 11.10.0;
 - Xcode 16.4 and the macOS 15.5 SDK for native work.
 
