@@ -13,12 +13,19 @@
     "xcode:check": "bash nix/check-xcode.sh",
     "check:boundaries": "node scripts/check-boundaries.mjs"
   },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/git-cz"
+    }
+  },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "commitizen": "^4.3.1",
     "fast-xml-parser": "^5.10.1",
+    "git-cz": "^4.9.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
