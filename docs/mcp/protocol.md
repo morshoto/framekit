@@ -8,10 +8,10 @@ Unix-domain socket using newline-delimited JSON. The protocol version is `1`.
 The default runtime socket is:
 
 ```text
-/tmp/playhead-finalcut.sock
+/tmp/framekit-finalcut.sock
 ```
 
-Override it with `PLAYHEAD_FINAL_CUT_SOCKET` when required.
+Override it with `FRAMEKIT_FINAL_CUT_SOCKET` when required.
 
 ## Request shape
 

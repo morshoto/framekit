@@ -1,4 +1,4 @@
-# Playhead
+# Framekit
 
 Agentic video editing runtime. Phase 1 extends the Phase 0 read → write →
 read-after-write → diff loop with a Final Cut XML adapter, timeline context,
@@ -50,11 +50,11 @@ adapter around `AgentVideoRuntime`, as required by the SDD.
 `FcpxmlDocumentAdapter` reads and writes an ordered FCPXML interchange
 artifact; it does not claim to mutate the open Final Cut session. The
 `FinalCutSessionAdapter` composes that snapshot/mutation provider with the
-live Workflow Extension provider. Set `PLAYHEAD_FCPXML_PATH` alongside
-`PLAYHEAD_EDITOR=final-cut-live` to enable the document surface.
+live Workflow Extension provider. Set `FRAMEKIT_FCPXML_PATH` alongside
+`FRAMEKIT_EDITOR=final-cut-live` to enable the document surface.
 
-The live bridge uses the shared `/tmp/playhead-finalcut.sock` endpoint (or the
-same explicit `PLAYHEAD_FINAL_CUT_SOCKET` override on both processes). It
+The live bridge uses the shared `/tmp/framekit-finalcut.sock` endpoint (or the
+same explicit `FRAMEKIT_FINAL_CUT_SOCKET` override on both processes). It
 exposes live project/sequence metadata, playhead, selected range, and change
 events. Full clip/media enumeration remains explicitly unavailable until Final
 Cut exposes it through a supported native surface. Editor and analyzer

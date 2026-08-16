@@ -1,14 +1,15 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "strict": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@framekit/runtime": ["packages/runtime/src/index.ts"],
+      "@framekit/testkit": ["packages/testkit/src/index.ts"],
+      "@framekit/final-cut": ["adapters/final-cut/typescript/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "adapters/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

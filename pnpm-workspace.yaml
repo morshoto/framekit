@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+  - adapters/*/typescript
+
+allowBuilds:
+  esbuild: true

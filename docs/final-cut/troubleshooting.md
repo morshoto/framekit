@@ -6,7 +6,7 @@ Confirm the extension is activated from Final Cut Pro's Window → Extensions
 menu, then check:
 
 ```sh
-ls -l /tmp/playhead-finalcut.sock
+ls -l /tmp/framekit-finalcut.sock
 ```
 
 If the socket is stale, close and reopen Final Cut Pro after reinstalling the
@@ -15,7 +15,7 @@ extension. Do not delete the user's library as a troubleshooting step.
 ## `FINAL_CUT_LIVE_UNAVAILABLE`
 
 Check that Final Cut Pro is running, the extension process is present, and the
-MCP process is using `PLAYHEAD_EDITOR=final-cut-live`.
+MCP process is using `FRAMEKIT_EDITOR=final-cut-live`.
 
 ## `CAPABILITY_UNAVAILABLE`
 

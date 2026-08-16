@@ -136,11 +136,11 @@ User machine
 └───────────┬─────────────┘
             │ stdio / local MCP
 ┌───────────▼─────────────┐
-│ agent-video-mcp         │
+│ framekit-mcp            │
 └───────────┬─────────────┘
             │
 ┌───────────▼─────────────┐
-│ agent-video-runtime     │
+│ framekit-runtime        │
 └───────┬──────────┬──────┘
         │          │
         ▼          ▼
@@ -154,24 +154,13 @@ No public server is necessary for the default configuration.
 
 Recommended monorepo:
 
-agent-video/
+framekit/
 │
 ├── apps/
-│   ├── cli/
 │   └── mcp-server/
 │
 ├── packages/
-│   ├── core/
-│   ├── context/
-│   ├── timeline/
-│   ├── editing/
-│   ├── transactions/
-│   ├── diff/
-│   ├── verification/
-│   ├── assets/
-│   ├── analyzers/
-│   ├── skills/
-│   ├── editor-sdk/
+│   ├── runtime/
 │   └── testkit/
 │
 ├── adapters/
@@ -181,21 +170,8 @@ agent-video/
 │   ├── premiere/
 │   └── resolve/
 │
-├── analyzer-backends/
-│   ├── asr/
-│   ├── vad/
-│   ├── audio/
-│   ├── scene/
-│   └── vision/
-│
-├── skills/
-│   ├── filler-removal/
-│   ├── dialogue-normalization/
-│   └── podcast-cleanup/
-│
 ├── fixtures/
-│   ├── final-cut/
-│   └── media/
+│   └── final-cut/
 │
 └── docs/
 

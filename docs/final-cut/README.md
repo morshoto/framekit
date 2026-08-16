@@ -1,6 +1,6 @@
 # Final Cut Pro Integration
 
-Playhead uses two distinct Final Cut backends:
+Framekit uses two distinct Final Cut backends:
 
 - FCPXML interchange for supported canonical timeline reads and artifact writes.
 - `FinalCutSessionAdapter` to compose the document and live providers.

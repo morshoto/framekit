@@ -1,5 +1,5 @@
 {
-  description = "Playhead development environment";
+  description = "Framekit development environment";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -23,8 +23,8 @@
           ];
 
           shellHook = ''
-            export PLAYHEAD_XCODE_MANIFEST="${./xcode-version.json}"
-            echo "Playhead shell: Node $(node --version)"
+            export FRAMEKIT_XCODE_MANIFEST="${./xcode-version.json}"
+            echo "Framekit shell: Node $(node --version)"
             echo "Native target: Xcode ${manifest.target.xcode.version}, macOS SDK ${manifest.target.macOSSDK}"
             echo "Run: bash nix/check-xcode.sh"
           '';

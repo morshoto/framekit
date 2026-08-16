@@ -614,7 +614,7 @@ Professional editors should eventually be able to publish reusable Skills.
 
 The intended experience is:
 
-$ agent-video connect finalcut
+$ framekit connect finalcut
 ✓ Final Cut detected
 ✓ Project: Interview Episode 12
 ✓ Timeline: Main Edit

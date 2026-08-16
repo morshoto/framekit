@@ -7,7 +7,7 @@
 | Timeline write | passed | artifact-only; ripple transforms unavailable | unavailable |
 | Read-after-write | passed | passed | unavailable |
 | Diff/change history | passed | passed | live sequence events |
-| Playhead | fixture state | file-derived | passed live |
+| Playhead position | fixture state | file-derived | passed live |
 | Selected range | fixture state | file-derived | passed live |
 | Speech/audio analysis | fixture provider | external provider required | unavailable |
 | Verification/rollback | passed | passed | unavailable |

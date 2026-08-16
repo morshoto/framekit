@@ -1,6 +1,6 @@
-# Playhead Documentation
+# Framekit Documentation
 
-This directory is the shareable knowledge base for Playhead.
+This directory is the shareable knowledge base for Framekit.
 
 - [PRD](./PRD.md): product goals and roadmap.
 - [SDD](./SDD.md): architecture and design contracts.

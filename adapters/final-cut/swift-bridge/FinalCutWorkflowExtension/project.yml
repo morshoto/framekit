@@ -1,0 +1,57 @@
+name: FramekitFinalCutWorkflow
+options:
+  bundleIdPrefix: com.framekit
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  SWIFT_VERSION: "5.0"
+  MACOSX_DEPLOYMENT_TARGET: "15.0"
+targets:
+  FramekitFinalCutWorkflow:
+    type: application
+    platform: macOS
+    sources:
+      - path: Container
+    dependencies:
+      - target: FramekitFinalCutWorkflowExtension
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.framekit.finalcut.workflow
+      INFOPLIST_FILE: Container/Info.plist
+      CODE_SIGN_ENTITLEMENTS: Container/Container.entitlements
+      CODE_SIGN_IDENTITY: "-"
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: YES
+
+  FramekitFinalCutWorkflowExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FinalCutLiveWorkflowExtension.swift
+      - path: ProExtensionHostShim
+        type: folder
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.framekit.finalcut.workflow.extension
+      INFOPLIST_FILE: Info.plist
+      CODE_SIGN_ENTITLEMENTS: FinalCutWorkflowExtension.entitlements
+      SWIFT_INCLUDE_PATHS: "$(SRCROOT)/ProExtensionHostShim"
+      FRAMEWORK_SEARCH_PATHS:
+        - "$(inherited)"
+        - "/tmp/framekit-finalcut-frameworks"
+      OTHER_LDFLAGS:
+        - "$(inherited)"
+        - "-e"
+        - "_ProExtensionMain"
+        - "-framework"
+        - "ProExtension"
+        - "-framework"
+        - "ProExtensionHost"
+      LD_RUNPATH_SEARCH_PATHS:
+        - "$(inherited)"
+        - "/tmp/framekit-finalcut-frameworks"
+        - "@loader_path/../Frameworks"
+      CODE_SIGN_IDENTITY: "-"
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: YES
+      ENABLE_DEBUG_DYLIB: NO
+      SKIP_INSTALL: YES

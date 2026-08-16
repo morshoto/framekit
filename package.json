@@ -1,15 +1,16 @@
 {
-  "name": "playhead",
+  "name": "framekit",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Agentic video editing runtime spikes",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts",
-    "test:watch": "tsx --test --watch test/*.test.ts",
-    "mcp": "tsx src/mcp-server/main.ts",
-    "xcode:check": "bash nix/check-xcode.sh"
+    "test": "tsx --test tests/integration/*.test.ts",
+    "test:watch": "tsx --test --watch tests/integration/*.test.ts",
+    "mcp": "tsx apps/mcp-server/src/main.ts",
+    "xcode:check": "bash nix/check-xcode.sh",
+    "check:boundaries": "node scripts/check-boundaries.mjs"
   },
   "engines": {
     "node": ">=20"

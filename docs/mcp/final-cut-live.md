@@ -3,21 +3,21 @@
 Prerequisites:
 
 - Final Cut Pro is open with an active project.
-- The Playhead Workflow Extension is installed and activated from Final Cut's
+- The Framekit Workflow Extension is installed and activated from Final Cut's
   Window → Extensions menu.
 - The extension socket exists in its sandbox container.
 
 Start the MCP server with:
 
 ```sh
-PLAYHEAD_EDITOR=final-cut-live npm run mcp
+FRAMEKIT_EDITOR=final-cut-live npm run mcp
 ```
 
 For a non-default socket:
 
 ```sh
-PLAYHEAD_EDITOR=final-cut-live \
-PLAYHEAD_FINAL_CUT_SOCKET=/tmp/playhead-finalcut.sock \
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_SOCKET=/tmp/framekit-finalcut.sock \
 npm run mcp
 ```
 

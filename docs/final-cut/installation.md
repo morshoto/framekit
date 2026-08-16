@@ -19,16 +19,16 @@ The verified native baseline is Xcode 16.4 / build 16F6 with macOS SDK 15.5.
 ## Build
 
 ```sh
-bash native/FinalCutWorkflowExtension/build.sh
+bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 ```
 
 Install the generated development app:
 
 ```sh
-ditto /tmp/playhead-finalcut-derived/Build/Products/Debug/PlayheadFinalCutWorkflow.app \
-  /Applications/PlayheadFinalCutWorkflow.app
+ditto /tmp/framekit-finalcut-derived/Build/Products/Debug/FramekitFinalCutWorkflow.app \
+  /Applications/FramekitFinalCutWorkflow.app
 ```
 
-Then reopen Final Cut Pro and activate Playhead from Window → Extensions.
+Then reopen Final Cut Pro and activate Framekit from Window → Extensions.
 See the [live E2E test](../tests/final-cut-live-e2e.md) for the complete
 read-only procedure.
