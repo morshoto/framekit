@@ -1,16 +1,30 @@
 # Selecting the Live Final Cut Backend
 
-Prerequisites:
-
-- Final Cut Pro is open with an active project.
-- The Framekit Workflow Extension is installed and activated from Final Cut's
-  Window → Extensions menu.
-- The extension socket exists in its sandbox container.
-
-Start the MCP server with:
+Connect Codex with the standard local MCP registration:
 
 ```sh
-FRAMEKIT_EDITOR=final-cut-live npm run mcp
+codex mcp add framekit -- framekit mcp --editor final-cut-live
+```
+
+The Framekit MCP process automatically:
+
+- detects or launches Final Cut Pro;
+- installs the per-user Workflow Extension artifact when needed;
+- activates the extension;
+- waits for `/tmp/framekit-finalcut.sock`; and
+- retries after Final Cut or extension restarts.
+
+The connection is read-only in this phase. Check setup progress with the MCP
+tool `connection.status` or:
+
+```sh
+framekit doctor finalcut --json
+```
+
+For a development checkout, use:
+
+```sh
+framekit connect finalcut --development
 ```
 
 For a non-default socket:

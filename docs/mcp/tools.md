@@ -4,6 +4,7 @@
 
 | Tool | Purpose | Backend notes |
 | --- | --- | --- |
+| `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |

@@ -16,27 +16,18 @@ media.
 - macOS SDK 15.5
 - project: `Framekit Phase 1 E2E`
 
-## Build and install
+## Build and connect
 
 ```sh
 npm run xcode:check
 bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
-ditto /tmp/framekit-finalcut-derived/Build/Products/Debug/FramekitFinalCutWorkflow.app \
-  /Applications/FramekitFinalCutWorkflow.app
-codesign --verify --deep --strict /Applications/FramekitFinalCutWorkflow.app
+FRAMEKIT_EXTENSION_APP_PATH=/tmp/framekit-finalcut-derived/Build/Products/Debug/FramekitFinalCutWorkflow.app \
+  framekit connect finalcut --json
 ```
 
-## Activate Final Cut
-
-Open or reopen Final Cut Pro, then activate the extension:
-
-```sh
-open -a "Final Cut Pro"
-osascript -e 'tell application "Final Cut Pro" to activate' \
-  -e 'tell application "System Events" to tell process "Final Cut Pro" to click menu item "Framekit" of menu 1 of menu item "Extensions" of menu 1 of menu bar item "Window" of menu bar 1'
-```
-
-Verify the socket exists:
+The command detects or launches Final Cut, installs the development bundle into
+the per-user Applications directory, and activates the extension. Verify the
+socket exists:
 
 ```sh
 ls -l /tmp/framekit-finalcut.sock
@@ -44,11 +35,14 @@ ls -l /tmp/framekit-finalcut.sock
 
 ## MCP assertions
 
-Use the live backend:
+Use the live backend through the standard Codex MCP registration:
 
 ```sh
-FRAMEKIT_EDITOR=final-cut-live npm run mcp
+codex mcp add framekit -- framekit mcp --editor final-cut-live
 ```
+
+The MCP `connection.status` tool should report `ready` before the live state
+assertions are run.
 
 The live MCP client should observe:
 

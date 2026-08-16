@@ -41,6 +41,7 @@ sequence range, and observer-backed change events. It deliberately reports
 complete clip/media enumeration API, so Framekit fails closed instead of
 fabricating an empty canonical timeline.
 
-The local build is ad-hoc signed for development. Final Cut Pro must discover
-the containing app and the user must activate Framekit from its Extensions
-button before the socket is created.
+The local build is ad-hoc signed for development. `framekit connect finalcut`
+installs the containing app into the user's Applications directory and
+activates Framekit through Final Cut's Extensions menu. Release artifacts must
+be Developer ID signed and notarized before distribution.

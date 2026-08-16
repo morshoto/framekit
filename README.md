@@ -31,6 +31,7 @@ pnpm run mcp
 
 It exposes these tools over stdio:
 
+- `connection.status`
 - `editor.inspect`
 - `project.inspect`
 - `timeline.inspect`
@@ -67,3 +68,29 @@ capabilities are reported separately by `editor.inspect`.
 
 See [`docs/tests/final-cut-live-e2e.md`](docs/tests/final-cut-live-e2e.md) for
 the read-only Final Cut validation procedure.
+
+## Connect Codex to Final Cut
+
+Register the local MCP server with Codex:
+
+```sh
+codex mcp add framekit -- framekit mcp --editor final-cut-live
+```
+
+The live server automatically detects Final Cut Pro, installs a configured
+Workflow Extension artifact under the user's Applications directory, activates
+it, and reconnects when the socket disappears. Inspect setup progress with:
+
+```sh
+framekit doctor finalcut --json
+```
+
+For a development checkout, build and connect the native extension in one
+command:
+
+```sh
+framekit connect finalcut --development
+```
+
+The live connection remains read-only and fails closed for capabilities that
+Final Cut does not expose through the Workflow Extension.

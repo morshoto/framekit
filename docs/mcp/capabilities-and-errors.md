@@ -36,5 +36,16 @@ Important error codes include:
 - `EDITOR_NOT_CONNECTED`: no usable editor backend is connected.
 - `STALE_CONTEXT`: an edit used an old revision.
 
+## Connection status
+
+The `connection.status` MCP tool is available while the live bridge is being
+installed or activated. It returns a state such as `launching`,
+`waiting-for-socket`, `ready`, `needs-user-action`, or `unavailable`, together
+with the detected editor, extension path, socket path, and last error.
+
+The MCP process remains available while setup is in progress. Live editor tools
+remain fail-closed until the status becomes `ready`; the server never silently
+switches to the deterministic fixture.
+
 The runtime must not fabricate empty timelines, pretend a write succeeded, or
 fall back to fixture data without reporting that decision.
