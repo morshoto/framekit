@@ -17,14 +17,22 @@ activation is in progress, and the last actionable error.
 The normal Framekit flow activates the extension automatically. First check:
 
 ```sh
-ls -l /tmp/framekit-finalcut.sock
+ls -l ~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock
 ```
 
 If the socket is absent, run `framekit doctor finalcut --json`. If the state is
 `needs-user-action`, follow the reported macOS permission or installation
-message. If the state is `unavailable` with `FINAL_CUT_LIVE_TIMEOUT`, reopen
-Final Cut Pro once so it reloads the newly installed Workflow Extension, then
-retry the command. Do not delete the user's library as a troubleshooting step.
+message. If the state is `unavailable` with `FINAL_CUT_LIVE_TIMEOUT`, use the
+explicit development connection flow, which reloads Final Cut after replacing
+the extension:
+
+```sh
+framekit connect finalcut --development --json
+```
+
+The command quits gracefully and reopens Final Cut only when it has replaced
+the extension. It never force-quits the app or bypasses an unsaved changes
+prompt. Do not delete the user's library as a troubleshooting step.
 
 ## `FINAL_CUT_LIVE_UNAVAILABLE`
 

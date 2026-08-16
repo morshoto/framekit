@@ -21,16 +21,16 @@ media.
 ```sh
 npm run xcode:check
 bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
-FRAMEKIT_EXTENSION_APP_PATH=/tmp/framekit-finalcut-derived/Build/Products/Debug/FramekitFinalCutWorkflow.app \
-  framekit connect finalcut --json
+framekit connect finalcut --development --json
 ```
 
 The command detects or launches Final Cut, installs the development bundle into
-the per-user Applications directory, and activates the extension. Verify the
-socket exists:
+the per-user Applications directory, gracefully reloads Final Cut when the
+bundle replaces the installed extension, and activates the extension. Verify
+the socket exists:
 
 ```sh
-ls -l /tmp/framekit-finalcut.sock
+ls -l ~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock
 ```
 
 ## MCP assertions

@@ -58,8 +58,9 @@ artifact; it does not claim to mutate the open Final Cut session. The
 live Workflow Extension provider. Set `FRAMEKIT_FCPXML_PATH` alongside
 `FRAMEKIT_EDITOR=final-cut-live` to enable the document surface.
 
-The live bridge uses the shared `/tmp/framekit-finalcut.sock` endpoint (or the
-same explicit `FRAMEKIT_FINAL_CUT_SOCKET` override on both processes). It
+The live bridge uses the shared per-user sandbox endpoint
+`~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock`
+(or the same explicit `FRAMEKIT_FINAL_CUT_SOCKET` override on both processes). It
 exposes live project/sequence metadata, playhead, selected range, and change
 events. Full clip/media enumeration, visual analysis, and native asset
 discovery remain explicitly unavailable until Final Cut exposes supported

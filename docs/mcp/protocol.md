@@ -5,10 +5,11 @@ Status: implemented and locally verified 2026-08-16.
 The Swift Workflow Extension and TypeScript runtime communicate over a local
 Unix-domain socket using newline-delimited JSON. The protocol version is `1`.
 
-The default runtime socket is:
+The default runtime socket is inside the Workflow Extension's app-sandbox
+container:
 
 ```text
-/tmp/framekit-finalcut.sock
+~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock
 ```
 
 Override it with `FRAMEKIT_FINAL_CUT_SOCKET` when required.

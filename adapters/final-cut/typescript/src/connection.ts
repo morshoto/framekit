@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { EditorIdentity, RuntimeCapabilities } from "@framekit/runtime";
-import { createFinalCutLiveAdapter } from "./live.js";
+import { createFinalCutLiveAdapter, DEFAULT_FINAL_CUT_LIVE_SOCKET } from "./live.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -14,6 +14,7 @@ export type FinalCutConnectionState =
   | "detecting"
   | "installing"
   | "launching"
+  | "restarting"
   | "activating"
   | "waiting-for-socket"
   | "ready"
@@ -43,7 +44,10 @@ export interface FinalCutConnectionOptions {
   launchFinalCut?: () => Promise<void>;
   installExtension?: () => Promise<void>;
   launchExtension?: () => Promise<void>;
+  registerExtension?: () => Promise<void>;
   activateExtension?: () => Promise<void>;
+  restartFinalCut?: () => Promise<void>;
+  restartAfterInstall?: boolean;
   probe?: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -58,8 +62,6 @@ interface StatusPatch {
 }
 
 const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
-const DEFAULT_SOCKET_PATH = "/tmp/framekit-finalcut.sock";
-
 /**
  * Owns the user-facing lifecycle around the native Workflow Extension.
  * The live adapter remains the source of truth for Final Cut state; this class
@@ -77,7 +79,10 @@ export class FinalCutConnectionManager {
   private readonly launchFinalCut: () => Promise<void>;
   private readonly installExtensionAction: () => Promise<void>;
   private readonly launchExtension: () => Promise<void>;
+  private readonly registerExtension: () => Promise<void>;
   private readonly activateExtension: () => Promise<void>;
+  private readonly restartFinalCut: () => Promise<void>;
+  private readonly restartAfterInstall: boolean;
   private readonly probe: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private status: FinalCutConnectionStatus;
@@ -85,7 +90,7 @@ export class FinalCutConnectionManager {
   private interval?: NodeJS.Timeout;
 
   public constructor(options: FinalCutConnectionOptions = {}) {
-    this.socketPath = options.socketPath ?? process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_SOCKET_PATH;
+    this.socketPath = options.socketPath ?? process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET;
     this.extensionInstallPath = options.extensionInstallPath
       ?? process.env.FRAMEKIT_EXTENSION_INSTALL_PATH
       ?? join(homedir(), "Applications", DEFAULT_EXTENSION_NAME);
@@ -103,7 +108,14 @@ export class FinalCutConnectionManager {
     // directly can create an unhosted extension process that never publishes
     // the bridge socket, so the default launch action is intentionally a no-op.
     this.launchExtension = options.launchExtension ?? (async () => {});
+    this.registerExtension = options.registerExtension ?? (() => defaultRegisterExtension(this.extensionInstallPath));
     this.activateExtension = options.activateExtension ?? (() => defaultActivateFinalCut());
+    this.restartAfterInstall = options.restartAfterInstall ?? false;
+    this.restartFinalCut = options.restartFinalCut ?? (() => defaultRestartFinalCut(
+      this.detectFinalCut,
+      this.launchFinalCut,
+      this.sleep,
+    ));
     this.probe = options.probe ?? defaultProbe(this.socketPath);
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)));
     this.status = {
@@ -165,6 +177,7 @@ export class FinalCutConnectionManager {
       this.update({ extensionInstalled: installed });
       const shouldInstall = !installed
         || (this.extensionSourcePath && resolve(this.extensionSourcePath) !== resolve(this.extensionInstallPath));
+      const extensionChanged = Boolean(shouldInstall);
       if (shouldInstall) {
         this.update({ state: "installing" });
         await this.installExtensionAction();
@@ -179,20 +192,31 @@ export class FinalCutConnectionManager {
           "needs-user-action",
         );
       }
+      if (extensionChanged) await this.registerExtension();
+
+      if (this.restartAfterInstall && extensionChanged && editorDetected) {
+        this.update({ state: "restarting" });
+        await this.restartFinalCut();
+        this.update({ editorDetected: true });
+      }
 
       this.update({ state: "launching" });
       await this.launchExtension();
       this.update({ state: "activating" });
-      await this.activateExtension();
+      const deadline = Date.now() + this.startupTimeoutMs;
+      await this.activateUntil(deadline);
       this.update({ state: "waiting-for-socket" });
 
-      const deadline = Date.now() + this.startupTimeoutMs;
       let nextActivationAt = Date.now() + this.activationRetryIntervalMs;
       while (Date.now() < deadline) {
         const result = await this.tryProbe();
         if (result) return this.ready(result);
         if (Date.now() >= nextActivationAt) {
-          await this.activateExtension();
+          try {
+            await this.activateExtension();
+          } catch (error) {
+            if (isPermissionError(error)) throw error;
+          }
           nextActivationAt = Date.now() + this.activationRetryIntervalMs;
         }
         await this.sleep(Math.min(250, Math.max(25, deadline - Date.now())));
@@ -204,10 +228,13 @@ export class FinalCutConnectionManager {
       );
     } catch (error) {
       const message = String(error);
-      const code = message.includes("not authorized") || message.includes("Automation")
+      const code = isPermissionError(error)
         ? "MACOS_PERMISSION_REQUIRED"
-        : "FINAL_CUT_CONNECTION_FAILED";
-      return this.fail(code, message, code === "MACOS_PERMISSION_REQUIRED" ? "needs-user-action" : "unavailable");
+        : message.match(/\bFINAL_CUT_[A-Z_]+\b/)?.[0] ?? "FINAL_CUT_CONNECTION_FAILED";
+      const state = code === "MACOS_PERMISSION_REQUIRED" || code === "FINAL_CUT_RESTART_TIMEOUT"
+        ? "needs-user-action"
+        : "unavailable";
+      return this.fail(code, message, state);
     }
   }
 
@@ -242,6 +269,21 @@ export class FinalCutConnectionManager {
       ...patch,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  private async activateUntil(deadline: number): Promise<void> {
+    let lastError: unknown;
+    while (Date.now() < deadline) {
+      try {
+        await this.activateExtension();
+        return;
+      } catch (error) {
+        if (isPermissionError(error)) throw error;
+        lastError = error;
+        await this.sleep(Math.min(250, Math.max(25, deadline - Date.now())));
+      }
+    }
+    throw lastError ?? new Error("FINAL_CUT_ACTIVATION_TIMEOUT: Framekit extension menu was not available");
   }
 
   private async installExtensionIfAvailable(): Promise<void> {
@@ -291,7 +333,48 @@ async function defaultDetectFinalCut(appPath: string): Promise<boolean> {
 }
 
 async function defaultLaunchFinalCut(appPath: string): Promise<void> {
+  if (appPath === "/Applications/Final Cut Pro.app") {
+    await execFile("open", ["-a", "Final Cut Pro"]);
+    return;
+  }
   await execFile("open", [appPath]);
+}
+
+async function defaultRegisterExtension(extensionPath: string): Promise<void> {
+  const lsregister = "/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister";
+  await execFile(lsregister, ["-f", "-R", "-trusted", extensionPath]);
+}
+
+async function defaultRestartFinalCut(
+  detectFinalCut: () => Promise<boolean>,
+  launchFinalCut: () => Promise<void>,
+  sleep: (milliseconds: number) => Promise<void>,
+): Promise<void> {
+  await execFile("osascript", ["-e", 'quit app "Final Cut Pro"']);
+  const quitDeadline = Date.now() + 15_000;
+  while (await detectFinalCut()) {
+    if (Date.now() >= quitDeadline) {
+      throw new Error("FINAL_CUT_RESTART_TIMEOUT: Final Cut Pro did not quit; close it and retry");
+    }
+    await sleep(250);
+  }
+
+  // Reuse the configured launcher so tests and nonstandard app paths remain
+  // injectable; the default launcher opens the Final Cut Pro application.
+  const launchDeadline = Date.now() + 15_000;
+  let lastLaunchError: unknown;
+  while (Date.now() < launchDeadline) {
+    try {
+      await launchFinalCut();
+      lastLaunchError = undefined;
+    } catch (error) {
+      lastLaunchError = error;
+    }
+    if (await detectFinalCut()) return;
+    await sleep(500);
+  }
+  const detail = lastLaunchError ? ` (${String(lastLaunchError)})` : "";
+  throw new Error(`FINAL_CUT_RESTART_TIMEOUT: Final Cut Pro did not reopen; open it and retry${detail}`);
 }
 
 async function defaultActivateFinalCut(): Promise<void> {
@@ -321,4 +404,9 @@ function defaultExtensionSourcePath(): string | undefined {
     join(process.cwd(), "resources", DEFAULT_EXTENSION_NAME),
   ];
   return candidates.find((candidate) => existsSync(candidate));
+}
+
+function isPermissionError(error: unknown): boolean {
+  const message = String(error);
+  return message.includes("not authorized") || message.includes("Automation");
 }

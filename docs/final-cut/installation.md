@@ -28,6 +28,7 @@ When the MCP process starts, Framekit automatically detects Final Cut Pro,
 installs the signed Workflow Extension into the user's Applications directory,
 launches it, activates the Framekit extension, and waits for the local socket.
 No manual `ditto` or Window → Extensions step is required for a release build.
+Background MCP startup does not quit or reopen Final Cut Pro.
 
 Check the connection without starting MCP:
 
@@ -49,6 +50,11 @@ Build and connect the generated development app through Framekit:
 ```sh
 framekit connect finalcut --development
 ```
+
+The explicit `connect` command may gracefully quit and reopen Final Cut Pro
+when it replaces the installed extension, so the running Final Cut session
+loads the new bundle. It never force-quits Final Cut or bypasses an unsaved
+changes prompt.
 
 For a prebuilt or locally supplied artifact, set
 `FRAMEKIT_EXTENSION_APP_PATH` to the `.app` bundle before running the command.

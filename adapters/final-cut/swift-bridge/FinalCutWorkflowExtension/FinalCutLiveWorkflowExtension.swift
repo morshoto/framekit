@@ -154,7 +154,12 @@ private final class UnixJSONServer {
                 Darwin.bind(serverFD, $0, addressLength)
             }
         }
-        guard bound == 0, listen(serverFD, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
+        guard bound == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard listen(serverFD, 8) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         _ = chmod(path, S_IRUSR | S_IWUSR)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -212,9 +217,25 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private var host: FCPXHost?
     private var observer: TimelineObserver?
     private var server: UnixJSONServer?
+    private var startupRetryTimer: Timer?
+    private weak var statusLabel: NSTextField?
     private let stateLock = NSLock()
     private var revision = 0
     private var changes: [LiveChange] = []
+
+    public override func loadView() {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let label = NSTextField(labelWithString: "Framekit live bridge")
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        statusLabel = label
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+        self.view = view
+    }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
@@ -232,9 +253,13 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func startBridgeIfPossible() {
         guard server == nil else { return }
         guard let host = ProExtensionHostSingleton() as? FCPXHost else {
+            statusLabel?.stringValue = "Waiting for Final Cut host"
             NSLog("Framekit Final Cut live bridge is waiting for the Workflow Extension host")
+            scheduleBridgeRetry()
             return
         }
+        startupRetryTimer?.invalidate()
+        startupRetryTimer = nil
         self.host = host
         if observer == nil {
             let observer = TimelineObserver(onChange: { [weak self] kind in self?.record(kind: kind) })
@@ -242,19 +267,43 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             host.timeline?.add(observer)
         }
         let socket = ProcessInfo.processInfo.environment["FRAMEKIT_FINAL_CUT_SOCKET"]
-            ?? "/tmp/framekit-finalcut.sock"
+            ?? defaultSocketPath()
         do {
             server = try UnixJSONServer(path: socket) { [weak self] request in
                 self?.handle(request) ?? BridgeResponse(version: protocolVersion, id: request.id, ok: false, result: nil, error: BridgeError(code: "FINAL_CUT_LIVE_UNAVAILABLE", message: "extension is shutting down"))
             }
+            statusLabel?.stringValue = "Framekit live bridge ready"
             NSLog("Framekit Final Cut live bridge listening at %@", socket)
         } catch {
+            statusLabel?.stringValue = "Bridge failed: \(error.localizedDescription)"
             NSLog("Framekit Final Cut live bridge failed to start at %@: %@", socket, String(describing: error))
         }
     }
 
+    private func defaultSocketPath() -> String {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return documents.deletingLastPathComponent().appendingPathComponent("framekit.sock").path
+    }
+
     deinit {
+        startupRetryTimer?.invalidate()
         if let host, let observer { host.timeline?.remove(observer) }
+    }
+
+    private func scheduleBridgeRetry() {
+        guard startupRetryTimer == nil else { return }
+        startupRetryTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            guard self.server == nil else {
+                timer.invalidate()
+                self.startupRetryTimer = nil
+                return
+            }
+            self.startBridgeIfPossible()
+        }
     }
 
     private func handle(_ request: BridgeRequest) -> BridgeResponse {

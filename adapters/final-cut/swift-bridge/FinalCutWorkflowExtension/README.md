@@ -25,7 +25,8 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 ```
 
 The extension publishes a newline-delimited JSON protocol on
-`FRAMEKIT_FINAL_CUT_SOCKET`, defaulting to `/tmp/framekit-finalcut.sock`.
+`FRAMEKIT_FINAL_CUT_SOCKET`, defaulting to
+`~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock`.
 Framekit connects with:
 
 ```sh

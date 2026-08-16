@@ -38,7 +38,10 @@ async function connectFinalCut(args: string[]): Promise<void> {
     await buildDevelopmentExtension();
     extensionSourcePath = join("/tmp", "framekit-finalcut-derived/Build/Products/Debug/FramekitFinalCutWorkflow.app");
   }
-  const manager = new FinalCutConnectionManager({ extensionSourcePath });
+  const manager = new FinalCutConnectionManager({
+    extensionSourcePath,
+    restartAfterInstall: true,
+  });
   const status = await manager.ensureConnected();
   printStatus(status, json);
   if (status.state !== "ready") process.exitCode = 1;

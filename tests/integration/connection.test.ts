@@ -80,3 +80,88 @@ test("connection manager starts Final Cut and retries until the bridge is ready"
   assert.equal(status.editorDetected, true);
   assert.equal(probes >= 2, true);
 });
+
+test("explicit connection restarts Final Cut after replacing the extension", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-restart-test-"));
+  const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");
+  const installPath = join(directory, "Applications", "FramekitFinalCutWorkflow.app");
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(installPath, { recursive: true });
+  const events: string[] = [];
+
+  const manager = new FinalCutConnectionManager({
+    extensionSourcePath: sourcePath,
+    extensionInstallPath: installPath,
+    restartAfterInstall: true,
+    detectFinalCut: async () => true,
+    installExtension: async () => { events.push("install"); },
+    registerExtension: async () => { events.push("register"); },
+    restartFinalCut: async () => { events.push("restart"); },
+    launchExtension: async () => { events.push("launch-extension"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => {
+      if (!events.includes("restart")) throw new Error("socket missing");
+      return {
+        identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+        capabilities,
+      };
+    },
+    sleep: async () => {},
+  });
+
+  const status = await manager.ensureConnected();
+  assert.equal(status.state, "ready");
+  assert.deepEqual(events, ["install", "register", "restart", "launch-extension", "activate"]);
+});
+
+test("background connection does not restart Final Cut after extension replacement", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-no-restart-test-"));
+  const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");
+  const installPath = join(directory, "Applications", "FramekitFinalCutWorkflow.app");
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(installPath, { recursive: true });
+  let restarted = false;
+
+  const manager = new FinalCutConnectionManager({
+    extensionSourcePath: sourcePath,
+    extensionInstallPath: installPath,
+    detectFinalCut: async () => true,
+    installExtension: async () => {},
+    registerExtension: async () => {},
+    restartFinalCut: async () => { restarted = true; },
+    activateExtension: async () => {},
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+  assert.equal(status.state, "ready");
+  assert.equal(restarted, false);
+});
+
+test("restart timeout is reported as user action", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-restart-timeout-test-"));
+  const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");
+  const installPath = join(directory, "Applications", "FramekitFinalCutWorkflow.app");
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(installPath, { recursive: true });
+
+  const manager = new FinalCutConnectionManager({
+    extensionSourcePath: sourcePath,
+    extensionInstallPath: installPath,
+    restartAfterInstall: true,
+    detectFinalCut: async () => true,
+    installExtension: async () => {},
+    registerExtension: async () => {},
+    restartFinalCut: async () => {
+      throw new Error("FINAL_CUT_RESTART_TIMEOUT: Final Cut Pro did not quit");
+    },
+    probe: async () => { throw new Error("socket missing"); },
+  });
+
+  const status = await manager.ensureConnected();
+  assert.equal(status.state, "needs-user-action");
+  assert.equal(status.lastError?.code, "FINAL_CUT_RESTART_TIMEOUT");
+});
