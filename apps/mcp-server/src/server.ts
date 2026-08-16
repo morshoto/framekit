@@ -41,8 +41,24 @@ function jsonResult(value: unknown) {
   };
 }
 
-export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
+export interface McpServerOptions {
+  connectionStatus?: () => unknown;
+}
+
+export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   const server = new McpServer({ name: "framekit", version: "0.1.0" });
+
+  server.registerTool("connection.status", {
+    description: "Read Framekit's Final Cut connection state, setup progress, and live capabilities.",
+    inputSchema: {},
+  }, async () => jsonResult(options.connectionStatus?.() ?? {
+    state: "ready",
+    editorDetected: false,
+    extensionInstalled: false,
+    socketPath: null,
+    capabilities: null,
+    lastError: null,
+  }));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot.",

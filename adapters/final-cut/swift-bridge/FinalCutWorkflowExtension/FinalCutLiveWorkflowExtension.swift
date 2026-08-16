@@ -218,19 +218,36 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        startBridgeIfPossible()
+    }
+
+    public override func viewDidAppear() {
+        super.viewDidAppear()
+        // Final Cut can finish wiring the host after viewDidLoad. Retry from
+        // viewDidAppear so the bridge is started only once the extension is
+        // actually hosted by Final Cut.
+        startBridgeIfPossible()
+    }
+
+    private func startBridgeIfPossible() {
+        guard server == nil else { return }
         guard let host = ProExtensionHostSingleton() as? FCPXHost else {
-            fatalError("Final Cut Pro Workflow Extension host is unavailable")
+            NSLog("Framekit Final Cut live bridge is waiting for the Workflow Extension host")
+            return
         }
         self.host = host
-        let observer = TimelineObserver(onChange: { [weak self] kind in self?.record(kind: kind) })
-        self.observer = observer
-        host.timeline?.add(observer)
+        if observer == nil {
+            let observer = TimelineObserver(onChange: { [weak self] kind in self?.record(kind: kind) })
+            self.observer = observer
+            host.timeline?.add(observer)
+        }
         let socket = ProcessInfo.processInfo.environment["FRAMEKIT_FINAL_CUT_SOCKET"]
             ?? "/tmp/framekit-finalcut.sock"
         do {
             server = try UnixJSONServer(path: socket) { [weak self] request in
                 self?.handle(request) ?? BridgeResponse(version: protocolVersion, id: request.id, ok: false, result: nil, error: BridgeError(code: "FINAL_CUT_LIVE_UNAVAILABLE", message: "extension is shutting down"))
             }
+            NSLog("Framekit Final Cut live bridge listening at %@", socket)
         } catch {
             NSLog("Framekit Final Cut live bridge failed to start at %@: %@", socket, String(describing: error))
         }

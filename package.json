@@ -5,11 +5,16 @@
   "private": true,
   "type": "module",
   "description": "Agentic video editing runtime spikes",
+  "bin": {
+    "framekit": "./bin/framekit.mjs"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test tests/integration/*.test.ts",
     "test:watch": "tsx --test --watch tests/integration/*.test.ts",
     "mcp": "tsx apps/mcp-server/src/main.ts",
+    "framekit": "node ./bin/framekit.mjs",
+    "package:final-cut-release": "bash scripts/package-final-cut-release.sh",
     "xcode:check": "bash nix/check-xcode.sh",
     "check:boundaries": "node scripts/check-boundaries.mjs"
   },

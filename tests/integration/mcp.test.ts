@@ -33,6 +33,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       tools.tools.map((tool) => tool.name).sort(),
       [
         "audio.analyze",
+        "connection.status",
         "context.changes",
         "context.inspect",
         "edit.diff",
@@ -57,6 +58,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const editor = await client.callTool({ name: "editor.inspect", arguments: {} });
     const editorPayload = JSON.parse(textFrom(editor));
     assert.equal(editorPayload.identity.name, "In-memory Editor");
+    const connection = await client.callTool({ name: "connection.status", arguments: {} });
+    assert.equal(JSON.parse(textFrom(connection)).state, "ready");
 
     const invalidEdit = await client.callTool({ name: "timeline.edit", arguments: { type: "ripple-delete" } });
     assert.equal(invalidEdit.isError, true);

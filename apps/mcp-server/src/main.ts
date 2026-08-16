@@ -1,6 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import { createFinalCutLiveAdapter, FcpxmlDocumentAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
+import { createFinalCutLiveAdapter, FcpxmlDocumentAdapter, FinalCutConnectionManager, FinalCutSessionAdapter } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
@@ -34,7 +34,11 @@ const fixture = new InMemoryEditorAdapter({
   }],
 });
 
-const editor = process.env.FRAMEKIT_EDITOR === "final-cut-live"
+const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
+const connection = liveMode ? new FinalCutConnectionManager() : undefined;
+if (connection && process.env.FRAMEKIT_AUTO_CONNECT !== "0") connection.startAutoConnect();
+
+const editor = liveMode
   ? new FinalCutSessionAdapter({
       live: createFinalCutLiveAdapter(),
       ...(process.env.FRAMEKIT_FCPXML_PATH
@@ -51,13 +55,16 @@ const runtime = new AgentVideoRuntime(editor, {
   audioAnalyzer: new FixtureAudioAnalyzer(),
   visualAnalyzer: new FixtureVisualAnalyzer(),
 });
-const server = createMcpServer(runtime);
+const server = createMcpServer(runtime, {
+  connectionStatus: () => connection?.getStatus(),
+});
 const transport = new StdioServerTransport();
 let shuttingDown = false;
 
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  connection?.stopAutoConnect();
   process.stderr.write(`framekit MCP server shutting down (${signal})\n`);
   await transport.close();
   await server.close();
