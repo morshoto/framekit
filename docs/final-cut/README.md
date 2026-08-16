@@ -2,7 +2,8 @@
 
 Playhead uses two distinct Final Cut backends:
 
-- FCPXML interchange for supported canonical timeline reads and writes.
+- FCPXML interchange for supported canonical timeline reads and artifact writes.
+- `FinalCutSessionAdapter` to compose the document and live providers.
 - A native Workflow Extension for live project/sequence metadata, playhead,
   selected range, and change events.
 

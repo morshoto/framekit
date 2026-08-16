@@ -672,7 +672,7 @@ Each adapter may itself support multiple integration methods.
 
 Example:
 
-FinalCutAdapter
+FcpxmlDocumentAdapter / FinalCutSessionAdapter
      │
      ├── FCPXML backend
      ├── macOS automation backend

@@ -8,7 +8,7 @@ Unix-domain socket using newline-delimited JSON. The protocol version is `1`.
 The default runtime socket is:
 
 ```text
-~/Library/Containers/com.playhead.finalcut.workflow.extension/Data/p.sock
+/tmp/playhead-finalcut.sock
 ```
 
 Override it with `PLAYHEAD_FINAL_CUT_SOCKET` when required.

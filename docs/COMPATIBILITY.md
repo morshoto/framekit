@@ -7,8 +7,9 @@ authoritative at runtime; unsupported operations must fail with an explicit
 | Adapter | Backend | Project read | Timeline write | Read-after-write | Rollback | Speech/audio | Visual | Native assets |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | no | fixture assets |
-| Final Cut | FCPXML file interchange | yes | yes | yes | yes | external provider required | no | no |
-| Final Cut | Workflow Extension live IPC | project/sequence metadata only | no | no | no | no | no | no |
+| Final Cut document | FCPXML file interchange | yes | artifact only | yes | yes | external provider required | no | no |
+| Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | external provider required | no | no |
+| Final Cut live | Workflow Extension live IPC | project/sequence metadata only | no | no | no | no | no | no |
 
 ## Verified local environment
 
@@ -25,9 +26,10 @@ This is a local verification record, not a claim that every nearby editor or
 OS version is supported.
 
 The FCPXML adapter is intentionally not a live Final Cut automation backend.
-The Workflow Extension backend is a separate live-state port: it exposes the
+The session adapter composes independent snapshot, mutation, and live-state
+ports. The Workflow Extension backend is a separate live-state port: it exposes the
 active project/sequence metadata, playhead, selected range, and observer-backed
-change events. It reports `timelineRead: false` because the public Workflow
+change events. It reports `timelineSnapshotRead: false` because the public Workflow
 Extension proxy does not guarantee complete clip/media enumeration. Canonical
 timeline reads and writes therefore fail closed rather than silently returning
 an incomplete snapshot.

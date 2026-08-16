@@ -389,7 +389,7 @@ without reloading the entire project.
 
 interface EditorPort {
   getIdentity(): Promise<EditorIdentity>;
-  getCapabilities(): Promise<EditorCapabilities>;
+  getCapabilities(): Promise<RuntimeCapabilities>;
   readProject(): Promise<ProjectSnapshot>;
   readState(): Promise<EditorState>;
   readChanges?(
@@ -416,21 +416,27 @@ Capabilities should be granular.
 
 interface EditorCapabilities {
   projectRead: boolean;
-  timelineRead: boolean;
+  timelineSnapshotRead: boolean;
   timelineWrite: boolean;
+  timelineArtifactWrite: boolean;
   readAfterWrite: boolean;
   incrementalChanges: boolean;
-  liveSelection: boolean;
-  livePlayhead: boolean;
+  liveStateRead: boolean;
+  playheadWrite: boolean;
   playbackControl: boolean;
   assetDiscovery: boolean;
-  transitionRead: boolean;
-  transitionWrite: boolean;
-  effectRead: boolean;
-  effectWrite: boolean;
-  captionRead: boolean;
-  captionWrite: boolean;
-  renderRange: boolean;
+}
+
+interface AnalyzerCapabilities {
+  speechTranscribe: boolean;
+  speechVad: boolean;
+  audioLoudness: boolean;
+  visualTrack: boolean;
+}
+
+interface RuntimeCapabilities {
+  editor: EditorCapabilities;
+  analyzers: AnalyzerCapabilities;
 }
 
 Capabilities may depend on the selected backend.
@@ -439,24 +445,24 @@ Capabilities may depend on the selected backend.
 
 15. Final Cut Adapter
 
-               FinalCutAdapter
+               FinalCutSessionAdapter
                      │
             BackendSelector
          ┌───────────┼────────────┐
          ▼           ▼            ▼
      FCPXML       Swift/macOS   CommandPost
-     Backend        Backend      Backend
+    document       live state    future
 
 The adapter may combine backends.
 
 Example:
 
-FCPXML
-  → authoritative timeline structure
+FCPXML document
+  → ordered snapshot and artifact mutation
 Swift bridge
-  → current application state
+  → current live application state
 CommandPost
-  → operation unavailable elsewhere
+  → future mutation provider
 
 The agent runtime should not know which backend fulfilled a request.
 
@@ -875,9 +881,12 @@ Example:
 name: podcast-cleanup
 version: 1
 requires:
-  timelineRead: true
-  timelineWrite: true
-  speechAnalysis: true
+  editor:
+    timelineSnapshotRead: true
+    timelineWrite: true
+  analyzers:
+    speechTranscribe: true
+    speechVad: true
 rules:
   fillerConfidence: 0.92
   preservePauseBelowMs: 700

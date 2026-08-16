@@ -6,7 +6,7 @@ Confirm the extension is activated from Final Cut Pro's Window → Extensions
 menu, then check:
 
 ```sh
-ls -l ~/Library/Containers/com.playhead.finalcut.workflow.extension/Data/p.sock
+ls -l /tmp/playhead-finalcut.sock
 ```
 
 If the socket is stale, close and reopen Final Cut Pro after reinstalling the

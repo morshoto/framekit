@@ -5,19 +5,25 @@ Extension currently reports:
 
 ```json
 {
-  "projectRead": true,
-  "liveSelection": true,
-  "livePlayhead": true,
-  "incrementalChanges": true,
-  "timelineRead": false,
-  "timelineWrite": false,
-  "readAfterWrite": false,
-  "rollback": false,
-  "speechAnalysis": false,
-  "audioAnalysis": false,
-  "visualAnalysis": false,
-  "assetDiscovery": false,
-  "playbackControl": false
+  "editor": {
+    "projectRead": true,
+    "timelineSnapshotRead": false,
+    "timelineWrite": false,
+    "timelineArtifactWrite": false,
+    "readAfterWrite": false,
+    "incrementalChanges": true,
+    "rollback": false,
+    "assetDiscovery": false,
+    "liveStateRead": true,
+    "playheadWrite": false,
+    "playbackControl": false
+  },
+  "analyzers": {
+    "speechTranscribe": false,
+    "speechVad": false,
+    "audioLoudness": false,
+    "visualTrack": false
+  }
 }
 ```
 

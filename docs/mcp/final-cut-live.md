@@ -17,7 +17,7 @@ For a non-default socket:
 
 ```sh
 PLAYHEAD_EDITOR=final-cut-live \
-PLAYHEAD_FINAL_CUT_SOCKET=/path/to/p.sock \
+PLAYHEAD_FINAL_CUT_SOCKET=/tmp/playhead-finalcut.sock \
 npm run mcp
 ```
 

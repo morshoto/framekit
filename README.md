@@ -12,6 +12,10 @@ npm test
 npm run build
 ```
 
+The documentation index is in [`docs/README.md`](docs/README.md). The MCP
+contract is documented in [`docs/mcp/`](docs/mcp/), and reproducible Phase 0,
+Phase 1, and Final Cut live tests are documented in [`docs/tests/`](docs/tests/).
+
 The reproducible Node shell and native toolchain contract live under
 [`nix/`](nix/). Enter it with `nix develop ./nix`, then run
 `npm run xcode:check` before building the Final Cut Workflow Extension.
@@ -42,11 +46,19 @@ It exposes these tools over stdio:
 - `edit.undo`
 
 The runtime core does not import MCP SDK packages. The stdio server is an
-adapter around `AgentVideoRuntime`, as required by the SDD. `FinalCutAdapter`
-targets a supported FCPXML interchange file. The live backend is selected with
-`PLAYHEAD_EDITOR=final-cut-live` and connects to the in-process Swift Workflow
-Extension over `PLAYHEAD_FINAL_CUT_SOCKET` (defaulting to the sandbox
-container's temporary socket); it reads live project/sequence
-metadata, playhead, selected range, and change events without requiring a
-manual export. Full clip/media enumeration remains explicitly unavailable
-until Final Cut exposes it through a supported native surface.
+adapter around `AgentVideoRuntime`, as required by the SDD.
+`FcpxmlDocumentAdapter` reads and writes an ordered FCPXML interchange
+artifact; it does not claim to mutate the open Final Cut session. The
+`FinalCutSessionAdapter` composes that snapshot/mutation provider with the
+live Workflow Extension provider. Set `PLAYHEAD_FCPXML_PATH` alongside
+`PLAYHEAD_EDITOR=final-cut-live` to enable the document surface.
+
+The live bridge uses the shared `/tmp/playhead-finalcut.sock` endpoint (or the
+same explicit `PLAYHEAD_FINAL_CUT_SOCKET` override on both processes). It
+exposes live project/sequence metadata, playhead, selected range, and change
+events. Full clip/media enumeration remains explicitly unavailable until Final
+Cut exposes it through a supported native surface. Editor and analyzer
+capabilities are reported separately by `editor.inspect`.
+
+See [`docs/tests/final-cut-live-e2e.md`](docs/tests/final-cut-live-e2e.md) for
+the read-only Final Cut validation procedure.

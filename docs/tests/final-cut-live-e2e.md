@@ -39,7 +39,7 @@ osascript -e 'tell application "Final Cut Pro" to activate' \
 Verify the socket exists:
 
 ```sh
-ls -l ~/Library/Containers/com.playhead.finalcut.workflow.extension/Data/p.sock
+ls -l /tmp/playhead-finalcut.sock
 ```
 
 ## MCP assertions
