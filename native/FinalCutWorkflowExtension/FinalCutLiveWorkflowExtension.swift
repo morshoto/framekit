@@ -66,20 +66,30 @@ private struct BridgeRequest: Codable {
     let waitMs: Int?
 }
 
-private struct Capabilities: Codable {
+private struct EditorCapabilities: Codable {
     let projectRead: Bool
-    let timelineRead: Bool
+    let timelineSnapshotRead: Bool
     let timelineWrite: Bool
+    let timelineArtifactWrite: Bool
     let readAfterWrite: Bool
     let incrementalChanges: Bool
-    let speechAnalysis: Bool
-    let audioAnalysis: Bool
     let rollback: Bool
-    let visualAnalysis: Bool
     let assetDiscovery: Bool
-    let liveSelection: Bool
-    let livePlayhead: Bool
+    let liveStateRead: Bool
+    let playheadWrite: Bool
     let playbackControl: Bool
+}
+
+private struct AnalyzerCapabilities: Codable {
+    let speechTranscribe: Bool
+    let speechVad: Bool
+    let audioLoudness: Bool
+    let visualTrack: Bool
+}
+
+private struct RuntimeCapabilities: Codable {
+    let editor: EditorCapabilities
+    let analyzers: AnalyzerCapabilities
 }
 
 private struct Identity: Codable {
@@ -90,7 +100,7 @@ private struct Identity: Codable {
 
 private struct BridgeResult: Codable {
     let identity: Identity
-    let capabilities: Capabilities
+    let capabilities: RuntimeCapabilities
     let state: LiveState?
     let changes: [LiveChange]?
 }
@@ -202,6 +212,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private var host: FCPXHost?
     private var observer: TimelineObserver?
     private var server: UnixJSONServer?
+    private let stateLock = NSLock()
     private var revision = 0
     private var changes: [LiveChange] = []
 
@@ -215,8 +226,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         self.observer = observer
         host.timeline?.add(observer)
         let socket = ProcessInfo.processInfo.environment["PLAYHEAD_FINAL_CUT_SOCKET"]
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("p.sock").path
+            ?? "/tmp/playhead-finalcut.sock"
         do {
             server = try UnixJSONServer(path: socket) { [weak self] request in
                 self?.handle(request) ?? BridgeResponse(version: protocolVersion, id: request.id, ok: false, result: nil, error: BridgeError(code: "FINAL_CUT_LIVE_UNAVAILABLE", message: "extension is shutting down"))
@@ -232,7 +242,10 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
 
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
-        let capabilities = Capabilities(projectRead: true, timelineRead: false, timelineWrite: false, readAfterWrite: false, incrementalChanges: true, speechAnalysis: false, audioAnalysis: false, rollback: false, visualAnalysis: false, assetDiscovery: false, liveSelection: true, livePlayhead: true, playbackControl: false)
+        let capabilities = RuntimeCapabilities(
+            editor: EditorCapabilities(projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, playbackControl: false),
+            analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false)
+        )
         switch request.method {
         case "capabilities":
             return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: nil), error: nil)
@@ -244,10 +257,11 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             }
         case "changes":
             let after = request.afterSequence ?? 0
-            if request.waitMs ?? 0 > 0 && changes.allSatisfy({ $0.revision.sequence <= after }) {
+            let currentChanges = stateLock.withLock { changes }
+            if request.waitMs ?? 0 > 0 && currentChanges.allSatisfy({ $0.revision.sequence <= after }) {
                 Thread.sleep(forTimeInterval: Double(min(request.waitMs ?? 0, 30_000)) / 1000.0)
             }
-            let result = changes.filter { $0.revision.sequence > after }
+            let result = stateLock.withLock { changes.filter { $0.revision.sequence > after } }
             return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: result), error: nil)
         default:
             return failure(request, code: "UNSUPPORTED_METHOD", message: request.method)
@@ -259,10 +273,14 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     }
 
     private func record(kind: String) {
+        stateLock.lock()
         revision += 1
+        stateLock.unlock()
         guard let current = try? state() else { return }
-        changes.append(LiveChange(kind: kind, revision: current.revision, state: current))
-        if changes.count > 100 { changes.removeFirst(changes.count - 100) }
+        stateLock.withLock {
+            changes.append(LiveChange(kind: kind, revision: current.revision, state: current))
+            if changes.count > 100 { changes.removeFirst(changes.count - 100) }
+        }
     }
 
     private func state() throws -> LiveState {
@@ -276,6 +294,15 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         let sequenceName = sequence.name ?? "active-sequence"
         let liveSequence = LiveState.Sequence(id: "\(projectID):\(sequenceName)", name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
-        return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(revision)", sequence: revision, timestamp: ISO8601DateFormatter().string(from: Date())))
+        let currentRevision = stateLock.withLock { revision }
+        return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }

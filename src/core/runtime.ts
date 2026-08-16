@@ -9,9 +9,9 @@ import type {
   EditTransaction,
   EditorPort,
   EditorAsset,
-  FinalCutLiveChange,
-  FinalCutLivePort,
-  FinalCutLiveState,
+  EditorChange,
+  EditorLiveState,
+  LiveEditorStatePort,
   MediaContext,
   ProjectSnapshot,
   SpeechAnalysis,
@@ -49,18 +49,26 @@ export class AgentVideoRuntime {
   }
 
   public async inspectEditor() {
+    const capabilities = await this.adapter.getCapabilities();
     return {
       identity: await this.adapter.getIdentity(),
-      capabilities: await this.adapter.getCapabilities(),
+      capabilities: {
+        ...capabilities,
+        analyzers: {
+          ...capabilities.analyzers,
+          speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
+          audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
+        },
+      },
     };
   }
 
-  public async inspectLiveEditor(): Promise<FinalCutLiveState> {
+  public async inspectLiveEditor(): Promise<EditorLiveState> {
     const liveAdapter = this.liveAdapter();
     return liveAdapter.readLiveState();
   }
 
-  public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<FinalCutLiveChange[]> {
+  public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<EditorChange[]> {
     const liveAdapter = this.liveAdapter();
     return liveAdapter.liveChangesSince(revision, waitMs);
   }
@@ -71,8 +79,13 @@ export class AgentVideoRuntime {
       throw new Error("STALE_CONTEXT: operation base revision does not match current editor state");
     }
 
+    const capabilities = await this.adapter.getCapabilities();
+    if (!capabilities.editor.timelineWrite && !capabilities.editor.timelineArtifactWrite) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
+    }
     await this.adapter.apply(operation, before.revision);
     const attemptedAfter = await this.inspectProject();
+    const diff = diffSnapshots(before, attemptedAfter);
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
       operation,
@@ -83,9 +96,16 @@ export class AgentVideoRuntime {
       before,
       after: attemptedAfter,
       attemptedAfter,
-      diff: diffSnapshots(before, attemptedAfter),
+      diff,
       status: "APPLIED",
     };
+    try {
+      transaction.attemptedAfter = await this.reanalyzeAffectedRanges(transaction);
+      transaction.after = transaction.attemptedAfter;
+    } catch (error) {
+      await this.adapter.restore(before, attemptedAfter.revision);
+      throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
+    }
     transaction.verification = await this.verificationEngine.verify(transaction, policy);
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
@@ -135,7 +155,7 @@ export class AgentVideoRuntime {
 
   public async listAssets(): Promise<EditorAsset[]> {
     const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.assetDiscovery || !this.adapter.listAssets) {
+    if (!capabilities.editor.assetDiscovery || !this.adapter.listAssets) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor assets");
     }
     return this.adapter.listAssets();
@@ -169,12 +189,39 @@ export class AgentVideoRuntime {
     return this.inspectProject();
   }
 
-  private liveAdapter(): FinalCutLivePort {
-    const candidate = this.adapter as Partial<FinalCutLivePort>;
+  private liveAdapter(): LiveEditorStatePort {
+    const candidate = this.adapter as Partial<LiveEditorStatePort>;
     if (typeof candidate.readLiveState !== "function" || typeof candidate.liveChangesSince !== "function") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
     }
-    return candidate as FinalCutLivePort;
+    return candidate as LiveEditorStatePort;
+  }
+
+  private async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
+    const mediaIds = new Set(transaction.diff.affectedRanges.flatMap((range) =>
+      transaction.attemptedAfter.timeline.clips
+        .filter((clip) => clip.start < range.end && clip.start + clip.duration > range.start)
+        .flatMap((clip) => clip.mediaId ? [clip.mediaId] : []),
+    ));
+    if (mediaIds.size === 0) return transaction.attemptedAfter;
+    const next = structuredClone(transaction.attemptedAfter);
+    for (const mediaId of mediaIds) {
+      const media = next.media.find((candidate) => candidate.mediaId === mediaId);
+      if (!media) continue;
+      const ranges = transaction.diff.affectedRanges.filter((range) =>
+        next.timeline.clips.some((clip) => clip.mediaId === mediaId && clip.start < range.end && clip.start + clip.duration > range.start),
+      );
+      const input = { project: next, media };
+      if (this.options.speechAnalyzer) {
+        const analyses = await Promise.all(ranges.map((range) => this.options.speechAnalyzer!.analyze(input, range)));
+        media.speech = { words: analyses.flatMap((analysis) => analysis.words) };
+      }
+      if (this.options.audioAnalyzer) {
+        const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
+        if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
+      }
+    }
+    return next;
   }
 }
 

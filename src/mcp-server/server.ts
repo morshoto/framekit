@@ -1,30 +1,39 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime } from "../core/runtime.js";
-import type { EditOperation } from "../core/types.js";
 
-const renameClipSchema = {
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
-  clipId: z.string().min(1).optional(),
-  timelineId: z.string().min(1).optional(),
-  name: z.string().min(1).optional(),
-  duration: z.number().positive().optional(),
-  durationTime: z.object({ value: z.string(), timescale: z.string() }).optional(),
-  gainDb: z.number().finite().optional(),
-  range: z.object({ start: z.number().nonnegative(), end: z.number().positive() }).optional(),
-  reason: z.string().optional(),
-  marker: z.object({
+const revisionSchema = z.object({
+  id: z.string(),
+  sequence: z.number().int().nonnegative(),
+  timestamp: z.string(),
+}).optional();
+const rationalTimeSchema = z.object({
+  value: z.string().regex(/^-?\d+$/),
+  timescale: z.string().regex(/^\d+$/).refine((value) => Number(value) > 0),
+});
+const rangeSchema = z.object({
+  start: z.number().nonnegative(),
+  end: z.number().positive(),
+});
+const markerSchema = z.object({
     id: z.string().min(1),
     start: z.number().nonnegative(),
     duration: z.number().nonnegative(),
     name: z.string().min(1),
-  }).optional(),
-  baseRevision: z.object({
-    id: z.string(),
-    sequence: z.number().int().nonnegative(),
-    timestamp: z.string(),
-  }).optional(),
-};
+});
+const editOperationSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("rename-clip"), clipId: z.string().min(1), name: z.string().min(1), baseRevision: revisionSchema }),
+  z.object({
+    type: z.literal("trim-clip"),
+    clipId: z.string().min(1),
+    duration: z.number().positive(),
+    durationTime: rationalTimeSchema.optional(),
+    baseRevision: revisionSchema,
+  }),
+  z.object({ type: z.literal("set-gain"), clipId: z.string().min(1), gainDb: z.number().finite(), baseRevision: revisionSchema }),
+  z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema }),
+  z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema }),
+]);
 
 function jsonResult(value: unknown) {
   return {
@@ -98,8 +107,8 @@ export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
 
   server.registerTool("timeline.edit", {
     description: "Apply one supported Phase 0 edit and return read-after-write plus its diff.",
-    inputSchema: renameClipSchema,
-  }, async (operation) => jsonResult(await runtime.edit(operation as EditOperation)));
+    inputSchema: editOperationSchema,
+  }, async (operation) => jsonResult(await runtime.edit(operation)));
 
   server.registerTool("speech.analyze", {
     description: "Analyze speech words and filler markers for one media item.",

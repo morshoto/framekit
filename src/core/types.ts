@@ -5,6 +5,7 @@ export interface ContextRevision {
 }
 
 export interface Clip {
+  /** Stable identity of this timeline occurrence, never the media resource id. */
   id: string;
   mediaId?: string;
   name: string;
@@ -13,13 +14,17 @@ export interface Clip {
   track: number;
   gainDb?: number;
   enabled?: boolean;
-  startTime?: RationalTime;
-  durationTime?: RationalTime;
+  /** Authoritative exact timeline coordinates; start/duration are convenience seconds. */
+  startTime: RationalTime;
+  durationTime: RationalTime;
 }
 
 export interface TimeRange {
   start: number;
   end: number;
+  /** Exact representation used when the range crossed an editor boundary. */
+  startTime?: RationalTime;
+  durationTime?: RationalTime;
 }
 
 export interface RationalTimeRange {
@@ -31,7 +36,7 @@ export interface RationalTimeRange {
  * State that Final Cut can expose live through its Workflow Extension host.
  * This deliberately does not pretend to be a complete timeline snapshot.
  */
-export interface FinalCutLiveState {
+export interface EditorLiveState {
   project?: {
     id: string;
     name: string;
@@ -48,15 +53,15 @@ export interface FinalCutLiveState {
   revision: ContextRevision;
 }
 
-export type FinalCutLiveChangeKind =
+export type EditorChangeKind =
   | "active-sequence-changed"
   | "playhead-changed"
   | "sequence-time-range-changed";
 
-export interface FinalCutLiveChange {
-  kind: FinalCutLiveChangeKind;
+export interface EditorChange {
+  kind: EditorChangeKind;
   revision: ContextRevision;
-  state: FinalCutLiveState;
+  state: EditorLiveState;
 }
 
 /** Exact interchange time; strings keep it JSON-safe at the MCP boundary. */
@@ -70,6 +75,8 @@ export interface Marker {
   start: number;
   duration: number;
   name: string;
+  startTime?: RationalTime;
+  durationTime?: RationalTime;
 }
 
 export interface Caption {
@@ -77,6 +84,8 @@ export interface Caption {
   start: number;
   duration: number;
   text: string;
+  startTime?: RationalTime;
+  durationTime?: RationalTime;
 }
 
 export interface SpeechWord {
@@ -111,12 +120,26 @@ export interface ProjectSnapshot {
     id: string;
     name: string;
     duration: number;
+    durationTime?: RationalTime;
     clips: Clip[];
+    storyElements: StoryElement[];
     markers: Marker[];
     captions: Caption[];
   };
   media: MediaContext[];
   revision: ContextRevision;
+}
+
+/** Ordered FCPXML story elements retained so heterogeneous spines are not lost. */
+export interface StoryElement {
+  id: string;
+  kind: string;
+  start: number;
+  duration: number;
+  startTime?: RationalTime;
+  durationTime?: RationalTime;
+  lane?: number;
+  mediaId?: string;
 }
 
 export type EditOperation =
@@ -167,7 +190,25 @@ export interface TimelineDiff {
   removed: ClipChange[];
   modified: ClipChange[];
   durationDelta: number;
-  markerChanges: Array<{ type: "MARKER_ADDED" | "MARKER_REMOVED"; marker: Marker }>;
+  durationDeltaTime?: RationalTime;
+  markerChanges: Array<{
+    type: "MARKER_ADDED" | "MARKER_REMOVED" | "MARKER_MODIFIED";
+    marker: Marker;
+    before?: Marker;
+    after?: Marker;
+  }>;
+  captionChanges: Array<{
+    type: "CAPTION_ADDED" | "CAPTION_REMOVED" | "CAPTION_MODIFIED";
+    caption: Caption;
+    before?: Caption;
+    after?: Caption;
+  }>;
+  storyElementChanges: Array<{
+    type: "STORY_ELEMENT_ADDED" | "STORY_ELEMENT_REMOVED" | "STORY_ELEMENT_MODIFIED";
+    element: StoryElement;
+    before?: StoryElement;
+    after?: StoryElement;
+  }>;
   affectedRanges: TimeRange[];
 }
 
@@ -199,31 +240,41 @@ export interface EditorIdentity {
 
 export interface EditorCapabilities {
   projectRead: boolean;
-  timelineRead: boolean;
+  timelineSnapshotRead: boolean;
   timelineWrite: boolean;
+  timelineArtifactWrite: boolean;
   readAfterWrite: boolean;
   incrementalChanges: boolean;
-  speechAnalysis: boolean;
-  audioAnalysis: boolean;
   rollback: boolean;
-  visualAnalysis: boolean;
   assetDiscovery: boolean;
-  liveSelection?: boolean;
-  livePlayhead?: boolean;
+  liveStateRead: boolean;
+  playheadWrite: boolean;
   playbackControl?: boolean;
+}
+
+export interface AnalyzerCapabilities {
+  speechTranscribe: boolean;
+  speechVad: boolean;
+  audioLoudness: boolean;
+  visualTrack: boolean;
+}
+
+export interface RuntimeCapabilities {
+  editor: EditorCapabilities;
+  analyzers: AnalyzerCapabilities;
 }
 
 export interface EditorPort extends EditorAdapter {
   getIdentity(): Promise<EditorIdentity>;
-  getCapabilities(): Promise<EditorCapabilities>;
+  getCapabilities(): Promise<RuntimeCapabilities>;
   readProject(): Promise<ProjectSnapshot>;
   restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void>;
   listAssets?(): Promise<EditorAsset[]>;
 }
 
-export interface FinalCutLivePort extends EditorPort {
-  readLiveState(): Promise<FinalCutLiveState>;
-  liveChangesSince(revision: ContextRevision, waitMs?: number): Promise<FinalCutLiveChange[]>;
+export interface LiveEditorStatePort {
+  readLiveState(): Promise<EditorLiveState>;
+  liveChangesSince(revision: ContextRevision, waitMs?: number): Promise<EditorChange[]>;
 }
 
 export interface EditorAsset {

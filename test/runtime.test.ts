@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { InMemoryEditorAdapter } from "../src/adapters/in-memory-editor.js";
 import { AgentVideoRuntime } from "../src/core/runtime.js";
+import { diffSnapshots } from "../src/core/diff.js";
 
 function createRuntime() {
   return new AgentVideoRuntime(new InMemoryEditorAdapter({
@@ -34,8 +35,14 @@ test("Phase 0 proves read, write, read-after-write, and diff", async () => {
     {
       type: "ITEM_MODIFIED",
       itemId: "clip-1",
-      before: { id: "clip-1", name: "Interview", start: 0, duration: 10, track: 1 },
-      after: { id: "clip-1", name: "Interview - Clean", start: 0, duration: 10, track: 1 },
+      before: {
+        id: "clip-1", name: "Interview", start: 0, duration: 10, track: 1,
+        startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" },
+      },
+      after: {
+        id: "clip-1", name: "Interview - Clean", start: 0, duration: 10, track: 1,
+        startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" },
+      },
     },
   ]);
 });
@@ -55,4 +62,26 @@ test("Phase 0 rejects stale writes", async () => {
     }),
     /STALE_CONTEXT/,
   );
+});
+
+test("diff compares timeline duration and metadata changes exhaustively", async () => {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Diff fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [{ id: "clip-1", name: "Clip", start: 0, duration: 10, track: 1 }],
+    markers: [{ id: "marker-1", start: 2, duration: 1, name: "Before" }],
+  });
+  const before = await adapter.readProject();
+  const after = structuredClone(before);
+  after.timeline.duration = 20;
+  after.timeline.markers[0] = { ...after.timeline.markers[0]!, name: "After" };
+  after.timeline.captions = [{ id: "caption-1", start: 4, duration: 2, text: "Hello" }];
+  after.revision = { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() };
+  const diff = diffSnapshots(before, after);
+  assert.equal(diff.durationDelta, 10);
+  assert.equal(diff.markerChanges[0]?.type, "MARKER_MODIFIED");
+  assert.equal(diff.captionChanges[0]?.type, "CAPTION_ADDED");
+  assert.ok(diff.affectedRanges.some((range) => range.start === 4 && range.end === 6));
 });

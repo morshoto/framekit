@@ -29,15 +29,15 @@ The extension publishes a newline-delimited JSON protocol on
 Playhead connects with:
 
 ```sh
-PLAYHEAD_EDITOR=final-cut-live \
-PLAYHEAD_FINAL_CUT_SOCKET=/tmp/playhead-finalcut.sock \
-npm run mcp
+PLAYHEAD_EDITOR=final-cut-live npm run mcp
 ```
+
+Set `PLAYHEAD_FINAL_CUT_SOCKET` explicitly when using a non-default socket.
 
 Supported requests are `capabilities`, `state`, and `changes`. The bridge
 reports active project/sequence metadata, rational playhead time, selected
 sequence range, and observer-backed change events. It deliberately reports
-`timelineRead: false`: the public Workflow Extension proxy does not promise a
+`editor.timelineSnapshotRead: false`: the public Workflow Extension proxy does not promise a
 complete clip/media enumeration API, so Playhead fails closed instead of
 fabricating an empty canonical timeline.
 

@@ -1,25 +1,18 @@
 import { createConnection, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type {
   ContextRevision,
-  EditorCapabilities,
+  EditorChange,
+  EditorLiveState,
   EditorIdentity,
-  EditOperation,
-  FinalCutLiveChange,
-  FinalCutLivePort,
-  FinalCutLiveState,
-  ProjectSnapshot,
+  RuntimeCapabilities,
+  LiveEditorStatePort,
 } from "../core/types.js";
 
 export const FINAL_CUT_LIVE_PROTOCOL_VERSION = 1;
 
-/** Matches FileManager.default.temporaryDirectory for the sandboxed container. */
-export const DEFAULT_FINAL_CUT_LIVE_SOCKET = join(
-  homedir(),
-  "Library/Containers/com.playhead.finalcut.workflow.extension/Data/p.sock",
-);
+/** Shared deterministic endpoint used by both the Node client and Swift host. */
+export const DEFAULT_FINAL_CUT_LIVE_SOCKET = "/tmp/playhead-finalcut.sock";
 
 export type FinalCutLiveMethod = "capabilities" | "state" | "changes";
 
@@ -38,9 +31,9 @@ export type FinalCutLiveResponse =
       ok: true;
       result: {
         identity: EditorIdentity;
-        capabilities: EditorCapabilities;
-        state?: FinalCutLiveState;
-        changes?: FinalCutLiveChange[];
+        capabilities: RuntimeCapabilities;
+        state?: EditorLiveState;
+        changes?: EditorChange[];
       };
     }
   | {
@@ -109,7 +102,7 @@ export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
   }
 }
 
-export class FinalCutLiveAdapter implements FinalCutLivePort {
+export class FinalCutLiveAdapter implements LiveEditorStatePort {
   public constructor(
     private readonly transport: FinalCutLiveTransport,
     private readonly socketPath = "configured-socket",
@@ -120,47 +113,24 @@ export class FinalCutLiveAdapter implements FinalCutLivePort {
     return response.identity;
   }
 
-  public async getCapabilities(): Promise<EditorCapabilities> {
+  public async getCapabilities(): Promise<RuntimeCapabilities> {
     const response = await this.request({ method: "capabilities" });
     return response.capabilities;
   }
 
-  public async readLiveState(): Promise<FinalCutLiveState> {
+  public async readLiveState(): Promise<EditorLiveState> {
     const response = await this.request({ method: "state" });
     if (!response.state) throw new Error("FINAL_CUT_LIVE_PROTOCOL: state response was empty");
     return response.state;
   }
 
-  public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<FinalCutLiveChange[]> {
+  public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<EditorChange[]> {
     const response = await this.request({
       method: "changes",
       afterSequence: revision.sequence,
       waitMs,
     });
     return response.changes ?? [];
-  }
-
-  /**
-   * The Workflow Extension proxy is intentionally not treated as a complete
-   * EditorPort snapshot source. It exposes live sequence state, not a
-   * documented clip/media enumeration API.
-   */
-  public async read(): Promise<ProjectSnapshot> {
-    return this.readProject();
-  }
-
-  public async readProject(): Promise<ProjectSnapshot> {
-    throw new Error(
-      "CAPABILITY_UNAVAILABLE: Final Cut Workflow Extension does not expose a complete canonical timeline snapshot",
-    );
-  }
-
-  public async apply(_operation: EditOperation, _expectedRevision: ContextRevision): Promise<void> {
-    throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut timeline writes are not enabled");
-  }
-
-  public async restore(_snapshot: ProjectSnapshot, _expectedRevision: ContextRevision): Promise<void> {
-    throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut rollback is not enabled");
   }
 
   private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs">) {

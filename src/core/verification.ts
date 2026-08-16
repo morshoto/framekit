@@ -27,7 +27,8 @@ export class DefaultVerificationEngine implements VerificationEngine {
       checks.push({
         name: "expected-change",
         passed: transaction.diff.added.length + transaction.diff.removed.length + transaction.diff.modified.length
-          + transaction.diff.markerChanges.length > 0,
+          + transaction.diff.markerChanges.length + transaction.diff.captionChanges.length
+          + transaction.diff.storyElementChanges.length > 0,
         detail: "the canonical diff contains the requested timeline change",
       });
     }

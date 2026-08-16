@@ -4,15 +4,16 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { InMemoryEditorAdapter } from "../src/adapters/in-memory-editor.js";
-import { FinalCutAdapter } from "../src/adapters/final-cut.js";
+import { FcpxmlDocumentAdapter } from "../src/adapters/final-cut.js";
 import { FinalCutLiveAdapter, type FinalCutLiveRequest, type FinalCutLiveResponse } from "../src/adapters/final-cut-live.js";
+import { FinalCutSessionAdapter } from "../src/adapters/final-cut-session.js";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer } from "../src/analyzers/fixture.js";
 import { AgentVideoRuntime } from "../src/core/runtime.js";
-import type { FinalCutLiveChange, FinalCutLiveState } from "../src/core/types.js";
+import type { EditorChange, EditorLiveState } from "../src/core/types.js";
 
 class FakeFinalCutLiveTransport {
   public readonly requests: FinalCutLiveRequest[] = [];
-  private readonly state: FinalCutLiveState = {
+  private readonly state: EditorLiveState = {
     project: { id: "project-live-1", name: "Playhead Phase 1 E2E" },
     sequence: {
       id: "sequence-live-1",
@@ -33,23 +34,24 @@ class FakeFinalCutLiveTransport {
     this.requests.push(request);
     const identity = { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" };
     const capabilities = {
-      projectRead: true,
-      timelineRead: false,
-      timelineWrite: false,
-      readAfterWrite: false,
-      incrementalChanges: true,
-      speechAnalysis: false,
-      audioAnalysis: false,
-      rollback: false,
-      visualAnalysis: false,
-      assetDiscovery: false,
-      liveSelection: true,
-      livePlayhead: true,
-      playbackControl: false,
+      editor: {
+        projectRead: true,
+        timelineSnapshotRead: false,
+        timelineWrite: false,
+        timelineArtifactWrite: false,
+        readAfterWrite: false,
+        incrementalChanges: true,
+        rollback: false,
+        assetDiscovery: false,
+        liveStateRead: true,
+        playheadWrite: false,
+        playbackControl: false,
+      },
+      analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
     };
     if (request.method === "capabilities") return { version: 1, id: request.id, ok: true, result: { identity, capabilities } };
     if (request.method === "state") return { version: 1, id: request.id, ok: true, result: { identity, capabilities, state: this.state } };
-    const change: FinalCutLiveChange = {
+    const change: EditorChange = {
       kind: "playhead-changed",
       revision: this.state.revision,
       state: this.state,
@@ -93,16 +95,17 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   </spine></sequence></project></event></library>
 </fcpxml>`);
 
-  const adapter = new FinalCutAdapter(path);
+  const adapter = new FcpxmlDocumentAdapter(path);
   const identity = await adapter.getIdentity();
   const capabilities = await adapter.getCapabilities();
   const before = await adapter.readProject();
   assert.equal(identity.name, "Final Cut Pro");
-  assert.equal(capabilities.timelineWrite, true);
+  assert.equal(capabilities.editor.timelineArtifactWrite, true);
   assert.equal(before.timeline.clips[0]?.name, "Interview");
   assert.deepEqual(before.timeline.clips[0]?.durationTime, { value: "1001", timescale: "24000" });
 
-  await adapter.apply({ type: "rename-clip", clipId: "r1", name: "Interview - Clean" }, before.revision);
+  const clipId = before.timeline.clips[0]!.id;
+  await adapter.apply({ type: "rename-clip", clipId, name: "Interview - Clean" }, before.revision);
   const after = await adapter.readProject();
   assert.equal(after.timeline.clips[0]?.name, "Interview - Clean");
   assert.deepEqual(after.timeline.clips[0]?.durationTime, { value: "1001", timescale: "24000" });
@@ -117,34 +120,95 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   const marked = await adapter.readProject();
   assert.equal(marked.timeline.markers[0]?.name, "Review");
 
-  await adapter.apply({ type: "trim-clip", clipId: "r1", duration: 5 }, marked.revision);
+  await adapter.apply({ type: "trim-clip", clipId, duration: 5 }, marked.revision);
   const trimmed = await adapter.readProject();
   assert.equal(trimmed.timeline.clips[0]?.duration, 5);
-  await adapter.apply({ type: "set-gain", clipId: "r1", gainDb: 2 }, trimmed.revision);
+  await adapter.apply({ type: "set-gain", clipId, gainDb: 2 }, trimmed.revision);
   const gained = await adapter.readProject();
   assert.equal(gained.timeline.clips[0]?.gainDb, 2);
-  await adapter.apply({
+  await assert.rejects(adapter.apply({
     type: "ripple-delete",
     timelineId: gained.timeline.id,
     range: { start: 2, end: 3 },
-  }, gained.revision);
-  assert.equal((await adapter.readProject()).timeline.clips[0]?.duration, 4);
+  }, gained.revision), /CAPABILITY_UNAVAILABLE/);
+  assert.match(await readFile(path, "utf8"), /adjust-volume amount="2dB"/);
 });
 
 test("Final Cut adapter turns external FCPXML edits into a new revision", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "playhead-fcpxml-external-"));
   const path = join(directory, "project.fcpxml");
   await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="External"><sequence duration="2s"><spine><asset-clip ref="r1" name="Original" offset="0s" duration="2s" /></spine></sequence></project></event></library></fcpxml>`);
-  const adapter = new FinalCutAdapter(path);
+  const adapter = new FcpxmlDocumentAdapter(path);
   const before = await adapter.readProject();
   await writeFile(path, (await readFile(path, "utf8")).replace("Original", "External Edit"));
   const after = await adapter.readProject();
   assert.equal(after.revision.sequence, before.revision.sequence + 1);
   assert.equal(after.timeline.clips[0]?.name, "External Edit");
   await assert.rejects(
-    adapter.apply({ type: "rename-clip", clipId: "r1", name: "Stale Write" }, before.revision),
+    adapter.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Stale Write" }, before.revision),
     /STALE_CONTEXT/,
   );
+});
+
+test("FCPXML preserves heterogeneous spine order and distinct clip occurrences", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "playhead-fcpxml-order-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources><asset id="r1" src="file:///interview.mov" /></resources><library><event><project name="Ordered"><sequence duration="8s"><spine>
+    <asset-clip ref="r1" offset="0s" duration="2s" />
+    <gap offset="2s" duration="1s" />
+    <title offset="3s" duration="1s" name="Card" />
+    <asset-clip ref="r1" offset="4s" duration="2s" />
+    <transition offset="6s" duration="1s" />
+    <ref-clip ref="r1" offset="7s" duration="1s" />
+  </spine></sequence></project></event></library></fcpxml>`);
+
+  const adapter = new FcpxmlDocumentAdapter(path);
+  const before = await adapter.readProject();
+  assert.deepEqual(before.timeline.storyElements.map((element) => element.kind), [
+    "asset-clip", "gap", "title", "asset-clip", "transition", "ref-clip",
+  ]);
+  assert.equal(before.timeline.clips.length, 3);
+  assert.equal(new Set(before.timeline.clips.map((clip) => clip.id)).size, 3);
+  assert.deepEqual(before.timeline.clips.map((clip) => clip.mediaId), ["r1", "r1", "r1"]);
+
+  await adapter.apply({ type: "rename-clip", clipId: before.timeline.clips[1]!.id, name: "Second use" }, before.revision);
+  const xml = await readFile(path, "utf8");
+  assert.ok(xml.indexOf("<gap") < xml.indexOf("<title"));
+  assert.ok(xml.indexOf("<title") < xml.indexOf('name="Second use"'));
+  assert.ok(xml.indexOf('name="Second use"') < xml.indexOf("<transition"));
+});
+
+test("Final Cut session composes document snapshot and live state providers", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "playhead-fcpxml-session-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="Session"><sequence duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  const live = new FinalCutLiveAdapter(new FakeFinalCutLiveTransport());
+  const session = new FinalCutSessionAdapter({
+    snapshot: new FcpxmlDocumentAdapter(path),
+    mutation: new FcpxmlDocumentAdapter(path),
+    live,
+  });
+  const capabilities = await session.getCapabilities();
+  assert.equal(capabilities.editor.timelineSnapshotRead, true);
+  assert.equal(capabilities.editor.timelineArtifactWrite, true);
+  assert.equal(capabilities.editor.timelineWrite, false);
+  assert.equal(capabilities.editor.liveStateRead, true);
+  assert.equal((await session.readLiveState()).project?.name, "Playhead Phase 1 E2E");
+  assert.equal((await session.readProject()).projectName, "Session");
+});
+
+test("post-write verification invokes analyzers for affected ranges", async () => {
+  const editor = fixtureAdapter();
+  let speechCalls = 0;
+  let audioCalls = 0;
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: { analyze: async ({ media }) => { speechCalls += 1; return structuredClone(media.speech!); } },
+    audioAnalyzer: { analyze: async ({ media }) => { audioCalls += 1; return structuredClone(media.audio!); } },
+  });
+  const transaction = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Analyzed" });
+  assert.equal(transaction.status, "VERIFIED");
+  assert.ok(speechCalls > 0);
+  assert.ok(audioCalls > 0);
 });
 
 test("Phase 1 provides context changes and speech/audio analysis ports", async () => {
@@ -169,10 +233,8 @@ test("Final Cut live adapter reads native state and incremental events", async (
   const state = await adapter.readLiveState();
   assert.equal(state.project?.name, "Playhead Phase 1 E2E");
   assert.deepEqual(state.playheadTime, { value: "1001", timescale: "24000" });
-  assert.equal((await adapter.getCapabilities()).timelineRead, false);
+  assert.equal((await adapter.getCapabilities()).editor.timelineSnapshotRead, false);
   assert.equal((await adapter.liveChangesSince({ id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() })).length, 1);
-  await assert.rejects(adapter.readProject(), /CAPABILITY_UNAVAILABLE/);
-  await assert.rejects(adapter.apply({ type: "rename-clip", clipId: "clip-1", name: "Nope" }, state.revision), /CAPABILITY_UNAVAILABLE/);
   assert.deepEqual(transport.requests.map(({ method }) => method), ["state", "capabilities", "changes"]);
 });
 

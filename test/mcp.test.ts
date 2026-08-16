@@ -55,6 +55,9 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const editorPayload = JSON.parse(textFrom(editor));
     assert.equal(editorPayload.identity.name, "In-memory Editor");
 
+    const invalidEdit = await client.callTool({ name: "timeline.edit", arguments: { type: "ripple-delete" } });
+    assert.equal(invalidEdit.isError, true);
+
     const media = await client.callTool({ name: "media.inspect", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(media)).source, "interview.wav");
     const search = await client.callTool({ name: "media.search", arguments: { query: "wav" } });

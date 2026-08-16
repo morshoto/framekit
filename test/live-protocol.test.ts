@@ -22,7 +22,21 @@ test("Final Cut live transport round-trips newline-delimited JSON over a Unix so
         ok: true,
         result: {
           identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
-          capabilities: { projectRead: true, timelineRead: false },
+          capabilities: {
+            editor: {
+              projectRead: true,
+              timelineSnapshotRead: false,
+              timelineWrite: false,
+              timelineArtifactWrite: false,
+              readAfterWrite: false,
+              incrementalChanges: true,
+              rollback: false,
+              assetDiscovery: false,
+              liveStateRead: true,
+              playheadWrite: false,
+            },
+            analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+          },
         },
       })}\n`);
     });
@@ -38,7 +52,7 @@ test("Final Cut live transport round-trips newline-delimited JSON over a Unix so
     assert.equal(response.ok, true);
     if (response.ok) {
       assert.equal(response.result.identity.backend, "workflow-extension-ipc");
-      assert.equal(response.result.capabilities.timelineRead, false);
+      assert.equal(response.result.capabilities.editor.timelineSnapshotRead, false);
     }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -9,6 +9,8 @@ import type {
   MediaContext,
   Marker,
   ProjectSnapshot,
+  RationalTime,
+  RuntimeCapabilities,
 } from "../core/types.js";
 
 export interface InMemoryFixture {
@@ -16,7 +18,7 @@ export interface InMemoryFixture {
   projectName: string;
   timelineId: string;
   timelineName: string;
-  clips: Clip[];
+  clips: Array<Omit<Clip, "startTime" | "durationTime"> & Partial<Pick<Clip, "startTime" | "durationTime">>>;
   media?: MediaContext[];
   markers?: Marker[];
   assets?: EditorAsset[];
@@ -28,15 +30,27 @@ export class InMemoryEditorAdapter implements EditorPort {
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
+    const clips = fixture.clips.map((clip) => normalizeClip(clip));
     this.snapshot = {
       projectId: fixture.projectId,
       projectName: fixture.projectName,
       timeline: {
         id: fixture.timelineId,
         name: fixture.timelineName,
-        duration: fixture.clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
-        clips: fixture.clips.map((clip) => ({ ...clip })),
-        markers: structuredClone(fixture.markers ?? []),
+        duration: clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
+        durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
+        clips,
+        storyElements: clips.map((clip) => ({
+          id: clip.id,
+          kind: "asset-clip",
+          start: clip.start,
+          duration: clip.duration,
+          startTime: clip.startTime,
+          durationTime: clip.durationTime,
+          lane: clip.track,
+          mediaId: clip.mediaId,
+        })),
+        markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
         captions: [],
       },
       media: structuredClone(fixture.media ?? []),
@@ -60,18 +74,26 @@ export class InMemoryEditorAdapter implements EditorPort {
     return { name: "In-memory Editor", version: "phase-1-fixture", backend: "fixture" };
   }
 
-  public async getCapabilities(): Promise<EditorCapabilities> {
+  public async getCapabilities(): Promise<RuntimeCapabilities> {
     return {
-      projectRead: true,
-      timelineRead: true,
-      timelineWrite: true,
-      readAfterWrite: true,
-      incrementalChanges: true,
-      speechAnalysis: true,
-      audioAnalysis: true,
-      rollback: true,
-      visualAnalysis: false,
-      assetDiscovery: true,
+      editor: {
+        projectRead: true,
+        timelineSnapshotRead: true,
+        timelineWrite: true,
+        timelineArtifactWrite: false,
+        readAfterWrite: true,
+        incrementalChanges: true,
+        rollback: true,
+        assetDiscovery: true,
+        liveStateRead: false,
+        playheadWrite: false,
+      },
+      analyzers: {
+        speechTranscribe: false,
+        speechVad: false,
+        audioLoudness: false,
+        visualTrack: false,
+      },
     };
   }
 
@@ -94,7 +116,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         ...this.snapshot,
         timeline: {
           ...this.snapshot.timeline,
-          markers: [...this.snapshot.timeline.markers, { ...operation.marker }],
+          markers: [...this.snapshot.timeline.markers, normalizeMarker(operation.marker)],
         },
       });
       return;
@@ -119,7 +141,7 @@ export class InMemoryEditorAdapter implements EditorPort {
           duration: operation.durationTime
             ? Number(operation.durationTime.value) / Number(operation.durationTime.timescale)
             : operation.duration,
-          durationTime: operation.durationTime,
+          durationTime: operation.durationTime ?? decimalToRational(operation.duration),
         };
         break;
       case "set-gain":
@@ -138,6 +160,11 @@ export class InMemoryEditorAdapter implements EditorPort {
         ...this.snapshot.timeline,
         clips: this.snapshot.timeline.clips.map((candidate) =>
           candidate.id === operation.clipId ? updatedClip : candidate,
+        ),
+        storyElements: this.snapshot.timeline.storyElements.map((element) =>
+          element.id === operation.clipId
+            ? { ...element, start: updatedClip.start, duration: updatedClip.duration, durationTime: updatedClip.durationTime }
+            : element,
         ),
       },
     });
@@ -166,24 +193,35 @@ export class InMemoryEditorAdapter implements EditorPort {
     const clips = this.snapshot.timeline.clips.flatMap((clip) => {
       const clipEnd = clip.start + clip.duration;
       if (clipEnd <= start) return [clip];
-      if (clip.start >= end) return [{ ...clip, start: clip.start - removedDuration }];
+      if (clip.start >= end) return [withClipTime({ ...clip, start: clip.start - removedDuration })];
       const overlap = Math.min(clipEnd, end) - Math.max(clip.start, start);
       const duration = clip.duration - overlap;
       if (duration <= 0) return [];
-      return [{
+      return [withClipTime({
         ...clip,
         start: clip.start < start ? clip.start : start,
         duration,
-      }];
+      })];
     });
     const markers = this.snapshot.timeline.markers.flatMap((marker) => {
-      if (marker.start >= end) return [{ ...marker, start: marker.start - removedDuration }];
+      if (marker.start >= end) return [normalizeMarker({ ...marker, start: marker.start - removedDuration })];
       if (marker.start + marker.duration <= start) return [marker];
       return [];
     });
     this.snapshot = this.nextSnapshot({
       ...this.snapshot,
-      timeline: { ...this.snapshot.timeline, clips, markers },
+      timeline: {
+        ...this.snapshot.timeline,
+        clips,
+        storyElements: this.snapshot.timeline.storyElements
+          .filter((element) => clips.some((clip) => clip.id === element.id))
+          .map((element) => {
+            const clip = clips.find((candidate) => candidate.id === element.id);
+            return clip ? { ...element, start: clip.start, duration: clip.duration, startTime: clip.startTime, durationTime: clip.durationTime } : element;
+          }),
+        markers,
+        durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
+      },
     });
   }
 
@@ -201,4 +239,28 @@ export class InMemoryEditorAdapter implements EditorPort {
       },
     };
   }
+}
+
+function normalizeClip(clip: InMemoryFixture["clips"][number]): Clip {
+  return withClipTime({ ...clip, startTime: clip.startTime, durationTime: clip.durationTime });
+}
+
+function withClipTime(clip: Omit<Clip, "startTime" | "durationTime"> & Partial<Pick<Clip, "startTime" | "durationTime">>): Clip {
+  return {
+    ...clip,
+    startTime: clip.startTime ?? decimalToRational(clip.start),
+    durationTime: clip.durationTime ?? decimalToRational(clip.duration),
+  };
+}
+
+function normalizeMarker(marker: Marker): Marker {
+  return { ...marker, startTime: marker.startTime ?? decimalToRational(marker.start), durationTime: marker.durationTime ?? decimalToRational(marker.duration) };
+}
+
+function decimalToRational(value: number): RationalTime {
+  const text = value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  if (!text.includes(".")) return { value: text, timescale: "1" };
+  const decimals = text.split(".")[1].length;
+  const scale = 10 ** decimals;
+  return { value: String(Math.round(value * scale)), timescale: String(scale) };
 }

@@ -1,6 +1,8 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { InMemoryEditorAdapter } from "../adapters/in-memory-editor.js";
 import { createFinalCutLiveAdapter } from "../adapters/final-cut-live.js";
+import { FcpxmlDocumentAdapter } from "../adapters/final-cut.js";
+import { FinalCutSessionAdapter } from "../adapters/final-cut-session.js";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer } from "../analyzers/fixture.js";
 import { AgentVideoRuntime } from "../core/runtime.js";
 import { createMcpServer } from "./server.js";
@@ -22,7 +24,15 @@ const fixture = new InMemoryEditorAdapter({
 });
 
 const editor = process.env.PLAYHEAD_EDITOR === "final-cut-live"
-  ? createFinalCutLiveAdapter()
+  ? new FinalCutSessionAdapter({
+      live: createFinalCutLiveAdapter(),
+      ...(process.env.PLAYHEAD_FCPXML_PATH
+        ? (() => {
+            const document = new FcpxmlDocumentAdapter(process.env.PLAYHEAD_FCPXML_PATH);
+            return { snapshot: document, mutation: document };
+          })()
+        : {}),
+    })
   : fixture;
 
 const runtime = new AgentVideoRuntime(editor, {
