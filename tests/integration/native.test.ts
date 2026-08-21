@@ -5,7 +5,7 @@ import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 const separator = String.fromCharCode(31);
 
 function context(frontmost: boolean, windowName: string, selectedName: string, selectedCount: number, undo: boolean): string {
-  return [frontmost ? "true" : "false", windowName, String(selectedCount), selectedName, selectedName ? "UI element" : "", undo ? "true" : "false"].join(separator);
+  return [frontmost ? "true" : "false", windowName, String(selectedCount), selectedName, selectedName ? "UI element" : "", undo ? "true" : "false", "true"].join(separator);
 }
 
 test("native Final Cut adapter edits the active selection and uses native undo", async () => {
@@ -61,4 +61,103 @@ test("native Final Cut adapter is disabled by default", async () => {
     adapter.undo("native-op-missing"),
     /CAPABILITY_UNAVAILABLE/,
   );
+});
+
+test("native Final Cut adapter searches, locates, previews, and verifies a Blade", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const scripts: string[] = [];
+  let occurrenceReads = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => 1_000,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes('set output to ""') && script.includes("candidateName is")) {
+        occurrenceReads += 1;
+        return occurrenceReads === 1
+          ? `Interview${separator}AXRow${recordSeparator}`
+          : `Interview${separator}AXRow${recordSeparator}Interview${separator}AXRow${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const matches = await adapter.searchMedia("Interview");
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].name, "Interview");
+  const occurrences = await adapter.locateOccurrence(matches[0].handle);
+  assert.equal(occurrences.status, "unique");
+  assert.equal(occurrences.occurrences.length, 1);
+  const preview = await adapter.previewBlade(occurrences.occurrences[0].handle);
+  assert.equal(preview.command, "Blade at playhead");
+  const result = await adapter.executeBlade(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.equal(result.resultingSegments.length, 2);
+  assert.equal(scripts.some((script) => script.includes("Blade")), true);
+});
+
+test("native Final Cut Blade previews expire and stale handles fail closed", async () => {
+  let clock = 1_000;
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes('set output to ""') && script.includes("candidateName is")) return `Interview${separator}AXRow${recordSeparator}`;
+      return "";
+    },
+  });
+  const [match] = await adapter.searchMedia("Interview");
+  await assert.rejects(adapter.locateOccurrence("media-stale"), /MEDIA_HANDLE_STALE/);
+  const located = await adapter.locateOccurrence(match.handle);
+  const [occurrence] = located.occurrences;
+  const preview = await adapter.previewBlade(occurrence.handle);
+  clock += 31_000;
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/);
+});
+
+test("native Final Cut rejects ambiguous occurrences and an out-of-range playhead", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const ambiguous = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes("candidateName is")) return `Interview${separator}AXRow${recordSeparator}Interview${separator}AXRow${recordSeparator}`;
+      return "";
+    },
+    liveState,
+  });
+  const [match] = await ambiguous.searchMedia("Interview");
+  const located = await ambiguous.locateOccurrence(match.handle);
+  assert.equal(located.status, "ambiguous");
+  await assert.rejects(ambiguous.previewBlade(located.occurrences[0].handle), /AMBIGUOUS_OCCURRENCE/);
+
+  const outOfRange = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes("candidateName is")) return `Interview${separator}AXRow${separator}10/1${separator}2/1${recordSeparator}`;
+      return "";
+    },
+    liveState,
+  });
+  const [outOfRangeMatch] = await outOfRange.searchMedia("Interview");
+  const outOfRangeOccurrence = (await outOfRange.locateOccurrence(outOfRangeMatch.handle)).occurrences[0];
+  await assert.rejects(outOfRange.previewBlade(outOfRangeOccurrence.handle), /PLAYHEAD_OUTSIDE_OCCURRENCE/);
 });

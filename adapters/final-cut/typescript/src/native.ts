@@ -10,6 +10,55 @@ export type NativeFinalCutEdit =
   | { type: "set-selected-clip-gain"; gainDb: number }
   | { type: "add-marker-at-playhead"; name: string; duration?: number };
 
+export interface NativeFinalCutMediaMatch {
+  handle: string;
+  name: string;
+  role?: string;
+  source?: string;
+  browserContext?: string;
+  uiIndex?: number;
+}
+
+export interface NativeFinalCutOccurrence {
+  handle: string;
+  mediaHandle: string;
+  name: string;
+  start?: string;
+  duration?: string;
+  role?: string;
+  sequence?: string;
+  sequenceId?: string;
+  revision?: string;
+  uiContext?: string;
+}
+
+export interface NativeFinalCutOccurrenceSearchResult {
+  status: "none" | "unique" | "ambiguous";
+  occurrences: NativeFinalCutOccurrence[];
+}
+
+export interface NativeFinalCutBladePreview {
+  previewToken: string;
+  occurrence: NativeFinalCutOccurrence;
+  playheadTime?: string;
+  command: "Blade at playhead";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutBladeResult {
+  operationId: string;
+  previewToken: string;
+  occurrence: NativeFinalCutOccurrence;
+  resultingSegments: NativeFinalCutOccurrence[];
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+}
+
 export interface NativeFinalCutContext {
   available: boolean;
   application: "Final Cut Pro";
@@ -23,6 +72,7 @@ export interface NativeFinalCutContext {
     name?: string;
     role?: string;
   };
+  bladeAvailable: boolean;
   undoAvailable: boolean;
   error?: { code: string; message: string };
 }
@@ -30,6 +80,10 @@ export interface NativeFinalCutContext {
 export interface NativeFinalCutCapabilities {
   selectionEdit: boolean;
   undo: boolean;
+  mediaLibrarySearch: boolean;
+  mediaSelection: boolean;
+  timelineOccurrenceLocate: boolean;
+  bladeAtPlayhead: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
 }
@@ -58,6 +112,7 @@ export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
   executor?: (script: string) => Promise<string>;
   liveState?: () => Promise<EditorLiveState>;
+  now?: () => number;
 }
 
 export interface NativeFinalCutEditor {
@@ -65,24 +120,39 @@ export interface NativeFinalCutEditor {
   inspect(): Promise<NativeFinalCutContext>;
   edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult>;
   undo(operationId: string): Promise<NativeFinalCutUndoResult>;
+  searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
+  selectMedia(handle: string): Promise<NativeFinalCutContext>;
+  locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
+  previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview>;
+  executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult>;
 }
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly now: () => number;
   private readonly operations = new Set<string>();
+  private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
+  private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
+  private readonly ambiguousMediaHandles = new Set<string>();
+  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
     this.executor = options.executor ?? runAppleScript;
     this.liveState = options.liveState;
+    this.now = options.now ?? Date.now;
   }
 
   public capabilities(): NativeFinalCutCapabilities {
     return {
       selectionEdit: this.enabled,
       undo: this.enabled,
+      mediaLibrarySearch: this.enabled,
+      mediaSelection: this.enabled,
+      timelineOccurrenceLocate: this.enabled,
+      bladeAtPlayhead: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
     };
@@ -146,8 +216,158 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return { operationId, undone: true, context: after };
   }
 
+  public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
+    this.assertEnabled();
+    if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
+    const context = await this.requireAvailableContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    try {
+      const matches = parseMediaMatches(await this.executor(searchMediaScript(query)));
+      this.mediaHandles.clear();
+      for (const match of matches) this.mediaHandles.set(match.handle, match);
+      return matches;
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
+  public async selectMedia(handle: string): Promise<NativeFinalCutContext> {
+    this.assertEnabled();
+    const match = this.mediaHandles.get(handle);
+    if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${handle}`);
+    const before = await this.requireAvailableContext();
+    if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    try {
+      await this.executor(selectMediaScript(match));
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    const after = await this.requireAvailableContext();
+    if (after.target.kind !== "selected-clip" || (match.name && after.target.name !== match.name)) {
+      throw new Error("FINAL_CUT_NATIVE_SELECTION_VERIFICATION_FAILED: Final Cut did not expose the requested Browser item as selected");
+    }
+    return after;
+  }
+
+  public async locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
+    this.assertEnabled();
+    const match = this.mediaHandles.get(mediaHandle);
+    if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
+    const context = await this.requireAvailableContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    try {
+      const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match)), mediaHandle);
+      const live = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
+      for (const occurrence of occurrences) {
+        occurrence.sequence = live?.sequence?.name;
+        occurrence.sequenceId = live?.sequence?.id;
+        occurrence.revision = live?.revision.id;
+        occurrence.uiContext = context.frontWindow;
+      }
+      this.occurrenceHandles.clear();
+      this.ambiguousMediaHandles.clear();
+      for (const occurrence of occurrences) this.occurrenceHandles.set(occurrence.handle, occurrence);
+      if (occurrences.length !== 1) this.ambiguousMediaHandles.add(mediaHandle);
+      return {
+        status: occurrences.length === 0 ? "none" : occurrences.length === 1 ? "unique" : "ambiguous",
+        occurrences,
+      };
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
+  public async previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview> {
+    this.assertEnabled();
+    const occurrence = this.occurrenceHandles.get(occurrenceHandle);
+    if (!occurrence) throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown occurrence handle ${occurrenceHandle}`);
+    if (this.ambiguousMediaHandles.has(occurrence.mediaHandle)) {
+      throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_OCCURRENCE: automatic Blade requires exactly one timeline occurrence");
+    }
+    const context = await this.requireAvailableContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    if (context.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
+    if (context.target.name && context.target.name !== occurrence.name) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
+    }
+    await this.validateOccurrenceBinding(occurrence);
+    if (!context.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const expiresAtMs = this.now() + 30_000;
+    const previewToken = opaqueHandle("blade-preview");
+    this.bladePreviews.set(previewToken, { occurrence, expiresAt: expiresAtMs });
+    return {
+      previewToken,
+      occurrence,
+      ...(context.playheadTime ? { playheadTime: context.playheadTime } : {}),
+      command: "Blade at playhead",
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    };
+  }
+
+  public async executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult> {
+    this.assertEnabled();
+    const preview = this.bladePreviews.get(previewToken);
+    if (!preview) throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: unknown Blade preview ${previewToken}`);
+    this.bladePreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade preview has expired");
+    const before = await this.requireAvailableContext();
+    if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
+    if (before.target.name && before.target.name !== preview.occurrence.name) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
+    }
+    await this.validateOccurrenceBinding(preview.occurrence);
+    if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    try {
+      await this.executor(bladeScript());
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    const after = await this.requireAvailableContext();
+    if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
+    const resultingSegments = parseOccurrences(
+      await this.executor(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name })),
+      preview.occurrence.mediaHandle,
+    );
+    if (resultingSegments.length < 2) {
+      throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
+    }
+    const operationId = opaqueHandle("native-blade");
+    this.operations.add(operationId);
+    return {
+      operationId,
+      previewToken,
+      occurrence: preview.occurrence,
+      resultingSegments,
+      before,
+      after,
+      verification: { verified: true, detail: "Final Cut accepted the Blade command while the target remained frontmost" },
+      undoAvailable: after.undoAvailable,
+    };
+  }
+
   private assertEnabled(): void {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
+  }
+
+  private async validateOccurrenceBinding(occurrence: NativeFinalCutOccurrence): Promise<void> {
+    if (!this.liveState || !occurrence.revision) return;
+    const live = await this.liveState().catch(() => undefined);
+    if (!live) return;
+    if (occurrence.sequenceId && live.sequence?.id !== occurrence.sequenceId) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: active sequence changed");
+    }
+    if (live.revision.id !== occurrence.revision) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: playhead or timeline revision changed");
+    }
+    if (occurrence.start && occurrence.duration && live.playheadTime) {
+      const start = parseRationalNumber(occurrence.start);
+      const duration = parseRationalNumber(occurrence.duration);
+      const playhead = Number(live.playheadTime.value) / Number(live.playheadTime.timescale);
+      if (start !== undefined && duration !== undefined && (playhead < start || playhead >= start + duration)) {
+        throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: playhead is outside the target occurrence");
+      }
+    }
   }
 
   private async requireTarget(operation: NativeFinalCutEdit): Promise<NativeFinalCutContext> {
@@ -210,8 +430,106 @@ tell application "System Events"
     try
       set undoEnabled to enabled of menu item "Undo" of menu "Edit" of menu bar 1
     end try
+    set bladeEnabled to false
+    try
+      set bladeEnabled to enabled of menu item "Blade" of menu "Modify" of menu bar 1
+    end try
     set frontState to frontmost as text
-    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled
+    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled
+  end tell
+end tell`;
+}
+
+function searchMediaScript(query: string): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    if not frontmost then error number -1719
+    set searchQuery to ${appleScriptString(query)}
+    keystroke "f" using {command down}
+    delay 0.2
+    try
+      set value of focused text field of front window to searchQuery
+      key code 36
+    end try
+    delay 0.5
+    set output to ""
+    repeat with candidate in entire contents of front window
+      try
+        set candidateRole to role of candidate as text
+        set candidateName to name of candidate as text
+        if candidateName is not "" and (candidateRole contains "row" or candidateRole contains "cell") then
+          set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 30)
+        end if
+      end try
+    end repeat
+    return output
+  end tell
+end tell`;
+}
+
+function selectMediaScript(match: NativeFinalCutMediaMatch): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    if not frontmost then error number -1719
+    set matchIndex to 0
+    repeat with candidate in entire contents of front window
+      try
+        if (name of candidate as text) is ${appleScriptString(match.name)} and (role of candidate as text) contains "row" then
+          if matchIndex is ${match.uiIndex ?? 0} then
+            click candidate
+            return "selected"
+          end if
+          set matchIndex to matchIndex + 1
+        end if
+      on error
+        -- Ignore inaccessible transient elements while the Browser redraws.
+      end try
+    end repeat
+    repeat with candidate in entire contents of front window
+      try
+        if (name of candidate as text) is ${appleScriptString(match.name)} then
+          click candidate
+          return "selected"
+        end if
+      end try
+    end repeat
+    error number -1728
+  end tell
+end tell`;
+}
+
+function locateOccurrenceScript(match: NativeFinalCutMediaMatch): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    if not frontmost then error number -1719
+    set output to ""
+    repeat with candidate in entire contents of front window
+      try
+        set candidateRole to role of candidate as text
+        set candidateName to name of candidate as text
+        if candidateName is ${appleScriptString(match.name)} and (candidateRole contains "row" or candidateRole contains "cell") then
+          set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 30)
+        end if
+      end try
+    end repeat
+    return output
+  end tell
+end tell`;
+}
+
+function bladeScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    if not frontmost then error number -1719
+    try
+      click menu item "Blade" of menu "Modify" of menu bar 1
+    on error
+      keystroke "b"
+    end try
   end tell
 end tell`;
 }
@@ -242,7 +560,7 @@ end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState] = output.split(String.fromCharCode(31));
   const selectedCount = Number(selectedCountText ?? "0");
   const target = selectedCount === 1
     ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}) }
@@ -255,8 +573,53 @@ function parseContext(output: string): NativeFinalCutContext {
     frontmost: frontState === "true",
     frontWindow,
     target,
+    bladeAvailable: bladeState === "true",
     undoAvailable: undoState === "true",
   };
+}
+
+function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {
+  return output
+    .split(String.fromCharCode(30))
+    .map((record) => record.trim())
+    .filter(Boolean)
+    .map((record, index) => {
+      const [name = "", role = ""] = record.split(String.fromCharCode(31));
+      return {
+        handle: opaqueHandle("media", index),
+        name,
+        ...(role ? { role } : {}),
+        uiIndex: index,
+      };
+    });
+}
+
+function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOccurrence[] {
+  return output
+    .split(String.fromCharCode(30))
+    .map((record) => record.trim())
+    .filter(Boolean)
+    .map((record, index) => {
+      const [name = "", role = "", start, duration] = record.split(String.fromCharCode(31));
+      return {
+        handle: opaqueHandle("occurrence", index),
+        mediaHandle,
+        name,
+        ...(role ? { role } : {}),
+        ...(start ? { start } : {}),
+        ...(duration ? { duration } : {}),
+      };
+    });
+}
+
+function opaqueHandle(kind: string, suffix?: number): string {
+  return `${kind}-${Date.now().toString(36)}-${suffix ?? Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseRationalNumber(value: string): number | undefined {
+  const [numerator, timescale] = value.split("/").map(Number);
+  if (!Number.isFinite(numerator) || !Number.isFinite(timescale) || timescale <= 0) return undefined;
+  return numerator / timescale;
 }
 
 function unavailableContext(code: string, message: string): NativeFinalCutContext {
@@ -266,6 +629,7 @@ function unavailableContext(code: string, message: string): NativeFinalCutContex
     frontmost: false,
     target: { kind: "none" },
     undoAvailable: false,
+    bladeAvailable: false,
     error: { code, message },
   };
 }

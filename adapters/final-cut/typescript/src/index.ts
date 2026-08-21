@@ -5,3 +5,4 @@ export * from "./session.js";
 export * from "./analyzers.js";
 export * from "./assets.js";
 export * from "./native.js";
+export * from "./publisher.js";
