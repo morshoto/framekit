@@ -92,6 +92,19 @@ produce a canonical timeline diff.
 
 ## Live Browser and Blade E2E
 
+The repeatable headed runner is guarded by an exact disposable project name:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Disposable E2E" \
+FRAMEKIT_FINAL_CUT_E2E_QUERY="known-video-name" \
+pnpm run test:final-cut-headed
+```
+
+It refuses to mutate Final Cut unless the native inspection reports that exact
+project as frontmost. Use a duplicate project containing a known Browser video;
+the runner searches, selects, locates one occurrence, Blades, verifies two
+segments, undoes, and verifies the original occurrence is restored.
+
 With the same disposable project and native opt-in, verify the complete live
 workflow:
 
