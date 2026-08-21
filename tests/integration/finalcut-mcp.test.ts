@@ -220,6 +220,15 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     assert.equal(editor.native.deleteRange, true);
     assert.equal(editor.native.trimToDuration, true);
 
+    const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    assert.equal(typeof native.timelineWindowAvailable, "boolean");
+    assert.equal(typeof native.timelineFocused, "boolean");
+    assert.ok(["timeline", "browser", "text-field", "modal", "unknown", "none"].includes(native.focusTarget));
+    if (native.error) {
+      assert.match(native.error.code, /^FINAL_CUT_NATIVE_/);
+      assert.equal(typeof native.error.message, "string");
+    }
+
     const preview = await client.callTool({
       name: "editor.native.delete-range.preview",
       arguments: {
@@ -227,8 +236,13 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
         end: { value: "2", timescale: "1" },
       },
     });
-    assert.equal(preview.isError, true);
-    assert.match(textFrom(preview), /FINAL_CUT_NATIVE_/);
+    if (preview.isError) {
+      assert.match(textFrom(preview), /FINAL_CUT_NATIVE_/);
+    } else {
+      const payload = JSON.parse(textFrom(preview));
+      assert.equal(payload.operation, "delete-range");
+      assert.equal(typeof payload.previewToken, "string");
+    }
   } finally {
     await client.close();
     await transport.close();

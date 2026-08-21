@@ -45,13 +45,19 @@ try {
   await client.connect(transport);
   await activateFinalCut();
   const native = await waitForNativeReady();
-  if (!native.available || !native.frontmost) {
-    throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.message ?? "Final Cut timeline is not frontmost"}`);
+  if (!native.available || !native.frontmost || !native.timelineWindowAvailable || !native.timelineFocused || native.focusTarget !== "timeline") {
+    throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.code ?? nativePreflightError(native)}: ${native.error?.message ?? "Final Cut timeline preflight did not establish a focused timeline"}`);
   }
   if (native.project && native.project !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${native.project}`);
   }
   await assertFinalCutProject(expectedProject);
+
+  const preflightLive = await callJson("editor.live.inspect");
+  const preflightDuration = preflightLive.sequenceTimeRange?.duration ?? preflightLive.sequence?.duration;
+  if (!preflightDuration) throw new Error("FINAL_CUT_E2E_PREFLIGHT_DURATION_UNAVAILABLE: live sequence duration is required");
+  const preflight = await callJson("editor.native.trim-to-duration.preview", { duration: preflightDuration });
+  if (!preflight.previewToken) throw new Error("FINAL_CUT_E2E_PREFLIGHT_FAILED: native timeline preflight did not return a preview token");
 
   const matches = await callJson("editor.native.media.search", { query });
   if (!Array.isArray(matches) || matches.length === 0) throw new Error("FINAL_CUT_E2E_MEDIA_NOT_FOUND: Browser search returned no results");
@@ -143,13 +149,19 @@ async function waitForNativeReady() {
     try {
       await focusFinalCut();
       last = await callJson("editor.native.inspect");
-      if (last.available && last.frontmost) return last;
+      if (last.available && last.frontmost && last.timelineWindowAvailable && last.timelineFocused && last.focusTarget === "timeline") return last;
     } catch (error) {
       last = { error: { message: error instanceof Error ? error.message : String(error) } };
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return last;
+}
+
+function nativePreflightError(native) {
+  if (!native?.timelineWindowAvailable) return "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
+  if (!native?.frontmost) return "FINAL_CUT_NATIVE_NOT_FRONTMOST";
+  return "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED";
 }
 
 async function focusFinalCut() {

@@ -4,8 +4,31 @@ import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 
 const separator = String.fromCharCode(31);
 
-function context(frontmost: boolean, windowName: string, selectedName: string, selectedCount: number, undo: boolean): string {
-  return [frontmost ? "true" : "false", windowName, String(selectedCount), selectedName, selectedName ? "UI element" : "", undo ? "true" : "false", "true"].join(separator);
+function context(
+  frontmost: boolean,
+  windowName: string,
+  selectedName: string,
+  selectedCount: number,
+  undo: boolean,
+  timelineWindowAvailable = Boolean(windowName),
+  timelineFocused = frontmost && timelineWindowAvailable,
+  focusTarget = timelineFocused ? "timeline" : timelineWindowAvailable ? "unknown" : "none",
+): string {
+  return [
+    frontmost ? "true" : "false",
+    windowName,
+    String(selectedCount),
+    selectedName,
+    selectedName ? "UI element" : "",
+    undo ? "true" : "false",
+    "true",
+    "",
+    "",
+    "",
+    timelineWindowAvailable ? "true" : "false",
+    timelineFocused ? "true" : "false",
+    focusTarget,
+  ].join(separator);
 }
 
 test("native Final Cut adapter edits the active selection and uses native undo", async () => {
@@ -20,7 +43,7 @@ test("native Final Cut adapter edits the active selection and uses native undo",
     enabled: true,
     executor: async (script) => {
       scripts.push(script);
-      return script.includes("entire contents") ? contextOutputs.shift()! : "";
+      return script.includes("entire contents") || script.includes("timelineWindowAvailable") ? contextOutputs.shift()! : "";
     },
   });
 
@@ -31,6 +54,8 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(result.after.target.name, "Interview Clean");
   assert.match(result.command, /Apply Custom Name/);
   assert.equal(scripts.some((script) => script.includes("Apply Custom Name")), true);
+  assert.equal(scripts.some((script) => script.includes("timelineWindowAvailable")), true);
+  assert.equal(scripts.some((script) => script.includes("Apply Custom Name") && script.includes("tell application \"Final Cut Pro\" to activate")), false);
   assert.equal(scripts.some((script) => script.includes("focused text field")), false);
   assert.equal(scripts.some((script) => script.includes("first text field of front window")), true);
 
@@ -38,12 +63,13 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(undone.undone, true);
   assert.equal(undone.context.target.name, "Interview");
   assert.equal(scripts.some((script) => script.includes('keystroke "z" using {command down}')), true);
+  assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
 test("native Final Cut adapter refuses edits without a selected clip", async () => {
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    executor: async (script) => script.includes("entire contents")
+    executor: async (script) => script.includes("entire contents") || script.includes("timelineWindowAvailable")
       ? context(true, "Final Cut Pro", "", 0, true)
       : "",
   });
@@ -63,6 +89,91 @@ test("native Final Cut adapter is disabled by default", async () => {
     adapter.undo("native-op-missing"),
     /CAPABILITY_UNAVAILABLE/,
   );
+});
+
+test("native timeline preflight retries a focus race before editing", async () => {
+  let clock = 0;
+  let preflightCalls = 0;
+  let renamed = false;
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        return preflightCalls < 3
+          ? context(false, "Final Cut Pro", "Interview", 1, true, true, false, "unknown")
+          : context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true);
+      }
+      if (script.includes("Apply Custom Name")) {
+        renamed = true;
+        return "";
+      }
+      return script.includes("entire contents") ? context(true, "Final Cut Pro", "Interview Clean", 1, true) : "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.verification.verified, true);
+  assert.equal(preflightCalls >= 3, true);
+  assert.equal(scripts.some((script) => script.includes("tell application \"Final Cut Pro\" to activate")), true);
+});
+
+test("native timeline preflight reports a missing timeline window without mutating", async () => {
+  let clock = 0;
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async (script) => {
+      scripts.push(script);
+      return script.includes("timelineWindowAvailable")
+        ? context(false, "", "", 0, false, false, false, "none")
+        : "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.edit({ type: "add-marker-at-playhead", name: "marker" }),
+    /FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW/,
+  );
+  assert.equal(scripts.some((script) => script.includes("menu item \"Marker\"")), false);
+});
+
+test("native timeline preflight distinguishes background Final Cut and unfocused timeline targets", async () => {
+  let clock = 0;
+  const background = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? context(false, "Final Cut Pro", "Interview", 1, true, true, false, "unknown")
+      : "",
+  });
+  await assert.rejects(
+    background.edit({ type: "add-marker-at-playhead", name: "marker" }),
+    /FINAL_CUT_NATIVE_NOT_FRONTMOST/,
+  );
+
+  for (const focusTarget of ["browser", "text-field"] as const) {
+    clock = 0;
+    const unfocused = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+      executor: async (script) => script.includes("timelineWindowAvailable")
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, false, focusTarget)
+        : "",
+    });
+    await assert.rejects(
+      unfocused.edit({ type: "add-marker-at-playhead", name: "marker" }),
+      /FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED/,
+    );
+  }
 });
 
 test("native Final Cut adapter searches, locates, previews, and verifies a Blade", async () => {
@@ -102,9 +213,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(result.verification.verified, true);
   assert.equal(result.resultingSegments.length, 2);
   assert.equal(scripts.some((script) => script.includes("Blade")), true);
+  assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
 });
 
-test("native Final Cut media selection refocuses Final Cut after dismissing the extension window", async () => {
+test("native Final Cut media selection refocuses Final Cut without closing the extension window", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
@@ -125,6 +237,7 @@ test("native Final Cut media selection refocuses Final Cut after dismissing the 
   const selected = await adapter.selectMedia(match.handle);
   assert.equal(selected.target.kind, "browser-media");
   assert.equal(scripts.filter((script) => script.includes("set frontmost to true")).length >= 2, true);
+  assert.equal(scripts.some((script) => script.includes('click button 1 of window "Framekit"')), false);
 });
 
 test("native UI transactions pause and resume live connection supervision", async () => {
@@ -248,12 +361,14 @@ test("native Final Cut previews and executes a primary-storyline delete range", 
   assert.equal(scripts.some((script) => script.includes("00:00:10:00")), true);
   assert.equal(scripts.some((script) => script.includes("00:00:15:00")), true);
   assert.equal(scripts.some((script) => script.includes("key code 51")), true);
+  assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
 });
 
 test("native Final Cut trim-to-duration deletes the tail and is idempotent when already short enough", async () => {
   let revision = 1;
   let duration = "20";
   let playhead = "0";
+  const scripts: string[] = [];
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
     sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
@@ -265,6 +380,7 @@ test("native Final Cut trim-to-duration deletes the tail and is idempotent when 
     enabled: true,
     liveState,
     executor: async (script) => {
+      scripts.push(script);
       if (script.includes("00:00:12:00")) playhead = "12";
       if (script.includes("00:00:20:00")) playhead = "20";
       if (script.includes("key code 51")) {
@@ -283,6 +399,7 @@ test("native Final Cut trim-to-duration deletes the tail and is idempotent when 
   const result = await adapter.executeTrimToDuration(preview.previewToken);
   assert.equal(result.verification.verified, true);
   assert.deepEqual(result.afterDuration, { value: "12", timescale: "1" });
+  assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
 
   const noopPreview = await adapter.previewTrimToDuration({ value: "30", timescale: "1" });
   assert.deepEqual(noopPreview.range.start, { value: "0", timescale: "1" });
@@ -325,4 +442,40 @@ test("native Final Cut range previews reject invalid and stale ranges", async ()
   const preview = await adapter.previewDeleteRange({ start: { value: "5", timescale: "1" }, end: { value: "6", timescale: "1" } });
   revision = "rev-2";
   await assert.rejects(adapter.executeDeleteRange(preview.previewToken), /PREVIEW_STALE/);
+});
+
+test("native range execute re-runs preflight and fails closed before mutation", async () => {
+  let clock = 0;
+  let preflightReady = true;
+  let deleteCommandIssued = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    liveState,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        return preflightReady
+          ? context(true, "Final Cut Pro", "Interview", 1, true)
+          : context(false, "", "", 0, false, false, false, "none");
+      }
+      if (script.includes("key code 51")) deleteCommandIssued = true;
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewDeleteRange({
+    start: { value: "5", timescale: "1" },
+    end: { value: "6", timescale: "1" },
+  });
+  preflightReady = false;
+  await assert.rejects(adapter.executeDeleteRange(preview.previewToken), /FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW/);
+  assert.equal(deleteCommandIssued, false);
 });
