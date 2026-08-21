@@ -84,11 +84,16 @@ FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
 framekit mcp --editor final-cut-live
 ```
 
-Grant Accessibility and Automation permission to the MCP host. Verify
-`editor.native.inspect` reports a frontmost Final Cut timeline and a selected
-clip, then test one rename or trim operation followed by
-`editor.native.undo`. Native operations are selection-scoped and do not
-produce a canonical timeline diff.
+Grant Accessibility and Automation permission to the MCP host. The native
+adapter activates Final Cut, waits up to two seconds for an accessible project
+timeline, and focuses the timeline pane before the operation. If setup is
+incomplete, expect one of `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`,
+`FINAL_CUT_NATIVE_NOT_FRONTMOST`, or
+`FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`. Verify
+`editor.native.inspect` reports the focus diagnostics and a selected clip,
+then test one rename or trim operation followed by `editor.native.undo`.
+Native operations are selection-scoped and do not produce a canonical
+timeline diff.
 
 ## Live Browser and Blade E2E
 

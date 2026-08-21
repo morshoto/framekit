@@ -6,17 +6,17 @@
 | --- | --- | --- |
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
-| `editor.native.inspect` | Active native Final Cut selection/playhead | Requires native writes opt-in and Accessibility permission |
+| `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
 | `editor.native.media.search` | Search the active Final Cut Browser | Returns short-lived media handles; native writes required |
 | `editor.native.media.select` | Select a Browser result by handle | Fails if the result or selection cannot be verified |
-| `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match before automatic editing |
+| `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
 | `editor.native.blade.preview` | Prepare a Blade-at-playhead preview token | Token expires and is bound to the occurrence |
-| `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost Final Cut and post-command verification |
-| `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute |
+| `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost, timeline-focused Final Cut and post-command verification |
+| `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute and timeline focus |
 | `editor.native.delete-range.execute` | Execute a previewed primary-storyline ripple delete | Requires unchanged sequence revision and duration |
-| `editor.native.trim-to-duration.preview` | Preview removal of the sequence tail after a requested duration | Preserves the beginning; destructive; requires explicit execute |
+| `editor.native.trim-to-duration.preview` | Preview removal of the sequence tail after a requested duration | Preserves the beginning; destructive; requires explicit execute and timeline focus |
 | `editor.native.trim-to-duration.execute` | Execute a previewed trim-to-duration operation | Requires unchanged sequence revision and duration |
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |

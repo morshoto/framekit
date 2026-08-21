@@ -55,9 +55,11 @@ framekit mcp --editor final-cut-live
 ```
 
 Grant Accessibility and Automation permission to the terminal or host running
-the MCP process. The user must keep Final Cut's timeline frontmost and select
-the target clip before calling `editor.native.edit`. Native writes fail closed
-when permission, focus, selection, or menu verification is unavailable.
+the MCP process. Framekit activates Final Cut and focuses the timeline before
+timeline-native operations. The user must open the intended project timeline
+and select the target clip before calling `editor.native.edit`; Framekit does
+not choose projects automatically. Native writes fail closed when permission,
+window, focus, selection, or menu verification is unavailable.
 
 ## Live Browser search and Blade
 
@@ -90,6 +92,14 @@ Native range operations use rational frame times and a preview/execute flow:
 selected range. `trim-to-duration` preserves the beginning of the sequence and
 deletes everything after the requested duration. A target duration that is
 already at or beyond the current duration returns a verified no-op.
+
+Before timeline-native preview or execute calls, Framekit activates Final Cut
+Pro, waits up to two seconds for an accessible project timeline, and focuses
+the timeline pane through Accessibility UI automation. It does not open or
+select projects automatically. If setup is incomplete, it returns one of
+`FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`,
+`FINAL_CUT_NATIVE_NOT_FRONTMOST`, or
+`FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED` without issuing an edit command.
 
 These operations do not automatically choose clips, connected media, or
 unnecessary footage. They also do not change the canonical `timelineWrite`

@@ -1,135 +1,99 @@
-# Native Final Cut timeline operations
+# Harden Final Cut native UI preflight
 
 ## Summary
 
-Add three guarded live Final Cut operations:
+Add a shared, fail-closed native preflight that makes Final Cut active, waits for an accessible timeline
+window, verifies application focus, focuses the timeline pane, and reports precise UI-state errors before any
+native timeline operation.
 
-- blade_at_playhead: split the explicitly targeted timeline occurrence at the current playhead.
-- delete_range: ripple-delete an explicit time range from the primary storyline.
-- trim_to_duration: preserve the beginning of the sequence and ripple-delete everything after the requested
-duration.
+The live bridge, canonical FCPXML capabilities, preview-token flow, revision binding, and native Undo behavior
+remain unchanged.
 
-All destructive operations use preview tokens, explicit execute calls, revision binding, native Undo, and
-post-operation verification. These remain separate native UI capabilities; timelineWrite and canonical live
-timeline snapshots remain unavailable.
+## Implementation changes
 
-## API and capability changes
+- Add ensureTimelineReady() to FinalCutNativeAutomationAdapter.
+    - Activate Final Cut explicitly.
+    - Poll every 100 ms for up to 2 seconds.
+    - Require an accessible Final Cut timeline window.
+    - Verify the Final Cut process is frontmost.
+    - Click the existing timeline region.
+    - Probe AXFocusedUIElement and classify the focus target.
+    - Treat timeline-like AX roles as focused; reject browser, search, text-field, modal, or unknown focus.
+    - Do not open, select, or change projects automatically.
 
-- Preserve the existing editor.native.blade.preview / editor.native.blade.execute contract and document it as
-blade_at_playhead.
+- Introduce stable errors:
+    - FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW
+    - FINAL_CUT_NATIVE_NOT_FRONTMOST
+    - FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED
 
-- Add:
-  - editor.native.delete-range.preview
-  - editor.native.delete-range.execute
-  - editor.native.trim-to-duration.preview
-  - editor.native.trim-to-duration.execute
+- Extend native inspection context with diagnostic fields:
+    - timelineWindowAvailable
+    - timelineFocused
+    - focusTarget
+    - existing frontmost and frontWindow remain compatible.
 
-- Use rational frame times:
-  - delete-range.preview: { start: { value, timescale }, end: { value, timescale } }
-  - trim-to-duration.preview: { duration: { value, timescale } }
+- Apply the preflight to all timeline operations:
+    - native inspection
+    - selection-scoped timeline edits
+    - Blade preview and execute
+    - delete-range preview and execute
+    - trim-to-duration preview and execute
+    - native Undo
+    - timeline occurrence location
 
-- Add native capability flags for deleteRange and trimToDuration.
-- Return preview metadata containing project, sequence, revision, requested range/duration, expected resulting
-duration, expiration, and token.
+- Keep Browser operations on their existing Browser-specific focus path.
+- Refactor command scripts so activation and timeline focus happen once at the operation boundary. Individual
+keyboard/menu scripts retain frontmost guards and post-command verification but do not repeatedly perform
+best-effort activation.
 
-- Return execute results containing operation ID, before/after live state, duration verification, and
-undoAvailable.
+- Run preflight before preview and execute. Preview tokens continue to bind to the original sequence,
+revision, and duration; if focus recovery changes timeline state, execution fails as stale rather than
+risking an unintended edit.
 
-- Reuse editor.native.undo for all three operations.
+## Tests and validation
 
-## Native behavior
+Add deterministic adapter tests covering:
 
-### blade_at_playhead
+- Final Cut initially not frontmost, then becoming frontmost during polling.
+- Final Cut process running with no accessible window.
+- Final Cut window present but process remaining background.
+- Timeline click landing on a Browser/search/text-field focus target.
+- Timeline focus succeeding after one or more retries.
+- Focus failure causing no mutation command to execute.
+- Preview succeeding but execute failing closed when preflight or revision state changes.
+- Representative coverage proving all timeline operation families invoke the shared preflight.
 
-- Require Final Cut frontmost, native writes enabled, one uniquely identified timeline occurrence, and Blade
-enabled.
+Update MCP contract tests to verify the stable error codes and diagnostic context fields.
 
-- Keep the current occurrence-handle workflow:
-    1. Search/select media.
-    2. Locate exactly one timeline occurrence.
-    3. Preview Blade.
-    4. Execute Blade.
+Extend the headed Final Cut test to:
 
-- Verify two resulting segments.
-- Blade alone does not change sequence duration.
+- activate Final Cut;
+- wait for a timeline window;
+- verify timeline focus before media/timeline actions;
+- emit the exact preflight failure category when setup is incomplete.
 
-### delete_range
+Update native capability/error and Final Cut live-operation documentation with the new preflight behavior and
+user guidance.
 
-- Support only the primary storyline in v1.
-- Always use ripple-delete semantics; later content shifts earlier.
-- Validate:
-  - start < end
-  - range is inside the active sequence
-  - active project, sequence, and revision remain unchanged
-  - Final Cut is frontmost and timeline-focused
+Required validation:
 
-- Use native UI automation to position the range precisely in Final Cut, select it, and invoke the visible
-Delete/Ripple Delete command.
-
-- Fail closed if the range cannot be positioned or selected with frame-accurate verification.
-- Verify the sequence duration decreases by the requested range duration within one frame of tolerance.
-
-### trim_to_duration
-
-- Preserve the beginning of the sequence.
-- If the requested duration is shorter than the current duration, internally delete [targetDuration,
-currentSequenceEnd] using ripple-delete semantics.
-
-- If the target equals or exceeds the current duration, return a verified no-op without mutating Final Cut.
-- Verify the resulting sequence duration is no greater than the requested duration and does not remove content
-before the target boundary.
-
-- Expose this as a distinct operation so Codex can distinguish “make it 30 seconds” from arbitrary range
-deletion.
-
-## Safety and UX
-
-- Preview tokens expire after the existing short native-operation window.
-- Tokens bind to project, sequence, revision, requested range/duration, and target scope.
-- Execute rejects stale playhead, sequence, revision, focus, selection, or changed duration state.
-- MCP descriptions must explicitly distinguish:
-  - Blade = split only.
-  - Delete range = remove a specified range.
-  - Trim to duration = preserve the beginning and remove the remainder.
-
-- Codex should ask for intent when a request such as “make a cut” does not specify one of these operations.
-- Do not automatically choose clips or infer “unnecessary footage” in this phase.
-- Do not enable canonical timelineWrite; these operations remain guarded Accessibility-based native UI edits.
-
-## Testing and acceptance
-
-- Add deterministic adapter tests for:
-  - rational range validation;
-  - target duration validation and no-op behavior;
-  - preview expiration;
-  - stale revision/sequence rejection;
-  - delete and trim script generation;
-  - expected duration verification;
-  - native Undo registration;
-  - live connection suspension during the entire UI transaction.
-
-- Add MCP contract tests for all preview/execute tools, schemas, capability flags, and structured errors.
-- Extend headed Final Cut E2E coverage with a disposable project:
-  - Blade at playhead → two segments → Undo restores one segment.
-  - Delete a known range → duration decreases by the expected amount → Undo restores the original duration.
-  - Trim to a target duration → final duration is within one frame of target → Undo restores the original
-    duration.
-
-- Run the required repository checks:
-  - pnpm install --frozen-lockfile
-  - pnpm run build
-  - pnpm run test
-  - pnpm run check:boundaries
-  - pnpm run xcode:check
-  - xcodebuild ... -list
-
-- Update native MCP, Final Cut, capability/error, and headed E2E documentation.
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run test
+pnpm run check:boundaries
+pnpm run xcode:check
+xcodebuild -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj
+-list
 
 ## Assumptions
 
-- “Delete” means ripple-delete.
-- The supported scope is the primary storyline only.
-- trim_to_duration keeps the beginning of the sequence.
-- Times are exact rational frame times.
-- All three operations target live Final Cut native automation only.
-- Automatic clip selection, content analysis, and agent-selected removal are deferred.
+- A preflight may change macOS application focus but must not change video content, project selection, or
+timeline data.
+
+- Missing projects and missing timeline windows fail with guidance; Framekit will not choose a project
+automatically.
+
+- The two-second polling window is the default timeout.
+- Native writes remain opt-in through FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1.
+- timelineWrite and canonical FCPXML behavior are unaffected.
+- MCP compatibility is preserved through stable error-code text; diagnostic fields are additive.

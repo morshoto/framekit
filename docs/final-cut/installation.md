@@ -89,4 +89,6 @@ FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
 framekit mcp --editor final-cut-live
 ```
 
-The user must keep a Final Cut timeline frontmost and select the target clip.
+Framekit activates Final Cut and focuses the timeline before timeline-native
+operations. The user must open the intended project timeline and select the
+target clip; Framekit does not choose projects automatically.

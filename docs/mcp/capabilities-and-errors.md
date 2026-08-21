@@ -95,7 +95,9 @@ operations require preview/execute confirmation and verify the resulting live
 sequence duration.
 
 Native errors include `FINAL_CUT_NATIVE_PERMISSION_REQUIRED`,
-`FINAL_CUT_NATIVE_NOT_FRONTMOST`, `FINAL_CUT_NATIVE_SELECTION_REQUIRED`,
+`FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`, `FINAL_CUT_NATIVE_NOT_FRONTMOST`,
+`FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`,
+`FINAL_CUT_NATIVE_SELECTION_REQUIRED`,
 `FINAL_CUT_NATIVE_MODAL_BLOCKED`, `FINAL_CUT_NATIVE_COMMAND_UNAVAILABLE`,
 `FINAL_CUT_NATIVE_VERIFICATION_FAILED`, and
 `FINAL_CUT_NATIVE_UNDO_UNAVAILABLE`. Range operations additionally use
@@ -106,6 +108,14 @@ use `FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_PREVIEW_STALE`, and
 `FINAL_CUT_NATIVE_SELECTION_VERIFICATION_FAILED`.
+
+Timeline-native operations run a UI preflight that activates Final Cut Pro,
+waits briefly for an accessible timeline window, and verifies timeline-pane
+focus. The preflight fails closed with `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`
+when no project timeline is accessible, `FINAL_CUT_NATIVE_NOT_FRONTMOST` when
+Final Cut remains background, and `FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`
+when the timeline pane cannot be focused. `editor.native.inspect` includes
+`timelineWindowAvailable`, `timelineFocused`, and `focusTarget` diagnostics.
 
 `timelinePublishNewProject` is reported separately from `timelineWrite`. It
 means a verified FCPXML artifact can be imported as a new Final Cut project;
