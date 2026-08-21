@@ -136,14 +136,11 @@ tell application "System Events"
   tell process "Final Cut Pro"
     set expectedProject to ${appleScriptString(project)}
     set menuItems to name of every menu item of menu "File" of menu bar 1
-    repeat with menuItem in menuItems
-      if (menuItem as text) contains expectedProject then return "true"
-    end repeat
-    return "false"
+    return menuItems as text
   end tell
 end tell`;
   const result = await execFile("osascript", ["-e", script]);
-  if (result.stdout.trim() !== "true") {
+  if (!result.stdout.includes(project)) {
     throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${project} was not present in Final Cut's File menu`);
   }
 }

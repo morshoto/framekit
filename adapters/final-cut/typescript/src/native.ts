@@ -258,7 +258,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireAvailableContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     try {
-      const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match)), mediaHandle);
+      const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match, false)), mediaHandle);
       if (occurrences.length === 1 && this.canDriveNativeMouse) {
         await selectTimelineClipAtPlayhead(this.executor);
       }
@@ -331,7 +331,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const after = await this.requireAvailableContext();
     if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
     const resultingSegments = parseOccurrences(
-      await this.executor(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name })),
+      await this.executor(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
       preview.occurrence.mediaHandle,
     );
     if (resultingSegments.length < 2) {
@@ -412,7 +412,7 @@ async function runAppleScript(script: string): Promise<string> {
 function dismissFramekitWindowAppleScript(): string {
   return `
     try
-      if exists window "Framekit" then click button 1 of window "Framekit"
+      if exists window "Framekit" then set ignoredResult to click button 1 of window "Framekit"
     end try`;
 }
 
@@ -446,6 +446,9 @@ function inspectScript(): string {
     set bladeEnabled to false
     try
       set bladeEnabled to enabled of menu item "Blade" of menu "Trim" of menu bar 1
+    end try
+    try
+      if not undoEnabled then set undoEnabled to enabled of menu item "Undo Blade" of menu "Edit" of menu bar 1
     end try
     set inspectorName to ""
     set inspectorRole to ""
@@ -515,8 +518,10 @@ tell application "System Events"
 end tell`;
 }
 
-function locateOccurrenceScript(match: NativeFinalCutMediaMatch): string {
-  const timelineOffsets = Array.from({ length: 76 }, (_, index) => 360 + index * 16).join(", ");
+function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolean): string {
+  const timelineOffsets = scanAll
+    ? [40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500].join(", ")
+    : "800";
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
@@ -531,17 +536,18 @@ tell application "System Events"
     end repeat
     set output to ""
     set inMatch to false
-    set lastMatchX to 0
+    set lastMatchIdentity to ""
     repeat with xOffset in {${timelineOffsets}}
       try
         set candidate to click at {(item 1 of origin) + xOffset, (item 2 of origin) + 650}
         set candidateRole to role of candidate as text
         set candidateName to value of candidate as text
+        set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
         if candidateName is ${appleScriptString(match.name)} then
-          if inMatch is false then
-            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & xOffset & (ASCII character 30)
+          if candidateIdentity is not lastMatchIdentity then
+            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 30)
           end if
-          set lastMatchX to xOffset
+          set lastMatchIdentity to candidateIdentity
           set inMatch to true
         else
           set inMatch to false
@@ -550,7 +556,7 @@ tell application "System Events"
         set inMatch to false
       end try
     end repeat
-    if lastMatchX is not 0 then
+    if output is not "" then
       click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
       key code 115
       repeat 30 times
@@ -585,7 +591,7 @@ tell application "System Events"
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
-    return (item 1 of origin) & "|" & (item 2 of origin)
+    return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text)
   end tell
 end tell`;
 }
