@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,6 +132,108 @@ test("local analyzer commands fail closed for unavailable media and invalid outp
   };
   await assert.rejects(analyzer.analyze(input), /ANALYZER_INVALID_OUTPUT/);
   await assert.rejects(analyzer.analyze({ ...input, media: { mediaId: "media-1", source: join(directory, "missing.wav") } }), /ANALYZER_MEDIA_UNAVAILABLE/);
+});
+
+test("Final Cut live MCP exposes native range contracts and capabilities", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-mcp-contract-"));
+  const socketPath = join(directory, "bridge.sock");
+  const bridge = createServer((socket) => {
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      const request = JSON.parse(String(chunk).trim()) as { id: string; version: number; method: string };
+      const result = request.method === "state"
+        ? {
+            identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+            capabilities: {
+              editor: {
+                projectRead: true,
+                timelineSnapshotRead: false,
+                timelineWrite: false,
+                timelineArtifactWrite: false,
+                readAfterWrite: false,
+                incrementalChanges: true,
+                rollback: false,
+                assetDiscovery: false,
+                liveStateRead: true,
+                playheadWrite: false,
+                playbackControl: false,
+              },
+              analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+            },
+            state: {
+              project: { id: "project-1", name: "Contract Test" },
+              sequence: { id: "sequence-1", name: "Contract Test", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+              playheadTime: { value: "0", timescale: "1" },
+              sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+              revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+            },
+          }
+        : {
+            identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+            capabilities: {
+              editor: {
+                projectRead: true,
+                timelineSnapshotRead: false,
+                timelineWrite: false,
+                timelineArtifactWrite: false,
+                readAfterWrite: false,
+                incrementalChanges: true,
+                rollback: false,
+                assetDiscovery: false,
+                liveStateRead: true,
+                playheadWrite: false,
+                playbackControl: false,
+              },
+              analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+            },
+          };
+      socket.end(`${JSON.stringify({ version: request.version, id: request.id, ok: true, result })}\n`);
+    });
+  });
+  await new Promise<void>((resolve) => bridge.listen(socketPath, resolve));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    env: {
+      ...process.env,
+      FRAMEKIT_EDITOR: "final-cut-live",
+      FRAMEKIT_AUTO_CONNECT: "0",
+      FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
+      FRAMEKIT_FINAL_CUT_SOCKET: socketPath,
+    },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "native-contract-test", version: "0.1.0" });
+
+  try {
+    await client.connect(transport);
+    const tools = await client.listTools();
+    const deletePreview = tools.tools.find((tool) => tool.name === "editor.native.delete-range.preview");
+    const trimPreview = tools.tools.find((tool) => tool.name === "editor.native.trim-to-duration.preview");
+    assert.ok(deletePreview);
+    assert.ok(trimPreview);
+    assert.deepEqual(Object.keys(deletePreview.inputSchema.properties ?? {}).sort(), ["end", "start"]);
+    assert.deepEqual(Object.keys(trimPreview.inputSchema.properties ?? {}).sort(), ["duration"]);
+
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.native.deleteRange, true);
+    assert.equal(editor.native.trimToDuration, true);
+
+    const preview = await client.callTool({
+      name: "editor.native.delete-range.preview",
+      arguments: {
+        start: { value: "1", timescale: "1" },
+        end: { value: "2", timescale: "1" },
+      },
+    });
+    assert.equal(preview.isError, true);
+    assert.match(textFrom(preview), /FINAL_CUT_NATIVE_/);
+  } finally {
+    await client.close();
+    await transport.close();
+    await new Promise<void>((resolve) => bridge.close(() => resolve()));
+  }
 });
 
 async function makeAnalyzer(directory: string, output: string): Promise<string> {

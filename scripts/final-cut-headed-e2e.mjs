@@ -76,12 +76,38 @@ try {
   const restored = await callJson("editor.native.timeline.locate", { mediaHandle: selected.handle });
   if (restored.status !== "unique") throw new Error("FINAL_CUT_E2E_UNDO_VERIFICATION_FAILED: original occurrence was not restored");
 
+  const originalLive = await callJson("editor.live.inspect");
+  const originalDuration = originalLive.sequenceTimeRange?.duration ?? originalLive.sequence?.duration;
+  const frameDuration = originalLive.sequence?.frameDuration;
+  if (!originalDuration || !frameDuration) throw new Error("FINAL_CUT_E2E_DURATION_UNAVAILABLE: live sequence duration is required");
+  const oneSecond = { value: frameDuration.timescale, timescale: frameDuration.timescale };
+  const deleteStart = subtractRational(originalDuration, oneSecond);
+  const deletePreview = await callJson("editor.native.delete-range.preview", { start: deleteStart, end: originalDuration });
+  await focusFinalCut();
+  const deleted = await callJson("editor.native.delete-range.execute", { previewToken: deletePreview.previewToken });
+  if (!deleted.verification?.verified) throw new Error("FINAL_CUT_E2E_DELETE_VERIFICATION_FAILED: range delete was not verified");
+  await assertLiveDuration(deletePreview.expectedAfterDuration, "delete-range");
+  await focusFinalCut();
+  await callJson("editor.native.undo", { operationId: deleted.operationId });
+  await assertLiveDuration(originalDuration, "delete-range undo");
+
+  const trimPreview = await callJson("editor.native.trim-to-duration.preview", { duration: deleteStart });
+  await focusFinalCut();
+  const trimmed = await callJson("editor.native.trim-to-duration.execute", { previewToken: trimPreview.previewToken });
+  if (!trimmed.verification?.verified) throw new Error("FINAL_CUT_E2E_TRIM_VERIFICATION_FAILED: duration trim was not verified");
+  await assertLiveDuration(deleteStart, "trim-to-duration");
+  await focusFinalCut();
+  await callJson("editor.native.undo", { operationId: trimmed.operationId });
+  await assertLiveDuration(originalDuration, "trim-to-duration undo");
+
   process.stdout.write(JSON.stringify({
     passed: true,
     project: expectedProject,
     query,
     media: selected,
     bladeOperationId: blade.operationId,
+    deleteRangeOperationId: deleted.operationId,
+    trimToDurationOperationId: trimmed.operationId,
     restored: true,
   }, null, 2));
   process.stdout.write("\n");
@@ -158,4 +184,42 @@ async function callJson(name, arguments_ = {}) {
   } catch {
     throw new Error(`${name} returned invalid JSON: ${text}`);
   }
+}
+
+async function assertLiveDuration(expected, operation) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const live = await callJson("editor.live.inspect");
+    const actual = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    if (actual && sameRational(actual, expected)) return;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`FINAL_CUT_E2E_${operation.toUpperCase().replaceAll("-", "_")}_DURATION_FAILED`);
+}
+
+function subtractRational(left, right) {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRational(leftValue * rightScale - rightValue * leftScale, leftScale * rightScale);
+}
+
+function sameRational(left, right) {
+  return BigInt(left.value) * BigInt(right.timescale) === BigInt(right.value) * BigInt(left.timescale);
+}
+
+function normalizeRational(value, scale) {
+  const divisor = gcd(value < 0n ? -value : value, scale);
+  return { value: (value / divisor).toString(), timescale: (scale / divisor).toString() };
+}
+
+function gcd(left, right) {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
 }
