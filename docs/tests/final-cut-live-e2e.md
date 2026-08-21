@@ -89,3 +89,31 @@ Grant Accessibility and Automation permission to the MCP host. Verify
 clip, then test one rename or trim operation followed by
 `editor.native.undo`. Native operations are selection-scoped and do not
 produce a canonical timeline diff.
+
+## Live Browser and Blade E2E
+
+With the same disposable project and native opt-in, verify the complete live
+workflow:
+
+1. Search the active Browser with `editor.native.media.search`.
+2. Select one result with `editor.native.media.select`.
+3. Locate its active-sequence occurrences with
+   `editor.native.timeline.locate`.
+4. Stop if the result is ambiguous; continue only with exactly one occurrence.
+5. Request `editor.native.blade.preview` and retain its short-lived token.
+6. Execute `editor.native.blade.execute` before the token expires.
+7. Verify two resulting segments and call `editor.native.undo`.
+8. Verify the original occurrence is restored.
+
+Do not treat Browser media names as persistent timeline IDs. Change the
+selection or sequence between preview and execute to verify that stale handles
+are rejected.
+
+## FCPXML publish E2E
+
+Start the live MCP server with both `FRAMEKIT_FCPXML_PATH` and
+`FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`. Run and verify `timeline.edit` against
+the managed FCPXML artifact first, then call `timeline.publish.new-project`
+with the resulting transaction ID.
+Confirm Final Cut opens a new project with the edited content and that the
+original active project remains unchanged.

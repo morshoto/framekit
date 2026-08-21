@@ -58,3 +58,26 @@ Grant Accessibility and Automation permission to the terminal or host running
 the MCP process. The user must keep Final Cut's timeline frontmost and select
 the target clip before calling `editor.native.edit`. Native writes fail closed
 when permission, focus, selection, or menu verification is unavailable.
+
+## Live Browser search and Blade
+
+With native writes enabled, use the live UI workflow in this order:
+
+1. Call `editor.native.media.search` with a Browser query.
+2. Call `editor.native.media.select` with one returned `mediaHandle`.
+3. Call `editor.native.timeline.locate` with that handle.
+4. Require exactly one returned timeline occurrence.
+5. Call `editor.native.blade.preview` with its `occurrenceHandle`.
+6. Call `editor.native.blade.execute` with the expiring `previewToken`.
+
+Handles are bound to the current Final Cut UI state. A changed selection,
+sequence, or expired preview causes a fail-closed error. Blade execution
+verifies that Final Cut exposes two resulting segments after the command.
+
+## Full timeline publishing
+
+When `FRAMEKIT_FCPXML_PATH` is configured, `timeline.edit` continues to modify
+and verify the managed FCPXML artifact. With native writes also enabled,
+call `timeline.publish.new-project` with the verified edit `transactionId` to
+import that artifact as a new Final Cut project. It does not replace the active
+project automatically.

@@ -36,7 +36,14 @@ canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
 
 Native selection writes are a separate MCP capability. They use Accessibility
 automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, and do not change the
-canonical `timelineWrite` or `timelineSnapshotRead` capability flags.
+canonical `timelineWrite` or `timelineSnapshotRead` capability flags. With the
+same opt-in, the native path can search the active Browser, locate a unique
+timeline occurrence, and Blade it at the playhead. These operations use
+short-lived handles and are not canonical timeline identities.
+
+When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
+`timelinePublishNewProject` allows a verified artifact to be imported as a new
+Final Cut project. The active project is never replaced automatically.
 
 ## Phase 2 local runtime
 

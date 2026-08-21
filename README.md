@@ -34,10 +34,15 @@ It exposes these tools over stdio:
 - `connection.status`
 - `editor.inspect`
 - `editor.native.inspect`, `editor.native.edit`, `editor.native.undo`
+- `editor.native.media.search`, `editor.native.media.select`,
+  `editor.native.timeline.locate`
+- `editor.native.blade.preview`, `editor.native.blade.execute`
 - `project.inspect`
 - `timeline.inspect`
 - `timeline.changes`
 - `timeline.edit` (`rename-clip`, `trim-clip`, `set-gain`, `ripple-delete`, and `add-marker`)
+- `timeline.publish.new-project` (imports a verified FCPXML artifact as a new
+  Final Cut project when native writes are enabled)
 - `media.inspect`
 - `media.search`
 - `speech.analyze`
@@ -77,6 +82,14 @@ operations use the explicit FCPXML artifact path. Optional selection-scoped
 native UI edits are enabled only with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`
 and require macOS Accessibility/Automation permission. Editor, analyzer, and
 native capabilities are reported separately by `editor.inspect`.
+
+With native writes enabled, the live UI path can search the active Final Cut
+Browser, select a media result, locate a matching timeline occurrence, and
+prepare/execute a Blade-at-playhead operation. Media and timeline occurrence
+handles are short-lived and fail closed when Final Cut changes. Full canonical
+timeline edits remain FCPXML artifact edits; `timeline.publish.new-project`
+imports the verified artifact as a new project and never replaces the active
+project automatically.
 
 See [`docs/tests/final-cut-live-e2e.md`](docs/tests/final-cut-live-e2e.md) for
 the read-only Final Cut validation procedure.
