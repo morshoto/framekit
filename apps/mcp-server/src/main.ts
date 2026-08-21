@@ -7,6 +7,7 @@ import {
   FinalCutAssetRegistry,
   FinalCutConnectionManager,
   FinalCutNativeAutomationAdapter,
+  FinalCutProjectPublisher,
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
@@ -43,6 +44,7 @@ const fixture = new InMemoryEditorAdapter({
 });
 
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
+const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
 const connection = liveMode ? new FinalCutConnectionManager() : undefined;
 if (connection && process.env.FRAMEKIT_AUTO_CONNECT !== "0") connection.startAutoConnect();
 const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
@@ -50,9 +52,9 @@ const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
 const editor = liveMode
   ? new FinalCutSessionAdapter({
       live: liveAdapter!,
-      ...(process.env.FRAMEKIT_FCPXML_PATH
+      ...(fcpxmlPath
         ? (() => {
-            const document = new FcpxmlDocumentAdapter(process.env.FRAMEKIT_FCPXML_PATH);
+            const document = new FcpxmlDocumentAdapter(fcpxmlPath);
             return { snapshot: document, mutation: document };
           })()
         : {}),
@@ -82,9 +84,17 @@ const runtime = new AgentVideoRuntime(editor, analyzers);
 const nativeEditor = liveMode
   ? new FinalCutNativeAutomationAdapter({ liveState: () => liveAdapter!.readLiveState() })
   : undefined;
+const projectPublisher = liveMode && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+  ? new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: fcpxmlPath,
+      liveState: () => liveAdapter!.readLiveState(),
+    })
+  : undefined;
 const server = createMcpServer(runtime, {
   connectionStatus: () => connection?.getStatus(),
   nativeEditor,
+  projectPublisher,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

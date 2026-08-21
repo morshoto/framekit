@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime } from "@framekit/runtime";
-import type { NativeFinalCutEditor } from "@framekit/final-cut";
+import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionSchema = z.object({
   id: z.string(),
@@ -51,6 +51,7 @@ function jsonResult(value: unknown) {
 export interface McpServerOptions {
   connectionStatus?: () => unknown;
   nativeEditor?: NativeFinalCutEditor;
+  projectPublisher?: FinalCutProjectPublisher;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -74,10 +75,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable Phase 2 capabilities.",
-  }, async () => jsonResult({
-    ...await runtime.inspectEditor(),
-    ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
-  }));
+  }, async () => {
+    const inspected = await runtime.inspectEditor();
+    return jsonResult({
+      ...inspected,
+      capabilities: {
+        ...inspected.capabilities,
+        editor: {
+          ...inspected.capabilities.editor,
+          timelinePublishNewProject: Boolean(options.projectPublisher),
+        },
+      },
+      ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+    });
+  });
 
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
@@ -100,6 +111,56 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ operationId }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
     return jsonResult(await options.nativeEditor.undo(operationId));
+  });
+
+  server.registerTool("editor.native.media.search", {
+    description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
+    inputSchema: { query: z.string().min(1) },
+  }, async ({ query }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
+    return jsonResult(await options.nativeEditor.searchMedia(query));
+  });
+
+  server.registerTool("editor.native.media.select", {
+    description: "Select one live Final Cut Browser media result using its short-lived handle.",
+    inputSchema: { mediaHandle: z.string().min(1) },
+  }, async ({ mediaHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media selection is not configured");
+    return jsonResult(await options.nativeEditor.selectMedia(mediaHandle));
+  });
+
+  server.registerTool("editor.native.timeline.locate", {
+    description: "Locate matching occurrences of a live Browser media result in the active Final Cut timeline.",
+    inputSchema: { mediaHandle: z.string().min(1) },
+  }, async ({ mediaHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut timeline occurrence location is not configured");
+    return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle));
+  });
+
+  server.registerTool("editor.native.blade.preview", {
+    description: "Prepare a short-lived confirmation token for a Blade-at-playhead operation.",
+    inputSchema: { occurrenceHandle: z.string().min(1) },
+  }, async ({ occurrenceHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
+    return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle));
+  });
+
+  server.registerTool("editor.native.blade.execute", {
+    description: "Execute a previously previewed Blade-at-playhead operation in Final Cut Pro.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
+    return jsonResult(await options.nativeEditor.executeBlade(previewToken));
+  });
+
+  server.registerTool("timeline.publish.new-project", {
+    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
+    inputSchema: { transactionId: z.string().min(1) },
+  }, async ({ transactionId }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const verification = await runtime.verifyTransaction(transactionId);
+    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+    return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
   });
 
   server.registerTool("context.inspect", {

@@ -328,6 +328,8 @@ export interface EditorCapabilities {
   liveStateRead: boolean;
   playheadWrite: boolean;
   playbackControl?: boolean;
+  /** Canonical artifact can be imported as a new editor project. */
+  timelinePublishNewProject?: boolean;
 }
 
 export interface AnalyzerCapabilities {
