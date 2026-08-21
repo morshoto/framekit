@@ -31,6 +31,8 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(result.after.target.name, "Interview Clean");
   assert.match(result.command, /Apply Custom Name/);
   assert.equal(scripts.some((script) => script.includes("Apply Custom Name")), true);
+  assert.equal(scripts.some((script) => script.includes("focused text field")), false);
+  assert.equal(scripts.some((script) => script.includes("first text field of front window")), true);
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);

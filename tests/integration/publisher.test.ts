@@ -31,6 +31,8 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   assert.equal(result.projectName, "Published Edit");
   assert.equal(result.liveProject, "Published Edit");
   assert.match(scripts[0], /Import/);
+  assert.equal(scripts[0].includes("focused text field"), false);
+  assert.match(scripts[0], /first text field of front window/);
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
 });
 

@@ -1,9 +1,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { execFile as execFileCallback } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const execFile = promisify(execFileCallback);
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
 const query = process.env.FRAMEKIT_FINAL_CUT_E2E_QUERY;
 
@@ -39,6 +42,7 @@ const client = new Client({ name: "framekit-headed-e2e", version: "0.1.0" });
 
 try {
   await client.connect(transport);
+  await activateFinalCut();
   const native = await callJson("editor.native.inspect");
   if (!native.available || !native.frontmost) {
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.message ?? "Final Cut timeline is not frontmost"}`);
@@ -76,6 +80,16 @@ try {
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
+}
+
+async function activateFinalCut() {
+  try {
+    await execFile("open", ["-a", "Final Cut Pro"]);
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`FINAL_CUT_NATIVE_NOT_READY: could not activate Final Cut Pro: ${message}`);
+  }
 }
 
 async function callJson(name, arguments_ = {}) {

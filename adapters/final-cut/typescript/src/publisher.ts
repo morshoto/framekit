@@ -95,7 +95,7 @@ tell application "System Events"
     delay 0.4
     keystroke "g" using {command down}
     delay 0.2
-    set value of focused text field of front window to ${appleScriptString(path)}
+    set value of first text field of front window to ${appleScriptString(path)}
     key code 36
     delay 0.5
     key code 36

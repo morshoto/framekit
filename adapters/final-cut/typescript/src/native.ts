@@ -449,7 +449,7 @@ tell application "System Events"
     keystroke "f" using {command down}
     delay 0.2
     try
-      set value of focused text field of front window to searchQuery
+      set value of first text field of front window to searchQuery
       key code 36
     end try
     delay 0.5
@@ -536,11 +536,11 @@ end tell`;
 
 function editScript(operation: NativeFinalCutEdit): string {
   const action = operation.type === "rename-selected-clip"
-    ? `click menu item "Apply Custom Name" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of focused text field of front window to ${appleScriptString(operation.name)}\n    key code 36`
+    ? `click menu item "Apply Custom Name" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(operation.name)}\n    key code 36`
     : operation.type === "trim-selected-clip-to-playhead"
       ? `click menu item "Trim ${operation.edge === "start" ? "Start" : "End"}" of menu "Trim" of menu bar 1`
       : operation.type === "set-selected-clip-gain"
-        ? `click menu item "Adjust Volume" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of focused text field of front window to ${appleScriptString(`${operation.gainDb}`)}\n    key code 36`
+        ? `click menu item "Adjust Volume" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(`${operation.gainDb}`)}\n    key code 36`
         : `click menu item "Marker" of menu "Mark" of menu bar 1`;
   return `
 tell application "System Events"
