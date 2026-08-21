@@ -43,7 +43,7 @@ const client = new Client({ name: "framekit-headed-e2e", version: "0.1.0" });
 try {
   await client.connect(transport);
   await activateFinalCut();
-  const native = await callJson("editor.native.inspect");
+  const native = await waitForNativeReady();
   if (!native.available || !native.frontmost) {
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.message ?? "Final Cut timeline is not frontmost"}`);
   }
@@ -54,17 +54,23 @@ try {
   const matches = await callJson("editor.native.media.search", { query });
   if (!Array.isArray(matches) || matches.length === 0) throw new Error("FINAL_CUT_E2E_MEDIA_NOT_FOUND: Browser search returned no results");
   const selected = matches[0];
+  await focusFinalCut();
   await callJson("editor.native.media.select", { mediaHandle: selected.handle });
+  await focusFinalCut();
   const located = await callJson("editor.native.timeline.locate", { mediaHandle: selected.handle });
   if (located.status !== "unique") {
     throw new Error(`FINAL_CUT_E2E_OCCURRENCE_${String(located.status).toUpperCase()}: expected exactly one timeline occurrence`);
   }
+  await focusFinalCut();
   const preview = await callJson("editor.native.blade.preview", { occurrenceHandle: located.occurrences[0].handle });
+  await focusFinalCut();
   const blade = await callJson("editor.native.blade.execute", { previewToken: preview.previewToken });
   if (!blade.verification?.verified || blade.resultingSegments?.length < 2) {
     throw new Error("FINAL_CUT_E2E_BLADE_VERIFICATION_FAILED: expected two resulting segments");
   }
+  await focusFinalCut();
   await callJson("editor.native.undo", { operationId: blade.operationId });
+  await focusFinalCut();
   const restored = await callJson("editor.native.timeline.locate", { mediaHandle: selected.handle });
   if (restored.status !== "unique") throw new Error("FINAL_CUT_E2E_UNDO_VERIFICATION_FAILED: original occurrence was not restored");
 
@@ -84,12 +90,42 @@ try {
 
 async function activateFinalCut() {
   try {
-    await execFile("open", ["-a", "Final Cut Pro"]);
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    let running = true;
+    try {
+      await execFile("pgrep", ["-x", "Final Cut Pro"]);
+    } catch {
+      running = false;
+    }
+    if (running) {
+      await execFile("osascript", ["-e", 'tell application "Final Cut Pro" to activate']);
+    } else {
+      await execFile("open", ["-a", "Final Cut Pro"]);
+    }
+    await focusFinalCut();
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: could not activate Final Cut Pro: ${message}`);
   }
+}
+
+async function waitForNativeReady() {
+  let last;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      await focusFinalCut();
+      last = await callJson("editor.native.inspect");
+      if (last.available && last.frontmost) return last;
+    } catch (error) {
+      last = { error: { message: error instanceof Error ? error.message : String(error) } };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return last;
+}
+
+async function focusFinalCut() {
+  await execFile("osascript", ["-e", "tell application \"System Events\" to tell process \"Final Cut Pro\" to set frontmost to true"]);
 }
 
 async function callJson(name, arguments_ = {}) {

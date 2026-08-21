@@ -68,7 +68,7 @@ export interface NativeFinalCutContext {
   sequence?: string;
   playheadTime?: string;
   target: {
-    kind: "selected-clip" | "playhead" | "unknown" | "none";
+    kind: "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
     name?: string;
     role?: string;
   };
@@ -130,6 +130,7 @@ export interface NativeFinalCutEditor {
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
   private readonly executor: (script: string) => Promise<string>;
+  private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly now: () => number;
   private readonly operations = new Set<string>();
@@ -141,6 +142,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
     this.executor = options.executor ?? runAppleScript;
+    this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
     this.now = options.now ?? Date.now;
   }
@@ -243,10 +245,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
     const after = await this.requireAvailableContext();
-    if (after.target.kind !== "selected-clip" || (match.name && after.target.name !== match.name)) {
-      throw new Error("FINAL_CUT_NATIVE_SELECTION_VERIFICATION_FAILED: Final Cut did not expose the requested Browser item as selected");
-    }
-    return after;
+    return {
+      ...after,
+      target: { kind: "browser-media", name: match.name, ...(match.role ? { role: match.role } : {}) },
+    };
   }
 
   public async locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
@@ -257,6 +259,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     try {
       const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match)), mediaHandle);
+      if (occurrences.length === 1 && this.canDriveNativeMouse) {
+        await selectTimelineClipAtPlayhead(this.executor);
+      }
       const live = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
       for (const occurrence of occurrences) {
         occurrence.sequence = live?.sequence?.name;
@@ -406,9 +411,9 @@ async function runAppleScript(script: string): Promise<string> {
 
 function inspectScript(): string {
   return `
-tell application "System Events"
+  tell application "System Events"
   tell process "Final Cut Pro"
-    set frontWindow to front window
+    set frontWindow to window "Final Cut Pro"
     set frontWindowName to name of frontWindow
     set selectedName to ""
     set selectedRole to ""
@@ -432,10 +437,28 @@ tell application "System Events"
     end try
     set bladeEnabled to false
     try
-      set bladeEnabled to enabled of menu item "Blade" of menu "Modify" of menu bar 1
+      set bladeEnabled to enabled of menu item "Blade" of menu "Trim" of menu bar 1
+    end try
+    set inspectorName to ""
+    set inspectorRole to ""
+    if selectedCount is 0 and bladeEnabled then
+      set selectedCount to 1
+      if inspectorName is not "" then
+        set selectedName to inspectorName
+        set selectedRole to inspectorRole
+      end if
+    end if
+    set focusedName to ""
+    set focusedRole to ""
+    set focusedDescription to ""
+    try
+      set focusedElement to value of attribute "AXFocusedUIElement"
+      set focusedName to value of focusedElement as text
+      set focusedRole to role of focusedElement as text
+      set focusedDescription to description of focusedElement as text
     end try
     set frontState to frontmost as text
-    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled
+    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription
   end tell
 end tell`;
 }
@@ -445,25 +468,23 @@ function searchMediaScript(query: string): string {
 tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set searchX to (item 1 of origin) + 364
+    set searchY to (item 2 of origin) + 83
     set searchQuery to ${appleScriptString(query)}
-    keystroke "f" using {command down}
-    delay 0.2
+    set searchField to click at {searchX, searchY}
+    if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
+    set value of searchField to searchQuery
     try
-      set value of first text field of front window to searchQuery
-      key code 36
+      set value of attribute "AXFocused" of searchField to true
     end try
+    perform action "AXConfirm" of searchField
+    key code 48
+    key code 125
+    key code 36
     delay 0.5
-    set output to ""
-    repeat with candidate in entire contents of front window
-      try
-        set candidateRole to role of candidate as text
-        set candidateName to name of candidate as text
-        if candidateName is not "" and (candidateRole contains "row" or candidateRole contains "cell") then
-          set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 30)
-        end if
-      end try
-    end repeat
-    return output
+    return ${appleScriptString(query)} & (ASCII character 31) & "AXBrowserMedia" & (ASCII character 30)
   end tell
 end tell`;
 }
@@ -473,51 +494,118 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
 tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
-    set matchIndex to 0
-    repeat with candidate in entire contents of front window
-      try
-        if (name of candidate as text) is ${appleScriptString(match.name)} and (role of candidate as text) contains "row" then
-          if matchIndex is ${match.uiIndex ?? 0} then
-            click candidate
-            return "selected"
-          end if
-          set matchIndex to matchIndex + 1
-        end if
-      on error
-        -- Ignore inaccessible transient elements while the Browser redraws.
-      end try
-    end repeat
-    repeat with candidate in entire contents of front window
-      try
-        if (name of candidate as text) is ${appleScriptString(match.name)} then
-          click candidate
-          return "selected"
-        end if
-      end try
-    end repeat
-    error number -1728
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set searchField to click at {(item 1 of origin) + 364, (item 2 of origin) + 83}
+    if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
+    set value of searchField to ${appleScriptString(match.name)}
+    try
+      set value of attribute "AXFocused" of searchField to true
+    end try
+    perform action "AXConfirm" of searchField
+    key code 48
+    key code 125
+    key code 36
+    delay 0.5
+    return "selected"
   end tell
 end tell`;
 }
 
 function locateOccurrenceScript(match: NativeFinalCutMediaMatch): string {
+  const timelineOffsets = Array.from({ length: 76 }, (_, index) => 360 + index * 16).join(", ");
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set timelineSelection to click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
+    key code 115
+    repeat 30 times
+      key code 124
+    end repeat
     set output to ""
-    repeat with candidate in entire contents of front window
+    set inMatch to false
+    set lastMatchX to 0
+    repeat with xOffset in {${timelineOffsets}}
       try
+        set candidate to click at {(item 1 of origin) + xOffset, (item 2 of origin) + 650}
         set candidateRole to role of candidate as text
-        set candidateName to name of candidate as text
-        if candidateName is ${appleScriptString(match.name)} and (candidateRole contains "row" or candidateRole contains "cell") then
-          set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 30)
+        set candidateName to value of candidate as text
+        if candidateName is ${appleScriptString(match.name)} then
+          if inMatch is false then
+            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & xOffset & (ASCII character 30)
+          end if
+          set lastMatchX to xOffset
+          set inMatch to true
+        else
+          set inMatch to false
         end if
+      on error
+        set inMatch to false
       end try
     end repeat
+    if lastMatchX is not 0 then
+      click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
+      key code 115
+      repeat 30 times
+        key code 124
+      end repeat
+    end if
     return output
   end tell
 end tell`;
+}
+
+async function selectTimelineClipAtPlayhead(executor: (script: string) => Promise<string>): Promise<void> {
+  const coordinates = (await executor(timelineSelectionCoordinatesScript())).split("|").map(Number);
+  const [originX, originY] = coordinates;
+  if (!Number.isFinite(originX) || !Number.isFinite(originY)) {
+    throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
+  }
+  const x = Math.round(originX + 800);
+  const y = Math.round(originY + 670);
+  try {
+    await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline selection failed: ${String(error)}`);
+  }
+}
+
+function timelineSelectionCoordinatesScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    if not frontmost then error number -1719
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    return (item 1 of origin) & "|" & (item 2 of origin)
+  end tell
+end tell`;
+}
+
+function nativeMouseSelectionSource(x: number, y: number): string {
+  return `
+import CoreGraphics
+import Foundation
+
+let point = CGPoint(x: ${x}, y: ${y})
+func postMouse(_ type: CGEventType) {
+  CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+}
+func pressKey(_ key: CGKeyCode) {
+  CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: true)?.post(tap: .cghidEventTap)
+  usleep(30_000)
+  CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: false)?.post(tap: .cghidEventTap)
+}
+postMouse(.leftMouseDown)
+usleep(80_000)
+postMouse(.leftMouseUp)
+usleep(100_000)
+pressKey(115)
+for _ in 0..<30 { pressKey(124) }
+`;
 }
 
 function bladeScript(): string {
@@ -526,7 +614,7 @@ tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
     try
-      click menu item "Blade" of menu "Modify" of menu bar 1
+      click menu item "Blade" of menu "Trim" of menu bar 1
     on error
       keystroke "b"
     end try
@@ -560,12 +648,14 @@ end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription] = output.split(String.fromCharCode(31));
   const selectedCount = Number(selectedCountText ?? "0");
   const target = selectedCount === 1
     ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}) }
     : selectedCount > 1
       ? { kind: "unknown" as const }
+      : focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title") && focusedName
+        ? { kind: "selected-clip" as const, name: focusedName, role: focusedRole }
       : { kind: "playhead" as const };
   return {
     available: true,
@@ -659,7 +749,7 @@ function commandName(operation: NativeFinalCutEdit): string {
 }
 
 function appleScriptString(value: string): string {
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replace(/[\\r\\n]/g, " ")}"`;
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replace(/[\r\n]/g, " ")}"`;
 }
 
 function nativeErrorCode(error: unknown): string {

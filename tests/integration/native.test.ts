@@ -75,9 +75,9 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
     now: () => 1_000,
     executor: async (script) => {
       scripts.push(script);
-      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
-      if (script.includes('set output to ""') && script.includes("candidateName is")) {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes('set output to ""') && script.includes("xOffset")) {
         occurrenceReads += 1;
         return occurrenceReads === 1
           ? `Interview${separator}AXRow${recordSeparator}`
@@ -90,6 +90,8 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const matches = await adapter.searchMedia("Interview");
   assert.equal(matches.length, 1);
   assert.equal(matches[0].name, "Interview");
+  assert.equal(scripts.some((script) => script.includes('description of searchField as text') && script.includes('AXConfirm')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "f" using {command down}')), false);
   const occurrences = await adapter.locateOccurrence(matches[0].handle);
   assert.equal(occurrences.status, "unique");
   assert.equal(occurrences.occurrences.length, 1);
@@ -109,9 +111,9 @@ test("native Final Cut Blade previews expire and stale handles fail closed", asy
     enabled: true,
     now: () => clock,
     executor: async (script) => {
-      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
-      if (script.includes('set output to ""') && script.includes("candidateName is")) return `Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes('set output to ""') && script.includes("xOffset")) return `Interview${separator}AXRow${recordSeparator}`;
       return "";
     },
   });
@@ -137,9 +139,9 @@ test("native Final Cut rejects ambiguous occurrences and an out-of-range playhea
   const ambiguous = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
-      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
-      if (script.includes("candidateName is")) return `Interview${separator}AXRow${recordSeparator}Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes("xOffset")) return `Interview${separator}AXRow${recordSeparator}Interview${separator}AXRow${recordSeparator}`;
       return "";
     },
     liveState,
@@ -152,9 +154,9 @@ test("native Final Cut rejects ambiguous occurrences and an out-of-range playhea
   const outOfRange = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
-      if (script.includes('set frontWindow to front window')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('keystroke "f" using {command down}')) return `Interview${separator}AXRow${recordSeparator}`;
-      if (script.includes("candidateName is")) return `Interview${separator}AXRow${separator}10/1${separator}2/1${recordSeparator}`;
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes("xOffset")) return `Interview${separator}AXRow${separator}10/1${separator}2/1${recordSeparator}`;
       return "";
     },
     liveState,
