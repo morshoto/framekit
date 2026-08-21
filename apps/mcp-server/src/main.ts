@@ -1,6 +1,14 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import { createFinalCutLiveAdapter, FcpxmlDocumentAdapter, FinalCutConnectionManager, FinalCutSessionAdapter } from "@framekit/final-cut";
+import {
+  createCommandAnalyzers,
+  createFinalCutLiveAdapter,
+  FcpxmlDocumentAdapter,
+  FinalCutAssetRegistry,
+  FinalCutConnectionManager,
+  FinalCutNativeAutomationAdapter,
+  FinalCutSessionAdapter,
+} from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
@@ -37,26 +45,46 @@ const fixture = new InMemoryEditorAdapter({
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
 const connection = liveMode ? new FinalCutConnectionManager() : undefined;
 if (connection && process.env.FRAMEKIT_AUTO_CONNECT !== "0") connection.startAutoConnect();
+const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
 
 const editor = liveMode
   ? new FinalCutSessionAdapter({
-      live: createFinalCutLiveAdapter(),
+      live: liveAdapter!,
       ...(process.env.FRAMEKIT_FCPXML_PATH
         ? (() => {
             const document = new FcpxmlDocumentAdapter(process.env.FRAMEKIT_FCPXML_PATH);
             return { snapshot: document, mutation: document };
           })()
         : {}),
+      assets: new FinalCutAssetRegistry({
+        roots: process.env.FRAMEKIT_FINAL_CUT_ASSET_ROOTS
+          ?.split(process.platform === "win32" ? ";" : ":")
+          .map((root) => root.trim())
+          .filter(Boolean),
+      }),
     })
   : fixture;
 
-const runtime = new AgentVideoRuntime(editor, {
-  speechAnalyzer: new FixtureSpeechAnalyzer(),
-  audioAnalyzer: new FixtureAudioAnalyzer(),
-  visualAnalyzer: new FixtureVisualAnalyzer(),
-});
+const analyzers = liveMode
+  ? createCommandAnalyzers({
+      speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
+      audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
+      visualCommand: process.env.FRAMEKIT_VISUAL_ANALYZER,
+      timeoutMs: parseTimeout(process.env.FRAMEKIT_ANALYZER_TIMEOUT_MS),
+    })
+  : {
+      speechAnalyzer: new FixtureSpeechAnalyzer(),
+      audioAnalyzer: new FixtureAudioAnalyzer(),
+      visualAnalyzer: new FixtureVisualAnalyzer(),
+    };
+
+const runtime = new AgentVideoRuntime(editor, analyzers);
+const nativeEditor = liveMode
+  ? new FinalCutNativeAutomationAdapter({ liveState: () => liveAdapter!.readLiveState() })
+  : undefined;
 const server = createMcpServer(runtime, {
   connectionStatus: () => connection?.getStatus(),
+  nativeEditor,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;
@@ -76,3 +104,9 @@ process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.stdin.once("end", () => void shutdown("stdin"));
 
 await server.connect(transport);
+
+function parseTimeout(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const timeout = Number(value);
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : undefined;
+}

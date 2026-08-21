@@ -1,12 +1,14 @@
 # Final Cut Pro Live E2E Test
 
-Status: passed locally, read-only, 2026-08-16.
+Status: live read-only path passed locally; hybrid document path covered by MCP
+integration tests.
 
 ## Purpose
 
 Prove that Final Cut Pro can host the Framekit Workflow Extension and that the
-MCP runtime can read live project/sequence state without exporting or editing
-media.
+MCP runtime can read live project/sequence state. When an explicit FCPXML path
+is supplied, separately prove canonical artifact reads and edits without
+claiming that the open Final Cut timeline was mutated.
 
 ## Environment
 
@@ -53,7 +55,37 @@ The live MCP client should observe:
 - a valid sequence time range;
 - revisions for active sequence, sequence range, and playhead changes.
 
+For canonical MCP coverage, start the server with:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FCPXML_PATH=/absolute/path/to/exported.fcpxml \
+framekit mcp --editor final-cut-live
+```
+
+Then verify `project.inspect`, `timeline.inspect`, `context.inspect`,
+`timeline.edit`, `edit.diff`, `edit.verify`, and `edit.undo`. Configure local
+JSON analyzers and Motion-template roots separately when testing media analysis
+and `editor.assets`.
+
 ## Safety boundary
 
-This test must not export, write timeline edits, alter media, or claim full
-timeline enumeration. Unsupported operations must remain fail-closed.
+The live-only test must not write timeline edits, alter media, or claim full
+native timeline enumeration. The FCPXML test may edit only its managed fixture
+artifact. Unsupported native operations must remain fail-closed.
+
+## Native write smoke test
+
+Use a disposable duplicate project and select one clip manually. Do not run
+this against an unsaved user project.
+
+```sh
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+framekit mcp --editor final-cut-live
+```
+
+Grant Accessibility and Automation permission to the MCP host. Verify
+`editor.native.inspect` reports a frontmost Final Cut timeline and a selected
+clip, then test one rename or trim operation followed by
+`editor.native.undo`. Native operations are selection-scoped and do not
+produce a canonical timeline diff.

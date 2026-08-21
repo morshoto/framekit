@@ -7,8 +7,11 @@ local Unix socket.
 The extension reports active project metadata, active sequence metadata,
 rational playhead time, sequence time range, and observer-backed change events.
 
-It does not currently perform timeline writes, rollback, export, playback
-control, speech analysis, audio analysis, or native asset discovery.
+It does not currently perform direct timeline writes, rollback, export,
+playback control, speech analysis, audio analysis, or native asset discovery.
+Selection-scoped native writes are performed separately by the MCP process
+through guarded macOS Accessibility automation; the extension continues to
+provide live state and change events only.
 
 The local build is ad-hoc signed for development and requires Xcode with the
 Final Cut `ProExtensionHost` framework available.

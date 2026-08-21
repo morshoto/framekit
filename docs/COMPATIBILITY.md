@@ -8,7 +8,7 @@ authoritative at runtime; unsupported operations must fail with an explicit
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes | artifact only | yes | yes | external provider required | no | no |
-| Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | external provider required | no | no |
+| Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | Motion-template registry |
 | Final Cut live | Workflow Extension live IPC | project/sequence metadata only | no | no | no | no | no | no |
 
 ## Verified local environment
@@ -26,17 +26,22 @@ This is a local verification record, not a claim that every nearby editor or
 OS version is supported.
 
 The FCPXML adapter is intentionally not a live Final Cut automation backend.
-The session adapter composes independent snapshot, mutation, and live-state
-ports. The Workflow Extension backend is a separate live-state port: it exposes the
-active project/sequence metadata, playhead, selected range, and observer-backed
-change events. It reports `timelineSnapshotRead: false` because the public Workflow
-Extension proxy does not guarantee complete clip/media enumeration. Canonical
-timeline reads and writes therefore fail closed rather than silently returning
-an incomplete snapshot.
+The session adapter composes independent snapshot, mutation, live-state,
+analyzer, and asset ports. The Workflow Extension backend is a separate
+live-state port: it exposes active project/sequence metadata, playhead,
+selected range, and observer-backed change events. It reports
+`timelineSnapshotRead: false` because the public Workflow Extension proxy does
+not guarantee complete clip/media enumeration. The composed session enables
+canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
+
+Native selection writes are a separate MCP capability. They use Accessibility
+automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, and do not change the
+canonical `timelineWrite` or `timelineSnapshotRead` capability flags.
 
 ## Phase 2 local runtime
 
 The deterministic fixture provides the Phase 2 context engine, including
 incremental change feeds, visual analysis, combined media understanding, and
-queryable native assets. These are replaceable ports; the fixture proves the
-runtime contract but is not a media model or a Final Cut asset enumerator.
+queryable native assets. These are replaceable ports. Final Cut can provide
+the same contracts through configured local JSON analyzers and filesystem
+Motion-template discovery; no fixture data is injected into live mode.

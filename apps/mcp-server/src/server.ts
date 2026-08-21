@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime } from "@framekit/runtime";
+import type { NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionSchema = z.object({
   id: z.string(),
@@ -34,6 +35,12 @@ const editOperationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema }),
   z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema }),
 ]);
+const nativeEditSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
+  z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
+  z.object({ type: z.literal("set-selected-clip-gain"), gainDb: z.number().finite() }),
+  z.object({ type: z.literal("add-marker-at-playhead"), name: z.string().min(1), duration: z.number().nonnegative().optional() }),
+]);
 
 function jsonResult(value: unknown) {
   return {
@@ -43,6 +50,7 @@ function jsonResult(value: unknown) {
 
 export interface McpServerOptions {
   connectionStatus?: () => unknown;
+  nativeEditor?: NativeFinalCutEditor;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -66,7 +74,33 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable Phase 2 capabilities.",
-  }, async () => jsonResult(await runtime.inspectEditor()));
+  }, async () => jsonResult({
+    ...await runtime.inspectEditor(),
+    ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+  }));
+
+  server.registerTool("editor.native.inspect", {
+    description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
+    inputSchema: {},
+  }, async () => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.inspect()
+    : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
+
+  server.registerTool("editor.native.edit", {
+    description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
+    inputSchema: nativeEditSchema,
+  }, async (operation) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
+    return jsonResult(await options.nativeEditor.edit(operation));
+  });
+
+  server.registerTool("editor.native.undo", {
+    description: "Undo a previously accepted native Final Cut UI edit using Final Cut's native Undo command.",
+    inputSchema: { operationId: z.string().min(1) },
+  }, async ({ operationId }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
+    return jsonResult(await options.nativeEditor.undo(operationId));
+  });
 
   server.registerTool("context.inspect", {
     description: "Read the queryable agent editing context and its current revision.",

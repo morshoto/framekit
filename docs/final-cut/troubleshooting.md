@@ -44,9 +44,15 @@ fall back to the fixture backend.
 
 ## `CAPABILITY_UNAVAILABLE`
 
-This is expected for complete live timeline reads, native writes, rollback,
+This is expected for complete live timeline reads, rollback,
 playback control, analyzers, and native assets. The runtime fails closed by
 design.
+
+Native UI writes are separate. Set `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, grant
+Accessibility and Automation permission to the MCP host, bring a Final Cut
+timeline window to the front, and select one clip. If those conditions are not
+met, `editor.native.inspect` and `editor.native.edit` return structured native
+capability or target errors.
 
 ## Build or signing errors
 

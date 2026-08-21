@@ -43,6 +43,9 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.inspect",
         "editor.live.changes",
         "editor.live.inspect",
+        "editor.native.edit",
+        "editor.native.inspect",
+        "editor.native.undo",
         "media.inspect",
         "media.search",
         "media.understand",
@@ -58,6 +61,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const editor = await client.callTool({ name: "editor.inspect", arguments: {} });
     const editorPayload = JSON.parse(textFrom(editor));
     assert.equal(editorPayload.identity.name, "In-memory Editor");
+    const native = await client.callTool({ name: "editor.native.inspect", arguments: {} });
+    assert.equal(JSON.parse(textFrom(native)).available, false);
     const connection = await client.callTool({ name: "connection.status", arguments: {} });
     assert.equal(JSON.parse(textFrom(connection)).state, "ready");
 

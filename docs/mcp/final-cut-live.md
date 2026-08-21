@@ -20,7 +20,7 @@ It does not quit or reopen Final Cut automatically. The explicit
 the extension and Final Cut needs to reload the bundle; that command performs
 a graceful quit/reopen before activation.
 
-The connection is read-only in this phase. Check setup progress with the MCP
+The Workflow Extension connection is read-only. Check setup progress with the MCP
 tool `connection.status` or:
 
 ```sh
@@ -42,5 +42,19 @@ npm run mcp
 ```
 
 The live backend reads active project/sequence metadata, playhead, selected
-sequence range, and incremental change events. It cannot safely provide a
-complete timeline or perform native timeline writes in this phase.
+sequence range, and incremental change events. Add `FRAMEKIT_FCPXML_PATH` to
+compose canonical project/timeline reads, artifact edits, read-after-write,
+diffs, verification, and undo. These edits update the FCPXML artifact rather
+than the open Final Cut timeline.
+
+To enable selection-scoped native UI edits:
+
+```sh
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+framekit mcp --editor final-cut-live
+```
+
+Grant Accessibility and Automation permission to the terminal or host running
+the MCP process. The user must keep Final Cut's timeline frontmost and select
+the target clip before calling `editor.native.edit`. Native writes fail closed
+when permission, focus, selection, or menu verification is unavailable.

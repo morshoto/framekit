@@ -33,6 +33,7 @@ It exposes these tools over stdio:
 
 - `connection.status`
 - `editor.inspect`
+- `editor.native.inspect`, `editor.native.edit`, `editor.native.undo`
 - `project.inspect`
 - `timeline.inspect`
 - `timeline.changes`
@@ -56,16 +57,26 @@ adapter around `AgentVideoRuntime`, as required by the SDD.
 artifact; it does not claim to mutate the open Final Cut session. The
 `FinalCutSessionAdapter` composes that snapshot/mutation provider with the
 live Workflow Extension provider. Set `FRAMEKIT_FCPXML_PATH` alongside
-`FRAMEKIT_EDITOR=final-cut-live` to enable the document surface.
+`FRAMEKIT_EDITOR=final-cut-live` to enable canonical reads, artifact edits,
+read-after-write, diffs, verification, and undo.
+
+Final Cut analysis providers can be configured as local JSON commands with
+`FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, and
+`FRAMEKIT_VISUAL_ANALYZER`. Each command receives one JSON request on stdin
+and returns one typed JSON result on stdout. Set
+`FRAMEKIT_ANALYZER_TIMEOUT_MS` to change the default timeout. Installed Motion
+templates are indexed from standard locations; override them with the
+colon-separated `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
 
 The live bridge uses the shared per-user sandbox endpoint
 `~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock`
 (or the same explicit `FRAMEKIT_FINAL_CUT_SOCKET` override on both processes). It
 exposes live project/sequence metadata, playhead, selected range, and change
-events. Full clip/media enumeration, visual analysis, and native asset
-discovery remain explicitly unavailable until Final Cut exposes supported
-native surfaces or external providers are connected. Editor and analyzer
-capabilities are reported separately by `editor.inspect`.
+events. The live Workflow Extension remains read-only; canonical timeline
+operations use the explicit FCPXML artifact path. Optional selection-scoped
+native UI edits are enabled only with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`
+and require macOS Accessibility/Automation permission. Editor, analyzer, and
+native capabilities are reported separately by `editor.inspect`.
 
 See [`docs/tests/final-cut-live-e2e.md`](docs/tests/final-cut-live-e2e.md) for
 the read-only Final Cut validation procedure.
@@ -93,5 +104,6 @@ command:
 framekit connect finalcut --development
 ```
 
-The live connection remains read-only and fails closed for capabilities that
-Final Cut does not expose through the Workflow Extension.
+The live connection fails closed for capabilities that Final Cut does not
+expose through the Workflow Extension. Native UI writes are a separate,
+explicitly enabled selection-scoped path.

@@ -12,4 +12,5 @@ the native bridge.
 The default `npm run mcp` configuration uses the deterministic in-memory
 fixture. Set `FRAMEKIT_EDITOR=final-cut-live` to select the live Final Cut
 backend, or use `framekit mcp --editor final-cut-live` to enable automatic
-connection setup.
+connection setup. Add `FRAMEKIT_FCPXML_PATH` to enable the canonical document
+surface alongside live state.

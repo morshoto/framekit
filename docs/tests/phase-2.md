@@ -1,6 +1,7 @@
 # Phase 2 Tests
 
-Status: passed locally, deterministic runtime scope, 2026-08-16.
+Status: passed locally in the deterministic fixture and covered for the
+configured Final Cut document session.
 
 Phase 2 proves the Context Engine additions:
 
@@ -21,6 +22,7 @@ Run:
 pnpm run test
 ```
 
-The deterministic fixture is the Phase 2 proof surface. Final Cut live remains
-fail-closed for visual analysis and native asset discovery because the current
-Workflow Extension does not provide those capabilities.
+The deterministic fixture remains the provider-contract proof surface. Final
+Cut uses the same contracts through explicitly configured local JSON analyzers
+and a read-only Motion-template registry; without those configuration values,
+the corresponding capabilities remain unavailable.

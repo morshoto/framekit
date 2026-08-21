@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { XMLBuilder, XMLParser } from "fast-xml-parser";
 import type {
   Caption,
@@ -301,7 +303,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .filter(({ kind }) => kind === "asset" || kind === "media" || kind === "effect")
       .map(({ node }) => ({
         mediaId: String(attribute(node, "id") ?? ""),
-        source: String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
+        source: resolveMediaSource(
+          String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
+          this.filePath,
+        ),
       }))
       .filter((media) => media.mediaId.length > 0);
   }
@@ -309,6 +314,18 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   private revision(): ContextRevision {
     return { id: `rev-${this.sequence}`, sequence: this.sequence, timestamp: new Date(this.sequence).toISOString() };
   }
+}
+
+export function resolveMediaSource(source: string, documentPath: string): string {
+  if (source.startsWith("file://")) {
+    try {
+      return fileURLToPath(source);
+    } catch {
+      return source;
+    }
+  }
+  if (isAbsolute(source)) return source;
+  return resolve(dirname(documentPath), source);
 }
 
 function storyEntries(node: XmlNode): Array<{ kind: string; node: XmlNode }> {

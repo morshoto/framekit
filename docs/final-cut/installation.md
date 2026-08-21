@@ -60,3 +60,33 @@ For a prebuilt or locally supplied artifact, set
 `FRAMEKIT_EXTENSION_APP_PATH` to the `.app` bundle before running the command.
 See the [live E2E test](../tests/final-cut-live-e2e.md) for the complete
 read-only procedure.
+
+## Canonical document and analysis providers
+
+To enable project/timeline reads, artifact edits, diffs, verification, and undo
+in the live MCP session, provide an exported FCPXML file:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FCPXML_PATH=/absolute/path/to/project.fcpxml \
+framekit mcp --editor final-cut-live
+```
+
+The FCPXML file is the managed artifact. Framekit does not automatically
+import edits into the open Final Cut timeline.
+
+Optional local JSON analyzer commands can be configured with
+`FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, and
+`FRAMEKIT_VISUAL_ANALYZER`. Each receives one JSON request on stdin and
+returns one typed JSON result on stdout. Motion-template discovery can be
+restricted with the colon-separated `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
+
+For selection-scoped native UI edits, explicitly opt in and grant the MCP host
+Accessibility and Automation permission in System Settings:
+
+```sh
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+framekit mcp --editor final-cut-live
+```
+
+The user must keep a Final Cut timeline frontmost and select the target clip.

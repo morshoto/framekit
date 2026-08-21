@@ -101,7 +101,12 @@ export class ContextEngine {
       liveChangesSince(revision: ContextRevision, waitMs?: number): Promise<EditorChange[]>;
     }>;
     if (typeof candidate.liveChangesSince !== "function") return [];
-    return candidate.liveChangesSince(revision, waitMs);
+    try {
+      return await candidate.liveChangesSince(revision, waitMs);
+    } catch (error) {
+      if (isOptionalLiveUnavailable(error)) return [];
+      throw error;
+    }
   }
 
   private async optionalLiveState(): Promise<EditorLiveState | undefined> {
@@ -109,7 +114,12 @@ export class ContextEngine {
       readLiveState(): Promise<EditorLiveState>;
     }>;
     if (typeof candidate.readLiveState !== "function") return undefined;
-    return candidate.readLiveState();
+    try {
+      return await candidate.readLiveState();
+    } catch (error) {
+      if (isOptionalLiveUnavailable(error)) return undefined;
+      throw error;
+    }
   }
 
   private withAttachedUnderstanding(snapshot: ProjectSnapshot): ProjectSnapshot {
@@ -127,6 +137,11 @@ export class ContextEngine {
     });
     return next;
   }
+}
+
+function isOptionalLiveUnavailable(error: unknown): boolean {
+  const message = String(error);
+  return message.includes("FINAL_CUT_LIVE_UNAVAILABLE") || message.includes("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
 }
 
 function latestRevision(base: ContextRevision, ...candidates: Array<ContextRevision | undefined>): ContextRevision {
