@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import type { EditorLiveState } from "@framekit/runtime";
+import type { EditorLiveState, RationalTime } from "@framekit/runtime";
 
 const execFile = promisify(execFileCallback);
 
@@ -59,6 +59,42 @@ export interface NativeFinalCutBladeResult {
   undoAvailable: boolean;
 }
 
+export type NativeFinalCutRangeOperation = "delete-range" | "trim-to-duration";
+
+export interface NativeFinalCutRange {
+  start: RationalTime;
+  end: RationalTime;
+}
+
+export interface NativeFinalCutRangePreview {
+  previewToken: string;
+  operation: NativeFinalCutRangeOperation;
+  range: NativeFinalCutRange;
+  beforeDuration: RationalTime;
+  expectedAfterDuration: RationalTime;
+  sequenceId?: string;
+  revision?: string;
+  command: "Delete primary storyline range" | "Trim sequence to duration";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutRangeResult {
+  operationId: string;
+  previewToken: string;
+  operation: NativeFinalCutRangeOperation;
+  range: NativeFinalCutRange;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeDuration: RationalTime;
+  afterDuration: RationalTime;
+  expectedAfterDuration: RationalTime;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+}
+
 export interface NativeFinalCutContext {
   available: boolean;
   application: "Final Cut Pro";
@@ -84,6 +120,8 @@ export interface NativeFinalCutCapabilities {
   mediaSelection: boolean;
   timelineOccurrenceLocate: boolean;
   bladeAtPlayhead: boolean;
+  deleteRange: boolean;
+  trimToDuration: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
 }
@@ -112,6 +150,8 @@ export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
   executor?: (script: string) => Promise<string>;
   liveState?: () => Promise<EditorLiveState>;
+  suspendLiveConnection?: () => void;
+  resumeLiveConnection?: () => void;
   now?: () => number;
 }
 
@@ -125,6 +165,10 @@ export interface NativeFinalCutEditor {
   locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
   previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview>;
   executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult>;
+  previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview>;
+  executeDeleteRange(previewToken: string): Promise<NativeFinalCutRangeResult>;
+  previewTrimToDuration(duration: RationalTime): Promise<NativeFinalCutRangePreview>;
+  executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult>;
 }
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
@@ -132,18 +176,32 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly executor: (script: string) => Promise<string>;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly suspendLiveConnection?: () => void;
+  private readonly resumeLiveConnection?: () => void;
   private readonly now: () => number;
+  private nativeUiDepth = 0;
   private readonly operations = new Set<string>();
   private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
+  private readonly rangePreviews = new Map<string, {
+    operation: NativeFinalCutRangeOperation;
+    range: NativeFinalCutRange;
+    beforeDuration: RationalTime;
+    expectedAfterDuration: RationalTime;
+    sequenceId?: string;
+    revision?: string;
+    expiresAt: number;
+  }>();
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
     this.executor = options.executor ?? runAppleScript;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
+    this.suspendLiveConnection = options.suspendLiveConnection;
+    this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
   }
 
@@ -155,12 +213,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaSelection: this.enabled,
       timelineOccurrenceLocate: this.enabled,
       bladeAtPlayhead: this.enabled,
+      deleteRange: this.enabled,
+      trimToDuration: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
     };
   }
 
   public async inspect(): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.inspectNative());
+  }
+
+  private async inspectNative(): Promise<NativeFinalCutContext> {
     if (!this.enabled) {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
@@ -185,6 +249,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
+    return this.withNativeUi(() => this.editNative(operation));
+  }
+
+  private async editNative(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
     this.assertEnabled();
     const before = await this.requireTarget(operation);
     const operationId = `native-op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -204,6 +272,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async undo(operationId: string): Promise<NativeFinalCutUndoResult> {
+    return this.withNativeUi(() => this.undoNative(operationId));
+  }
+
+  private async undoNative(operationId: string): Promise<NativeFinalCutUndoResult> {
     this.assertEnabled();
     if (!this.operations.has(operationId)) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
     const before = await this.requireAvailableContext();
@@ -219,6 +291,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
+    return this.withNativeUi(() => this.searchMediaNative(query));
+  }
+
+  private async searchMediaNative(query: string): Promise<NativeFinalCutMediaMatch[]> {
     this.assertEnabled();
     if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
     const context = await this.requireAvailableContext();
@@ -234,6 +310,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async selectMedia(handle: string): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.selectMediaNative(handle));
+  }
+
+  private async selectMediaNative(handle: string): Promise<NativeFinalCutContext> {
     this.assertEnabled();
     const match = this.mediaHandles.get(handle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${handle}`);
@@ -252,6 +332,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
+    return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle));
+  }
+
+  private async locateOccurrenceNative(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
@@ -283,6 +367,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview> {
+    return this.withNativeUi(() => this.previewBladeNative(occurrenceHandle));
+  }
+
+  private async previewBladeNative(occurrenceHandle: string): Promise<NativeFinalCutBladePreview> {
     this.assertEnabled();
     const occurrence = this.occurrenceHandles.get(occurrenceHandle);
     if (!occurrence) throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown occurrence handle ${occurrenceHandle}`);
@@ -310,6 +398,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult> {
+    return this.withNativeUi(() => this.executeBladeNative(previewToken));
+  }
+
+  private async executeBladeNative(previewToken: string): Promise<NativeFinalCutBladeResult> {
     this.assertEnabled();
     const preview = this.bladePreviews.get(previewToken);
     if (!preview) throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: unknown Blade preview ${previewToken}`);
@@ -351,8 +443,212 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
+  public async previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
+    return this.withNativeUi(() => this.previewRangeNative("delete-range", range));
+  }
+
+  public async executeDeleteRange(previewToken: string): Promise<NativeFinalCutRangeResult> {
+    return this.withNativeUi(() => this.executeRangeNative(previewToken));
+  }
+
+  public async previewTrimToDuration(duration: RationalTime): Promise<NativeFinalCutRangePreview> {
+    return this.withNativeUi(async () => {
+      this.assertEnabled();
+      const live = await this.requireLiveState();
+      const context = await this.requireAvailableContext();
+      if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline window must be frontmost");
+      const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+      const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+      if (!sequenceStart || !currentDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
+      if (compareRational(duration, zeroRational()) <= 0) throw new Error("INVALID_OPERATION: target duration must be positive");
+      if (compareRational(duration, currentDuration) >= 0) {
+        const token = this.createRangePreview("trim-to-duration", { start: sequenceStart, end: sequenceStart }, currentDuration, currentDuration, live);
+        return { ...token, command: "Trim sequence to duration" };
+      }
+      const range = { start: addRational(sequenceStart, duration), end: addRational(sequenceStart, currentDuration) };
+      return this.createRangePreview("trim-to-duration", range, currentDuration, duration, live, duration);
+    });
+  }
+
+  public async executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult> {
+    return this.withNativeUi(() => this.executeRangeNative(previewToken, "trim-to-duration"));
+  }
+
+  private async previewRangeNative(operation: NativeFinalCutRangeOperation, range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
+    this.assertEnabled();
+    const context = await this.requireAvailableContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline window must be frontmost");
+    const live = await this.requireLiveState();
+    const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    if (!sequenceStart || !currentDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
+    const duration = subtractRational(range.end, range.start);
+    if (compareRational(duration, zeroRational()) <= 0) throw new Error("INVALID_OPERATION: delete range must have start before end");
+    if (compareRational(range.start, sequenceStart) < 0 || compareRational(range.end, addRational(sequenceStart, currentDuration)) > 0) {
+      throw new Error("FINAL_CUT_NATIVE_RANGE_OUT_OF_BOUNDS: delete range must be inside the active sequence");
+    }
+    const expectedAfterDuration = subtractRational(currentDuration, duration);
+    return this.createRangePreview(operation, range, currentDuration, expectedAfterDuration, live);
+  }
+
+  private createRangePreview(
+    operation: NativeFinalCutRangeOperation,
+    range: NativeFinalCutRange,
+    beforeDuration: RationalTime,
+    expectedAfterDuration: RationalTime,
+    live: EditorLiveState,
+    targetDuration?: RationalTime,
+  ): NativeFinalCutRangePreview {
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle(`${operation}-preview`);
+    this.rangePreviews.set(previewToken, {
+      operation,
+      range,
+      beforeDuration,
+      expectedAfterDuration,
+      sequenceId: live.sequence?.id,
+      revision: live.revision.id,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      operation,
+      range,
+      beforeDuration,
+      expectedAfterDuration: targetDuration ?? expectedAfterDuration,
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      revision: live.revision.id,
+      command: operation === "delete-range" ? "Delete primary storyline range" : "Trim sequence to duration",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  private async executeRangeNative(previewToken: string, expectedOperation?: NativeFinalCutRangeOperation): Promise<NativeFinalCutRangeResult> {
+    this.assertEnabled();
+    const preview = this.rangePreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown range preview");
+    this.rangePreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: range preview has expired");
+    if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
+    const beforeLive = await this.requireLiveState();
+    this.validateRangeBinding(preview, beforeLive);
+    const before = await this.requireTarget({ type: "add-marker-at-playhead", name: "native-range-operation" });
+    const rangeDuration = subtractRational(preview.range.end, preview.range.start);
+    if (compareRational(rangeDuration, zeroRational()) === 0) {
+      return {
+        operationId: opaqueHandle("native-noop"),
+        previewToken,
+        operation: preview.operation,
+        range: preview.range,
+        before,
+        after: before,
+        beforeDuration: preview.beforeDuration,
+        afterDuration: preview.beforeDuration,
+        expectedAfterDuration: preview.expectedAfterDuration,
+        verification: { verified: true, detail: "Requested duration is already at or below the active sequence duration" },
+        undoAvailable: false,
+      };
+    }
+    try {
+      await this.positionAndDeleteRange(preview.range, beforeLive);
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    const after = await this.requireAvailableContext();
+    const afterLive = await this.waitForDuration(preview.expectedAfterDuration, beforeLive.revision.id);
+    const detail = durationVerificationDetail(
+      afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration,
+      preview.expectedAfterDuration,
+      afterLive.sequence?.frameDuration ?? beforeLive.sequence?.frameDuration,
+    );
+    if (!detail.verified) throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${detail.detail}`);
+    const operationId = opaqueHandle(`native-${preview.operation}`);
+    this.operations.add(operationId);
+    return {
+      operationId,
+      previewToken,
+      operation: preview.operation,
+      range: preview.range,
+      before,
+      after,
+      beforeDuration: preview.beforeDuration,
+      afterDuration: afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration ?? preview.expectedAfterDuration,
+      expectedAfterDuration: preview.expectedAfterDuration,
+      verification: { verified: true, detail: detail.detail },
+      undoAvailable: after.undoAvailable,
+    };
+  }
+
+  private validateRangeBinding(preview: { sequenceId?: string; revision?: string; beforeDuration: RationalTime }, live: EditorLiveState): void {
+    if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+    if (preview.revision && live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+    const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    if (!currentDuration || compareRational(currentDuration, preview.beforeDuration) !== 0) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: sequence duration changed");
+  }
+
+  private async requireLiveState(): Promise<EditorLiveState> {
+    if (!this.liveState) throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut state is required for range operations");
+    return this.liveState();
+  }
+
+  private async waitForDuration(expected: RationalTime, previousRevision: string): Promise<EditorLiveState> {
+    const deadline = this.now() + 2_000;
+    let latest = await this.requireLiveState();
+    while (this.now() < deadline) {
+      const duration = latest.sequenceTimeRange?.duration ?? latest.sequence?.duration;
+      if (duration && durationVerificationDetail(duration, expected, latest.sequence?.frameDuration).verified && latest.revision.id !== previousRevision) return latest;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      latest = await this.requireLiveState();
+    }
+    return latest;
+  }
+
+  private async positionAndDeleteRange(range: NativeFinalCutRange, beforeLive: EditorLiveState): Promise<void> {
+    const startTimecode = this.toTimecode(range.start, beforeLive);
+    const endTimecode = this.toTimecode(range.end, beforeLive);
+    await this.executor(focusTimelineScript());
+    await this.executor(setPlayheadScript(startTimecode));
+    await this.waitForPlayhead(range.start, beforeLive.sequence?.id);
+    await this.executor(markRangeStartScript());
+    await this.executor(setPlayheadScript(endTimecode));
+    await this.waitForPlayhead(range.end, beforeLive.sequence?.id);
+    await this.executor(markRangeEndAndDeleteScript());
+  }
+
+  private async waitForPlayhead(expected: RationalTime, sequenceId?: string): Promise<EditorLiveState> {
+    const deadline = this.now() + 2_000;
+    let latest = await this.requireLiveState();
+    while (this.now() < deadline) {
+      if ((!sequenceId || latest.sequence?.id === sequenceId) && latest.playheadTime && compareRational(latest.playheadTime, expected) === 0) return latest;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      latest = await this.requireLiveState();
+    }
+    throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_VERIFICATION_FAILED: Final Cut did not move to the requested frame");
+  }
+
+  private toTimecode(time: RationalTime, live: EditorLiveState): string {
+    const sequence = live.sequence;
+    if (!sequence) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence frame rate is unavailable");
+    const relative = subtractRational(time, sequence.startTime);
+    const frames = divideRationalFloor(relative, sequence.frameDuration);
+    const nominalFps = Math.max(1, Math.round(Number(sequence.frameDuration.timescale) / Number(sequence.frameDuration.value)));
+    return formatTimecode(frames, nominalFps);
+  }
+
   private assertEnabled(): void {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
+  }
+
+  private async withNativeUi<T>(operation: () => Promise<T>): Promise<T> {
+    const outermost = this.nativeUiDepth === 0;
+    if (outermost && this.enabled) this.suspendLiveConnection?.();
+    this.nativeUiDepth += 1;
+    try {
+      return await operation();
+    } finally {
+      this.nativeUiDepth -= 1;
+      if (outermost && this.enabled) this.resumeLiveConnection?.();
+    }
   }
 
   private async validateOccurrenceBinding(occurrence: NativeFinalCutOccurrence): Promise<void> {
@@ -412,8 +708,13 @@ async function runAppleScript(script: string): Promise<string> {
 function dismissFramekitWindowAppleScript(): string {
   return `
     try
-      if exists window "Framekit" then set ignoredResult to click button 1 of window "Framekit"
-    end try`;
+      if exists window "Framekit" then
+        set ignoredResult to click button 1 of window "Framekit"
+        delay 0.1
+      end if
+    end try
+    set frontmost to true
+    delay 0.1`;
 }
 
 function inspectScript(): string {
@@ -634,6 +935,59 @@ tell application "System Events"
 end tell`;
 }
 
+function focusTimelineScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
+    if not frontmost then error number -1719
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
+    keystroke "a"
+  end tell
+end tell`;
+}
+
+function setPlayheadScript(timecode: string): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
+    if not frontmost then error number -1719
+    keystroke "p" using {control down}
+    keystroke ${appleScriptString(timecode)}
+    key code 36
+    delay 0.2
+  end tell
+end tell`;
+}
+
+function markRangeStartScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
+    if not frontmost then error number -1719
+    keystroke "i"
+  end tell
+end tell`;
+}
+
+function markRangeEndAndDeleteScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
+    if not frontmost then error number -1719
+    keystroke "o"
+    delay 0.2
+    key code 51
+    delay 0.5
+  end tell
+end tell`;
+}
+
 function editScript(operation: NativeFinalCutEdit): string {
   const action = operation.type === "rename-selected-clip"
     ? `click menu item "Apply Custom Name" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(operation.name)}\n    key code 36`
@@ -724,6 +1078,87 @@ function parseRationalNumber(value: string): number | undefined {
   const [numerator, timescale] = value.split("/").map(Number);
   if (!Number.isFinite(numerator) || !Number.isFinite(timescale) || timescale <= 0) return undefined;
   return numerator / timescale;
+}
+
+function zeroRational(): RationalTime {
+  return { value: "0", timescale: "1" };
+}
+
+function rationalParts(value: RationalTime): [bigint, bigint] {
+  const numerator = BigInt(value.value);
+  const denominator = BigInt(value.timescale);
+  if (denominator <= 0n) throw new Error("INVALID_OPERATION: rational timescale must be positive");
+  return [numerator, denominator];
+}
+
+function normalizeRational(numerator: bigint, denominator: bigint): RationalTime {
+  if (denominator <= 0n) throw new Error("INVALID_OPERATION: rational timescale must be positive");
+  const divisor = gcd(numerator < 0n ? -numerator : numerator, denominator);
+  return { value: (numerator / divisor).toString(), timescale: (denominator / divisor).toString() };
+}
+
+function addRational(left: RationalTime, right: RationalTime): RationalTime {
+  const [leftValue, leftScale] = rationalParts(left);
+  const [rightValue, rightScale] = rationalParts(right);
+  return normalizeRational(leftValue * rightScale + rightValue * leftScale, leftScale * rightScale);
+}
+
+function subtractRational(left: RationalTime, right: RationalTime): RationalTime {
+  const [leftValue, leftScale] = rationalParts(left);
+  const [rightValue, rightScale] = rationalParts(right);
+  return normalizeRational(leftValue * rightScale - rightValue * leftScale, leftScale * rightScale);
+}
+
+function compareRational(left: RationalTime, right: RationalTime): number {
+  const [leftValue, leftScale] = rationalParts(left);
+  const [rightValue, rightScale] = rationalParts(right);
+  const difference = leftValue * rightScale - rightValue * leftScale;
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function divideRationalFloor(value: RationalTime, divisor: RationalTime): bigint {
+  const [valueNumerator, valueDenominator] = rationalParts(value);
+  const [divisorNumerator, divisorDenominator] = rationalParts(divisor);
+  if (divisorNumerator <= 0n) throw new Error("INVALID_OPERATION: frame duration must be positive");
+  const numerator = valueNumerator * divisorDenominator;
+  const denominator = valueDenominator * divisorNumerator;
+  return numerator / denominator;
+}
+
+function formatTimecode(totalFrames: bigint, framesPerSecond: number): string {
+  if (totalFrames < 0n) throw new Error("INVALID_OPERATION: timecode cannot be negative");
+  const fps = BigInt(framesPerSecond);
+  const framesPerMinute = fps * 60n;
+  const framesPerHour = framesPerMinute * 60n;
+  const hours = totalFrames / framesPerHour;
+  const minutes = (totalFrames % framesPerHour) / framesPerMinute;
+  const seconds = (totalFrames % framesPerMinute) / fps;
+  const frames = totalFrames % fps;
+  return [hours, minutes, seconds, frames]
+    .map((part) => part.toString().padStart(2, "0"))
+    .join(":");
+}
+
+function gcd(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
+}
+
+function durationVerificationDetail(actual: RationalTime | undefined, expected: RationalTime, tolerance = zeroRational()): { verified: boolean; detail: string } {
+  if (!actual) return { verified: false, detail: "Final Cut did not expose a resulting sequence duration" };
+  const difference = subtractRational(actual, expected);
+  const [differenceNumerator, differenceDenominator] = rationalParts(difference);
+  const [toleranceNumerator, toleranceDenominator] = rationalParts(tolerance);
+  if ((differenceNumerator < 0n ? -differenceNumerator : differenceNumerator) * toleranceDenominator <= toleranceNumerator * differenceDenominator) {
+    return { verified: true, detail: `Final Cut exposed resulting duration ${actual.value}/${actual.timescale}` };
+  }
+  return { verified: false, detail: `expected duration ${expected.value}/${expected.timescale}, observed ${actual.value}/${actual.timescale}` };
 }
 
 function unavailableContext(code: string, message: string): NativeFinalCutContext {

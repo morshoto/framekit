@@ -153,6 +153,38 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeBlade(previewToken));
   });
 
+  server.registerTool("editor.native.delete-range.preview", {
+    description: "Preview a destructive ripple-delete of an explicit rational time range from the Final Cut primary storyline.",
+    inputSchema: { start: rationalTimeSchema, end: rationalTimeSchema },
+  }, async ({ start, end }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
+    return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }));
+  });
+
+  server.registerTool("editor.native.delete-range.execute", {
+    description: "Execute a previously previewed primary-storyline ripple-delete range operation in Final Cut Pro.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
+    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken));
+  });
+
+  server.registerTool("editor.native.trim-to-duration.preview", {
+    description: "Preview a destructive operation that preserves the beginning of the Final Cut sequence and removes everything after the requested rational duration.",
+    inputSchema: { duration: rationalTimeSchema },
+  }, async ({ duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
+    return jsonResult(await options.nativeEditor.previewTrimToDuration(duration));
+  });
+
+  server.registerTool("editor.native.trim-to-duration.execute", {
+    description: "Execute a previously previewed trim-to-duration operation in Final Cut Pro.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
+    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken));
+  });
+
   server.registerTool("timeline.publish.new-project", {
     description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
     inputSchema: { transactionId: z.string().min(1) },
