@@ -100,6 +100,9 @@ export interface NativeFinalCutContext {
   application: "Final Cut Pro";
   frontmost: boolean;
   frontWindow?: string;
+  timelineWindowAvailable: boolean;
+  timelineFocused: boolean;
+  focusTarget: "timeline" | "browser" | "text-field" | "modal" | "unknown" | "none";
   project?: string;
   sequence?: string;
   playheadTime?: string;
@@ -153,6 +156,7 @@ export interface NativeFinalCutAutomationOptions {
   suspendLiveConnection?: () => void;
   resumeLiveConnection?: () => void;
   now?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
 }
 
 export interface NativeFinalCutEditor {
@@ -179,6 +183,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly suspendLiveConnection?: () => void;
   private readonly resumeLiveConnection?: () => void;
   private readonly now: () => number;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
   private nativeUiDepth = 0;
   private readonly operations = new Set<string>();
   private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
@@ -203,6 +208,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.suspendLiveConnection = options.suspendLiveConnection;
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
+    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   }
 
   public capabilities(): NativeFinalCutCapabilities {
@@ -229,23 +235,33 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      const context = parseContext(await this.executor(inspectScript()));
-      if (this.liveState) {
-        try {
-          const live = await this.liveState();
-          context.project = live.project?.name;
-          context.sequence = live.sequence?.name;
-          context.playheadTime = live.playheadTime
-            ? `${live.playheadTime.value}/${live.playheadTime.timescale}`
-            : undefined;
-        } catch {
-          // Native UI inspection remains useful when the optional live socket is down.
-        }
-      }
-      return context;
+      return await this.attachLiveState(await this.ensureTimelineReady());
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error));
     }
+  }
+
+  private async inspectRawNative(): Promise<NativeFinalCutContext> {
+    try {
+      return await this.attachLiveState(parseContext(await this.executor(inspectScript())));
+    } catch (error) {
+      return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error));
+    }
+  }
+
+  private async attachLiveState(context: NativeFinalCutContext): Promise<NativeFinalCutContext> {
+    if (!this.liveState) return context;
+    try {
+      const live = await this.liveState();
+      context.project = live.project?.name;
+      context.sequence = live.sequence?.name;
+      context.playheadTime = live.playheadTime
+        ? `${live.playheadTime.value}/${live.playheadTime.timescale}`
+        : undefined;
+    } catch {
+      // Native UI inspection remains useful when the optional live socket is down.
+    }
+    return context;
   }
 
   public async edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
@@ -254,7 +270,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async editNative(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
     this.assertEnabled();
-    const before = await this.requireTarget(operation);
+    const before = await this.requireTimelineTarget(operation);
     const operationId = `native-op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const command = commandName(operation);
     try {
@@ -262,7 +278,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
-    const after = await this.requireAvailableContext();
+    const after = await this.requireTimelineContext();
     const verification = verifyNativeEdit(operation, before, after);
     if (!verification.verified) {
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
@@ -278,14 +294,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async undoNative(operationId: string): Promise<NativeFinalCutUndoResult> {
     this.assertEnabled();
     if (!this.operations.has(operationId)) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
-    const before = await this.requireAvailableContext();
+    const before = await this.requireTimelineContext();
     if (!before.undoAvailable) throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command");
     try {
       await this.executor(undoScript());
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
-    const after = await this.requireAvailableContext();
+    const after = await this.requireTimelineContext();
     this.operations.delete(operationId);
     return { operationId, undone: true, context: after };
   }
@@ -339,7 +355,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
-    const context = await this.requireAvailableContext();
+    const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     try {
       const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match, false)), mediaHandle);
@@ -377,7 +393,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (this.ambiguousMediaHandles.has(occurrence.mediaHandle)) {
       throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_OCCURRENCE: automatic Blade requires exactly one timeline occurrence");
     }
-    const context = await this.requireAvailableContext();
+    const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (context.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
     if (context.target.name && context.target.name !== occurrence.name) {
@@ -407,7 +423,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!preview) throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: unknown Blade preview ${previewToken}`);
     this.bladePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade preview has expired");
-    const before = await this.requireAvailableContext();
+    const before = await this.requireTimelineContext();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
     if (before.target.name && before.target.name !== preview.occurrence.name) {
@@ -420,7 +436,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
-    const after = await this.requireAvailableContext();
+    const after = await this.requireTimelineContext();
     if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
     const resultingSegments = parseOccurrences(
       await this.executor(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
@@ -455,7 +471,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(async () => {
       this.assertEnabled();
       const live = await this.requireLiveState();
-      const context = await this.requireAvailableContext();
+      const context = await this.requireTimelineContext();
       if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline window must be frontmost");
       const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
       const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
@@ -476,7 +492,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async previewRangeNative(operation: NativeFinalCutRangeOperation, range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
     this.assertEnabled();
-    const context = await this.requireAvailableContext();
+    const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline window must be frontmost");
     const live = await this.requireLiveState();
     const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
@@ -530,9 +546,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.rangePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: range preview has expired");
     if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
+    const before = await this.requireTimelineContext();
     const beforeLive = await this.requireLiveState();
     this.validateRangeBinding(preview, beforeLive);
-    const before = await this.requireTarget({ type: "add-marker-at-playhead", name: "native-range-operation" });
     const rangeDuration = subtractRational(preview.range.end, preview.range.start);
     if (compareRational(rangeDuration, zeroRational()) === 0) {
       return {
@@ -554,7 +570,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
-    const after = await this.requireAvailableContext();
+    const after = await this.requireTimelineContext();
     const afterLive = await this.waitForDuration(preview.expectedAfterDuration, beforeLive.revision.id);
     const detail = durationVerificationDetail(
       afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration,
@@ -606,7 +622,6 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async positionAndDeleteRange(range: NativeFinalCutRange, beforeLive: EditorLiveState): Promise<void> {
     const startTimecode = this.toTimecode(range.start, beforeLive);
     const endTimecode = this.toTimecode(range.end, beforeLive);
-    await this.executor(focusTimelineScript());
     await this.executor(setPlayheadScript(startTimecode));
     await this.waitForPlayhead(range.start, beforeLive.sequence?.id);
     await this.executor(markRangeStartScript());
@@ -671,11 +686,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  private async requireTarget(operation: NativeFinalCutEdit): Promise<NativeFinalCutContext> {
-    const context = await this.requireAvailableContext();
-    if (!context.frontmost || context.frontWindow?.includes("Framekit")) {
-      throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline window must be frontmost");
-    }
+  private async requireTimelineTarget(operation: NativeFinalCutEdit): Promise<NativeFinalCutContext> {
+    const context = await this.requireTimelineContext();
     if (requiresClip(operation) && context.target.kind !== "selected-clip") {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one clip in Final Cut Pro");
     }
@@ -685,8 +697,48 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
+  private async requireTimelineContext(): Promise<NativeFinalCutContext> {
+    const context = await this.attachLiveState(await this.ensureTimelineReady());
+    if (!context.available) {
+      throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native timeline context unavailable"}`);
+    }
+    return context;
+  }
+
+  private async ensureTimelineReady(): Promise<NativeFinalCutContext> {
+    const deadline = this.now() + 2_000;
+    let lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
+    let lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
+
+    while (this.now() <= deadline) {
+      try {
+        const context = parseContext(await this.executor(timelinePreflightScript()));
+        if (!context.timelineWindowAvailable) {
+          lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
+          lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
+        } else if (!context.frontmost) {
+          lastCode = "FINAL_CUT_NATIVE_NOT_FRONTMOST";
+          lastMessage = "Final Cut is running but is not the frontmost application";
+        } else if (!context.timelineFocused) {
+          lastCode = "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED";
+          lastMessage = "Final Cut's timeline pane could not be focused; click the timeline and retry";
+        } else {
+          return context;
+        }
+      } catch (error) {
+        const code = nativeErrorCode(error);
+        if (code === "FINAL_CUT_NATIVE_PERMISSION_REQUIRED") throw new Error(`${code}: ${nativeErrorMessage(error)}`);
+        lastCode = code;
+        lastMessage = nativeErrorMessage(error);
+      }
+      if (this.now() >= deadline) break;
+      await this.sleep(Math.min(100, deadline - this.now()));
+    }
+    throw new Error(`${lastCode}: ${lastMessage}`);
+  }
+
   private async requireAvailableContext(): Promise<NativeFinalCutContext> {
-    const context = await this.inspect();
+    const context = await this.inspectRawNative();
     if (!context.available) throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native context unavailable"}`);
     return context;
   }
@@ -705,23 +757,85 @@ async function runAppleScript(script: string): Promise<string> {
   }
 }
 
-function dismissFramekitWindowAppleScript(): string {
+function activateFinalCutWindowAppleScript(): string {
   return `
-    try
-      if exists window "Framekit" then
-        set ignoredResult to click button 1 of window "Framekit"
-        delay 0.1
-      end if
-    end try
     set frontmost to true
     delay 0.1`;
+}
+
+function requireFrontmostAppleScript(): string {
+  return `
+    if not frontmost then error number -1719`;
+}
+
+function timelinePreflightScript(): string {
+  return `
+tell application "Final Cut Pro" to activate
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    set processFrontmost to frontmost as text
+    set timelineWindowAvailable to false
+    set frontWindowName to ""
+    try
+      set frontWindow to window "Final Cut Pro"
+      set timelineWindowAvailable to true
+      set frontWindowName to name of frontWindow as text
+    on error
+      return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & "0" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & "false" & (ASCII character 31) & "none"
+    end try
+    if processFrontmost is not "true" then
+      return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & "0" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & "false" & (ASCII character 31) & "unknown"
+    end if
+    set origin to position of frontWindow
+    click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
+    delay 0.1
+    set focusedRole to ""
+    set focusedDescription to ""
+    set focusedName to ""
+    try
+      set focusedElement to value of attribute "AXFocusedUIElement"
+      set focusedRole to role of focusedElement as text
+      set focusedDescription to description of focusedElement as text
+      set focusedName to name of focusedElement as text
+    end try
+    set selectedName to ""
+    set selectedRole to ""
+    set selectedCount to 0
+    try
+      repeat with candidate in entire contents of frontWindow
+        try
+          if (selected of candidate) is true then
+            set selectedCount to selectedCount + 1
+            if selectedCount is 1 then
+              set selectedName to name of candidate as text
+              set selectedRole to role of candidate as text
+            end if
+          end if
+        end try
+      end repeat
+    end try
+    set focusTarget to "unknown"
+    set timelineFocused to false
+    if focusedRole is "AXTextField" or focusedRole is "AXSearchField" then
+      set focusTarget to "text-field"
+    else if focusedRole is "AXSheet" or focusedRole is "AXDialog" then
+      set focusTarget to "modal"
+    else if focusedDescription contains "Browser" or focusedDescription contains "search" then
+      set focusTarget to "browser"
+    else if focusedRole is "AXGroup" or focusedRole is "AXScrollArea" or focusedRole is "AXLayoutArea" or focusedRole is "AXCanvas" or focusedDescription contains "timeline" or focusedName contains "timeline" then
+      set focusTarget to "timeline"
+      set timelineFocused to true
+    end if
+    return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget
+  end tell
+end tell`;
 }
 
 function inspectScript(): string {
   return `
   tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
+    ${activateFinalCutWindowAppleScript()}
     set frontWindow to window "Final Cut Pro"
     set frontWindowName to name of frontWindow
     set selectedName to ""
@@ -777,10 +891,9 @@ end tell`;
 
 function searchMediaScript(query: string): string {
   return `
-tell application "System Events"
+  tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
     set searchX to (item 1 of origin) + 240
@@ -802,7 +915,7 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
+    ${activateFinalCutWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
@@ -824,10 +937,9 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
     ? [40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500].join(", ")
     : "800";
   return `
-tell application "System Events"
+  tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
     set timelineSelection to click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
@@ -888,8 +1000,7 @@ function timelineSelectionCoordinatesScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
     return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text)
@@ -924,8 +1035,7 @@ function bladeScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     try
       click menu item "Blade" of menu "Trim" of menu bar 1
     on error
@@ -935,26 +1045,11 @@ tell application "System Events"
 end tell`;
 }
 
-function focusTimelineScript(): string {
-  return `
-tell application "System Events"
-  tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
-    set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
-    click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
-    keystroke "a"
-  end tell
-end tell`;
-}
-
 function setPlayheadScript(timecode: string): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     keystroke "p" using {control down}
     keystroke ${appleScriptString(timecode)}
     key code 36
@@ -967,8 +1062,7 @@ function markRangeStartScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     keystroke "i"
   end tell
 end tell`;
@@ -978,8 +1072,7 @@ function markRangeEndAndDeleteScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
-    if not frontmost then error number -1719
+    ${requireFrontmostAppleScript()}
     keystroke "o"
     delay 0.2
     key code 51
@@ -999,7 +1092,7 @@ function editScript(operation: NativeFinalCutEdit): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
     ${action}
   end tell
 end tell`;
@@ -1009,15 +1102,24 @@ function undoScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
-    ${dismissFramekitWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
     keystroke "z" using {command down}
   end tell
 end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState] = output.split(String.fromCharCode(31));
   const selectedCount = Number(selectedCountText ?? "0");
+  const timelineWindowAvailable = timelineWindowState === undefined ? Boolean(frontWindow) : timelineWindowState === "true";
+  const timelineFocused = timelineFocusedState === undefined
+    ? frontState === "true" && timelineWindowAvailable
+    : timelineFocusedState === "true";
+  const focusTarget = focusTargetState === "timeline" || focusTargetState === "browser" || focusTargetState === "text-field" || focusTargetState === "modal" || focusTargetState === "unknown" || focusTargetState === "none"
+    ? focusTargetState
+    : timelineFocused
+      ? "timeline"
+      : "none";
   const target = selectedCount === 1
     ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}) }
     : selectedCount > 1
@@ -1030,6 +1132,9 @@ function parseContext(output: string): NativeFinalCutContext {
     application: "Final Cut Pro",
     frontmost: frontState === "true",
     frontWindow,
+    timelineWindowAvailable,
+    timelineFocused,
+    focusTarget,
     target,
     bladeAvailable: bladeState === "true",
     undoAvailable: undoState === "true",
@@ -1166,6 +1271,9 @@ function unavailableContext(code: string, message: string): NativeFinalCutContex
     available: false,
     application: "Final Cut Pro",
     frontmost: false,
+    timelineWindowAvailable: false,
+    timelineFocused: false,
+    focusTarget: "none",
     target: { kind: "none" },
     undoAvailable: false,
     bladeAvailable: false,
@@ -1204,6 +1312,8 @@ function appleScriptString(value: string): string {
 function nativeErrorCode(error: unknown): string {
   const message = String(error);
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "FINAL_CUT_NATIVE_PERMISSION_REQUIRED";
+  if (message.includes("-600") || message.includes("isn't running") || message.includes("is not running")) return "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
+  if (message.includes("-1728") || message.includes("Can’t get window") || message.includes("Can't get window")) return "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
   if (message.includes("-1719") || message.includes("window 1") || message.includes("Invalid index")) return "FINAL_CUT_NATIVE_NOT_FRONTMOST";
   if (message.includes("MODAL")) return "FINAL_CUT_NATIVE_MODAL_BLOCKED";
   return message.match(/FINAL_CUT_NATIVE_[A-Z_]+/)?.[0] ?? "FINAL_CUT_NATIVE_AUTOMATION_FAILED";
@@ -1211,6 +1321,11 @@ function nativeErrorCode(error: unknown): string {
 
 function nativeErrorMessage(error: unknown): string {
   const message = String(error);
+  if (message.includes("FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW")) return "Final Cut has no accessible timeline window; open a project timeline and retry";
+  if (message.includes("FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED")) return "Final Cut's timeline pane could not be focused; click the timeline and retry";
+  if (message.includes("FINAL_CUT_NATIVE_NOT_FRONTMOST")) return "Final Cut is running but is not the frontmost application";
+  if (message.includes("-600") || message.includes("isn't running") || message.includes("is not running")) return "Final Cut is not running or has no accessible timeline window; open a project timeline and retry";
+  if (message.includes("-1728") || message.includes("Can’t get window") || message.includes("Can't get window")) return "Final Cut has no accessible timeline window; open a project timeline and retry";
   if (message.includes("-1719") || message.includes("window 1") || message.includes("Invalid index")) return "Final Cut has no accessible timeline window; bring a project timeline to the front";
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "Grant Accessibility and Automation permission to the MCP host for Final Cut Pro";
   const executionError = message.split("\n").find((line) => line.includes("execution error:"));
