@@ -34,6 +34,7 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
   },
   stderr: "pipe",
@@ -47,9 +48,10 @@ try {
   if (!native.available || !native.frontmost) {
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.message ?? "Final Cut timeline is not frontmost"}`);
   }
-  if (native.project !== expectedProject) {
-    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${native.project ?? "none"}`);
+  if (native.project && native.project !== expectedProject) {
+    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${native.project}`);
   }
+  await assertFinalCutProject(expectedProject);
 
   const matches = await callJson("editor.native.media.search", { query });
   if (!Array.isArray(matches) || matches.length === 0) throw new Error("FINAL_CUT_E2E_MEDIA_NOT_FOUND: Browser search returned no results");
@@ -97,11 +99,11 @@ async function activateFinalCut() {
       running = false;
     }
     if (running) {
-      await execFile("osascript", ["-e", 'tell application "Final Cut Pro" to activate']);
+      await focusFinalCut();
     } else {
       await execFile("open", ["-a", "Final Cut Pro"]);
+      await focusFinalCut();
     }
-    await focusFinalCut();
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -126,6 +128,28 @@ async function waitForNativeReady() {
 
 async function focusFinalCut() {
   await execFile("osascript", ["-e", "tell application \"System Events\" to tell process \"Final Cut Pro\" to set frontmost to true"]);
+}
+
+async function assertFinalCutProject(project) {
+  const script = `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set expectedProject to ${appleScriptString(project)}
+    set menuItems to name of every menu item of menu "File" of menu bar 1
+    repeat with menuItem in menuItems
+      if (menuItem as text) contains expectedProject then return "true"
+    end repeat
+    return "false"
+  end tell
+end tell`;
+  const result = await execFile("osascript", ["-e", script]);
+  if (result.stdout.trim() !== "true") {
+    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${project} was not present in Final Cut's File menu`);
+  }
+}
+
+function appleScriptString(value) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replace(/[\\r\\n]/g, " ")}"`;
 }
 
 async function callJson(name, arguments_ = {}) {

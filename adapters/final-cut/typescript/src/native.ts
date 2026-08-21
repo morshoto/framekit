@@ -409,10 +409,18 @@ async function runAppleScript(script: string): Promise<string> {
   }
 }
 
+function dismissFramekitWindowAppleScript(): string {
+  return `
+    try
+      if exists window "Framekit" then click button 1 of window "Framekit"
+    end try`;
+}
+
 function inspectScript(): string {
   return `
   tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     set frontWindow to window "Final Cut Pro"
     set frontWindowName to name of frontWindow
     set selectedName to ""
@@ -467,10 +475,11 @@ function searchMediaScript(query: string): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
-    set searchX to (item 1 of origin) + 364
+    set searchX to (item 1 of origin) + 240
     set searchY to (item 2 of origin) + 83
     set searchQuery to ${appleScriptString(query)}
     set searchField to click at {searchX, searchY}
@@ -479,10 +488,6 @@ tell application "System Events"
     try
       set value of attribute "AXFocused" of searchField to true
     end try
-    perform action "AXConfirm" of searchField
-    key code 48
-    key code 125
-    key code 36
     delay 0.5
     return ${appleScriptString(query)} & (ASCII character 31) & "AXBrowserMedia" & (ASCII character 30)
   end tell
@@ -493,20 +498,18 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
-    set searchField to click at {(item 1 of origin) + 364, (item 2 of origin) + 83}
+    set searchField to click at {(item 1 of origin) + 240, (item 2 of origin) + 83}
     if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
     set value of searchField to ${appleScriptString(match.name)}
     try
       set value of attribute "AXFocused" of searchField to true
     end try
-    perform action "AXConfirm" of searchField
-    key code 48
-    key code 125
-    key code 36
     delay 0.5
+    click at {(item 1 of origin) + 275, (item 2 of origin) + 185}
     return "selected"
   end tell
 end tell`;
@@ -517,6 +520,7 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
@@ -577,6 +581,7 @@ function timelineSelectionCoordinatesScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
@@ -612,6 +617,7 @@ function bladeScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     if not frontmost then error number -1719
     try
       click menu item "Blade" of menu "Trim" of menu bar 1
@@ -633,6 +639,7 @@ function editScript(operation: NativeFinalCutEdit): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     ${action}
   end tell
 end tell`;
@@ -642,6 +649,7 @@ function undoScript(): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    ${dismissFramekitWindowAppleScript()}
     keystroke "z" using {command down}
   end tell
 end tell`;

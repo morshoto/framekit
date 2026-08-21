@@ -90,7 +90,8 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const matches = await adapter.searchMedia("Interview");
   assert.equal(matches.length, 1);
   assert.equal(matches[0].name, "Interview");
-  assert.equal(scripts.some((script) => script.includes('description of searchField as text') && script.includes('AXConfirm')), true);
+  assert.equal(scripts.some((script) => script.includes('set searchX to (item 1 of origin) + 240')), true);
+  assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
   assert.equal(scripts.some((script) => script.includes('keystroke "f" using {command down}')), false);
   const occurrences = await adapter.locateOccurrence(matches[0].handle);
   assert.equal(occurrences.status, "unique");
