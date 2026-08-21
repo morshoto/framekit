@@ -122,6 +122,24 @@ Do not treat Browser media names as persistent timeline IDs. Change the
 selection or sequence between preview and execute to verify that stale handles
 are rejected.
 
+## Native range and duration E2E
+
+Use the same disposable project and native opt-in to verify:
+
+1. `editor.native.delete-range.preview` returns the requested rational range
+   and expected duration.
+2. `editor.native.delete-range.execute` reduces the live sequence duration by
+   the requested range, then `editor.native.undo` restores it.
+3. `editor.native.trim-to-duration.preview` describes the tail range after the
+   requested duration.
+4. `editor.native.trim-to-duration.execute` leaves the beginning intact and
+   verifies the requested resulting duration, then Undo restores the original.
+5. A target duration longer than the current sequence returns a verified
+   no-op and does not create an undoable mutation.
+
+The headed test must use a disposable project with known duration and must
+never run against an unsaved user project.
+
 ## FCPXML publish E2E
 
 Start the live MCP server with both `FRAMEKIT_FCPXML_PATH` and

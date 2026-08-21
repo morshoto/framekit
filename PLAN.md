@@ -1,187 +1,135 @@
-# Final Cut Live Editing and Timeline Publishing
+# Native Final Cut timeline operations
 
 ## Summary
 
-Extend Framekit from selection-scoped UI commands into a guarded hybrid workflow:
+Add three guarded live Final Cut operations:
 
-- Search Final Cut’s active Browser/library through Accessibility UI automation.
-- Select a matching Browser media item and locate exactly one matching occurrence in the active timeline.
-- Blade that occurrence at the playhead with preview-token confirmation.
-- Support complete canonical FCPXML edits and publish the result into Final Cut as a new project.
+- blade_at_playhead: split the explicitly targeted timeline occurrence at the current playhead.
+- delete_range: ripple-delete an explicit time range from the primary storyline.
+- trim_to_duration: preserve the beginning of the sequence and ripple-delete everything after the requested
+duration.
 
-The Workflow Extension remains metadata/playhead/change-event only. Native UI automation remains a separate
-capability and must fail closed when Final Cut, selection, permissions, or identity checks are unavailable.
+All destructive operations use preview tokens, explicit execute calls, revision binding, native Undo, and
+post-operation verification. These remain separate native UI capabilities; timelineWrite and canonical live
+timeline snapshots remain unavailable.
 
-## Key changes
+## API and capability changes
 
-### Native media discovery and selection
+- Preserve the existing editor.native.blade.preview / editor.native.blade.execute contract and document it as
+blade_at_playhead.
 
-Add native tools for:
+- Add:
+  - editor.native.delete-range.preview
+  - editor.native.delete-range.execute
+  - editor.native.trim-to-duration.preview
+  - editor.native.trim-to-duration.execute
 
-- editor.native.media.search
-  - Search the active Final Cut Browser/library by clip name or source path.
-  - Return visible metadata plus short-lived opaque media handles.
-  - Never fabricate results when the Accessibility tree cannot be inspected.
+- Use rational frame times:
+  - delete-range.preview: { start: { value, timescale }, end: { value, timescale } }
+  - trim-to-duration.preview: { duration: { value, timescale } }
 
-- editor.native.media.select
-  - Select a Browser result using its handle.
-  - Verify the expected media item remains selected.
+- Add native capability flags for deleteRange and trimToDuration.
+- Return preview metadata containing project, sequence, revision, requested range/duration, expected resulting
+duration, expiration, and token.
 
-- editor.native.timeline.locate
-  - Resolve the Browser media identity to timeline occurrences in the active sequence.
-  - Require exactly one match for automatic editing.
-  - Return a short-lived occurrence handle containing sequence, media identity, timeline range, playhead
-    revision, and UI context.
+- Return execute results containing operation ID, before/after live state, duration verification, and
+undoAvailable.
 
-  - Return explicit ambiguity when zero or multiple occurrences match.
+- Reuse editor.native.undo for all three operations.
 
-Browser media identity and timeline occurrence identity must remain separate.
+## Native behavior
 
-### Blade/split editing
+### blade_at_playhead
 
-Add a true Blade-at-playhead operation:
+- Require Final Cut frontmost, native writes enabled, one uniquely identified timeline occurrence, and Blade
+enabled.
 
-- editor.native.blade.preview
-  - Validate Final Cut is frontmost.
-  - Validate the target occurrence handle is current.
-  - Validate the playhead lies inside the target occurrence.
-  - Return the intended command, target identity, before-state, and expiring preview token.
+- Keep the current occurrence-handle workflow:
+    1. Search/select media.
+    2. Locate exactly one timeline occurrence.
+    3. Preview Blade.
+    4. Execute Blade.
 
-- editor.native.blade.execute
-  - Require the preview token.
-  - Revalidate frontmost state, sequence, occurrence, playhead, and selection.
-  - Invoke Final Cut’s Blade menu/keyboard command through Accessibility automation.
-  - Verify that the target changed from one occurrence to two resulting timeline segments.
-  - Return both resulting occurrence descriptions and an operation ID.
+- Verify two resulting segments.
+- Blade alone does not change sequence duration.
 
-- editor.native.undo
-  - Continue using Final Cut’s native Undo.
-  - Bind undo records to the blade operation and reject unknown or stale operation IDs.
+### delete_range
 
-The existing rename, trim, gain, and marker operations remain available but are clearly documented as
-selection-scoped operations, not full timeline editing.
+- Support only the primary storyline in v1.
+- Always use ripple-delete semantics; later content shifts earlier.
+- Validate:
+  - start < end
+  - range is inside the active sequence
+  - active project, sequence, and revision remain unchanged
+  - Final Cut is frontmost and timeline-focused
 
-### Full timeline writes
+- Use native UI automation to position the range precisely in Final Cut, select it, and invoke the visible
+Delete/Ripple Delete command.
 
-Keep deterministic canonical edits in the FCPXML provider.
+- Fail closed if the range cannot be positioned or selected with frame-accurate verification.
+- Verify the sequence duration decreases by the requested range duration within one frame of tolerance.
 
-Add a publish workflow:
+### trim_to_duration
 
-- Apply and verify the requested full-timeline edit against the managed FCPXML artifact.
-- Validate the final FCPXML before any Final Cut UI action.
-- Create a disposable publish copy.
-- Use Final Cut’s visible Import XML workflow to create a new project from that copy.
-- Verify the newly imported project and sequence appear in Final Cut.
-- Return the new project identity and source transaction ID.
-- Never replace or mutate the original active project in v1.
+- Preserve the beginning of the sequence.
+- If the requested duration is shorter than the current duration, internally delete [targetDuration,
+currentSequenceEnd] using ripple-delete semantics.
 
-Add a separate capability such as timelinePublishNewProject; do not set generic timelineWrite=true, because
-the operation is an import/publish workflow rather than direct in-place mutation.
+- If the target equals or exceeds the current duration, return a verified no-op without mutating Final Cut.
+- Verify the resulting sequence duration is no greater than the requested duration and does not remove content
+before the target boundary.
 
-### Capability and error contracts
+- Expose this as a distinct operation so Codex can distinguish “make it 30 seconds” from arbitrary range
+deletion.
 
-Extend the native capability block with distinct flags:
+## Safety and UX
 
-{
-"native": {
-    "mediaLibrarySearch": true,
-    "mediaSelection": true,
-    "timelineOccurrenceLocate": true,
-    "bladeAtPlayhead": true,
-    "selectionEdit": true,
-    "undo": true,
-    "requiresAccessibility": true,
-    "requiresFinalCutFrontmost": true
-},
-"editor": {
-    "timelineWrite": false,
-    "timelinePublishNewProject": true
-}
-}
+- Preview tokens expire after the existing short native-operation window.
+- Tokens bind to project, sequence, revision, requested range/duration, and target scope.
+- Execute rejects stale playhead, sequence, revision, focus, selection, or changed duration state.
+- MCP descriptions must explicitly distinguish:
+  - Blade = split only.
+  - Delete range = remove a specified range.
+  - Trim to duration = preserve the beginning and remove the remainder.
 
-Add fail-closed errors for:
+- Codex should ask for intent when a request such as “make a cut” does not specify one of these operations.
+- Do not automatically choose clips or infer “unnecessary footage” in this phase.
+- Do not enable canonical timelineWrite; these operations remain guarded Accessibility-based native UI edits.
 
-- native search unavailable
-- Browser result not found
-- selection verification failed
-- timeline occurrence not found
-- ambiguous occurrence
-- stale selection handle
-- playhead outside target occurrence
-- blade command unavailable
-- blade verification failed
-- publish validation failed
-- Final Cut import verification failed
+## Testing and acceptance
 
-Update MCP descriptions so Codex distinguishes:
+- Add deterministic adapter tests for:
+  - rational range validation;
+  - target duration validation and no-op behavior;
+  - preview expiration;
+  - stale revision/sequence rejection;
+  - delete and trim script generation;
+  - expected duration verification;
+  - native Undo registration;
+  - live connection suspension during the entire UI transaction.
 
-- live inspection,
-- Browser discovery,
-- selection-scoped native edits,
-- Blade operations,
-- canonical FCPXML edits,
-- new-project publishing.
+- Add MCP contract tests for all preview/execute tools, schemas, capability flags, and structured errors.
+- Extend headed Final Cut E2E coverage with a disposable project:
+  - Blade at playhead → two segments → Undo restores one segment.
+  - Delete a known range → duration decreases by the expected amount → Undo restores the original duration.
+  - Trim to a target duration → final duration is within one frame of target → Undo restores the original
+    duration.
 
-## Test plan
+- Run the required repository checks:
+  - pnpm install --frozen-lockfile
+  - pnpm run build
+  - pnpm run test
+  - pnpm run check:boundaries
+  - pnpm run xcode:check
+  - xcodebuild ... -list
 
-### Deterministic tests
+- Update native MCP, Final Cut, capability/error, and headed E2E documentation.
 
-- Search returns typed media handles.
-- Duplicate Browser results are represented without collapsing identity.
-- Timeline occurrence matching rejects zero and multiple matches.
-- Handles become invalid after sequence, selection, or playhead revision changes.
-- Blade preview refuses an out-of-range playhead.
-- Blade execution requires a valid preview token.
-- Blade results contain two verified segments.
-- Unknown and stale undo operations fail safely.
-- FCPXML publish validates the artifact before invoking native automation.
+## Assumptions
 
-### Native headed E2E
-
-Using a disposable duplicate Final Cut project:
-
-1. Start Framekit with native writes enabled.
-2. Confirm Accessibility permissions and frontmost Final Cut timeline.
-3. Search the active Browser for a known video.
-4. Select the result and verify selection identity.
-5. Locate exactly one matching timeline occurrence.
-6. Move or confirm the playhead inside that occurrence.
-7. Preview the Blade operation.
-8. Execute it.
-9. Verify two resulting timeline segments.
-10. Undo through Final Cut and verify the original single occurrence returns.
-
-Additional headed cases:
-
-- no Final Cut window,
-- Final Cut not frontmost,
-- no Browser result,
-- ambiguous media match,
-- multiple timeline occurrences,
-- modal dialog open,
-- denied Accessibility permission,
-- playhead outside the clip,
-- unsaved original project remains unchanged after FCPXML publish.
-
-Run the existing repository validation in addition to the native E2E suite:
-
-pnpm install --frozen-lockfile
-pnpm run build
-pnpm run test
-pnpm run check:boundaries
-pnpm run xcode:check
-xcodebuild -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj
--list
-
-## Assumptions and defaults
-
-- “Search Final Cut’s live media library” means the active Browser/library UI, not a filesystem registry and
-not an invisible private database.
-
-- Automatic Blade requires exactly one matching timeline occurrence.
-- A Browser media item and a timeline occurrence are different identities.
-- Native handles are short-lived and revision-bound, not permanent Final Cut IDs.
-- “Full timeline writes” means verified FCPXML edits published as a new Final Cut project in v1.
-- The original active project is never replaced automatically.
-- Accessibility/System Events remains the native mechanism because Final Cut’s exposed scripting dictionary is
-read-only for library inspection.
+- “Delete” means ripple-delete.
+- The supported scope is the primary storyline only.
+- trim_to_duration keeps the beginning of the sequence.
+- Times are exact rational frame times.
+- All three operations target live Final Cut native automation only.
+- Automatic clip selection, content analysis, and agent-selected removal are deferred.

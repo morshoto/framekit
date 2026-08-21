@@ -74,6 +74,27 @@ Handles are bound to the current Final Cut UI state. A changed selection,
 sequence, or expired preview causes a fail-closed error. Blade execution
 verifies that Final Cut exposes two resulting segments after the command.
 
+## Native range deletion and duration trimming
+
+Native range operations use rational frame times and a preview/execute flow:
+
+1. Call `editor.native.delete-range.preview` with `start` and `end`, or
+   call `editor.native.trim-to-duration.preview` with the requested `duration`.
+2. Confirm the returned range, expected resulting duration, sequence, and
+   revision with the user before making a destructive edit.
+3. Call the matching `.execute` tool with the short-lived `previewToken`.
+4. Verify the returned live duration and use `editor.native.undo` if the user
+   requests a rollback.
+
+`delete-range` is limited to the primary storyline and ripple-deletes the
+selected range. `trim-to-duration` preserves the beginning of the sequence and
+deletes everything after the requested duration. A target duration that is
+already at or beyond the current duration returns a verified no-op.
+
+These operations do not automatically choose clips, connected media, or
+unnecessary footage. They also do not change the canonical `timelineWrite`
+capability.
+
 ## Full timeline publishing
 
 When `FRAMEKIT_FCPXML_PATH` is configured, `timeline.edit` continues to modify

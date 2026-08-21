@@ -75,6 +75,8 @@ capabilities:
     "mediaSelection": true,
     "timelineOccurrenceLocate": true,
     "bladeAtPlayhead": true,
+    "deleteRange": true,
+    "trimToDuration": true,
     "requiresAccessibility": true,
     "requiresFinalCutFrontmost": true
   }
@@ -85,11 +87,21 @@ They are disabled unless `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`. Native edits
 operate on the active Final Cut selection/playhead and do not claim a complete
 timeline snapshot or canonical diff.
 
+`bladeAtPlayhead` splits the current uniquely identified occurrence but does not
+shorten the sequence. `deleteRange` ripple-deletes an explicit rational range
+from the primary storyline. `trimToDuration` preserves the beginning of the
+sequence and deletes its tail after the requested duration. The latter two
+operations require preview/execute confirmation and verify the resulting live
+sequence duration.
+
 Native errors include `FINAL_CUT_NATIVE_PERMISSION_REQUIRED`,
 `FINAL_CUT_NATIVE_NOT_FRONTMOST`, `FINAL_CUT_NATIVE_SELECTION_REQUIRED`,
 `FINAL_CUT_NATIVE_MODAL_BLOCKED`, `FINAL_CUT_NATIVE_COMMAND_UNAVAILABLE`,
 `FINAL_CUT_NATIVE_VERIFICATION_FAILED`, and
-`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE`. Live discovery and Blade additionally
+`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE`. Range operations additionally use
+`FINAL_CUT_NATIVE_RANGE_OUT_OF_BOUNDS` and
+`FINAL_CUT_NATIVE_PLAYHEAD_VERIFICATION_FAILED` and
+`FINAL_CUT_NATIVE_PREVIEW_STALE`. Live discovery and Blade additionally
 use `FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_PREVIEW_STALE`, and

@@ -14,6 +14,10 @@
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match before automatic editing |
 | `editor.native.blade.preview` | Prepare a Blade-at-playhead preview token | Token expires and is bound to the occurrence |
 | `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost Final Cut and post-command verification |
+| `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute |
+| `editor.native.delete-range.execute` | Execute a previewed primary-storyline ripple delete | Requires unchanged sequence revision and duration |
+| `editor.native.trim-to-duration.preview` | Preview removal of the sequence tail after a requested duration | Preserves the beginning; destructive; requires explicit execute |
+| `editor.native.trim-to-duration.execute` | Execute a previewed trim-to-duration operation | Requires unchanged sequence revision and duration |
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed Final Cut session |
