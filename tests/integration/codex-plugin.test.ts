@@ -68,3 +68,12 @@ test("Framekit plugin guidance preserves live capability and safety boundaries",
     assert.match(skill, new RegExp(expected.replace(".", "\\."), "i"));
   }
 });
+
+test("CI runs the clean Codex plugin installation smoke test", async () => {
+  const packageManifest = await readJson("package.json") as { scripts?: Record<string, string> };
+  assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
+
+  const workflow = await readFile(resolve(repository, ".github/workflows/typescript.yml"), "utf8");
+  assert.match(workflow, /npm install --global @openai\/codex/);
+  assert.match(workflow, /pnpm run test:codex-plugin/);
+});
