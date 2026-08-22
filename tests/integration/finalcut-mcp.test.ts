@@ -103,7 +103,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
 
     const edited = JSON.parse(textFrom(await client.callTool({
       name: "timeline.edit",
-      arguments: { type: "rename-clip", clipId: "timeline:MCP Final Cut:spine:0:asset-clip", name: "Interview Clean", baseRevision: project.revision },
+      arguments: { type: "rename-clip", clipId: project.timeline.clips[0].id, name: "Interview Clean", baseRevision: project.revision },
     })));
     assert.equal(edited.status, "VERIFIED");
     assert.equal(edited.after.timeline.clips[0].name, "Interview Clean");

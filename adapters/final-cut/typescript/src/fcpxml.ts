@@ -85,10 +85,13 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   public async readProject(): Promise<ProjectSnapshot> {
     await this.ensureLoaded();
     const project = this.projectNode();
-    const sequence = findElement(project, "sequence") ?? {};
+    const sequenceNode = findElement(project, "sequence");
+    const sequence = sequenceNode ?? {};
     const spine = findElement(sequence, "spine") ?? {};
     const projectName = String(attribute(project, "name") ?? "Final Cut Project");
-    const timelineId = `timeline:${projectName}`;
+    const projectId = stableProjectId(project, projectName);
+    const sequenceName = String(attribute(sequenceNode ?? {}, "name") ?? projectName);
+    const timelineId = stableTimelineId(project, sequenceNode);
     const elements = storyEntries(spine);
     const storyElements = elements
       .map(({ kind, node }, index) => ({ kind, element: this.storyElementFromXml(node, kind, index, timelineId) }))
@@ -101,11 +104,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const durationValue = attribute(sequence, "duration")
       ?? formatSeconds(Math.max(0, ...storyElements.map((element) => element.start + element.duration)));
     return {
-      projectId: `fcpxml:${this.filePath}`,
+      projectId,
       projectName,
       timeline: {
         id: timelineId,
-        name: projectName,
+        name: sequenceName,
         duration: parseSeconds(durationValue),
         durationTime: parseRational(durationValue),
         clips,
@@ -156,19 +159,21 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     }
     this.history.set(expectedRevision.id, structuredClone(this.xml!));
     const project = this.projectNode();
-    const sequence = findElement(project, "sequence") ?? {};
+    const sequenceNode = findElement(project, "sequence");
+    const sequence = sequenceNode ?? {};
     const spine = findElement(sequence, "spine") ?? {};
+    const timelineId = stableTimelineId(project, sequenceNode);
 
     switch (operation.type) {
       case "rename-clip": {
-        const node = this.findClipNode(spine, operation.clipId);
+        const node = this.findClipNode(spine, operation.clipId, timelineId);
         if (!node) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
         if (operation.name.trim().length === 0) throw new Error("INVALID_OPERATION: clip name cannot be empty");
         setAttribute(node, "name", operation.name);
         break;
       }
       case "trim-clip": {
-        const node = this.findClipNode(spine, operation.clipId);
+        const node = this.findClipNode(spine, operation.clipId, timelineId);
         if (!node) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
         if ((!Number.isFinite(operation.duration) || operation.duration <= 0) && !operation.durationTime) {
           throw new Error("INVALID_OPERATION: clip duration must be positive");
@@ -177,7 +182,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         break;
       }
       case "set-gain": {
-        const node = this.findClipNode(spine, operation.clipId);
+        const node = this.findClipNode(spine, operation.clipId, timelineId);
         if (!node) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
         if (!Number.isFinite(operation.gainDb)) throw new Error("INVALID_OPERATION: gain must be finite");
         this.setAdjustVolume(node, operation.gainDb);
@@ -186,7 +191,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       case "ripple-delete":
         throw new Error("CAPABILITY_UNAVAILABLE: FCPXML ripple-delete requires story-element source-range transforms");
       case "add-marker": {
-        if (operation.timelineId !== `timeline:${attribute(project, "name") ?? "Final Cut Project"}`) {
+        if (operation.timelineId !== timelineId) {
           throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
         }
         appendChild(spine, "marker", {
@@ -274,11 +279,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     return String(explicit ?? `${timelineId}:spine:${index}:${kind}`);
   }
 
-  private findClipNode(spine: XmlNode, clipId: string): XmlNode | undefined {
+  private findClipNode(spine: XmlNode, clipId: string, timelineId: string): XmlNode | undefined {
     return storyEntries(spine)
       .map(({ kind, node }, index) => ({ kind, node, index }))
       .filter(({ kind }) => CLIP_KINDS.has(kind))
-      .find(({ kind, node, index }) => this.instanceId(node, kind, index, `timeline:${attribute(this.projectNode(), "name") ?? "Final Cut Project"}`) === clipId)
+      .find(({ kind, node, index }) => this.instanceId(node, kind, index, timelineId) === clipId)
       ?.node;
   }
 
@@ -472,6 +477,13 @@ function stableProjectId(project: XmlNode, projectName: string): string {
 function stableSequenceId(sequence: XmlNode | undefined, projectId: string, sequenceName: string): string {
   const uid = sequence ? attribute(sequence, "uid") : undefined;
   return `fcpxml:sequence:${String(uid ?? hash(`${projectId}:${sequenceName}`).slice(0, 16))}`;
+}
+
+function stableTimelineId(project: XmlNode, sequence: XmlNode | undefined): string {
+  const projectName = String(attribute(project, "name") ?? "Final Cut Project");
+  const projectId = stableProjectId(project, projectName);
+  const sequenceName = String(attribute(sequence ?? {}, "name") ?? projectName);
+  return stableSequenceId(sequence, projectId, sequenceName);
 }
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {

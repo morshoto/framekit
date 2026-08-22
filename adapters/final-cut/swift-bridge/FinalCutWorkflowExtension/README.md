@@ -36,8 +36,11 @@ FRAMEKIT_EDITOR=final-cut-live npm run mcp
 Set `FRAMEKIT_FINAL_CUT_SOCKET` explicitly when using a non-default socket.
 
 Supported requests are `capabilities`, `state`, and `changes`. The bridge
-reports stable active project/sequence metadata, rational playhead time, selected
-sequence range, and observer-backed change events. It deliberately reports
+reports active project metadata and a project-scoped sequence identity derived
+from the current sequence name, plus rational playhead time, selected sequence
+range, and observer-backed change events. The sequence identity is not an
+immutable host identifier; native handles fail closed when it changes. It
+deliberately reports
 `editor.timelineSnapshotRead: false`: the public Workflow Extension proxy does not promise a
 complete clip/media enumeration API, so Framekit fails closed instead of
 fabricating an empty canonical timeline.

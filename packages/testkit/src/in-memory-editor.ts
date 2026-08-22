@@ -39,7 +39,7 @@ export class InMemoryEditorAdapter implements EditorPort {
   private snapshot: ProjectSnapshot;
   private readonly assets: EditorAsset[];
   private readonly history = new Map<string, ProjectSnapshot>();
-  private readonly snapshotsByProject: Map<string, ProjectSnapshot>;
+  private readonly snapshotsByTarget: Map<string, ProjectSnapshot>;
   private readonly projects: ProjectCatalog["projects"];
   private activeProjectId: string;
   private activeSequenceId: string;
@@ -52,13 +52,13 @@ export class InMemoryEditorAdapter implements EditorPort {
       name: fixture.projectName,
       sequences: [{ id: fixture.timelineId, name: fixture.timelineName }],
     }]);
-    this.snapshotsByProject = new Map((fixture.projectSnapshots ?? [fixture]).map((candidate) => [
-      candidate.projectId,
+    this.snapshotsByTarget = new Map((fixture.projectSnapshots ?? [fixture]).map((candidate) => [
+      snapshotKey(candidate.projectId, candidate.timelineId),
       createSnapshot(candidate),
     ]));
     this.activeProjectId = fixture.projectId;
     this.activeSequenceId = fixture.timelineId;
-    const initialSnapshot = this.snapshotsByProject.get(fixture.projectId);
+    const initialSnapshot = this.snapshotsByTarget.get(snapshotKey(fixture.projectId, fixture.timelineId));
     if (!initialSnapshot) throw new Error(`PROJECT_NOT_FOUND: ${fixture.projectId}`);
     this.snapshot = structuredClone(initialSnapshot);
     this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
@@ -128,7 +128,7 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
       throw new Error(`SEQUENCE_NOT_FOUND: ${sequenceId}`);
     }
-    const target = this.snapshotsByProject.get(project.id);
+    const target = this.snapshotsByTarget.get(snapshotKey(project.id, sequenceId));
     if (!target) {
       throw new Error(`UNSUPPORTED_PROJECT_SELECTION: no canonical snapshot for ${project.id}`);
     }
@@ -338,6 +338,10 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
       timestamp: new Date(0).toISOString(),
     },
   };
+}
+
+function snapshotKey(projectId: string, timelineId: string): string {
+  return `${projectId}\u0000${timelineId}`;
 }
 
 function normalizeClip(clip: InMemoryProjectFixture["clips"][number]): Clip {

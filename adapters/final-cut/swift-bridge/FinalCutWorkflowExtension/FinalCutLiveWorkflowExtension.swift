@@ -359,6 +359,9 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             LiveState.Project(id: "final-cut:project:\($0.uid)", name: $0.name)
         }
         let projectID = project?.id ?? "final-cut:project:unknown"
+        // The public host API exposes no immutable sequence identifier. This
+        // project-scoped name identity is intentionally treated as mutable;
+        // native handles fail closed when the identity changes.
         let sequenceName = sequence.name ?? "active-sequence"
         let liveSequence = LiveState.Sequence(id: "\(projectID):sequence:\(sequenceName)", name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
