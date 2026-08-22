@@ -1530,7 +1530,7 @@ async function selectTimelineOccurrence(executor: (script: string) => Promise<st
     throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
   }
   const x = Math.round(originX + timelineOffset);
-  const y = Math.round(originY + 670);
+  const y = Math.round(originY + 650);
   try {
     await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
   } catch (error) {
