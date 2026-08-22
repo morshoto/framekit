@@ -8,6 +8,8 @@ import type {
   AssetSearchQuery,
   ContextDiff,
   ContextRevision,
+  CompositeEditPreview,
+  CompositeEditRequest,
   EditOperation,
   EditTransaction,
   EditorPort,
@@ -30,11 +32,13 @@ import type {
   VisualAnalyzer,
   VerificationEngine,
   VerificationPolicy,
+  WorkflowOperation,
 } from "./domain/types.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
 
 export class AgentVideoRuntime {
   private readonly transactions = new Map<string, EditTransaction>();
+  private readonly editPreviews = new Map<string, CompositeEditPreview>();
   private readonly verificationEngine: VerificationEngine;
   private readonly context: ContextEngine;
 
@@ -45,6 +49,9 @@ export class AgentVideoRuntime {
       audioAnalyzer?: AudioAnalyzer;
       visualAnalyzer?: VisualAnalyzer;
       verificationEngine?: VerificationEngine;
+      now?: () => number;
+      previewTtlMs?: number;
+      maxActivePreviews?: number;
     } = {},
   ) {
     this.context = new ContextEngine(adapter);
@@ -210,6 +217,100 @@ export class AgentVideoRuntime {
     return transaction;
   }
 
+  public async previewEdit(request: CompositeEditRequest): Promise<CompositeEditPreview> {
+    const before = await this.inspectProject();
+    if (!sameRevision(request.baseRevision, before.revision)) {
+      throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
+    }
+    if (request.operations.length === 0) throw new Error("INVALID_OPERATION: composite edit requires operations");
+    await this.assertCompositeCapabilities(request.operations);
+    if (!this.adapter.previewTransaction) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
+    }
+    const expectedAfter = await this.adapter.previewTransaction(request.operations, before.revision);
+    const previewToken = `preview-${randomUUID()}`;
+    const preview: CompositeEditPreview = {
+      previewToken,
+      baseRevision: structuredClone(before.revision),
+      operations: structuredClone(request.operations),
+      expectedDiff: diffSnapshots(before, expectedAfter),
+      warnings: [],
+      expiresAt: new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
+    };
+    this.pruneEditPreviews();
+    const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews)
+      && this.options.maxActivePreviews! > 0
+      ? this.options.maxActivePreviews!
+      : 128;
+    while (this.editPreviews.size >= maxActivePreviews) {
+      const oldestToken = this.editPreviews.keys().next().value;
+      if (oldestToken === undefined) break;
+      this.editPreviews.delete(oldestToken);
+    }
+    this.editPreviews.set(previewToken, preview);
+    return structuredClone(preview);
+  }
+
+  public async executeEdit(previewToken: string, policy: VerificationPolicy = {}): Promise<EditTransaction> {
+    const preview = this.editPreviews.get(previewToken);
+    if (!preview) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used preview ${previewToken}`);
+    this.editPreviews.delete(previewToken);
+    if (this.now() > Date.parse(preview.expiresAt)) {
+      throw new Error("PREVIEW_TOKEN_EXPIRED: composite edit preview has expired");
+    }
+    const before = await this.inspectProject();
+    if (!sameRevision(preview.baseRevision, before.revision)) {
+      throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
+    }
+    await this.assertCompositeCapabilities(preview.operations);
+    if (!this.adapter.applyTransaction) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
+    }
+    try {
+      await this.adapter.applyTransaction(preview.operations, before.revision);
+    } catch (error) {
+      const partiallyApplied = await this.inspectProject();
+      if (!sameRevision(partiallyApplied.revision, before.revision)) {
+        try {
+          await this.adapter.restore(before, partiallyApplied.revision);
+        } catch (rollbackError) {
+          throw new Error(`TRANSACTION_FAILED: ${String(error)}; rollback failed: ${String(rollbackError)}`);
+        }
+      }
+      throw new Error(`TRANSACTION_FAILED: ${String(error)}; transaction was rolled back`);
+    }
+    const attemptedAfter = await this.inspectProject();
+    const transaction: EditTransaction = {
+      id: `txn-${randomUUID()}`,
+      intent: "composite-edit",
+      planned: structuredClone(preview.operations),
+      applied: structuredClone(preview.operations),
+      baseRevision: before.revision,
+      before,
+      after: attemptedAfter,
+      attemptedAfter,
+      diff: diffSnapshots(before, attemptedAfter),
+      status: "APPLIED",
+    };
+    try {
+      transaction.attemptedAfter = await this.reanalyzeAffectedRanges(transaction);
+      transaction.after = transaction.attemptedAfter;
+    } catch (error) {
+      await this.adapter.restore(before, attemptedAfter.revision);
+      throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
+    }
+    transaction.verification = await this.verificationEngine.verify(transaction, policy);
+    if (transaction.verification.passed) {
+      transaction.status = "VERIFIED";
+    } else {
+      await this.adapter.restore(before, attemptedAfter.revision);
+      transaction.after = await this.inspectProject();
+      transaction.status = "ROLLED_BACK";
+    }
+    this.transactions.set(transaction.id, transaction);
+    return transaction;
+  }
+
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
     return this.context.changesSince(revision);
   }
@@ -329,6 +430,38 @@ export class AgentVideoRuntime {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
     }
     return candidate as LiveEditorStatePort;
+  }
+
+  private async assertCompositeCapabilities(operations: WorkflowOperation[]): Promise<void> {
+    const capabilities = (await this.adapter.getCapabilities()).editor;
+    if (!capabilities.compositeTransactions || !capabilities.readAfterWrite || !capabilities.rollback) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transactions");
+    }
+    if (operations.some((operation) => operation.type === "media.import") && !capabilities.mediaImport) {
+      throw new Error("CAPABILITY_UNAVAILABLE: media import");
+    }
+    if (operations.some((operation) => operation.type === "timeline.media.add") && !capabilities.mediaPlacement) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media placement");
+    }
+    if (operations.some((operation) => operation.type === "timeline.title.add")
+      && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");
+    }
+    if (operations.some((operation) => operation.type !== "media.import")
+      && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
+    }
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  private pruneEditPreviews(): void {
+    const now = this.now();
+    for (const [previewToken, preview] of this.editPreviews) {
+      if (now > Date.parse(preview.expiresAt)) this.editPreviews.delete(previewToken);
+    }
   }
 
   private async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {

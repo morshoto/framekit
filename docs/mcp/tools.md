@@ -35,6 +35,8 @@
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed Final Cut session |
 | `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path |
+| `timeline.edit.preview` | Validate an ordered Basic Editing MVP workflow and return a short-lived token plus expected diff | Deterministic fixture; non-mutating and capability-gated |
+| `timeline.edit.execute` | Execute one composite preview exactly once, verify it, and return the transaction | Deterministic fixture; stale, expired, reused, or unsupported previews fail before mutation |
 | `timeline.publish.new-project` | Import a verified FCPXML artifact as a new project | Requires verified `transactionId`, FCPXML path, and native writes; never replaces the active project |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
@@ -74,9 +76,25 @@ use the explicit `editor.native.media.*` tools because Browser media identity an
 timeline occurrence identity are different. Imported media handles are stable
 for the current native session; timeline occurrence handles remain short-lived
 and bound to the active sequence/playhead state.
-`media.search` remains canonical snapshot search. Live Browser search uses the
-explicit `editor.native.media.*` tools because Browser media identity and
-timeline occurrence identity are different and short-lived.
+
+## Composite editing transactions
+
+`timeline.edit.preview` accepts the canonical `baseRevision` and a non-empty,
+ordered `operations` array. The workflow operation discriminants are
+`media.import`, `timeline.media.add`, the existing edit operation names such as
+`trim-clip`, and `timeline.title.add`. Video placement targets `primary`; music
+and titles require explicit non-primary numeric lanes. Preview validates the
+entire sequence against a simulated snapshot and does not change the project,
+media registry, or revision.
+
+`timeline.edit.execute` accepts only the returned `previewToken`. Tokens expire
+after 30 seconds by default and are consumed on the first execute attempt.
+Execution rechecks capabilities and the base revision, then applies the ordered
+operations through one adapter transaction. Verification failure or a partial
+adapter write restores the pre-transaction timeline and media registry. The
+deterministic fixture advertises this contract; FCPXML and live Final Cut
+backends continue to fail closed until they implement the same atomic adapter
+port.
 
 ## Explicit editing intent
 

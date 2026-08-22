@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const entrypoint = fileURLToPath(new URL("../apps/cli/src/main.ts", import.meta.url));
-const child = spawn(process.execPath, ["--import", "tsx", entrypoint, ...process.argv.slice(2)], {
-  stdio: "inherit",
-  env: process.env,
-});
+const packagedEntrypoint = fileURLToPath(new URL("../dist-package/apps/cli/src/main.js", import.meta.url));
+const developmentEntrypoint = fileURLToPath(new URL("../apps/cli/src/main.ts", import.meta.url));
+const packaged = existsSync(packagedEntrypoint);
+const child = spawn(
+  process.execPath,
+  [...(packaged ? [] : ["--import", "tsx"]), packaged ? packagedEntrypoint : developmentEntrypoint, ...process.argv.slice(2)],
+  {
+    stdio: "inherit",
+    env: process.env,
+  },
+);
 
 child.once("error", (error) => {
   process.stderr.write(`framekit failed to start: ${String(error)}\n`);

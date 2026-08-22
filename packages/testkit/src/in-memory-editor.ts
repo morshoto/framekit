@@ -16,6 +16,7 @@ import type {
   RationalTime,
   RuntimeCapabilities,
   CapturedFrameSource,
+  WorkflowOperation,
 } from "@framekit/runtime";
 import { diffSnapshots } from "@framekit/runtime";
 
@@ -104,6 +105,10 @@ export class InMemoryEditorAdapter implements EditorPort {
         frameCapture: Boolean(this.activeFrames()),
         projectCatalogRead: true,
         projectSelection: true,
+        compositeTransactions: true,
+        mediaImport: true,
+        mediaPlacement: true,
+        titlePlacement: true,
       },
       analyzers: {
         speechTranscribe: false,
@@ -202,31 +207,165 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (this.snapshot.revision.id !== expectedRevision.id) {
       throw new Error("STALE_CONTEXT: editor revision changed before write");
     }
+    this.snapshot = this.nextSnapshot(this.applyOperation(this.snapshot, operation));
+  }
 
+  public async previewTransaction(
+    operations: WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<ProjectSnapshot> {
+    this.assertRevision(expectedRevision);
+    const preview = operations.reduce(
+      (snapshot, operation) => this.applyOperation(snapshot, operation),
+      structuredClone(this.snapshot),
+    );
+    return structuredClone(withRevision(withTimelineDuration(preview), nextRevision(this.snapshot.revision)));
+  }
+
+  public async applyTransaction(
+    operations: WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<void> {
+    this.assertRevision(expectedRevision);
+    const next = operations.reduce(
+      (snapshot, operation) => this.applyOperation(snapshot, operation),
+      structuredClone(this.snapshot),
+    );
+    this.snapshot = this.nextSnapshot(next);
+  }
+
+  public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
+    if (this.snapshot.revision.id !== expectedRevision.id) {
+      throw new Error("STALE_CONTEXT: editor revision changed before rollback");
+    }
+    if (snapshot.projectId !== this.activeProjectId || snapshot.timeline.id !== this.activeSequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: cannot restore ${snapshot.projectId}/${snapshot.timeline.id} while ${this.activeProjectId}/${this.activeSequenceId} is active`,
+      );
+    }
+    this.snapshot = withRevision(structuredClone(snapshot), nextRevision(this.snapshot.revision));
+    this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
+  }
+
+  private applyOperation(snapshot: ProjectSnapshot, operation: WorkflowOperation): ProjectSnapshot {
+    if (operation.type === "media.import") {
+      if (snapshot.media.some((media) => media.mediaId === operation.mediaId)) {
+        throw new Error(`MEDIA_ALREADY_EXISTS: ${operation.mediaId}`);
+      }
+      if (!operation.source.trim() || !Number.isFinite(operation.duration) || operation.duration <= 0
+        || !operation.sourceDigest.trim()) {
+        throw new Error("INVALID_OPERATION: imported media requires source, duration, and digest");
+      }
+      return {
+        ...snapshot,
+        media: [...snapshot.media, {
+          mediaId: operation.mediaId,
+          source: operation.source,
+          mediaKind: operation.mediaKind,
+          duration: operation.duration,
+          sourceDigest: operation.sourceDigest,
+        }],
+      };
+    }
+    if (operation.type === "timeline.media.add") {
+      const media = snapshot.media.find((candidate) => candidate.mediaId === operation.mediaId);
+      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
+        throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
+      }
+      if (!Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+        || operation.start < 0 || operation.duration <= 0) {
+        throw new Error("INVALID_OPERATION: media placement timing");
+      }
+      const lane = operation.targetLane ?? (operation.role === "video" ? "primary" : undefined);
+      if (operation.role === "video" && lane !== "primary") {
+        throw new Error("INVALID_OPERATION: video must target the primary storyline");
+      }
+      if (operation.role === "music" && (typeof lane !== "number" || lane === 0)) {
+        throw new Error("INVALID_OPERATION: music requires an explicit non-primary lane");
+      }
+      const clip = withClipTime({
+        id: operation.occurrenceId,
+        mediaId: operation.mediaId,
+        name: media.source.split("/").pop() || media.mediaId,
+        start: operation.start,
+        duration: operation.duration,
+        track: typeof lane === "number" ? lane : 0,
+      });
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: [...snapshot.timeline.clips, clip],
+          storyElements: [...snapshot.timeline.storyElements, {
+            id: clip.id,
+            kind: "asset-clip",
+            start: clip.start,
+            duration: clip.duration,
+            startTime: clip.startTime,
+            durationTime: clip.durationTime,
+            lane: clip.track,
+            mediaId: clip.mediaId,
+          }],
+        },
+      };
+    }
+    if (operation.type === "timeline.title.add") {
+      const asset = this.assets.find((candidate) => candidate.id === operation.assetId && candidate.kind === "title");
+      if (!asset) throw new Error(`TITLE_ASSET_NOT_FOUND: ${operation.assetId}`);
+      if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
+        throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
+      }
+      if (!operation.text.trim() || !Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+        || operation.start < 0 || operation.duration <= 0 || operation.targetLane === 0) {
+        throw new Error("INVALID_OPERATION: title text, timing, and non-primary lane are required");
+      }
+      const clip = withClipTime({
+        id: operation.occurrenceId,
+        name: operation.text,
+        start: operation.start,
+        duration: operation.duration,
+        track: operation.targetLane,
+      });
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: [...snapshot.timeline.clips, clip],
+          storyElements: [...snapshot.timeline.storyElements, {
+            id: clip.id,
+            kind: "title",
+            start: clip.start,
+            duration: clip.duration,
+            startTime: clip.startTime,
+            durationTime: clip.durationTime,
+            lane: clip.track,
+            assetId: operation.assetId,
+            text: operation.text,
+          }],
+        },
+      };
+    }
     if (operation.type === "ripple-delete") {
-      this.applyRippleDelete(operation.timelineId, operation.range.start, operation.range.end);
-      return;
+      return this.applyRippleDelete(snapshot, operation.timelineId, operation.range.start, operation.range.end);
     }
     if (operation.type === "add-marker") {
-      if (operation.timelineId !== this.snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
-      this.snapshot = this.nextSnapshot({
-        ...this.snapshot,
+      if (operation.timelineId !== snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
+      return {
+        ...snapshot,
         timeline: {
-          ...this.snapshot.timeline,
-          markers: [...this.snapshot.timeline.markers, normalizeMarker(operation.marker)],
+          ...snapshot.timeline,
+          markers: [...snapshot.timeline.markers, normalizeMarker(operation.marker)],
         },
-      });
-      return;
+      };
     }
 
-    const clip = this.snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+    const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
     let updatedClip: Clip;
     switch (operation.type) {
       case "rename-clip":
-        if (operation.name.trim().length === 0) {
-          throw new Error("INVALID_OPERATION: clip name cannot be empty");
-        }
+        if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
         updatedClip = { ...clip, name: operation.name };
         break;
       case "trim-clip":
@@ -242,58 +381,29 @@ export class InMemoryEditorAdapter implements EditorPort {
         };
         break;
       case "set-gain":
-        if (!Number.isFinite(operation.gainDb)) {
-          throw new Error("INVALID_OPERATION: gain must be finite");
-        }
+        if (!Number.isFinite(operation.gainDb)) throw new Error("INVALID_OPERATION: gain must be finite");
         updatedClip = { ...clip, gainDb: operation.gainDb };
         break;
-      default:
-        throw new Error(`UNSUPPORTED_OPERATION: ${(operation as { type: string }).type}`);
     }
-
-    this.snapshot = this.nextSnapshot({
-      ...this.snapshot,
+    return {
+      ...snapshot,
       timeline: {
-        ...this.snapshot.timeline,
-        clips: this.snapshot.timeline.clips.map((candidate) =>
-          candidate.id === operation.clipId ? updatedClip : candidate,
-        ),
-        storyElements: this.snapshot.timeline.storyElements.map((element) =>
-          element.id === operation.clipId
-            ? { ...element, start: updatedClip.start, duration: updatedClip.duration, durationTime: updatedClip.durationTime }
-            : element,
-        ),
-      },
-    });
-  }
-
-  public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
-    if (this.snapshot.revision.id !== expectedRevision.id) {
-      throw new Error("STALE_CONTEXT: editor revision changed before rollback");
-    }
-    if (snapshot.projectId !== this.activeProjectId || snapshot.timeline.id !== this.activeSequenceId) {
-      throw new Error(
-        `TARGET_MISMATCH: cannot restore ${snapshot.projectId}/${snapshot.timeline.id} while ${this.activeProjectId}/${this.activeSequenceId} is active`,
-      );
-    }
-    this.snapshot = {
-      ...structuredClone(snapshot),
-      revision: {
-        id: `rev-${this.snapshot.revision.sequence + 1}`,
-        sequence: this.snapshot.revision.sequence + 1,
-        timestamp: new Date().toISOString(),
+        ...snapshot.timeline,
+        clips: snapshot.timeline.clips.map((candidate) => candidate.id === operation.clipId ? updatedClip : candidate),
+        storyElements: snapshot.timeline.storyElements.map((element) => element.id === operation.clipId
+          ? { ...element, start: updatedClip.start, duration: updatedClip.duration, durationTime: updatedClip.durationTime }
+          : element),
       },
     };
-    this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
   }
 
-  private applyRippleDelete(timelineId: string, start: number, end: number): void {
-    if (timelineId !== this.snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${timelineId}`);
+  private applyRippleDelete(snapshot: ProjectSnapshot, timelineId: string, start: number, end: number): ProjectSnapshot {
+    if (timelineId !== snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${timelineId}`);
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
       throw new Error("INVALID_OPERATION: ripple delete range must be positive");
     }
     const removedDuration = end - start;
-    const clips = this.snapshot.timeline.clips.flatMap((clip) => {
+    const clips = snapshot.timeline.clips.flatMap((clip) => {
       const clipEnd = clip.start + clip.duration;
       if (clipEnd <= start) return [clip];
       if (clip.start >= end) return [withClipTime({ ...clip, start: clip.start - removedDuration })];
@@ -306,41 +416,35 @@ export class InMemoryEditorAdapter implements EditorPort {
         duration,
       })];
     });
-    const markers = this.snapshot.timeline.markers.flatMap((marker) => {
+    const markers = snapshot.timeline.markers.flatMap((marker) => {
       if (marker.start >= end) return [normalizeMarker({ ...marker, start: marker.start - removedDuration })];
       if (marker.start + marker.duration <= start) return [marker];
       return [];
     });
-    this.snapshot = this.nextSnapshot({
-      ...this.snapshot,
+    return {
+      ...snapshot,
       timeline: {
-        ...this.snapshot.timeline,
+        ...snapshot.timeline,
         clips,
-        storyElements: this.snapshot.timeline.storyElements
+        storyElements: snapshot.timeline.storyElements
           .filter((element) => clips.some((clip) => clip.id === element.id))
           .map((element) => {
             const clip = clips.find((candidate) => candidate.id === element.id);
             return clip ? { ...element, start: clip.start, duration: clip.duration, startTime: clip.startTime, durationTime: clip.durationTime } : element;
           }),
         markers,
-        durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
       },
-    });
+    };
+  }
+
+  private assertRevision(expectedRevision: ContextRevision): void {
+    if (this.snapshot.revision.id !== expectedRevision.id) {
+      throw new Error("STALE_CONTEXT: editor revision changed before write");
+    }
   }
 
   private nextSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
-    const next = {
-      ...snapshot,
-      timeline: {
-        ...snapshot.timeline,
-        duration: snapshot.timeline.clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
-      },
-      revision: {
-        id: `rev-${snapshot.revision.sequence + 1}`,
-        sequence: snapshot.revision.sequence + 1,
-        timestamp: new Date().toISOString(),
-      },
-    };
+    const next = withRevision(withTimelineDuration(snapshot), nextRevision(snapshot.revision));
     this.history.set(next.revision.id, structuredClone(next));
     return next;
   }
@@ -348,6 +452,31 @@ export class InMemoryEditorAdapter implements EditorPort {
 
 function sameRational(left: RationalTime, right: RationalTime): boolean {
   return BigInt(left.value) * BigInt(right.timescale) === BigInt(right.value) * BigInt(left.timescale);
+}
+
+function nextRevision(revision: ContextRevision): ContextRevision {
+  const sequence = revision.sequence + 1;
+  return {
+    id: `rev-${sequence}`,
+    sequence,
+    timestamp: new Date(sequence).toISOString(),
+  };
+}
+
+function withTimelineDuration(snapshot: ProjectSnapshot): ProjectSnapshot {
+  const duration = snapshot.timeline.clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0);
+  return {
+    ...snapshot,
+    timeline: {
+      ...snapshot.timeline,
+      duration,
+      durationTime: decimalToRational(duration),
+    },
+  };
+}
+
+function withRevision(snapshot: ProjectSnapshot, revision: ContextRevision): ProjectSnapshot {
+  return { ...snapshot, revision };
 }
 
 function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {

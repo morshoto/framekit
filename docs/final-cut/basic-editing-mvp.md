@@ -49,11 +49,11 @@ stable media ID, media kind, duration, source digest, and the revision at which
 the media entered the project. It must reject missing, unreadable, or
 unsupported files before the transaction is previewed.
 
-The current runtime exposes `media.search` and `media.inspect` for already
-normalized media; it does not yet implement `media.import`. Until that tool is
-implemented, the deterministic fixture supplies the video and music media and
-the gap is reported as a blocked capability rather than hidden behind a fake
-import.
+The composite runtime accepts `media.import` as a workflow operation and the
+deterministic fixture registers its normalized media metadata atomically with
+the timeline changes. It is not a standalone canonical import tool and does not
+claim live Final Cut ingestion. Live Browser import remains the separate
+`editor.native.media.import` capability.
 
 Import preview stages the source digest without changing the project revision.
 Import execute is atomic: a successful import advances the revision exactly
@@ -98,11 +98,10 @@ The MVP also requires an explicit placement contract for the media it adds:
 - `timeline.title.add` accepts a stable title `assetId`, title text, start time,
   duration, and `targetLane`, then returns the planned title occurrence.
 
-Both operations are required extensions of the current `timeline.edit` surface.
-They must participate in the same preview/execute transaction and revision
-checks. The current runtime does not implement them yet; the missing
-capabilities must remain explicit until their schemas, adapters, and fixture
-behavior exist.
+Both operations participate in the same preview/execute transaction and
+revision checks. Their workflow schemas and deterministic fixture behavior are
+implemented. Other adapters must continue to report the capabilities as
+unavailable until they provide atomic preview, execution, and rollback.
 
 ### 4. Add music and a title
 
@@ -159,12 +158,12 @@ rollback before returning a failed result.
 | `editor.inspect` | Existing | Report backend identity and machine-readable capabilities. |
 | `project.inspect` | Existing | Read the canonical project and base revision. |
 | `context.inspect` | Existing | Read the agent editing context and capabilities. |
-| `media.import` | Required extension | Ingest and identify a local media file. |
+| `media.import` | Composite operation | Register normalized media metadata inside the ordered fixture workflow; live import remains editor-specific. |
 | `media.inspect` | Existing | Read normalized media metadata and attached analysis. |
-| `timeline.media.add` | Required extension | Place an imported video or music occurrence by stable media ID and role-specific lane. |
-| `timeline.title.add` | Required extension | Place a discovered title asset with explicit text and timing. |
+| `timeline.media.add` | Composite operation | Place an imported video or music occurrence by stable media ID and role-specific lane. |
+| `timeline.title.add` | Composite operation | Place a discovered title asset with explicit text and timing. |
 | `timeline.edit` | Existing | Execute supported deterministic edits and return a transaction. |
-| `timeline.edit.preview` / `timeline.edit.execute` | Required extension | Provide non-mutating preview and guarded execution. |
+| `timeline.edit.preview` / `timeline.edit.execute` | Implemented for deterministic fixture | Provide non-mutating preview and guarded, single-use execution. |
 | `editor.assets` | Existing | Select a real installed title asset. |
 | `timeline.export` | Required extension | Render/export a verified result and manifest. |
 | `edit.diff` | Existing | Return the deterministic transaction diff. |
@@ -178,12 +177,13 @@ existing tool's input or output.
 
 The complete MVP uses one composite workflow transaction for video placement,
 trim, music placement, and title placement. Its preview returns one token and
-its execute returns one transaction ID, diff, manifest, and verification
-record. All operations commit together or rollback together. The existing
-runtime currently applies one `timeline.edit` operation per transaction, so
-this composite orchestration is a required extension rather than a claim about
-the current implementation. Undo must restore the original timeline and media
-registry in one observable operation.
+expected diff; execute returns one transaction ID, before/after snapshots,
+complete diff, affected ranges, and verification record. All operations commit
+together or rollback together. This orchestration is implemented by the
+deterministic fixture while adapters that do not advertise the composite
+capabilities fail closed. Undo restores the original timeline and media
+registry in one observable operation. Export manifests remain tracked by the
+separate export work.
 
 The composite MCP entry point is `timeline.edit.preview` followed by
 `timeline.edit.execute`. Preview accepts a base revision and an ordered operation list
@@ -191,8 +191,8 @@ named `operations`, containing the video `timeline.media.add`, `trim-clip`, musi
 `timeline.media.add`, and `timeline.title.add` operations. Each operation keeps
 its stable IDs, role-specific `targetLane`, timing, and operation-specific
 arguments. Execute accepts only `{ previewToken }`; it returns the single
-transaction ID, complete diff, export manifest, and verification record for the
-all-or-nothing workflow.
+transaction ID, before/after snapshots, complete diff, affected ranges, and
+verification record for the all-or-nothing workflow.
 
 ## Preview, execute, verify, and Undo rules
 

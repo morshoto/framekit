@@ -18,26 +18,50 @@ The verified native baseline is Xcode 16.4 / build 16F6 with macOS SDK 15.5.
 
 ## End-user setup
 
-Register the local MCP server with Codex:
+The Codex plugin installs the Framekit MCP integration, but it does not replace
+the Final Cut Workflow Extension. Install the signed extension application from
+the latest Framekit release before the first live session. The install is
+per-user and does not require administrator privileges.
+
+Configure the Framekit marketplace once:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live
+codex plugin marketplace add morshoto/framekit
 ```
 
-When the MCP process starts, Framekit automatically detects Final Cut Pro,
-installs the signed Workflow Extension into the user's Applications directory,
-launches it, activates the Framekit extension, and waits for the local socket.
-No manual `ditto` or Window → Extensions step is required for a release build.
-Background MCP startup does not quit or reopen Final Cut Pro.
+Open `/plugins`, install **Framekit**, and start a new Codex session. Installation
+requires neither a repository checkout nor manual `codex mcp add`. The plugin
+starts the published package as:
+
+```sh
+npx -y @morshoto/framekit mcp --editor final-cut-live --headless
+```
+
+Headless mode only probes an existing Workflow Extension bridge. It does not
+install the extension, launch or activate Final Cut Pro, focus its windows,
+request Accessibility or Automation access, or perform native destructive
+edits. Open Final Cut and its Framekit Workflow Extension before asking Codex to
+connect.
+
+Start troubleshooting with `connection.status`. A missing application,
+extension, or socket must remain an actionable non-ready state;
+`FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` and `CAPABILITY_UNAVAILABLE` are not
+successful connections. Live metadata access also does not imply canonical
+timeline snapshot or write capability: inspect the active backend's capability
+flags before using project, timeline, or edit tools.
+
+Accessibility and Automation permission are required only for an explicit
+headed native-write setup. Native destructive edits retain their preview,
+execute, frontmost, focus, post-command verification, and undo requirements.
 
 Check the connection without starting MCP:
 
 ```sh
-framekit doctor finalcut
+npx -y @morshoto/framekit doctor finalcut
 ```
 
-The default install is per-user and does not require administrator privileges.
-macOS may still ask once for permission to let Framekit activate Final Cut Pro.
+In headed mode, macOS may ask once for permission to let Framekit activate Final
+Cut Pro. Grant only the permissions needed by the intended workflow.
 
 ## Development build
 

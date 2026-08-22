@@ -1,0 +1,20 @@
+{
+  "name": "framekit",
+  "interface": {
+    "displayName": "Framekit"
+  },
+  "plugins": [
+    {
+      "name": "framekit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/framekit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

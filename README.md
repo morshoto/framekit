@@ -39,11 +39,21 @@ The default `.env.example` starts the Diffusers visual service without the optio
 
 ## Connect Codex to Final Cut
 
-Register the local MCP server with Codex:
+Install the signed Framekit Workflow Extension from the latest release, then
+configure the Framekit marketplace once:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
+codex plugin marketplace add morshoto/framekit
 ```
+
+Open `/plugins` in Codex, find **Framekit**, and select **Install**. Start a new
+Codex session to load the Framekit MCP tools. No repository checkout or manual
+`codex mcp add` is required.
+
+The plugin runs the published package in headless mode. It connects only to an
+existing Workflow Extension bridge and does not launch, activate, focus, or
+edit Final Cut through macOS UI automation. See the
+[first-run setup and capability boundaries](./docs/final-cut/installation.md).
 
 ## Further Docs
 
