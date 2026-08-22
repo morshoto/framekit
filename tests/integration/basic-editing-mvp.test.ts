@@ -24,6 +24,7 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
     "connection.status",
     "editor.inspect",
     "project.inspect",
+    "context.inspect",
     "media.import",
     "media.inspect",
     "timeline.edit",
@@ -33,6 +34,7 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
     "timeline.edit.execute",
     "editor.assets",
     "timeline.export",
+    "edit.diff",
     "edit.verify",
     "edit.undo",
   ]) {

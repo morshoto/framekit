@@ -36,6 +36,12 @@ The minimum deterministic editing gate is:
 - `assetDiscovery` before selecting a title by name;
 - an analyzer capability only when the requested verification policy needs it.
 
+For the complete MVP workflow, the backend must also advertise or expose
+`media.import`, `timeline.media.add`, `timeline.title.add`,
+`timeline.edit.preview`, `timeline.edit.execute`, and `timeline.export`. A
+missing workflow capability is detected before any project mutation; tool
+presence must not be inferred from a documentation-only contract.
+
 ### 2. Import local media
 
 The `media.import` contract accepts an explicit local file path and returns a
@@ -49,12 +55,22 @@ implemented, the deterministic fixture supplies the video and music media and
 the gap is reported as a blocked capability rather than hidden behind a fake
 import.
 
+Import preview stages the source digest without changing the project revision.
+Import execute is atomic: a successful import advances the revision exactly
+once, while a missing or unreadable source leaves both the media registry and
+revision unchanged. The workflow transaction owns the imported media, so
+`edit.undo` must restore the pre-workflow media registry as well as the
+timeline. An adapter that cannot provide this compensating rollback must report
+the capability as unavailable before execution.
+
 ### 3. Make a basic edit
 
-Use `timeline.edit` to place the selected video on the primary storyline and
-trim it to the requested duration. The edit must be tied to the captured base
-revision and must return a transaction ID, before/after snapshots, a
-deterministic diff, and affected ranges.
+Use `timeline.media.add` with `role: "video"` to place the selected video on
+the primary storyline, then use `timeline.edit` to trim it to the requested
+duration. The edit must be tied to the captured base revision and must return a
+transaction ID, before/after snapshots, a deterministic diff, and affected
+ranges. The current `timeline.edit` implementation supports rename, trim, gain,
+ripple-delete, and marker operations; placement is a required extension.
 
 The design requires a preview/execute split for any edit that changes project
 content:
@@ -89,10 +105,10 @@ behavior exist.
 
 Use `media.import` for the local music file, then use `editor.assets` with
 `kind: "title"` to select an installed title by returned asset ID. Apply the
-music placement through `timeline.media.add` and title placement through
-`timeline.title.add`, using the same preview/execute transaction rules as the
-video edit. The title and music must reference stable media or asset IDs, never
-an agent-invented name or path.
+music placement through `timeline.media.add` with `role: "music"` and title
+placement through `timeline.title.add`, using the same preview/execute
+transaction rules as the video edit. The title and music must reference stable
+media or asset IDs, never an agent-invented name or path.
 
 The fixture must include at least one known title asset and a music item. A
 backend without `assetDiscovery` or the required media/edit capability must
@@ -154,6 +170,15 @@ The required extensions are design targets, not present-day tools. Adding
 them requires corresponding MCP schemas, runtime contracts, deterministic
 fixtures, and integration tests; this document does not silently redefine an
 existing tool's input or output.
+
+The complete MVP uses one composite workflow transaction for video placement,
+trim, music placement, and title placement. Its preview returns one token and
+its execute returns one transaction ID, diff, manifest, and verification
+record. All operations commit together or rollback together. The existing
+runtime currently applies one `timeline.edit` operation per transaction, so
+this composite orchestration is a required extension rather than a claim about
+the current implementation. Undo must restore the original timeline and media
+registry in one observable operation.
 
 ## Preview, execute, verify, and Undo rules
 
