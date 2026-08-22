@@ -1033,10 +1033,11 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   const existingIdentity = "file:///existing/interview.mov";
   const importedIdentity = "file:///imported/interview.mov";
   let searchCalls = 0;
+  let clock = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    now: () => 0,
-    sleep: async () => {},
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
@@ -1058,6 +1059,34 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   assert.ok(newlyImported);
   assert.equal(newlyImported.handle, imported.mediaHandle);
   assert.notEqual(existing.handle, newlyImported.handle);
+});
+
+test("native Final Cut import aborts a stalled native executor at its deadline", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-timeout-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  let aborted = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    mediaImportTimeoutMs: 20,
+    executor: async (script, options) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("AXBrowserMedia")) return "";
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) {
+        await new Promise<never>((_, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("native executor aborted"));
+          }, { once: true });
+        });
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.importMedia(sourcePath), /FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT/);
+  assert.equal(aborted, true);
 });
 
 test("native Final Cut rejects an unavailable local media path before opening import UI", async () => {

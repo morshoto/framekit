@@ -117,12 +117,13 @@ session and does not itself insert the asset into the timeline.
 
 Invalid paths fail before any import UI command. If Final Cut does not expose
 the imported asset before the bounded wait expires, Framekit returns
-`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`; duplicate exact Browser results fail
-closed with `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`. A pre-existing same-name
-result or a Browser result without an immutable source identity is never
-accepted as the imported asset; those cases return
-`FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING` or
-`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`. If polling finds only pre-existing
+same-name results, it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if
+multiple newly appearing same-name results are found, it returns
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`. A single newly appearing result with
+an immutable source identity is accepted even when a same-name result existed
+before import. A Browser result without an immutable source identity is never
+accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 
 ## Live Browser search and Blade
 

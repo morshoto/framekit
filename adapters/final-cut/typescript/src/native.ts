@@ -217,7 +217,7 @@ interface NativeOperationRecord {
 
 export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
-  executor?: (script: string) => Promise<string>;
+  executor?: NativeFinalCutExecutor;
   liveState?: () => Promise<EditorLiveState>;
   suspendLiveConnection?: () => void;
   resumeLiveConnection?: () => void;
@@ -226,6 +226,15 @@ export interface NativeFinalCutAutomationOptions {
   mediaImportTimeoutMs?: number;
   mediaImportPollMs?: number;
 }
+
+export interface NativeFinalCutExecutorOptions {
+  signal?: AbortSignal;
+}
+
+export type NativeFinalCutExecutor = (
+  script: string,
+  options?: NativeFinalCutExecutorOptions,
+) => Promise<string>;
 
 export interface NativeFinalCutEditor {
   capabilities(): NativeFinalCutCapabilities;
@@ -248,7 +257,7 @@ export interface NativeFinalCutEditor {
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
-  private readonly executor: (script: string) => Promise<string>;
+  private readonly executor: NativeFinalCutExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly suspendLiveConnection?: () => void;
@@ -335,9 +344,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  private async inspectRawNative(): Promise<NativeFinalCutContext> {
+  private async inspectRawNative(deadline?: number): Promise<NativeFinalCutContext> {
     try {
-      return await this.attachLiveState(parseContext(await this.executor(inspectScript())));
+      return await this.attachLiveState(parseContext(await this.executeNativeScript(inspectScript(), deadline)));
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error));
     }
@@ -452,9 +461,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE: ${normalizedPath} is not a readable local media file (${String(error)})`);
     }
 
-    const context = await this.requireAvailableContext();
+    const deadline = this.now() + this.mediaImportTimeoutMs;
+    const context = await this.requireAvailableContext(deadline);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
-    const beforeMatches = await this.searchMediaNative(name);
+    const beforeMatches = await this.searchMediaNative(name, deadline);
     const beforeIdentities = new Set(
       beforeMatches
         .filter((match) => match.name.toLowerCase() === name.toLowerCase())
@@ -468,15 +478,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`);
     }
     try {
-      await this.executor(importMediaScript(normalizedPath));
+      await this.executeNativeScript(importMediaScript(normalizedPath), deadline);
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
 
-    const deadline = this.now() + this.mediaImportTimeoutMs;
     let sawPreExistingMatch = false;
     while (this.now() <= deadline) {
-      const matches = await this.searchMediaNative(name);
+      const matches = await this.searchMediaNative(name, deadline);
       const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
       if (exactMatches.some((match) => !browserMediaIdentity(match))) {
         throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
@@ -521,13 +530,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.searchMediaNative(query));
   }
 
-  private async searchMediaNative(query: string): Promise<NativeFinalCutMediaMatch[]> {
+  private async searchMediaNative(query: string, deadline?: number): Promise<NativeFinalCutMediaMatch[]> {
     this.assertEnabled();
     if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
-    const context = await this.requireAvailableContext();
+    const context = await this.requireAvailableContext(deadline);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const matches = parseMediaMatches(await this.executor(searchMediaScript(query))).map((match) => {
+      const matches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline)).map((match) => {
         const identity = browserMediaIdentity(match);
         const stableHandle = identity ? this.stableMediaHandles.get(identity) : undefined;
         return stableHandle ? { ...match, handle: stableHandle } : match;
@@ -536,6 +545,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
     } catch (error) {
+      if (deadline !== undefined && nativeErrorCode(error) === "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT") throw error;
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
   }
@@ -1077,14 +1087,33 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     throw new NativeFinalCutPreflightError(lastCode, lastMessage, lastContext);
   }
 
-  private async requireAvailableContext(): Promise<NativeFinalCutContext> {
-    const context = await this.inspectRawNative();
+  private async requireAvailableContext(deadline?: number): Promise<NativeFinalCutContext> {
+    const context = await this.inspectRawNative(deadline);
     if (!context.available) throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native context unavailable"}`);
     return context;
   }
 
   private stableMediaHandle(identity: string): string {
     return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
+  }
+
+  private async executeNativeScript(script: string, deadline?: number): Promise<string> {
+    if (deadline === undefined) return this.executor(script);
+    const remaining = deadline - this.now();
+    if (remaining <= 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: native automation deadline expired");
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: native automation deadline expired"));
+      }, remaining);
+    });
+    try {
+      return await Promise.race([this.executor(script, { signal: controller.signal }), timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 }
 
@@ -1110,9 +1139,9 @@ function verifyNativeUndo(
   return { verified: true, detail: "Final Cut restored the native edit's pre-operation state" };
 }
 
-async function runAppleScript(script: string): Promise<string> {
+async function runAppleScript(script: string, options: NativeFinalCutExecutorOptions = {}): Promise<string> {
   try {
-    const result = await execFile("osascript", ["-e", script], { maxBuffer: 1_000_000 });
+    const result = await execFile("osascript", ["-e", script], { maxBuffer: 1_000_000, signal: options.signal });
     return result.stdout.trim();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
