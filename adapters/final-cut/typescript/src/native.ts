@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
+import { access, constants, stat } from "node:fs/promises";
+import { basename, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { EditorLiveState, RationalTime } from "@framekit/runtime";
 
@@ -28,6 +31,13 @@ export interface NativeFinalCutMediaMatch {
   source?: string;
   browserContext?: string;
   uiIndex?: number;
+}
+
+export interface NativeFinalCutMediaImportResult {
+  mediaHandle: string;
+  sourcePath: string;
+  name: string;
+  kind: "video" | "audio";
 }
 
 export interface NativeFinalCutOccurrence {
@@ -143,6 +153,7 @@ export interface NativeFinalCutCapabilities {
   selectionEdit: boolean;
   undo: boolean;
   mediaLibrarySearch: boolean;
+  mediaImport: boolean;
   mediaSelection: boolean;
   timelineOccurrenceLocate: boolean;
   bladeAtPlayhead: boolean;
@@ -199,6 +210,8 @@ export interface NativeFinalCutAutomationOptions {
   resumeLiveConnection?: () => void;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
+  mediaImportTimeoutMs?: number;
+  mediaImportPollMs?: number;
 }
 
 export interface NativeFinalCutEditor {
@@ -207,6 +220,7 @@ export interface NativeFinalCutEditor {
   focusTimeline(): Promise<NativeFinalCutContext>;
   edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult>;
   undo(operationId: string): Promise<NativeFinalCutUndoResult>;
+  importMedia(sourcePath: string): Promise<NativeFinalCutMediaImportResult>;
   searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
@@ -227,10 +241,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly resumeLiveConnection?: () => void;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly mediaImportTimeoutMs: number;
+  private readonly mediaImportPollMs: number;
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
   private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
+  private readonly stableMediaHandles = new Map<string, string>();
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
@@ -253,6 +270,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 5_000;
+    this.mediaImportPollMs = options.mediaImportPollMs ?? 100;
   }
 
   public capabilities(): NativeFinalCutCapabilities {
@@ -260,6 +279,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       selectionEdit: this.enabled,
       undo: this.enabled,
       mediaLibrarySearch: this.enabled,
+      mediaImport: this.enabled,
       mediaSelection: this.enabled,
       timelineOccurrenceLocate: this.enabled,
       bladeAtPlayhead: this.enabled,
@@ -401,6 +421,57 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return { operationId, undone: true, context: after, verification };
   }
 
+  public async importMedia(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
+    return this.withNativeUi(() => this.importMediaNative(sourcePath));
+  }
+
+  private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
+    this.assertEnabled();
+    const normalizedPath = resolve(sourcePath.trim());
+    const name = basename(normalizedPath);
+    if (!name) throw new Error("INVALID_OPERATION: local media path cannot be empty");
+    try {
+      const details = await stat(normalizedPath);
+      await access(normalizedPath, constants.R_OK);
+      if (!details.isFile()) throw new Error("path is not a file");
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE: ${normalizedPath} is not a readable local media file (${String(error)})`);
+    }
+
+    const context = await this.requireAvailableContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    try {
+      await this.executor(importMediaScript(normalizedPath));
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+
+    const deadline = this.now() + this.mediaImportTimeoutMs;
+    while (this.now() <= deadline) {
+      const matches = await this.searchMediaNative(name);
+      const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
+      if (exactMatches.length > 1) {
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS: Final Cut exposed multiple Browser results for ${name}`);
+      }
+      const match = exactMatches[0];
+      if (match) {
+        const mediaHandle = this.stableMediaHandle(normalizedPath);
+        const stableMatch = { ...match, handle: mediaHandle, source: normalizedPath };
+        this.stableMediaHandles.set(name.toLowerCase(), mediaHandle);
+        this.mediaHandles.set(mediaHandle, stableMatch);
+        return {
+          mediaHandle,
+          sourcePath: normalizedPath,
+          name,
+          kind: mediaKind(normalizedPath),
+        };
+      }
+      if (this.now() >= deadline) break;
+      await this.sleep(Math.min(this.mediaImportPollMs, deadline - this.now()));
+    }
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: Final Cut did not expose ${name} in the Browser within ${this.mediaImportTimeoutMs}ms`);
+  }
+
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
     return this.withNativeUi(() => this.searchMediaNative(query));
   }
@@ -411,7 +482,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireAvailableContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const matches = parseMediaMatches(await this.executor(searchMediaScript(query)));
+      const matches = parseMediaMatches(await this.executor(searchMediaScript(query))).map((match) => {
+        const stableHandle = this.stableMediaHandles.get(match.name.toLowerCase());
+        return stableHandle ? { ...match, handle: stableHandle } : match;
+      });
       this.mediaHandles.clear();
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
@@ -920,6 +994,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.available) throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native context unavailable"}`);
     return context;
   }
+
+  private stableMediaHandle(sourcePath: string): string {
+    return `media-import-${createHash("sha256").update(sourcePath).digest("hex").slice(0, 24)}`;
+  }
 }
 
 function verifyNativeUndo(
@@ -1338,6 +1416,26 @@ function searchMediaScript(query: string): string {
 end tell`;
 }
 
+function importMediaScript(sourcePath: string): string {
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    -- FRAMEKIT_IMPORT_MEDIA
+    set frontmost to true
+    keystroke "i" using {command down}
+    delay 0.5
+    keystroke "g" using {command down, shift down}
+    delay 0.2
+    keystroke ${appleScriptString(sourcePath)}
+    key code 36
+    delay 0.3
+    key code 36
+    delay 0.5
+    return "import-requested"
+  end tell
+  end tell`;
+}
+
 function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
 tell application "System Events"
@@ -1613,6 +1711,12 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
 
 function opaqueHandle(kind: string, suffix?: number): string {
   return `${kind}-${Date.now().toString(36)}-${suffix ?? Math.random().toString(36).slice(2, 8)}`;
+}
+
+function mediaKind(sourcePath: string): "video" | "audio" {
+  return new Set([".aif", ".aiff", ".flac", ".m4a", ".mp3", ".wav", ".aac", ".caf"]).has(extname(sourcePath).toLowerCase())
+    ? "audio"
+    : "video";
 }
 
 function parseRationalNumber(value: string): number | undefined {
