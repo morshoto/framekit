@@ -117,4 +117,9 @@ Blade and range edits require a visible Final Cut timeline, so they are not
 part of the headless test command. The native adapter remains fail-closed and
 is covered by deterministic executor tests. If a separate macOS UI smoke test
 is run manually, use a disposable project and do not treat it as headless or
-as a CI requirement.
+as a CI requirement. For local media import validation, enable native writes,
+call `editor.native.media.import` with one disposable `.mov` and one disposable
+audio file, then pass each returned `mediaHandle` to
+`editor.native.media.select`. Confirm that the returned `sourcePath`, `kind`,
+and stable handle are correct and that an invalid path fails before the import
+dialog opens. Do not use private media or commit test files.
