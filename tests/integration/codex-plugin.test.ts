@@ -101,3 +101,16 @@ test("user documentation leads with plugin installation and explains first-run b
     assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
   }
 });
+
+test("tagpr releases publish the package consumed by the plugin", async () => {
+  const tagpr = await readFile(resolve(repository, ".tagpr"), "utf8");
+  assert.match(tagpr, /versionFile = package\.json,plugins\/framekit\/\.codex-plugin\/plugin\.json/);
+
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  assert.match(workflow, /publish-npm:/);
+  assert.match(workflow, /needs:\s+tagpr/);
+  assert.match(workflow, /needs\.tagpr\.outputs\.tagpr-tag != ''/);
+  assert.match(workflow, /id-token:\s+write/);
+  assert.match(workflow, /npm publish --provenance --access public/);
+  assert.match(workflow, /NODE_AUTH_TOKEN:\s+\$\{\{ secrets\.NPM_TOKEN \}\}/);
+});

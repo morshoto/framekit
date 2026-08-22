@@ -5,4 +5,4 @@
 	releaseBranch = main
 	release = draft
 	changelog = true
-	versionFile = -
+	versionFile = package.json,plugins/framekit/.codex-plugin/plugin.json
