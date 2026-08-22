@@ -407,7 +407,8 @@ export interface EditorPort extends EditorAdapter {
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
   listProjects?(): Promise<ProjectCatalog>;
   selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
-  captureFrame?(position: RationalTime): Promise<CapturedFrameSource>;
+  /** Capture only if the active editor target still matches the inspected revision. */
+  captureFrame?(position: RationalTime, expectedRevision: ContextRevision): Promise<CapturedFrameSource>;
 }
 
 export interface LiveEditorStatePort {

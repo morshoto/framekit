@@ -73,7 +73,7 @@ export class AgentVideoRuntime {
       throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
     }
     const project = await this.inspectProject();
-    const source = await this.adapter.captureFrame(position);
+    const source = await this.adapter.captureFrame(position, project.revision);
     const clip = project.timeline.clips
       .filter((candidate) => candidate.start <= positionSeconds && candidate.start + candidate.duration > positionSeconds)
       .sort((left, right) => right.track - left.track)[0];

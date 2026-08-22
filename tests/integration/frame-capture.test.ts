@@ -73,9 +73,9 @@ test("rejects an invalid timeline position before invoking the capture provider"
   const adapter = frameFixture();
   const originalCaptureFrame = adapter.captureFrame.bind(adapter);
   let captureCalls = 0;
-  adapter.captureFrame = async (position) => {
+  adapter.captureFrame = async (position, expectedRevision) => {
     captureCalls += 1;
-    return originalCaptureFrame(position);
+    return originalCaptureFrame(position, expectedRevision);
   };
   const runtime = new AgentVideoRuntime(adapter);
 

@@ -114,7 +114,16 @@ export class InMemoryEditorAdapter implements EditorPort {
     };
   }
 
-  public async captureFrame(position: RationalTime): Promise<CapturedFrameSource> {
+  public async captureFrame(
+    position: RationalTime,
+    expectedRevision: ContextRevision,
+  ): Promise<CapturedFrameSource> {
+    if (
+      this.snapshot.revision.id !== expectedRevision.id
+      || this.snapshot.revision.sequence !== expectedRevision.sequence
+    ) {
+      throw new Error("STALE_CONTEXT: editor revision changed before frame capture");
+    }
     const frames = this.activeFrames();
     if (!frames) throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
     const frame = frames.find((candidate) => sameRational(candidate.position, position));
