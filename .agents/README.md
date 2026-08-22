@@ -1,17 +1,21 @@
-# Repository agent playbooks
+# Repository Agent Skills
 
-These playbooks describe repository-specific workflows for GitHub issues and
-pull requests. They are instructions for an agent using this checkout; they
-are not GitHub Actions or autonomous merge automation.
+These repository-local skills follow the `SKILL.md` convention: each skill has
+concise instructions and optional executable helpers under `scripts/`.
+
+They describe repository-specific workflows for GitHub issues and pull
+requests. They are instructions for an agent using this checkout; they are not
+GitHub Actions or autonomous merge automation.
 
 ## Playbooks
 
-- [`issue-create.md`](./issue-create.md): draft and create one GitHub issue
-  using the repository templates.
-- [`issue-read.md`](./issue-read.md): inspect an issue and its linked work
-  without mutating GitHub state.
-- [`review-pr.md`](./review-pr.md): review a pull request, validate findings,
-  apply safe fixes, and record the final review decision.
+- [`skills/issue-create/SKILL.md`](./skills/issue-create/SKILL.md): draft and
+  create GitHub issues using the repository templates.
+- [`skills/issue-read/SKILL.md`](./skills/issue-read/SKILL.md): inspect an issue
+  and its linked work without mutating GitHub state.
+- [`skills/review-pr/SKILL.md`](./skills/review-pr/SKILL.md): review a pull
+  request, validate findings, apply safe fixes, and record the final review
+  decision.
 
 ## Shared rules
 
