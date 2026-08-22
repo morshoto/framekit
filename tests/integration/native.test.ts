@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 
@@ -885,6 +888,68 @@ test("native Final Cut media selection refocuses Final Cut without closing the e
   assert.equal(selected.target.kind, "browser-media");
   assert.equal(scripts.filter((script) => script.includes("set frontmost to true")).length >= 2, true);
   assert.equal(scripts.some((script) => script.includes('click button 1 of window "Framekit"')), false);
+});
+
+test("native Final Cut imports local video and audio, waits for Browser availability, and returns stable handles", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-import-"));
+  const videoPath = join(directory, "interview.mov");
+  const audioPath = join(directory, "music.wav");
+  await writeFile(videoPath, "video fixture");
+  await writeFile(audioPath, "audio fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const scripts: string[] = [];
+  const searchCalls = new Map<string, number>();
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        const name = script.includes("interview.mov") ? "interview.mov" : "music.wav";
+        const calls = (searchCalls.get(name) ?? 0) + 1;
+        searchCalls.set(name, calls);
+        if (name === "interview.mov" && calls === 1) return "";
+        return `${name}${separator}AXBrowserMedia${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const video = await adapter.importMedia(videoPath);
+  const audio = await adapter.importMedia(audioPath);
+  assert.equal(video.name, "interview.mov");
+  assert.equal(video.kind, "video");
+  assert.equal(audio.name, "music.wav");
+  assert.equal(audio.kind, "audio");
+  assert.notEqual(video.mediaHandle, audio.mediaHandle);
+  assert.equal(searchCalls.get("interview.mov"), 2);
+  assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 2);
+
+  const searched = await adapter.searchMedia("interview.mov");
+  assert.equal(searched[0]?.handle, video.mediaHandle);
+  const selected = await adapter.selectMedia(video.mediaHandle);
+  assert.equal(selected.target.kind, "browser-media");
+  assert.equal(selected.target.name, "interview.mov");
+});
+
+test("native Final Cut rejects an unavailable local media path before opening import UI", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.importMedia("/tmp/framekit-media-does-not-exist.mov"), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
+  assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
 });
 
 test("native Final Cut preserves explicit command errors over embedded frontmost guards", async () => {
