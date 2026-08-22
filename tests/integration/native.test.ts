@@ -836,6 +836,71 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
 });
 
+test("native Final Cut adapter targets one media occurrence and reports live playhead state", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "1", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview.mov", 1, true);
+      if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes("set output to \"\"")) return `Interview.mov${separator}AXRow${separator}clip-1${separator}10/1${separator}800${recordSeparator}`;
+      return "";
+    },
+  });
+
+  const target = await adapter.targetMedia("Interview");
+  assert.equal(target.status, "unique");
+  assert.equal(target.media.name, "Interview.mov");
+  assert.equal(target.occurrence.timelineOffset, 800);
+  assert.equal(target.selected, true);
+  assert.equal(target.playheadTime, "1/1");
+  assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
+  assert.equal(scripts.some((script) => script.includes("xOffset")), true);
+});
+
+test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "1", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const makeAdapter = (browserOutput: string, occurrenceOutput = `Interview${separator}AXRow${separator}clip-1${separator}10/1${separator}800${recordSeparator}`) => new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes("AXBrowserMedia")) return browserOutput;
+      if (script.includes("set output to \"\"")) return occurrenceOutput;
+      return "";
+    },
+  });
+
+  await assert.rejects(makeAdapter("").targetMedia("missing"), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${recordSeparator}Interview copy${separator}AXBrowserMedia${recordSeparator}`).targetMedia("ambiguous"),
+    /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${recordSeparator}`, `${"Interview"}${separator}AXRow${separator}one${recordSeparator}Interview${separator}AXRow${separator}two${recordSeparator}`).targetMedia("duplicate"),
+    /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
+  );
+});
+
 test("native Final Cut refuses a Blade retry without live state", async () => {
   const recordSeparator = String.fromCharCode(30);
   let bladeCalls = 0;

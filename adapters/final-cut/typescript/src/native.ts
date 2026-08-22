@@ -36,6 +36,7 @@ export interface NativeFinalCutOccurrence {
   name: string;
   start?: string;
   duration?: string;
+  timelineOffset?: number;
   role?: string;
   sequence?: string;
   sequenceId?: string;
@@ -46,6 +47,15 @@ export interface NativeFinalCutOccurrence {
 export interface NativeFinalCutOccurrenceSearchResult {
   status: "none" | "unique" | "ambiguous";
   occurrences: NativeFinalCutOccurrence[];
+}
+
+export interface NativeFinalCutTargetResult {
+  query: string;
+  status: "unique";
+  media: NativeFinalCutMediaMatch;
+  occurrence: NativeFinalCutOccurrence;
+  selected: boolean;
+  playheadTime?: string;
 }
 
 export interface NativeFinalCutBladePreview {
@@ -210,6 +220,7 @@ export interface NativeFinalCutEditor {
   searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
+  targetMedia(query: string): Promise<NativeFinalCutTargetResult>;
   previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview>;
   executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult>;
   previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview>;
@@ -446,6 +457,40 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle));
   }
 
+  public async targetMedia(query: string): Promise<NativeFinalCutTargetResult> {
+    return this.withNativeUi(() => this.targetMediaNative(query));
+  }
+
+  private async targetMediaNative(query: string): Promise<NativeFinalCutTargetResult> {
+    this.assertEnabled();
+    const matches = await this.searchMediaNative(query);
+    if (matches.length === 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_NOT_FOUND: no Browser media matched the query");
+    if (matches.length > 1) throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: media query matched multiple Browser items");
+
+    const media = matches[0]!;
+    await this.selectMediaNative(media.handle);
+    const located = await this.locateOccurrenceNative(media.handle);
+    if (located.status === "none") {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_NOT_FOUND: selected Browser media has no timeline occurrence");
+    }
+    if (located.status === "ambiguous") {
+      throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: media has multiple timeline occurrences");
+    }
+
+    const live = await this.readLiveState();
+    if (!live?.playheadTime) {
+      throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_UNAVAILABLE: deterministic targeting requires live playhead state");
+    }
+    return {
+      query,
+      status: "unique",
+      media,
+      occurrence: located.occurrences[0]!,
+      selected: true,
+      playheadTime: `${live.playheadTime.value}/${live.playheadTime.timescale}`,
+    };
+  }
+
   private async locateOccurrenceNative(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
@@ -455,7 +500,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match, false)), mediaHandle);
       if (occurrences.length === 1 && this.canDriveNativeMouse) {
-        await selectTimelineClipAtPlayhead(this.executor);
+        await selectTimelineOccurrence(this.executor, occurrences[0]?.timelineOffset ?? 800);
       }
       const live = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
       for (const occurrence of occurrences) {
@@ -1385,7 +1430,7 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
         set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
         if candidateName is ${appleScriptString(match.name)} then
           if candidateIdentity is not lastMatchIdentity then
-            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & (xOffset as text) & (ASCII character 30)
           end if
           set lastMatchIdentity to candidateIdentity
           set inMatch to true
@@ -1408,13 +1453,13 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
 end tell`;
 }
 
-async function selectTimelineClipAtPlayhead(executor: (script: string) => Promise<string>): Promise<void> {
+async function selectTimelineOccurrence(executor: (script: string) => Promise<string>, timelineOffset: number): Promise<void> {
   const coordinates = (await executor(timelineSelectionCoordinatesScript())).split("|").map(Number);
   const [originX, originY] = coordinates;
   if (!Number.isFinite(originX) || !Number.isFinite(originY)) {
     throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
   }
-  const x = Math.round(originX + 800);
+  const x = Math.round(originX + timelineOffset);
   const y = Math.round(originY + 670);
   try {
     await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
@@ -1599,7 +1644,7 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = "", start, duration] = record.split(String.fromCharCode(31));
+      const [name = "", role = "", start, duration, timelineOffsetText] = record.split(String.fromCharCode(31));
       return {
         handle: opaqueHandle("occurrence", index),
         mediaHandle,
@@ -1607,6 +1652,7 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
         ...(role ? { role } : {}),
         ...(start ? { start } : {}),
         ...(duration ? { duration } : {}),
+        ...(timelineOffsetText && Number.isFinite(Number(timelineOffsetText)) ? { timelineOffset: Number(timelineOffsetText) } : {}),
       };
     });
 }
