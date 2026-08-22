@@ -74,91 +74,26 @@ The live-only test must not write timeline edits, alter media, or claim full
 native timeline enumeration. The FCPXML test may edit only its managed fixture
 artifact. Unsupported native operations must remain fail-closed.
 
-## Native write smoke test
+## Headless deterministic native-contract E2E
 
-Use a disposable duplicate project and select one clip manually. Do not run
-this against an unsaved user project.
-
-```sh
-FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
-framekit mcp --editor final-cut-live
-```
-
-Grant Accessibility and Automation permission to the MCP host. The native
-adapter activates Final Cut, waits up to two seconds for an accessible project
-timeline, and focuses the timeline pane before the operation. If setup is
-incomplete, expect one of `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`,
-`FINAL_CUT_NATIVE_NOT_FRONTMOST`, or
-`FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`. Verify
-`editor.native.focus` reports successful timeline focus and
-`editor.native.inspect` reports the focus diagnostics and a selected clip,
-then test one rename or trim operation followed by `editor.native.undo`.
-Native operations are selection-scoped and do not produce a canonical
-timeline diff.
-
-## Live Browser and Blade E2E
-
-The repeatable headed runner is guarded by an exact disposable project name:
+The default Final Cut validation is headless and does not launch, activate, or
+focus Final Cut Pro. It uses deterministic native and MCP fixtures to verify
+the same fail-closed contracts, including overlay minimization through
+`AXMinimize`, timeline focus races, missing windows, Blade, range deletion,
+duration trimming, and Undo:
 
 ```sh
-FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Disposable E2E" \
-FRAMEKIT_FINAL_CUT_E2E_QUERY="known-video-name" \
-pnpm run test:final-cut-headed
+pnpm run test:final-cut-headless
 ```
 
-It refuses to mutate Final Cut unless the native inspection reports that exact
-project as frontmost. Use a duplicate project containing a known Browser video;
-the runner searches, selects, locates one occurrence, Blades, verifies two
-segments, undoes, and verifies the original occurrence is restored.
+This is the supported validation path for Codex and CI. It does not claim that
+the open Final Cut timeline was changed.
 
-With the same disposable project and native opt-in, verify the complete live
-workflow:
+## Optional native UI validation
 
-1. Search the active Browser with `editor.native.media.search`.
-2. Select one result with `editor.native.media.select`.
-3. Locate its active-sequence occurrences with
-   `editor.native.timeline.locate`.
-4. Stop if the result is ambiguous; continue only with exactly one occurrence.
-5. Request `editor.native.blade.preview` and retain its short-lived token.
-6. Execute `editor.native.blade.execute` before the token expires.
-7. Verify two resulting segments and call `editor.native.undo`.
-8. Verify the original occurrence is restored.
-
-Do not treat Browser media names as persistent timeline IDs. Change the
-selection or sequence between preview and execute to verify that stale handles
-are rejected.
-
-## Native range and duration E2E
-
-Use the same disposable project and native opt-in to verify:
-
-1. `editor.native.delete-range.preview` returns the requested rational range
-   and expected duration.
-2. `editor.native.delete-range.execute` reduces the live sequence duration by
-   the requested range, then `editor.native.undo` restores it.
-3. `editor.native.trim-to-duration.preview` describes the tail range after the
-   requested duration.
-4. `editor.native.trim-to-duration.execute` leaves the beginning intact and
-   verifies the requested resulting duration, then Undo restores the original.
-5. A target duration longer than the current sequence returns a verified
-   no-op and does not create an undoable mutation.
-
-The headed test must use a disposable project with known duration and must
-never run against an unsaved user project.
-
-Before running the headed test, leave the Framekit extension window visible
-over Final Cut. The first native focus preflight must detect that window,
-minimize it through Accessibility without clicking its close button, raise the
-Final Cut timeline, and report `framekitWindowMinimized: true`. The test then
-continues with the disposable operations and verifies each result through live
-duration reads followed by native Undo. If the extension window cannot be
-minimized, the expected failure is `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
-
-## FCPXML publish E2E
-
-Start the live MCP server with both `FRAMEKIT_FCPXML_PATH` and
-`FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`. Run and verify `timeline.edit` against
-the managed FCPXML artifact first, then call `timeline.publish.new-project`
-with the resulting transaction ID.
-Confirm Final Cut opens a new project with the edited content and that the
-original active project remains unchanged.
+Final Cut Pro does not provide a supported headless Accessibility mode. Native
+Blade and range edits require a visible Final Cut timeline, so they are not
+part of the headless test command. The native adapter remains fail-closed and
+is covered by deterministic executor tests. If a separate macOS UI smoke test
+is run manually, use a disposable project and do not treat it as headless or
+as a CI requirement.

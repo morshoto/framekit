@@ -37,6 +37,40 @@ test("connection manager reports a ready live bridge without installing anything
   assert.equal(status.capabilities?.editor.liveStateRead, true);
 });
 
+test("headless connection probes an existing bridge without launching or activating Final Cut", async () => {
+  const events: string[] = [];
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    detectFinalCut: async () => { events.push("detect"); return false; },
+    launchFinalCut: async () => { events.push("launch"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+  assert.equal(status.state, "ready");
+  assert.deepEqual(events, []);
+});
+
+test("headless connection fails closed when the existing bridge is unavailable", async () => {
+  const events: string[] = [];
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    detectFinalCut: async () => { events.push("detect"); return true; },
+    launchFinalCut: async () => { events.push("launch"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => { throw new Error("socket missing"); },
+  });
+
+  const status = await manager.ensureConnected();
+  assert.equal(status.state, "unavailable");
+  assert.equal(status.lastError?.code, "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE");
+  assert.deepEqual(events, []);
+});
+
 test("connection manager remains actionable when the extension is missing", async () => {
   const manager = new FinalCutConnectionManager({
     extensionInstallPath: "/tmp/framekit-test-extension-that-does-not-exist.app",

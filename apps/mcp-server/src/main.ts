@@ -44,8 +44,9 @@ const fixture = new InMemoryEditorAdapter({
 });
 
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
+const headlessFinalCut = liveMode && process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
 const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
-const connection = liveMode ? new FinalCutConnectionManager() : undefined;
+const connection = liveMode ? new FinalCutConnectionManager({ headless: headlessFinalCut }) : undefined;
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();
 const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
@@ -84,6 +85,7 @@ const analyzers = liveMode
 const runtime = new AgentVideoRuntime(editor, analyzers);
 const nativeEditor = liveMode
   ? new FinalCutNativeAutomationAdapter({
+      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       liveState: () => liveAdapter!.readLiveState(),
       ...(autoConnect ? {
         suspendLiveConnection: () => connection?.stopAutoConnect(),
@@ -91,7 +93,7 @@ const nativeEditor = liveMode
       } : {}),
     })
   : undefined;
-const projectPublisher = liveMode && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
   ? new FinalCutProjectPublisher({
       enabled: true,
       sourcePath: fcpxmlPath,

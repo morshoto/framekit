@@ -52,3 +52,8 @@ incremental change feeds, visual analysis, combined media understanding, and
 queryable native assets. These are replaceable ports. Final Cut can provide
 the same contracts through configured local JSON analyzers and filesystem
 Motion-template discovery; no fixture data is injected into live mode.
+
+The live server also supports `--headless`. In that mode it probes an existing
+Workflow Extension socket without launching or activating Final Cut and keeps
+native UI writes disabled. Headless validation covers the native contracts
+through deterministic executors; it does not mutate the open Final Cut UI.

@@ -57,14 +57,28 @@ async function doctorFinalCut(args: string[]): Promise<void> {
 async function runMcp(args: string[]): Promise<void> {
   const editorIndex = args.indexOf("--editor");
   const editor = editorIndex >= 0 ? args[editorIndex + 1] : "final-cut-live";
+  const headless = args.includes("--headless");
   if (editor !== "final-cut-live" && editor !== "fixture") {
-    throw new Error("Usage: framekit mcp [--editor final-cut-live|fixture]");
+    throw new Error("Usage: framekit mcp [--editor final-cut-live|fixture] [--headless]");
+  }
+  if (headless && editor !== "final-cut-live") {
+    throw new Error("Usage: --headless is only supported with --editor final-cut-live");
   }
   const root = repoRoot();
   const entrypoint = join(root, "apps/mcp-server/src/main.ts");
   const child = spawn(process.execPath, ["--import", "tsx", entrypoint], {
     stdio: "inherit",
-    env: { ...process.env, FRAMEKIT_EDITOR: editor },
+    env: {
+      ...process.env,
+      FRAMEKIT_EDITOR: editor,
+      ...(headless
+        ? {
+            FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+            FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+            FRAMEKIT_AUTO_CONNECT: "1",
+          }
+        : {}),
+    },
   });
   await new Promise<void>((resolvePromise, reject) => {
     child.once("error", reject);
@@ -104,10 +118,10 @@ function printHelp(): void {
     "",
     "  framekit connect finalcut [--development] [--json]",
     "  framekit doctor finalcut [--json]",
-    "  framekit mcp --editor final-cut-live",
+    "  framekit mcp --editor final-cut-live [--headless]",
     "",
     "Codex registration:",
-    "  codex mcp add framekit -- framekit mcp --editor final-cut-live",
+    "  codex mcp add framekit -- framekit mcp --editor final-cut-live --headless",
     "",
   ].join("\n"));
 }

@@ -100,12 +100,20 @@ the read-only Final Cut validation procedure.
 Register the local MCP server with Codex:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live
+codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
 ```
 
-The live server automatically detects Final Cut Pro, installs a configured
-Workflow Extension artifact under the user's Applications directory, activates
-it, and reconnects when the socket disappears. Inspect setup progress with:
+Headless mode probes an already-running Workflow Extension socket and never
+launches, activates, focuses, or edits Final Cut Pro through Accessibility. It
+is suitable for live metadata reads and FCPXML artifact work. Native Blade,
+range deletion, duration trimming, and other UI edits remain unavailable in
+this mode; use the deterministic headless suite to validate those contracts.
+
+In normal (non-headless) mode, the live server automatically detects Final Cut
+Pro, installs a configured Workflow Extension artifact under the user's
+Applications directory, activates it, and reconnects when the socket
+disappears. Headless mode skips that lifecycle recovery and only probes the
+existing socket. Inspect setup progress with:
 
 ```sh
 framekit doctor finalcut --json

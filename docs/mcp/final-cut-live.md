@@ -3,10 +3,10 @@
 Connect Codex with the standard local MCP registration:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live
+codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
 ```
 
-The Framekit MCP process automatically:
+In normal (non-headless) mode, the Framekit MCP process automatically:
 
 - detects or launches Final Cut Pro;
 - installs the per-user Workflow Extension artifact when needed;
@@ -20,11 +20,37 @@ It does not quit or reopen Final Cut automatically. The explicit
 the extension and Final Cut needs to reload the bundle; that command performs
 a graceful quit/reopen before activation.
 
+The registration above uses headless mode, so it skips that lifecycle recovery
+and only probes the existing socket.
+
 The Workflow Extension connection is read-only. Check setup progress with the MCP
 tool `connection.status` or:
 
 ```sh
 framekit doctor finalcut --json
+```
+
+## Headless mode
+
+When Codex must not touch the Final Cut UI, register the live server with:
+
+```sh
+codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
+```
+
+Headless mode only probes the existing Workflow Extension socket. It does not
+launch or activate Final Cut, minimize or raise windows, request Accessibility
+focus, or enable native UI writes. If the socket is not already available,
+`connection.status` reports `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` rather than
+trying to recover by opening Final Cut.
+
+This mode can read live project/sequence metadata and can use FCPXML artifact
+operations when `FRAMEKIT_FCPXML_PATH` is configured. It cannot mutate the open
+Final Cut timeline. Validate the native focus, Blade, range-delete, and
+trim-to-duration contracts with:
+
+```sh
+pnpm run test:final-cut-headless
 ```
 
 For a development checkout, use:
@@ -102,7 +128,7 @@ selected range. `trim-to-duration` preserves the beginning of the sequence and
 deletes everything after the requested duration. A target duration that is
 already at or beyond the current duration returns a verified no-op.
 
-Before timeline-native preview or execute calls, Framekit activates Final Cut
+Before timeline-native preview or execute calls in normal native mode, Framekit activates Final Cut
 Pro, waits up to two seconds for an accessible project timeline, and focuses
 the timeline pane through semantic Accessibility candidates followed by
 bounded lower-pane coordinate fallbacks. It does not open or select projects

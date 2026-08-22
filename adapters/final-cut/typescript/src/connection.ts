@@ -34,6 +34,8 @@ export interface FinalCutConnectionStatus {
 }
 
 export interface FinalCutConnectionOptions {
+  /** Probe an existing Workflow Extension socket without launching or activating Final Cut. */
+  headless?: boolean;
   socketPath?: string;
   extensionSourcePath?: string;
   extensionInstallPath?: string;
@@ -69,6 +71,7 @@ const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
  */
 export class FinalCutConnectionManager {
   private readonly socketPath: string;
+  private readonly headless: boolean;
   private readonly extensionSourcePath?: string;
   private readonly extensionInstallPath: string;
   private readonly finalCutApp: string;
@@ -91,6 +94,7 @@ export class FinalCutConnectionManager {
 
   public constructor(options: FinalCutConnectionOptions = {}) {
     this.socketPath = options.socketPath ?? process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET;
+    this.headless = options.headless ?? process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
     this.extensionInstallPath = options.extensionInstallPath
       ?? process.env.FRAMEKIT_EXTENSION_INSTALL_PATH
       ?? join(homedir(), "Applications", DEFAULT_EXTENSION_NAME);
@@ -156,6 +160,14 @@ export class FinalCutConnectionManager {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
       if (existing) return this.ready(existing);
+
+      if (this.headless) {
+        return this.fail(
+          "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE",
+          `Headless mode only probes the existing Workflow Extension socket at ${this.socketPath}; it does not launch or activate Final Cut Pro`,
+          "unavailable",
+        );
+      }
 
       const editorDetected = await this.detectFinalCut();
       this.update({ editorDetected });
