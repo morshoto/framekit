@@ -84,3 +84,30 @@ test("diff compares timeline duration and metadata changes exhaustively", async 
   assert.equal(diff.captionChanges[0]?.type, "CAPTION_ADDED");
   assert.ok(diff.affectedRanges.some((range) => range.start === 4 && range.end === 6));
 });
+
+test("media registry diff ignores attached analysis but detects registry field changes", () => {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Media diff fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [{
+      mediaId: "media-1",
+      source: "clip.mov",
+      mediaKind: "video",
+      duration: 10,
+      sourceDigest: "sha256:before",
+    }],
+  });
+  return adapter.readProject().then((before) => {
+    const enriched = structuredClone(before);
+    enriched.media[0]!.visual = { scenes: [], subjects: [], keyframes: [] };
+    enriched.media[0]!.analysisRevision = before.revision.id;
+    assert.deepEqual(diffSnapshots(before, enriched).mediaChanges, []);
+
+    const changed = structuredClone(enriched);
+    changed.media[0]!.sourceDigest = "sha256:after";
+    assert.equal(diffSnapshots(before, changed).mediaChanges[0]?.type, "MEDIA_MODIFIED");
+  });
+});
