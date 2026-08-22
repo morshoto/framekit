@@ -162,6 +162,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle));
   });
 
+  server.registerTool("editor.native.media.target", {
+    description: "Search Final Cut's Browser and target exactly one timeline occurrence with a deterministic live playhead.",
+    inputSchema: { query: z.string().min(1) },
+  }, async ({ query }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media targeting is not configured");
+    return jsonResult(await options.nativeEditor.targetMedia(query));
+  });
+
   server.registerTool("editor.native.blade.preview", {
     description: "Prepare a short-lived confirmation token for a Blade-at-playhead operation.",
     inputSchema: { occurrenceHandle: z.string().min(1) },
