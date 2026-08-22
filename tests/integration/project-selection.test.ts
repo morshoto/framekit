@@ -15,8 +15,8 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
-test("MCP lists stable project identities, selects an explicit timeline, and rejects ambiguity", async () => {
-  const adapter = new InMemoryEditorAdapter({
+function multiProjectAdapter(): InMemoryEditorAdapter {
+  return new InMemoryEditorAdapter({
     projectId: "project-alpha",
     projectName: "Alpha",
     timelineId: "sequence-alpha-main",
@@ -61,6 +61,10 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
       },
     ],
   });
+}
+
+test("MCP lists stable project identities, selects an explicit timeline, and rejects ambiguity", async () => {
+  const adapter = multiProjectAdapter();
   const client = new Client({ name: "project-selection-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const server = createMcpServer(new AgentVideoRuntime(adapter));
@@ -109,4 +113,39 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
     await client.close();
     await server.close();
   }
+});
+
+test("in-memory restore rejects another project's snapshot without mutating the active target", async () => {
+  const adapter = multiProjectAdapter();
+  const alpha = await adapter.readProject();
+  await adapter.selectProject({ projectId: "project-beta", sequenceId: "sequence-beta-main" });
+  const beta = await adapter.readProject();
+
+  await assert.rejects(adapter.restore(alpha, beta.revision), /TARGET_MISMATCH/);
+
+  const inspected = await adapter.readProject();
+  const catalog = await adapter.listProjects();
+  assert.equal(inspected.projectId, "project-beta");
+  assert.equal(inspected.timeline.id, "sequence-beta-main");
+  assert.equal(catalog.activeProjectId, inspected.projectId);
+  assert.equal(catalog.activeSequenceId, inspected.timeline.id);
+
+  await adapter.selectProject({ projectId: "project-alpha", sequenceId: "sequence-alpha-main" });
+  assert.equal((await adapter.readProject()).projectId, "project-alpha");
+});
+
+test("in-memory restore rejects another sequence's snapshot without mutating the active target", async () => {
+  const adapter = multiProjectAdapter();
+  const main = await adapter.readProject();
+  await adapter.selectProject({ projectId: "project-alpha", sequenceId: "sequence-alpha-social" });
+  const social = await adapter.readProject();
+
+  await assert.rejects(adapter.restore(main, social.revision), /TARGET_MISMATCH/);
+
+  const inspected = await adapter.readProject();
+  const catalog = await adapter.listProjects();
+  assert.equal(inspected.projectId, "project-alpha");
+  assert.equal(inspected.timeline.id, "sequence-alpha-social");
+  assert.equal(catalog.activeProjectId, inspected.projectId);
+  assert.equal(catalog.activeSequenceId, inspected.timeline.id);
 });
