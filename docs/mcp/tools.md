@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
+| `editing.intent.resolve` | Map one supported natural-language request to an explicit operation and affected range | Read-only; ambiguous requests return clarification and no operation; resolved destructive requests set `previewRequired` |
 | `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
@@ -61,3 +62,19 @@ selection never silently changes the open Final Cut project.
 `media.search` remains canonical snapshot search. Live Browser search uses the
 explicit `editor.native.media.*` tools because Browser media identity and
 timeline occurrence identity are different and short-lived.
+
+## Explicit editing intent
+
+`editing.intent.resolve` accepts a request string and recognizes only these
+forms:
+
+- `Cut at 30 seconds and remove the rest` → `trim_to_duration`
+- `Blade at 30 seconds` → `blade_at_playhead`
+- `Remove 10–15 seconds` → `delete_range`
+
+The result includes the selected operation, the affected range,
+`previewRequired: true`, and the exact `previewTool` to call. The resolver never
+mutates the editor. Callers must use that operation-specific native preview tool
+before an execute call; native execute tools accept only their short-lived
+preview tokens. An unrecognized or ambiguous destructive request returns
+`clarification_required` without an operation or preview tool.
