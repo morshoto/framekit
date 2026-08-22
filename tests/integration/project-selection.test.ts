@@ -149,3 +149,30 @@ test("in-memory restore rejects another sequence's snapshot without mutating the
   assert.equal(catalog.activeProjectId, inspected.projectId);
   assert.equal(catalog.activeSequenceId, inspected.timeline.id);
 });
+
+test("runtime undo rejects a transaction after the active target changes without delegating restore", async () => {
+  const adapter = multiProjectAdapter();
+  const originalRestore = adapter.restore.bind(adapter);
+  let restoreCalls = 0;
+  adapter.restore = async (snapshot, expectedRevision) => {
+    restoreCalls += 1;
+    return originalRestore(snapshot, expectedRevision);
+  };
+  const runtime = new AgentVideoRuntime(adapter);
+  const transaction = await runtime.edit({
+    type: "add-marker",
+    timelineId: "sequence-alpha-main",
+    marker: { id: "marker-alpha", start: 0, duration: 0, name: "Alpha marker" },
+  });
+  await runtime.selectProject({ projectId: "project-beta", sequenceId: "sequence-beta-main" });
+
+  await assert.rejects(runtime.undo(transaction.id), /TARGET_MISMATCH/);
+
+  assert.equal(restoreCalls, 0);
+  const inspected = await runtime.inspectProject();
+  const catalog = await runtime.listProjects();
+  assert.equal(inspected.projectId, "project-beta");
+  assert.equal(inspected.timeline.id, "sequence-beta-main");
+  assert.equal(catalog.activeProjectId, inspected.projectId);
+  assert.equal(catalog.activeSequenceId, inspected.timeline.id);
+});
