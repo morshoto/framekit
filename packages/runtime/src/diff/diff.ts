@@ -2,6 +2,7 @@ import type {
   Caption,
   Clip,
   Marker,
+  MediaContext,
   ProjectSnapshot,
   StoryElement,
   TimeRange,
@@ -17,16 +18,34 @@ function rangesForClip(clip: Clip | undefined): TimeRange[] {
   return clip ? [{ start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime }] : [];
 }
 
-function diffById<T extends { id: string }>(before: T[], after: T[]) {
-  const beforeById = new Map(before.map((item) => [item.id, item]));
-  const afterById = new Map(after.map((item) => [item.id, item]));
+function diffByKey<T>(
+  before: T[],
+  after: T[],
+  keyOf: (item: T) => string,
+  comparable: (item: T) => unknown = (item) => item,
+) {
+  const beforeById = new Map(before.map((item) => [keyOf(item), item]));
+  const afterById = new Map(after.map((item) => [keyOf(item), item]));
   return {
-    added: [...afterById.values()].filter((item) => !beforeById.has(item.id)),
-    removed: [...beforeById.values()].filter((item) => !afterById.has(item.id)),
+    added: [...afterById.values()].filter((item) => !beforeById.has(keyOf(item))),
+    removed: [...beforeById.values()].filter((item) => !afterById.has(keyOf(item))),
     modified: [...afterById.values()].filter((item) => {
-      const previous = beforeById.get(item.id);
-      return previous !== undefined && JSON.stringify(withoutId(previous)) !== JSON.stringify(withoutId(item));
-    }).map((afterItem) => ({ after: afterItem, before: beforeById.get(afterItem.id)! })),
+      const previous = beforeById.get(keyOf(item));
+      return previous !== undefined && JSON.stringify(comparable(previous)) !== JSON.stringify(comparable(item));
+    }).map((afterItem) => ({ after: afterItem, before: beforeById.get(keyOf(afterItem))! })),
+  };
+}
+
+function diffById<T extends { id: string }>(before: T[], after: T[]) {
+  return diffByKey(before, after, (item) => item.id, withoutId);
+}
+
+function mediaRegistryFields(media: MediaContext) {
+  return {
+    source: media.source,
+    mediaKind: media.mediaKind,
+    duration: media.duration,
+    sourceDigest: media.sourceDigest,
   };
 }
 
@@ -77,6 +96,18 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     })),
   ];
 
+  const media = diffByKey(before.media, after.media, (item) => item.mediaId, mediaRegistryFields);
+  const mediaChanges: TimelineDiff["mediaChanges"] = [
+    ...media.added.map((item) => ({ type: "MEDIA_ADDED" as const, media: item, after: item })),
+    ...media.removed.map((item) => ({ type: "MEDIA_REMOVED" as const, media: item, before: item })),
+    ...media.modified.map(({ before: previous, after: current }) => ({
+      type: "MEDIA_MODIFIED" as const,
+      media: current,
+      before: previous,
+      after: current,
+    })),
+  ];
+
   const affectedRanges = [
     ...added.flatMap((change) => rangesForClip(change.after)),
     ...removed.flatMap((change) => rangesForClip(change.before)),
@@ -110,6 +141,7 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     markerChanges,
     captionChanges,
     storyElementChanges,
+    mediaChanges,
     affectedRanges,
   };
 }

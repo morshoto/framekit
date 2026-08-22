@@ -1,10 +1,14 @@
 # Selecting the Live Final Cut Backend
 
-Connect Codex with the standard local MCP registration:
+For end users, configure the Framekit marketplace once:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
+codex plugin marketplace add morshoto/framekit
 ```
+
+Open `/plugins`, install **Framekit**, and start a new Codex session. The plugin
+registers `npx -y @morshoto/framekit mcp --editor final-cut-live --headless`; a repository
+checkout and manual `codex mcp add` are not required.
 
 In normal (non-headless) mode, the Framekit MCP process automatically:
 
@@ -32,10 +36,11 @@ framekit doctor finalcut --json
 
 ## Headless mode
 
-When Codex must not touch the Final Cut UI, register the live server with:
+For repository development without the plugin, start the equivalent headless
+live server with:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
+framekit mcp --editor final-cut-live --headless
 ```
 
 Headless mode only probes the existing Workflow Extension socket. It does not

@@ -166,6 +166,9 @@ export interface VisualAnalysis {
 export interface MediaContext {
   mediaId: string;
   source: string;
+  mediaKind?: "video" | "audio";
+  duration?: number;
+  sourceDigest?: string;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
   visual?: VisualAnalysis;
@@ -209,6 +212,8 @@ export interface StoryElement {
   durationTime?: RationalTime;
   lane?: number;
   mediaId?: string;
+  assetId?: string;
+  text?: string;
 }
 
 export type EditOperation =
@@ -245,6 +250,51 @@ export type EditOperation =
       baseRevision?: ContextRevision;
     };
 
+export interface ImportMediaOperation {
+  type: "media.import";
+  mediaId: string;
+  source: string;
+  mediaKind: "video" | "audio";
+  duration: number;
+  sourceDigest: string;
+}
+
+export interface AddMediaOperation {
+  type: "timeline.media.add";
+  occurrenceId: string;
+  mediaId: string;
+  role: "video" | "music";
+  start: number;
+  duration: number;
+  targetLane?: "primary" | number;
+}
+
+export interface AddTitleOperation {
+  type: "timeline.title.add";
+  occurrenceId: string;
+  assetId: string;
+  text: string;
+  start: number;
+  duration: number;
+  targetLane: number;
+}
+
+export type WorkflowOperation = EditOperation | ImportMediaOperation | AddMediaOperation | AddTitleOperation;
+
+export interface CompositeEditRequest {
+  baseRevision: ContextRevision;
+  operations: WorkflowOperation[];
+}
+
+export interface CompositeEditPreview {
+  previewToken: string;
+  baseRevision: ContextRevision;
+  operations: WorkflowOperation[];
+  expectedDiff: TimelineDiff;
+  warnings: string[];
+  expiresAt: string;
+}
+
 export interface ClipChange {
   type: "ITEM_ADDED" | "ITEM_REMOVED" | "ITEM_MODIFIED";
   itemId: string;
@@ -277,6 +327,12 @@ export interface TimelineDiff {
     element: StoryElement;
     before?: StoryElement;
     after?: StoryElement;
+  }>;
+  mediaChanges: Array<{
+    type: "MEDIA_ADDED" | "MEDIA_REMOVED" | "MEDIA_MODIFIED";
+    media: MediaContext;
+    before?: MediaContext;
+    after?: MediaContext;
   }>;
   affectedRanges: TimeRange[];
 }
@@ -315,10 +371,10 @@ export interface AgentContext {
 
 export interface EditTransaction {
   id: string;
-  operation: EditOperation;
+  operation?: EditOperation;
   intent: string;
-  planned: EditOperation[];
-  applied: EditOperation[];
+  planned: WorkflowOperation[];
+  applied: WorkflowOperation[];
   baseRevision: ContextRevision;
   before: ProjectSnapshot;
   after: ProjectSnapshot;
@@ -359,6 +415,11 @@ export interface EditorCapabilities {
   projectCatalogRead?: boolean;
   /** The backend can select a project and, when needed, one of its sequences. */
   projectSelection?: boolean;
+  /** The backend can atomically preview and apply ordered workflow operations. */
+  compositeTransactions?: boolean;
+  mediaImport?: boolean;
+  mediaPlacement?: boolean;
+  titlePlacement?: boolean;
 }
 
 export interface AnalyzerCapabilities {
@@ -383,6 +444,8 @@ export interface EditorPort extends EditorAdapter {
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
   listProjects?(): Promise<ProjectCatalog>;
   selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
+  previewTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<ProjectSnapshot>;
+  applyTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<void>;
 }
 
 export interface LiveEditorStatePort {

@@ -1,16 +1,25 @@
 {
-  "name": "framekit",
+  "name": "@morshoto/framekit",
   "version": "0.1.0",
   "packageManager": "pnpm@11.10.0",
-  "private": true,
+  "private": false,
   "type": "module",
-  "description": "Agentic video editing runtime spikes",
+  "description": "Agentic video editing runtime and MCP server for Final Cut Pro",
+  "files": [
+    "bin",
+    "dist-package"
+  ],
   "bin": {
     "framekit": "./bin/framekit.mjs"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:package": "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json",
     "test": "tsx --test tests/integration/*.test.ts tests/evaluation/*.test.ts",
+    "test:codex-plugin": "node scripts/codex-plugin-smoke.mjs",
     "evaluate": "tsx scripts/run-mcp-evaluation.ts",
     "test:final-cut-headless": "tsx --test tests/integration/connection.test.ts tests/integration/finalcut-mcp.test.ts tests/integration/native.test.ts",
     "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
@@ -20,6 +29,7 @@
     "mcp": "tsx apps/mcp-server/src/main.ts",
     "framekit": "node ./bin/framekit.mjs",
     "package:final-cut-release": "bash scripts/package-final-cut-release.sh",
+    "prepack": "pnpm run build:package",
     "xcode:check": "bash nix/check-xcode.sh",
     "check:boundaries": "node scripts/check-boundaries.mjs"
   },
@@ -40,6 +50,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }

@@ -78,18 +78,30 @@ variable. The complete provider setup is documented in the
 
 ## Connect Codex to Final Cut
 
-Register the local MCP server with Codex in headless mode:
+Install the signed Framekit Workflow Extension from a Framekit release. Then
+add the Framekit marketplace once without cloning the repository:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live --headless
+codex plugin marketplace add morshoto/framekit
 ```
 
-Headless mode probes an already-running Workflow Extension socket. It does
-not launch, activate, focus, or edit Final Cut through Accessibility. It is
-appropriate for live metadata reads and FCPXML artifact work; native UI edit
-contracts are validated by the deterministic headless suite.
+Open `/plugins` in Codex, install **Framekit**, and start a new Codex session.
+The plugin automatically registers the published package as the Framekit MCP
+server; no repository checkout or manual `codex mcp add` is required.
 
-For normal development mode, build and connect the native extension with:
+The plugin starts Framekit with `--editor final-cut-live --headless`. Headless
+mode probes an already-running Workflow Extension socket and does not launch,
+activate, focus, or edit Final Cut through Accessibility. Start with
+`connection.status`, then inspect the live capability flags before choosing
+other tools. Missing Final Cut, extension, or socket prerequisites
+remain actionable failures rather than a ready connection.
+
+Accessibility and Automation permissions are required only for an explicit
+headed native-write setup; they are not prerequisites for headless read-only
+access.
+
+For normal repository development mode, build and connect the native extension
+with:
 
 ```sh
 framekit connect finalcut --development
