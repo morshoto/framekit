@@ -108,6 +108,38 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
+test("native Final Cut Undo recovers when frontmost is lost after preflight", async () => {
+  let preflightCalls = 0;
+  let undoCalls = 0;
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true);
+      }
+      if (script.includes("Apply Custom Name")) {
+        renamed = true;
+      } else if (script.includes('click menu item "Undo" of menu "Edit"')) {
+        undoCalls += 1;
+        if (undoCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+        renamed = false;
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.context.target.name, "Interview");
+  assert.equal(undoCalls, 2);
+  assert.equal(preflightCalls >= 5, true);
+});
+
 test("native range undo uses Final Cut's Undo Delete Range command and restores duration", async () => {
   let revision = 1;
   let duration = "20";
