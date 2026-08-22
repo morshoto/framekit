@@ -244,10 +244,12 @@ class MutableCanonicalLiveTransport {
   public failNextSnapshotAfterApply = false;
   private readonly history = new Map<string, ProjectSnapshot>();
 
+  public constructor(private readonly capabilities: RuntimeCapabilities = canonicalWriteCapabilities) {}
+
   public async request(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> {
     const result = {
       identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
-      capabilities: canonicalWriteCapabilities,
+      capabilities: this.capabilities,
     };
     if (request.method === "snapshot") {
       if (this.failNextSnapshotAfterApply && this.applyCalls > 0) {
@@ -420,6 +422,25 @@ test("configured artifact providers do not inherit or route canonical live write
   assert.equal(liveTransport.applyCalls, 0);
 });
 
+test("sessions do not advertise or route live writes without rollback", async () => {
+  const capabilities: RuntimeCapabilities = {
+    ...canonicalWriteCapabilities,
+    editor: { ...canonicalWriteCapabilities.editor, rollback: false },
+  };
+  const transport = new MutableCanonicalLiveTransport(capabilities);
+  const session = new FinalCutSessionAdapter({ live: new FinalCutLiveAdapter(transport) });
+
+  assert.equal((await session.getCapabilities()).editor.timelineWrite, false);
+  await assert.rejects(
+    session.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Unsafe" },
+      canonicalSnapshot.revision,
+    ),
+    /CAPABILITY_UNAVAILABLE/,
+  );
+  assert.equal(transport.applyCalls, 0);
+});
+
 test("runtime rejects unsafe timeline writes before mutation", async () => {
   const adapter = new InMemoryEditorAdapter({
     projectId: "unsafe-project",
@@ -459,13 +480,13 @@ test("runtime rejects unsafe timeline writes before mutation", async () => {
   assert.equal(applyCalls, 0);
 });
 
-test("canonical digests ignore object-key and media enumeration order", () => {
+test("canonical digests ignore object-key order but preserve timeline array order", () => {
   const before = structuredClone(canonicalSnapshot);
-  before.media.push({ mediaId: "final-cut:media:other", source: "final-cut://media/other" });
   const reordered = reverseObjectKeys(structuredClone(before)) as ProjectSnapshot;
-  reordered.media.reverse();
-
   assert.equal(canonicalSnapshotDigest(reordered), canonicalSnapshotDigest(before));
+
+  reordered.timeline.clips.reverse();
+  assert.notEqual(canonicalSnapshotDigest(reordered), canonicalSnapshotDigest(before));
 });
 
 test("canonical-write live sessions return verified diffs and reject stale writes before mutation", async () => {
@@ -512,6 +533,22 @@ test("failed canonical live verification restores the pre-edit digest", async ()
 
   assert.equal(transaction.status, "ROLLED_BACK");
   assert.equal(canonicalSnapshotDigest(transaction.after), canonicalSnapshotDigest(before));
+  assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
+});
+
+test("rejected canonical live verification restores the pre-edit digest", async () => {
+  const transport = new MutableCanonicalLiveTransport();
+  const runtime = new AgentVideoRuntime(
+    new FinalCutSessionAdapter({ live: new FinalCutLiveAdapter(transport) }),
+    { verificationEngine: { verify: async () => { throw new Error("synthetic verifier failure"); } } },
+  );
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.edit({ type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Verifier throws" }),
+    /VERIFICATION_FAILED: canonical state was restored/,
+  );
+  assert.equal(transport.restoreCalls, 1);
   assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
 });
 

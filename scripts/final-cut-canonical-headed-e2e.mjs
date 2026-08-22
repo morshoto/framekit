@@ -101,21 +101,9 @@ function canonicalDigest(snapshot) {
   return createHash("sha256").update(stableJson({
     projectId: snapshot.projectId,
     projectName: snapshot.projectName,
-    timeline: {
-      ...snapshot.timeline,
-      clips: byId(snapshot.timeline.clips),
-      storyElements: byId(snapshot.timeline.storyElements),
-      markers: byId(snapshot.timeline.markers),
-      captions: byId(snapshot.timeline.captions),
-    },
-    media: snapshot.media
-      .map(({ mediaId, source }) => ({ mediaId, source }))
-      .sort((left, right) => compareText(left.mediaId, right.mediaId)),
+    timeline: snapshot.timeline,
+    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
   })).digest("hex");
-}
-
-function byId(values) {
-  return [...values].sort((left, right) => compareText(left.id, right.id));
 }
 
 function stableJson(value) {

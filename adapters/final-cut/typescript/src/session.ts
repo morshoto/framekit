@@ -57,8 +57,12 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       && live.editor.canonicalTimelineMode !== "metadata-only"
       && this.options.live?.readProject
     );
-    const liveMutation = Boolean(liveSnapshot && live?.editor.timelineWrite && live?.editor.readAfterWrite && this.options.live?.apply);
-    const liveRollback = Boolean(liveMutation && live?.editor.rollback && this.options.live?.restore);
+    const liveMutation = Boolean(
+      liveSnapshot
+      && live?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore
+    );
     return withCanonicalTimelineMode({
       editor: {
         projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
@@ -70,7 +74,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
           || (liveMutation && live?.editor.readAfterWrite)
         ),
         incrementalChanges: Boolean(live?.editor.incrementalChanges),
-        rollback: Boolean((hasExplicitDocumentPair && mutation?.editor.rollback) || liveRollback),
+        rollback: Boolean((hasExplicitDocumentPair && mutation?.editor.rollback) || liveMutation),
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
@@ -105,7 +109,13 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       return this.options.mutation.apply(operation, expectedRevision);
     }
     const liveCapabilities = await optionalCapabilities(this.options.live);
-    if (!this.options.snapshot && !this.options.mutation && liveCapabilities?.editor.timelineWrite && liveCapabilities.editor.readAfterWrite && this.options.live?.apply) {
+    if (
+      !this.options.snapshot
+      && !this.options.mutation
+      && liveCapabilities?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore
+    ) {
       return this.options.live.apply(operation, expectedRevision);
     }
     if (this.options.snapshot) {
@@ -120,7 +130,13 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       return;
     }
     const liveCapabilities = await optionalCapabilities(this.options.live);
-    if (!this.options.snapshot && !this.options.mutation && liveCapabilities?.editor.rollback && this.options.live?.restore) {
+    if (
+      !this.options.snapshot
+      && !this.options.mutation
+      && liveCapabilities?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore
+    ) {
       await this.options.live.restore(snapshot, expectedRevision);
       return;
     }
