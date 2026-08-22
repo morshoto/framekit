@@ -31,6 +31,7 @@ import type {
 } from "./domain/types.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
 import { withCanonicalTimelineMode } from "./capabilities.js";
+import { canonicalSnapshotDigest } from "./snapshot-digest.js";
 
 export class AgentVideoRuntime {
   private readonly transactions = new Map<string, EditTransaction>();
@@ -141,6 +142,7 @@ export class AgentVideoRuntime {
       transaction.after = transaction.attemptedAfter;
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
+      this.assertRestored(before, await this.inspectProject());
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     transaction.verification = await this.verificationEngine.verify(transaction, policy);
@@ -149,6 +151,7 @@ export class AgentVideoRuntime {
     } else {
       await this.adapter.restore(before, attemptedAfter.revision);
       transaction.after = await this.inspectProject();
+      this.assertRestored(before, transaction.after);
       transaction.status = "ROLLED_BACK";
     }
     this.transactions.set(transaction.id, transaction);
@@ -265,7 +268,15 @@ export class AgentVideoRuntime {
       );
     }
     await this.adapter.restore(transaction.before, current.revision);
-    return this.inspectProject();
+    const restored = await this.inspectProject();
+    this.assertRestored(transaction.before, restored);
+    return restored;
+  }
+
+  private assertRestored(expected: ProjectSnapshot, actual: ProjectSnapshot): void {
+    if (canonicalSnapshotDigest(expected) !== canonicalSnapshotDigest(actual)) {
+      throw new Error("ROLLBACK_FAILED: restored canonical digest does not match pre-edit state");
+    }
   }
 
   private liveAdapter(): LiveEditorStatePort {

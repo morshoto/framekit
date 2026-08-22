@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { withCanonicalTimelineMode } from "@framekit/runtime";
 import type {
   ContextRevision,
+  EditOperation,
   EditorChange,
   EditorLiveState,
   EditorIdentity,
@@ -23,7 +24,7 @@ export const DEFAULT_FINAL_CUT_LIVE_SOCKET = join(
   "Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock",
 );
 
-export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project" | "snapshot";
+export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project" | "snapshot" | "apply" | "restore";
 
 export interface FinalCutLiveRequest {
   version: number;
@@ -33,6 +34,9 @@ export interface FinalCutLiveRequest {
   waitMs?: number;
   projectId?: string;
   sequenceId?: string;
+  operation?: EditOperation;
+  expectedRevision?: ContextRevision;
+  snapshot?: ProjectSnapshot;
 }
 
 export type FinalCutLiveResponse =
@@ -145,6 +149,22 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return response.snapshot;
   }
 
+  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
+    const capabilities = await this.getCapabilities();
+    if (!capabilities.editor.timelineWrite || !capabilities.editor.readAfterWrite) {
+      throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical mutation");
+    }
+    await this.request({ method: "apply", operation, expectedRevision });
+  }
+
+  public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
+    const capabilities = await this.getCapabilities();
+    if (!capabilities.editor.rollback) {
+      throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical rollback");
+    }
+    await this.request({ method: "restore", snapshot, expectedRevision });
+  }
+
   public async readLiveState(): Promise<EditorLiveState> {
     const response = await this.request({ method: "state" });
     if (!response.state) throw new Error("FINAL_CUT_LIVE_PROTOCOL: state response was empty");
@@ -176,7 +196,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return response.catalog;
   }
 
-  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId">) {
+  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "operation" | "expectedRevision" | "snapshot">) {
     const response = await this.transport.request({
       version: FINAL_CUT_LIVE_PROTOCOL_VERSION,
       id: randomUUID(),

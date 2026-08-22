@@ -50,15 +50,20 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const mutation = await this.options.mutation?.getCapabilities();
     const live = await optionalCapabilities(this.options.live);
     const liveSnapshot = Boolean(live?.editor.timelineSnapshotRead && this.options.live?.readProject);
+    const liveMutation = Boolean(liveSnapshot && live?.editor.timelineWrite && live?.editor.readAfterWrite && this.options.live?.apply);
+    const liveRollback = Boolean(liveMutation && live?.editor.rollback && this.options.live?.restore);
     return withCanonicalTimelineMode({
       editor: {
         projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
         timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead || liveSnapshot),
-        timelineWrite: Boolean(mutation?.editor.timelineWrite),
+        timelineWrite: Boolean(mutation?.editor.timelineWrite || liveMutation),
         timelineArtifactWrite: Boolean(mutation?.editor.timelineArtifactWrite),
-        readAfterWrite: Boolean(snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite),
+        readAfterWrite: Boolean(
+          (snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite)
+          || (liveMutation && live?.editor.readAfterWrite)
+        ),
         incrementalChanges: Boolean(live?.editor.incrementalChanges),
-        rollback: Boolean(mutation?.editor.rollback),
+        rollback: Boolean(mutation?.editor.rollback || liveRollback),
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
@@ -89,15 +94,37 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
-    const provider = this.options.mutation ?? this.options.snapshot;
-    if (!provider) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
-    await provider.apply(operation, expectedRevision);
+    if (this.options.mutation) {
+      await this.options.mutation.apply(operation, expectedRevision);
+      return;
+    }
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    if (liveCapabilities?.editor.timelineWrite && liveCapabilities.editor.readAfterWrite && this.options.live?.apply) {
+      await this.options.live.apply(operation, expectedRevision);
+      return;
+    }
+    if (this.options.snapshot) {
+      await this.options.snapshot.apply(operation, expectedRevision);
+      return;
+    }
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
-    const provider = this.options.mutation ?? this.options.snapshot;
-    if (!provider) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
-    await provider.restore(snapshot, expectedRevision);
+    if (this.options.mutation) {
+      await this.options.mutation.restore(snapshot, expectedRevision);
+      return;
+    }
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    if (liveCapabilities?.editor.rollback && this.options.live?.restore) {
+      await this.options.live.restore(snapshot, expectedRevision);
+      return;
+    }
+    if (this.options.snapshot) {
+      await this.options.snapshot.restore(snapshot, expectedRevision);
+      return;
+    }
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

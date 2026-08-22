@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
   FinalCutLiveAdapter,
@@ -8,7 +8,7 @@ import {
   type FinalCutLiveRequest,
   type FinalCutLiveResponse,
 } from "@framekit/final-cut";
-import type { ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
+import type { EditOperation, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
 
 const emptyAnalyzers = {
   speechTranscribe: false,
@@ -180,3 +180,131 @@ test("canonical-read live sessions expose complete snapshots with explicit stabl
   );
   assert.ok(requests.some(({ method }) => method === "snapshot"));
 });
+
+const canonicalWriteCapabilities: RuntimeCapabilities = {
+  ...canonicalReadCapabilities,
+  editor: {
+    ...canonicalReadCapabilities.editor,
+    timelineWrite: true,
+    readAfterWrite: true,
+    rollback: true,
+  },
+};
+
+class MutableCanonicalLiveTransport {
+  public snapshot = structuredClone(canonicalSnapshot);
+  public applyCalls = 0;
+  private readonly history = new Map<string, ProjectSnapshot>();
+
+  public async request(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> {
+    const result = {
+      identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+      capabilities: canonicalWriteCapabilities,
+    };
+    if (request.method === "snapshot") {
+      return { version: 1, id: request.id, ok: true, result: { ...result, snapshot: structuredClone(this.snapshot) } };
+    }
+    if (request.method === "apply") {
+      this.applyCalls += 1;
+      if (!sameRevision(request.expectedRevision, this.snapshot.revision)) {
+        return staleResponse(request.id);
+      }
+      this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
+      applyOperation(this.snapshot, request.operation!);
+      this.advanceRevision();
+    }
+    if (request.method === "restore") {
+      if (!sameRevision(request.expectedRevision, this.snapshot.revision)) {
+        return staleResponse(request.id);
+      }
+      const previous = this.history.get(request.snapshot!.revision.id);
+      if (!previous) {
+        return {
+          version: 1,
+          id: request.id,
+          ok: false,
+          error: { code: "ROLLBACK_FAILED", message: "snapshot history is unavailable" },
+        };
+      }
+      this.snapshot = structuredClone(previous);
+      this.advanceRevision();
+    }
+    return { version: 1, id: request.id, ok: true, result };
+  }
+
+  private advanceRevision(): void {
+    const sequence = this.snapshot.revision.sequence + 1;
+    this.snapshot.revision = {
+      id: `live-rev-${sequence}`,
+      sequence,
+      timestamp: new Date(sequence).toISOString(),
+    };
+  }
+}
+
+test("canonical-write live sessions return verified diffs and reject stale writes before mutation", async () => {
+  const transport = new MutableCanonicalLiveTransport();
+  const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({
+    live: new FinalCutLiveAdapter(transport),
+  }));
+  const base = await runtime.inspectProject();
+
+  const transaction = await runtime.edit({
+    type: "rename-clip",
+    clipId: "final-cut:occurrence:one",
+    name: "Renamed live",
+    baseRevision: base.revision,
+  });
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.before.timeline.clips[0]?.name, "First use");
+  assert.equal(transaction.after.timeline.clips[0]?.name, "Renamed live");
+  assert.equal(transaction.diff.modified[0]?.itemId, "final-cut:occurrence:one");
+
+  const callsBeforeStaleAttempt = transport.applyCalls;
+  await assert.rejects(runtime.edit({
+    type: "rename-clip",
+    clipId: "final-cut:occurrence:one",
+    name: "Stale rename",
+    baseRevision: base.revision,
+  }), /STALE_CONTEXT/);
+  assert.equal(transport.applyCalls, callsBeforeStaleAttempt);
+});
+
+test("failed canonical live verification restores the pre-edit digest", async () => {
+  const transport = new MutableCanonicalLiveTransport();
+  const runtime = new AgentVideoRuntime(
+    new FinalCutSessionAdapter({ live: new FinalCutLiveAdapter(transport) }),
+    { verificationEngine: { verify: async () => ({ passed: false, checks: [{ name: "forced", passed: false, detail: "test" }] }) } },
+  );
+  const before = await runtime.inspectProject();
+
+  const transaction = await runtime.edit({
+    type: "rename-clip",
+    clipId: "final-cut:occurrence:one",
+    name: "Must roll back",
+  });
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(canonicalSnapshotDigest(transaction.after), canonicalSnapshotDigest(before));
+  assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
+});
+
+function sameRevision(left: ProjectSnapshot["revision"] | undefined, right: ProjectSnapshot["revision"]): boolean {
+  return Boolean(left && left.id === right.id && left.sequence === right.sequence);
+}
+
+function staleResponse(id: string): FinalCutLiveResponse {
+  return {
+    version: 1,
+    id,
+    ok: false,
+    error: { code: "STALE_CONTEXT", message: "revision changed before mutation" },
+  };
+}
+
+function applyOperation(snapshot: ProjectSnapshot, operation: EditOperation): void {
+  if (operation.type !== "rename-clip") throw new Error(`unsupported test operation: ${operation.type}`);
+  const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+  if (!clip) throw new Error(`missing test clip: ${operation.clipId}`);
+  clip.name = operation.name;
+}
