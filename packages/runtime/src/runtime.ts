@@ -188,6 +188,9 @@ export class AgentVideoRuntime {
     const preview = this.editPreviews.get(previewToken);
     if (!preview) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used preview ${previewToken}`);
     this.editPreviews.delete(previewToken);
+    if (this.now() > Date.parse(preview.expiresAt)) {
+      throw new Error("PREVIEW_TOKEN_EXPIRED: composite edit preview has expired");
+    }
     const before = await this.inspectProject();
     if (!sameRevision(preview.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
@@ -196,7 +199,19 @@ export class AgentVideoRuntime {
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
     }
-    await this.adapter.applyTransaction(preview.operations, before.revision);
+    try {
+      await this.adapter.applyTransaction(preview.operations, before.revision);
+    } catch (error) {
+      const partiallyApplied = await this.inspectProject();
+      if (!sameRevision(partiallyApplied.revision, before.revision)) {
+        try {
+          await this.adapter.restore(before, partiallyApplied.revision);
+        } catch (rollbackError) {
+          throw new Error(`TRANSACTION_FAILED: ${String(error)}; rollback failed: ${String(rollbackError)}`);
+        }
+      }
+      throw new Error(`TRANSACTION_FAILED: ${String(error)}; transaction was rolled back`);
+    }
     const attemptedAfter = await this.inspectProject();
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
