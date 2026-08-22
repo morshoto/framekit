@@ -131,6 +131,7 @@ export interface NativeFinalCutContext {
     kind: "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
     name?: string;
     role?: string;
+    identity?: string;
   };
   bladeAvailable: boolean;
   undoAvailable: boolean;
@@ -792,10 +793,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const targetChanged = expected.target.kind !== recovered.target.kind
       || expected.target.name !== recovered.target.name
       || expected.target.role !== recovered.target.role;
+    const occurrenceChanged = expected.target.kind === "selected-clip" && recovered.target.kind === "selected-clip"
+      && (!expected.target.identity || !recovered.target.identity || expected.target.identity !== recovered.target.identity);
     const playheadChanged = requirePlayhead
       ? !expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime
       : expected.playheadTime !== recovered.playheadTime;
-    if (targetChanged || playheadChanged) {
+    if (targetChanged || occurrenceChanged || playheadChanged) {
       throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection or playhead changed during focus recovery");
     }
   }
@@ -968,7 +971,7 @@ function requireFrontmostAppleScript(): string {
 function timelinePreflightScript(): string {
   return `
 tell application "Final Cut Pro" to activate
-on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, selectedIdentity)
   set undoEnabled to false
   set undoCommand to ""
   try
@@ -987,7 +990,7 @@ on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedNam
       end tell
     end tell
   end try
-  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked & (ASCII character 31) & undoCommand
+  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked & (ASCII character 31) & undoCommand & (ASCII character 31) & selectedIdentity
 end preflightResult
 
 on focusSnapshot()
@@ -1063,7 +1066,7 @@ tell application "System Events"
       set timelineWindowAvailable to true
       set frontWindowName to name of frontWindow as text
     on error
-      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", "", "", "", "", timelineWindowAvailable, false, "none", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", "", "", "", "", timelineWindowAvailable, false, "none", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, "")
     end try
 
     try
@@ -1103,7 +1106,7 @@ tell application "System Events"
       set focusedName to item 3 of snapshot
       set focusedRole to item 4 of snapshot
       set focusedDescription to item 5 of snapshot
-      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, "")
     end if
     tell application "Final Cut Pro" to activate
     try
@@ -1114,7 +1117,7 @@ tell application "System Events"
     set processFrontmost to item 1 of snapshot
     set focusedWindowName to item 2 of snapshot
     if processFrontmost is not "true" then
-      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", item 3 of snapshot, item 4 of snapshot, item 5 of snapshot, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", item 3 of snapshot, item 4 of snapshot, item 5 of snapshot, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, "")
     end if
     try
       perform action "AXRaise" of frontWindow
@@ -1125,7 +1128,7 @@ tell application "System Events"
     set processFrontmost to item 1 of snapshot
     set focusedWindowName to item 2 of snapshot
     if processFrontmost is not "true" then
-      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", item 3 of snapshot, item 4 of snapshot, item 5 of snapshot, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", item 3 of snapshot, item 4 of snapshot, item 5 of snapshot, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, "")
     end if
 
     set windowPosition to position of frontWindow
@@ -1225,6 +1228,7 @@ tell application "System Events"
     if focusedWindowName contains "Framekit" then set overlayBlocked to true
     set selectedName to ""
     set selectedRole to ""
+    set selectedIdentity to ""
     set selectedCount to 0
     try
       repeat with candidate in entire contents of frontWindow
@@ -1234,12 +1238,15 @@ tell application "System Events"
             if selectedCount is 1 then
               set selectedName to name of candidate as text
               set selectedRole to role of candidate as text
+              try
+                set selectedIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
+              end try
             end if
           end if
         end try
       end repeat
     end try
-    return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+    return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, selectedIdentity)
   end tell
 end tell`;
 }
@@ -1529,7 +1536,7 @@ end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState, undoCommandState] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState, undoCommandState, targetIdentity] = output.split(String.fromCharCode(31));
   const selectedCount = Number(selectedCountText ?? "0");
   const timelineWindowAvailable = timelineWindowState === undefined ? Boolean(frontWindow) : timelineWindowState === "true";
   const timelineFocused = timelineFocusedState === undefined
@@ -1541,7 +1548,7 @@ function parseContext(output: string): NativeFinalCutContext {
       ? "timeline"
       : "none";
   const target = selectedCount === 1
-    ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}) }
+    ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
     : selectedCount > 1
       ? { kind: "unknown" as const }
       : focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title") && focusedName
