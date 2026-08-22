@@ -29,9 +29,12 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
   const xmlPath = join(directory, "project.fcpxml");
   const mediaPath = join(directory, "interview.wav");
   const assetRoot = join(directory, "Motion Templates.localized", "Transitions.localized", "Cross Dissolve.motr", "Contents");
+  const titleRoot = join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti", "Contents");
   await mkdir(assetRoot, { recursive: true });
+  await mkdir(titleRoot, { recursive: true });
   await writeFile(mediaPath, "fixture media");
   await writeFile(join(assetRoot, "Info.plist"), `<?xml version="1.0"?><plist><dict><key>CFBundleDisplayName</key><string>Cross Dissolve</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></dict></plist>`);
+  await writeFile(join(titleRoot, "Info.plist"), `<?xml version="1.0"?><plist><dict><key>CFBundleDisplayName</key><string>Lower Third</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></dict></plist>`);
   await writeFile(xmlPath, `<?xml version="1.0" encoding="UTF-8"?>
 <fcpxml version="1.11">
   <resources><asset id="r1" name="Interview.wav" src="interview.wav" /></resources>
@@ -97,6 +100,18 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
 
     const assets = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { query: "dissolve" } })));
     assert.equal(assets[0].name, "Cross Dissolve");
+    const titles = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { kind: "title", query: "lower" } })));
+    assert.deepEqual(titles[0], {
+      id: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+      kind: "title",
+      name: "Lower Third",
+      vendor: "Framekit Fixture",
+      metadata: {
+        path: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+        name: "Lower Third",
+        vendor: "Framekit Fixture",
+      },
+    });
 
     const edited = JSON.parse(textFrom(await client.callTool({
       name: "timeline.edit",
