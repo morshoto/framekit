@@ -11,6 +11,7 @@ import type {
   RuntimeCapabilities,
   LiveEditorStatePort,
   ProjectCatalog,
+  ProjectSnapshot,
   ProjectSelection,
 } from "@framekit/runtime";
 
@@ -22,7 +23,7 @@ export const DEFAULT_FINAL_CUT_LIVE_SOCKET = join(
   "Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock",
 );
 
-export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project";
+export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project" | "snapshot";
 
 export interface FinalCutLiveRequest {
   version: number;
@@ -45,6 +46,7 @@ export type FinalCutLiveResponse =
         state?: EditorLiveState;
         changes?: EditorChange[];
         catalog?: ProjectCatalog;
+        snapshot?: ProjectSnapshot;
       };
     }
   | {
@@ -127,6 +129,20 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   public async getCapabilities(): Promise<RuntimeCapabilities> {
     const response = await this.request({ method: "capabilities" });
     return withCanonicalTimelineMode(response.capabilities);
+  }
+
+  public async read(): Promise<ProjectSnapshot> {
+    return this.readProject();
+  }
+
+  public async readProject(): Promise<ProjectSnapshot> {
+    const capabilities = await this.getCapabilities();
+    if (!capabilities.editor.timelineSnapshotRead) {
+      throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical snapshot");
+    }
+    const response = await this.request({ method: "snapshot" });
+    if (!response.snapshot) throw new Error("FINAL_CUT_LIVE_PROTOCOL: snapshot response was empty");
+    return response.snapshot;
   }
 
   public async readLiveState(): Promise<EditorLiveState> {

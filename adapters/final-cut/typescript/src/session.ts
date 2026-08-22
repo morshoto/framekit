@@ -18,7 +18,7 @@ import type {
 interface FinalCutSessionOptions {
   snapshot?: EditorPort;
   mutation?: EditorPort;
-  live?: LiveEditorStatePort & {
+  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore">> & {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
@@ -49,10 +49,11 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const snapshot = await this.options.snapshot?.getCapabilities();
     const mutation = await this.options.mutation?.getCapabilities();
     const live = await optionalCapabilities(this.options.live);
+    const liveSnapshot = Boolean(live?.editor.timelineSnapshotRead && this.options.live?.readProject);
     return withCanonicalTimelineMode({
       editor: {
-        projectRead: Boolean(snapshot?.editor.projectRead),
-        timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead),
+        projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
+        timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead || liveSnapshot),
         timelineWrite: Boolean(mutation?.editor.timelineWrite),
         timelineArtifactWrite: Boolean(mutation?.editor.timelineArtifactWrite),
         readAfterWrite: Boolean(snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite),
@@ -79,10 +80,12 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   }
 
   public async readProject(): Promise<ProjectSnapshot> {
-    if (!this.options.snapshot) {
-      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");
+    if (this.options.snapshot) return this.options.snapshot.readProject();
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    if (liveCapabilities?.editor.timelineSnapshotRead && this.options.live?.readProject) {
+      return this.options.live.readProject();
     }
-    return this.options.snapshot.readProject();
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
