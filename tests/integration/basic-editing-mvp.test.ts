@@ -27,6 +27,8 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
     "media.import",
     "media.inspect",
     "timeline.edit",
+    "timeline.media.add",
+    "timeline.title.add",
     "editor.assets",
     "timeline.export",
     "edit.verify",
