@@ -1,0 +1,43 @@
+name: Swift CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift type-check
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Show Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - name: Validate Xcode project
+        run: >-
+          xcodebuild
+          -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj
+          -list
+
+      - name: Type-check Workflow Extension against the checked-in shim
+        run: >-
+          xcrun swiftc
+          -typecheck
+          -parse-as-library
+          -target arm64-apple-macos15.0
+          -I adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/ProExtensionHostShim
+          adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
