@@ -53,6 +53,29 @@ export interface EditorLiveState {
   revision: ContextRevision;
 }
 
+/** Stable project and sequence identities exposed by an editor backend. */
+export interface ProjectSequence {
+  id: string;
+  name: string;
+}
+
+export interface ProjectDescriptor {
+  id: string;
+  name: string;
+  sequences: ProjectSequence[];
+}
+
+export interface ProjectCatalog {
+  projects: ProjectDescriptor[];
+  activeProjectId?: string;
+  activeSequenceId?: string;
+}
+
+export interface ProjectSelection {
+  projectId: string;
+  sequenceId?: string;
+}
+
 export type EditorChangeKind =
   | "active-sequence-changed"
   | "playhead-changed"
@@ -330,6 +353,10 @@ export interface EditorCapabilities {
   playbackControl?: boolean;
   /** Canonical artifact can be imported as a new editor project. */
   timelinePublishNewProject?: boolean;
+  /** The backend can enumerate stable project and sequence identities. */
+  projectCatalogRead?: boolean;
+  /** The backend can select a project and, when needed, one of its sequences. */
+  projectSelection?: boolean;
 }
 
 export interface AnalyzerCapabilities {
@@ -352,6 +379,8 @@ export interface EditorPort extends EditorAdapter {
   listAssets?(query?: AssetSearchQuery): Promise<EditorAsset[]>;
   /** Optional native change feed; absence falls back to a snapshot diff. */
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
+  listProjects?(): Promise<ProjectCatalog>;
+  selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
 }
 
 export interface LiveEditorStatePort {

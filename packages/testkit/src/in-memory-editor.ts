@@ -11,6 +11,8 @@ import type {
   MediaContext,
   Marker,
   ProjectSnapshot,
+  ProjectCatalog,
+  ProjectSelection,
   RationalTime,
   RuntimeCapabilities,
 } from "@framekit/runtime";
@@ -25,15 +27,26 @@ export interface InMemoryFixture {
   media?: MediaContext[];
   markers?: Marker[];
   assets?: EditorAsset[];
+  projects?: ProjectCatalog["projects"];
 }
 
 export class InMemoryEditorAdapter implements EditorPort {
   private snapshot: ProjectSnapshot;
   private readonly assets: EditorAsset[];
   private readonly history = new Map<string, ProjectSnapshot>();
+  private readonly projects: ProjectCatalog["projects"];
+  private activeProjectId: string;
+  private activeSequenceId: string;
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
+    this.projects = structuredClone(fixture.projects ?? [{
+      id: fixture.projectId,
+      name: fixture.projectName,
+      sequences: [{ id: fixture.timelineId, name: fixture.timelineName }],
+    }]);
+    this.activeProjectId = fixture.projectId;
+    this.activeSequenceId = fixture.timelineId;
     const clips = fixture.clips.map((clip) => normalizeClip(clip));
     this.snapshot = {
       projectId: fixture.projectId,
@@ -92,6 +105,8 @@ export class InMemoryEditorAdapter implements EditorPort {
         assetDiscovery: true,
         liveStateRead: false,
         playheadWrite: false,
+        projectCatalogRead: true,
+        projectSelection: true,
       },
       analyzers: {
         speechTranscribe: false,
@@ -110,6 +125,28 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (query?.vendor && asset.vendor.toLowerCase() !== query.vendor.trim().toLowerCase()) return false;
       return true;
     }));
+  }
+
+  public async listProjects(): Promise<ProjectCatalog> {
+    return {
+      projects: structuredClone(this.projects),
+      activeProjectId: this.activeProjectId,
+      activeSequenceId: this.activeSequenceId,
+    };
+  }
+
+  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    const project = this.projects.find((candidate) => candidate.id === selection.projectId);
+    if (!project) throw new Error(`PROJECT_NOT_FOUND: ${selection.projectId}`);
+    const sequenceId = selection.sequenceId
+      ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+    if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: ${selection.projectId} has multiple sequences`);
+    if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
+      throw new Error(`SEQUENCE_NOT_FOUND: ${sequenceId}`);
+    }
+    this.activeProjectId = project.id;
+    this.activeSequenceId = sequenceId;
+    return this.listProjects();
   }
 
   public async readChanges(since: ContextRevision): Promise<ContextChangeSet> {

@@ -43,6 +43,7 @@ It exposes these tools over stdio:
   `editor.native.timeline.locate`
 - `editor.native.blade.preview`, `editor.native.blade.execute`
 - `project.inspect`
+- `project.list` and `project.select` (stable project/sequence selection)
 - `timeline.inspect`
 - `timeline.changes`
 - `timeline.edit` (`rename-clip`, `trim-clip`, `set-gain`, `ripple-delete`, and `add-marker`)

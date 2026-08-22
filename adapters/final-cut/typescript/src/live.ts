@@ -9,6 +9,8 @@ import type {
   EditorIdentity,
   RuntimeCapabilities,
   LiveEditorStatePort,
+  ProjectCatalog,
+  ProjectSelection,
 } from "@framekit/runtime";
 
 export const FINAL_CUT_LIVE_PROTOCOL_VERSION = 1;
@@ -19,7 +21,7 @@ export const DEFAULT_FINAL_CUT_LIVE_SOCKET = join(
   "Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock",
 );
 
-export type FinalCutLiveMethod = "capabilities" | "state" | "changes";
+export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project";
 
 export interface FinalCutLiveRequest {
   version: number;
@@ -27,6 +29,8 @@ export interface FinalCutLiveRequest {
   method: FinalCutLiveMethod;
   afterSequence?: number;
   waitMs?: number;
+  projectId?: string;
+  sequenceId?: string;
 }
 
 export type FinalCutLiveResponse =
@@ -39,6 +43,7 @@ export type FinalCutLiveResponse =
         capabilities: RuntimeCapabilities;
         state?: EditorLiveState;
         changes?: EditorChange[];
+        catalog?: ProjectCatalog;
       };
     }
   | {
@@ -138,7 +143,23 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return response.changes ?? [];
   }
 
-  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs">) {
+  public async listProjects(): Promise<ProjectCatalog> {
+    const response = await this.request({ method: "projects" });
+    if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project catalog response was empty");
+    return response.catalog;
+  }
+
+  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    const response = await this.request({
+      method: "select-project",
+      projectId: selection.projectId,
+      sequenceId: selection.sequenceId,
+    });
+    if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response was empty");
+    return response.catalog;
+  }
+
+  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId">) {
     const response = await this.transport.request({
       version: FINAL_CUT_LIVE_PROTOCOL_VERSION,
       id: randomUUID(),

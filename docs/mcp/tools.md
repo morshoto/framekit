@@ -22,6 +22,8 @@
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed Final Cut session |
+| `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture and FCPXML-backed session; live-only Final Cut is unavailable |
+| `project.select` | Select a project and explicit sequence when needed | Deterministic fixture and FCPXML-backed session; ambiguous targets fail closed |
 | `timeline.inspect` | Canonical timeline snapshot | FCPXML-backed Final Cut session; not live-only |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed Final Cut session |
 | `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path |
@@ -47,6 +49,13 @@
 Live Final Cut state is not presented as a complete canonical timeline. When
 `FRAMEKIT_FCPXML_PATH` is configured, canonical tools use that artifact while
 `editor.live.*` continues to report the actual open Final Cut state.
+
+`project.list` and `project.select` use stable IDs supplied by the selected
+backend. The current Workflow Extension exposes only the active project and
+sequence metadata, not a project browser or project-selection API, so a
+live-only session rejects these tools with `CAPABILITY_UNAVAILABLE`. An
+FCPXML-backed session can inspect and select its single managed project;
+selection never silently changes the open Final Cut project.
 
 `media.search` remains canonical snapshot search. Live Browser search uses the
 explicit `editor.native.media.*` tools because Browser media identity and

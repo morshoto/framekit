@@ -60,6 +60,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "media.search",
         "media.understand",
         "project.inspect",
+        "project.list",
+        "project.select",
         "speech.analyze",
         "timeline.changes",
         "timeline.edit",

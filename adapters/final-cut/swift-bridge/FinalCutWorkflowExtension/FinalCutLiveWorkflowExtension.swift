@@ -329,6 +329,8 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             }
             let result = stateLock.withLock { changes.filter { $0.revision.sequence > after } }
             return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: result), error: nil)
+        case "projects", "select-project":
+            return failure(request, code: "CAPABILITY_UNAVAILABLE", message: "Final Cut Workflow Extension does not expose project catalog or selection")
         default:
             return failure(request, code: "UNSUPPORTED_METHOD", message: request.method)
         }
@@ -354,11 +356,11 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             throw NSError(domain: "Framekit", code: 1, userInfo: [NSLocalizedDescriptionKey: "no active sequence"])
         }
         let project = (sequence.container as? FCPXProject).map {
-            LiveState.Project(id: "active-project", name: $0.name)
+            LiveState.Project(id: "final-cut:project:\($0.uid)", name: $0.name)
         }
-        let projectID = project?.id ?? "active-project"
+        let projectID = project?.id ?? "final-cut:project:unknown"
         let sequenceName = sequence.name ?? "active-sequence"
-        let liveSequence = LiveState.Sequence(id: "\(projectID):\(sequenceName)", name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
+        let liveSequence = LiveState.Sequence(id: "\(projectID):sequence:\(sequenceName)", name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
         let currentRevision = stateLock.withLock { revision }
         return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))

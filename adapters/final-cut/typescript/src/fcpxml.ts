@@ -14,6 +14,8 @@ import type {
   EditorPort,
   Marker,
   ProjectSnapshot,
+  ProjectCatalog,
+  ProjectSelection,
   RationalTime,
   RuntimeCapabilities,
   StoryElement,
@@ -65,6 +67,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         assetDiscovery: false,
         liveStateRead: false,
         playheadWrite: false,
+        projectCatalogRead: true,
+        projectSelection: true,
       },
       analyzers: emptyAnalyzerCapabilities(),
     };
@@ -112,6 +116,37 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       media: this.mediaFromResources(),
       revision: this.revision(),
     };
+  }
+
+  public async listProjects(): Promise<ProjectCatalog> {
+    await this.ensureLoaded();
+    const project = this.projectNode();
+    const projectName = String(attribute(project, "name") ?? "Final Cut Project");
+    const projectId = stableProjectId(project, projectName);
+    const sequence = findElement(project, "sequence");
+    const sequenceName = String(attribute(sequence ?? {}, "name") ?? projectName);
+    const sequenceId = stableSequenceId(sequence, projectId, sequenceName);
+    return {
+      projects: [{
+        id: projectId,
+        name: projectName,
+        sequences: [{ id: sequenceId, name: sequenceName }],
+      }],
+      activeProjectId: projectId,
+      activeSequenceId: sequenceId,
+    };
+  }
+
+  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    const catalog = await this.listProjects();
+    const project = catalog.projects.find((candidate) => candidate.id === selection.projectId);
+    if (!project) throw new Error(`PROJECT_NOT_FOUND: ${selection.projectId}`);
+    const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+    if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: ${selection.projectId} has multiple sequences`);
+    if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
+      throw new Error(`SEQUENCE_NOT_FOUND: ${sequenceId}`);
+    }
+    return { ...catalog, activeProjectId: project.id, activeSequenceId: sequenceId };
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
@@ -427,6 +462,16 @@ function emptyAnalyzerCapabilities() {
 
 function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function stableProjectId(project: XmlNode, projectName: string): string {
+  const uid = attribute(project, "uid");
+  return `fcpxml:project:${String(uid ?? hash(projectName).slice(0, 16))}`;
+}
+
+function stableSequenceId(sequence: XmlNode | undefined, projectId: string, sequenceName: string): string {
+  const uid = sequence ? attribute(sequence, "uid") : undefined;
+  return `fcpxml:sequence:${String(uid ?? hash(`${projectId}:${sequenceName}`).slice(0, 16))}`;
 }
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {

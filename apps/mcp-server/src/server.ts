@@ -73,6 +73,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Read the current canonical project snapshot.",
   }, async () => jsonResult(await runtime.inspectProject()));
 
+  server.registerTool("project.list", {
+    description: "List projects and their stable Final Cut sequence identities, including the active target.",
+    inputSchema: {},
+  }, async () => jsonResult(await runtime.listProjects()));
+
+  server.registerTool("project.select", {
+    description: "Select one project and, when it has multiple sequences, one explicit sequence; ambiguous targets fail closed.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1).optional(),
+    },
+  }, async ({ projectId, sequenceId }) => jsonResult(await runtime.selectProject({ projectId, sequenceId })));
+
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable Phase 2 capabilities.",
   }, async () => {

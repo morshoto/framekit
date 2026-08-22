@@ -36,11 +36,15 @@ FRAMEKIT_EDITOR=final-cut-live npm run mcp
 Set `FRAMEKIT_FINAL_CUT_SOCKET` explicitly when using a non-default socket.
 
 Supported requests are `capabilities`, `state`, and `changes`. The bridge
-reports active project/sequence metadata, rational playhead time, selected
+reports stable active project/sequence metadata, rational playhead time, selected
 sequence range, and observer-backed change events. It deliberately reports
 `editor.timelineSnapshotRead: false`: the public Workflow Extension proxy does not promise a
 complete clip/media enumeration API, so Framekit fails closed instead of
 fabricating an empty canonical timeline.
+
+Project catalog and selection requests are not advertised by this bridge. The
+public host API exposes only the active sequence, so callers receive
+`CAPABILITY_UNAVAILABLE` rather than an inferred project browser.
 
 The local build is ad-hoc signed for development. `framekit connect finalcut`
 installs the containing app into the user's Applications directory and

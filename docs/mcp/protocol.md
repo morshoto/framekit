@@ -20,9 +20,11 @@ Override it with `FRAMEKIT_FINAL_CUT_SOCKET` when required.
 {
   "version": 1,
   "id": "request-id",
-  "method": "capabilities | state | changes",
-  "afterSequence": 0,
-  "waitMs": 1000
+    "method": "capabilities | state | changes | projects | select-project",
+    "afterSequence": 0,
+    "waitMs": 1000,
+    "projectId": "stable-project-id",
+    "sequenceId": "stable-sequence-id"
 }
 ```
 
@@ -36,5 +38,9 @@ Successful responses contain `identity`, `capabilities`, and optionally
 and message. The TypeScript transport rejects unavailable sockets, timeouts,
 invalid JSON, unsupported protocol versions, and bridge errors.
 
-Supported methods are `capabilities`, `state`, and `changes`. The socket is
-local-only and is created by the sandboxed Workflow Extension, not by MCP.
+The TypeScript client understands `projects` and `select-project` for bridges
+that advertise project catalog and selection capabilities. The checked-in
+Workflow Extension currently returns `CAPABILITY_UNAVAILABLE` for those
+methods because its public host API exposes only the active sequence; it does
+not fabricate a project browser. The socket is local-only and is created by
+the sandboxed Workflow Extension, not by MCP.
