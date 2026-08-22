@@ -15,6 +15,7 @@ function context(
   focusTarget = timelineFocused ? "timeline" : timelineWindowAvailable ? "unknown" : "none",
   focusAttempts = 0,
   undoCommand = undo ? "Undo" : "",
+  targetIdentity = selectedCount === 1 && selectedName ? `test:${selectedName}` : "",
 ): string {
   return [
     frontmost ? "true" : "false",
@@ -36,6 +37,7 @@ function context(
     windowName,
     "false",
     undoCommand,
+    targetIdentity,
   ].join(separator);
 }
 
@@ -653,6 +655,34 @@ test("native Final Cut refuses a retry when focus recovery changes the selection
     adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }),
     /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/,
   );
+  assert.equal(editCalls, 1);
+});
+
+test("native Final Cut refuses a retry when duplicate-name occurrence changes", async () => {
+  let preflightCalls = 0;
+  let editCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, "Undo", `occurrence-${preflightCalls}`);
+      }
+      if (script.includes("Apply Custom Name")) {
+        editCalls += 1;
+        if (editCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }),
+    /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/,
+  );
+  assert.equal(preflightCalls, 2);
   assert.equal(editCalls, 1);
 });
 
