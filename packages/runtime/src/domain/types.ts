@@ -163,6 +163,30 @@ export interface VisualAnalysis {
   keyframes: VisualKeyframe[];
 }
 
+export interface FrameImage {
+  /** Base64-encoded image bytes. */
+  data: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+}
+
+/** Editor-native frame data before runtime context is attached. */
+export interface CapturedFrameSource {
+  image: FrameImage;
+  timecode: string;
+}
+
+export interface TimelineFrameCapture {
+  image: FrameImage;
+  position: RationalTime;
+  timecode: string;
+  project: ProjectSequence;
+  sequence: ProjectSequence;
+  clip?: Pick<Clip, "id" | "mediaId" | "name" | "startTime" | "durationTime" | "track">;
+  analysis?: VisualAnalysis;
+}
+
 export interface MediaContext {
   mediaId: string;
   source: string;
@@ -409,6 +433,8 @@ export interface EditorCapabilities {
   assetDiscovery: boolean;
   liveStateRead: boolean;
   playheadWrite: boolean;
+  /** The backend can return image data for an exact timeline position. */
+  frameCapture: boolean;
   playbackControl?: boolean;
   /** Canonical artifact can be imported as a new editor project. */
   timelinePublishNewProject?: boolean;
@@ -445,6 +471,8 @@ export interface EditorPort extends EditorAdapter {
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
   listProjects?(): Promise<ProjectCatalog>;
   selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
+  /** Capture only if the active editor target still matches the inspected revision. */
+  captureFrame?(position: RationalTime, expectedRevision: ContextRevision): Promise<CapturedFrameSource>;
   previewTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<ProjectSnapshot>;
   applyTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<void>;
 }

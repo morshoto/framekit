@@ -63,6 +63,54 @@ function multiProjectAdapter(): InMemoryEditorAdapter {
   });
 }
 
+const framePosition = { value: "24", timescale: "24" };
+const alphaFrameImage = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const socialFrameImage = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+function frameSelectionAdapter(): InMemoryEditorAdapter {
+  return new InMemoryEditorAdapter({
+    projectId: "project-alpha",
+    projectName: "Alpha",
+    timelineId: "sequence-alpha-main",
+    timelineName: "Main",
+    clips: [],
+    projects: [{
+      id: "project-alpha",
+      name: "Alpha",
+      sequences: [
+        { id: "sequence-alpha-main", name: "Main" },
+        { id: "sequence-alpha-social", name: "Social" },
+      ],
+    }],
+    projectSnapshots: [
+      {
+        projectId: "project-alpha",
+        projectName: "Alpha",
+        timelineId: "sequence-alpha-main",
+        timelineName: "Main",
+        clips: [],
+        frames: [{
+          position: framePosition,
+          timecode: "00:00:01:00",
+          image: { data: alphaFrameImage, mimeType: "image/png" },
+        }],
+      },
+      {
+        projectId: "project-alpha",
+        projectName: "Alpha",
+        timelineId: "sequence-alpha-social",
+        timelineName: "Social",
+        clips: [],
+        frames: [{
+          position: framePosition,
+          timecode: "00:00:01:00",
+          image: { data: socialFrameImage, mimeType: "image/gif" },
+        }],
+      },
+    ],
+  });
+}
+
 test("MCP lists stable project identities, selects an explicit timeline, and rejects ambiguity", async () => {
   const adapter = multiProjectAdapter();
   const client = new Client({ name: "project-selection-test", version: "0.1.0" });
@@ -113,6 +161,33 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
     await client.close();
     await server.close();
   }
+});
+
+test("frame capture follows the selected project and sequence", async () => {
+  const adapter = frameSelectionAdapter();
+  const runtime = new AgentVideoRuntime(adapter);
+
+  const alpha = await runtime.captureFrame(framePosition);
+  assert.equal(alpha.project.id, "project-alpha");
+  assert.equal(alpha.image.data, alphaFrameImage);
+
+  await runtime.selectProject({ projectId: "project-alpha", sequenceId: "sequence-alpha-social" });
+  const social = await runtime.captureFrame(framePosition);
+  assert.equal(social.project.id, "project-alpha");
+  assert.equal(social.sequence.id, "sequence-alpha-social");
+  assert.equal(social.image.data, socialFrameImage);
+});
+
+test("frame capture rejects a project selection change after inspection", async () => {
+  const adapter = frameSelectionAdapter();
+  const originalCaptureFrame = adapter.captureFrame.bind(adapter);
+  adapter.captureFrame = async (position, expectedRevision) => {
+    await adapter.selectProject({ projectId: "project-alpha", sequenceId: "sequence-alpha-social" });
+    return originalCaptureFrame(position, expectedRevision);
+  };
+  const runtime = new AgentVideoRuntime(adapter);
+
+  await assert.rejects(runtime.captureFrame(framePosition), /STALE_CONTEXT/);
 });
 
 test("in-memory restore rejects another project's snapshot without mutating the active target", async () => {

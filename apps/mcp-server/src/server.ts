@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AgentVideoRuntime, resolveEditingIntent } from "@framekit/runtime";
+import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
 import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionValueSchema = z.object({
@@ -96,6 +96,22 @@ const nativeEditSchema = z.discriminatedUnion("type", [
 function jsonResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
+  };
+}
+
+function frameResult(value: TimelineFrameCapture) {
+  const { data, mimeType, ...imageMetadata } = value.image;
+  return {
+    content: [
+      { type: "image" as const, data, mimeType },
+      {
+        type: "text" as const,
+        text: JSON.stringify({
+          ...value,
+          image: { mimeType, ...imageMetadata },
+        }),
+      },
+    ],
   };
 }
 
@@ -356,6 +372,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("timeline.inspect", {
     description: "Read the current canonical timeline snapshot.",
   }, async () => jsonResult(await runtime.inspectTimeline()));
+
+  server.registerTool("timeline.frame.capture", {
+    description: "Capture an image at an exact timeline position with project, sequence, clip, and optional visual-analysis metadata.",
+    inputSchema: {
+      position: rationalTimeSchema,
+      analyze: z.boolean().optional(),
+    },
+  }, async ({ position, analyze }) => frameResult(await runtime.captureFrame(position, { analyze })));
 
   server.registerTool("media.inspect", {
     description: "Read normalized context and available analysis for one media item.",

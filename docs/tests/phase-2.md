@@ -15,6 +15,10 @@ Phase 2 proves the Context Engine additions:
   queries;
 - MCP exposes `context.inspect`, `context.changes`, `visual.analyze`,
   `media.understand`, and queryable `editor.assets`.
+- `timeline.frame.capture` returns deterministic MCP image content plus exact
+  timeline, project, sequence, clip, timecode, and optional visual metadata.
+- Missing frame-capture or requested visual-analysis providers fail explicitly
+  with `CAPABILITY_UNAVAILABLE`.
 
 Run:
 

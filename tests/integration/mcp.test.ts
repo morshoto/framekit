@@ -74,6 +74,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "timeline.edit",
         "timeline.edit.execute",
         "timeline.edit.preview",
+        "timeline.frame.capture",
         "timeline.inspect",
         "timeline.publish.new-project",
         "visual.analyze",
@@ -132,6 +133,23 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(JSON.parse(textFrom(audio)).integratedLufs, -18);
     const visual = await client.callTool({ name: "visual.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(visual)).scenes[0].label, "interview");
+    const frame = await client.callTool({
+      name: "timeline.frame.capture",
+      arguments: { position: { value: "24", timescale: "24" }, analyze: true },
+    });
+    const frameContent = frame.content as Array<{ type: string; data?: string; mimeType?: string; text?: string }>;
+    assert.deepEqual(frameContent[0], {
+      type: "image",
+      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      mimeType: "image/png",
+    });
+    assert.equal(frameContent[1]?.type, "text");
+    const frameMetadata = JSON.parse(frameContent[1]?.text ?? "");
+    assert.equal(frameMetadata.timecode, "00:00:01:00");
+    assert.equal(frameMetadata.project.name, "Phase 2 Fixture");
+    assert.equal(frameMetadata.sequence.name, "Main Edit");
+    assert.equal(frameMetadata.clip.name, "Interview - Clean");
+    assert.equal(frameMetadata.analysis.subjects[0].label, "person");
     const understanding = await client.callTool({ name: "media.understand", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(understanding)).visual.subjects[0].label, "person");
 
