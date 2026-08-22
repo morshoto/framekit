@@ -60,7 +60,10 @@ export class AgentVideoRuntime {
     return project.timeline;
   }
 
-  public async captureFrame(position: RationalTime): Promise<TimelineFrameCapture> {
+  public async captureFrame(
+    position: RationalTime,
+    options: { analyze?: boolean } = {},
+  ): Promise<TimelineFrameCapture> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.frameCapture || !this.adapter.captureFrame) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
@@ -71,6 +74,21 @@ export class AgentVideoRuntime {
     const clip = project.timeline.clips
       .filter((candidate) => candidate.start <= positionSeconds && candidate.start + candidate.duration > positionSeconds)
       .sort((left, right) => right.track - left.track)[0];
+    let analysis: VisualAnalysis | undefined;
+    if (options.analyze) {
+      if (!this.options.visualAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
+      const media = clip?.mediaId
+        ? project.media.find((candidate) => candidate.mediaId === clip.mediaId)
+        : undefined;
+      if (!clip || !media) {
+        throw new Error("CAPABILITY_UNAVAILABLE: visual analysis requires media at the captured position");
+      }
+      const mediaTime = positionSeconds - clip.start;
+      analysis = await this.options.visualAnalyzer.analyze(
+        { project, media },
+        { start: mediaTime, end: mediaTime },
+      );
+    }
     return {
       image: structuredClone(source.image),
       position: { ...position },
@@ -87,6 +105,7 @@ export class AgentVideoRuntime {
           track: clip.track,
         },
       } : {}),
+      ...(analysis ? { analysis } : {}),
     };
   }
 
