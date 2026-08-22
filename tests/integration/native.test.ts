@@ -807,12 +807,12 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
     executor: async (script) => {
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
       if (script.includes('set output to ""') && script.includes("xOffset")) {
         occurrenceReads += 1;
         return occurrenceReads === 1
-          ? `Interview${separator}AXRow${recordSeparator}`
-          : `Interview${separator}AXRow${recordSeparator}Interview${separator}AXRow${recordSeparator}`;
+          ? `Interview${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}`
+          : `Interview${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${recordSeparator}`;
       }
       return "";
     },
@@ -983,6 +983,91 @@ test("native media insertion fails closed when media selection or preview revisi
   assert.equal(scripts.some((script) => script.includes('keystroke "e"')), false);
 });
 
+test("native Final Cut adapter targets one media occurrence and reports live playhead state", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "1", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview.mov", 1, true);
+      if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
+      if (script.includes("set output to \"\"")) return `Interview.mov${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}`;
+      return "";
+    },
+  });
+
+  const target = await adapter.targetMedia("Interview");
+  assert.equal(target.status, "unique");
+  assert.equal(target.media.name, "Interview.mov");
+  assert.equal(target.media.identity, "browser-1");
+  assert.equal(target.media.sourceIdentity, "media-source-1");
+  assert.equal(target.occurrence.timelineOffset, 800);
+  assert.equal(target.occurrence.sourceIdentity, "media-source-1");
+  assert.equal(target.selected, true);
+  assert.equal(target.playheadTime, "1/1");
+  assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
+  assert.equal(scripts.some((script) => script.includes("set browserRegion to") && script.includes("AXRow")), true);
+  const occurrenceScript = scripts.find((script) => script.includes("xOffset"));
+  assert.ok(occurrenceScript);
+  assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
+  assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
+});
+
+test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "1", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const makeAdapter = (browserOutput: string, occurrenceOutput = `Interview${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}`) => new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes("AXBrowserMedia")) return browserOutput;
+      if (script.includes('set sourceIdentity to "media-source-1"') && occurrenceOutput.includes("different-source")) return "";
+      if (script.includes("set output to \"\"")) return occurrenceOutput;
+      return "";
+    },
+  });
+
+  await assert.rejects(makeAdapter("").targetMedia("missing"), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}Interview copy${separator}AXBrowserMedia${separator}browser-2${separator}media-source-2${recordSeparator}`).targetMedia("ambiguous"),
+    /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`, `${"Interview"}${separator}AXRow${separator}media-source-1${separator}40${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}880${recordSeparator}`).targetMedia("duplicate"),
+    /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`, `Interview${separator}AXRow${separator}media-source-1${separator}${recordSeparator}`).targetMedia("missing-position"),
+    /FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}${recordSeparator}`).targetMedia("missing-source-id"),
+    /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`, `Interview${separator}AXRow${separator}different-source${separator}800${recordSeparator}`).targetMedia("wrong-source-id"),
+    /FINAL_CUT_NATIVE_OCCURRENCE_NOT_FOUND/,
+  );
+});
+
 test("native Final Cut refuses a Blade retry without live state", async () => {
   const recordSeparator = String.fromCharCode(30);
   let bladeCalls = 0;
@@ -1022,7 +1107,7 @@ test("native Final Cut media selection refocuses Final Cut without closing the e
       if (script.includes("click at {(item 1 of origin) + 275") && script.includes("set frontmost to true")) {
         return "selected";
       }
-      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${String.fromCharCode(30)}`;
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
       return "";
     },
   });
@@ -1055,7 +1140,7 @@ test("native UI transactions pause and resume live connection supervision", asyn
     resumeLiveConnection: () => events.push("resume"),
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
-      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${String.fromCharCode(30)}`;
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
       return "";
     },
   });
@@ -1073,7 +1158,7 @@ test("native Final Cut Blade previews expire and stale handles fail closed", asy
     now: () => clock,
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
       if (script.includes('set output to ""') && script.includes("xOffset")) return `Interview${separator}AXRow${recordSeparator}`;
       return "";
     },
@@ -1101,8 +1186,8 @@ test("native Final Cut rejects ambiguous occurrences and an out-of-range playhea
     enabled: true,
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
-      if (script.includes("xOffset")) return `Interview${separator}AXRow${recordSeparator}Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
+      if (script.includes("xOffset")) return `Interview${separator}AXRow${separator}media-source-1${separator}40${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}880${recordSeparator}`;
       return "";
     },
     liveState,
@@ -1116,7 +1201,7 @@ test("native Final Cut rejects ambiguous occurrences and an out-of-range playhea
     enabled: true,
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
-      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${recordSeparator}`;
+      if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
       if (script.includes("xOffset")) return `Interview${separator}AXRow${separator}10/1${separator}2/1${recordSeparator}`;
       return "";
     },

@@ -25,6 +25,8 @@ export interface NativeFinalCutMediaMatch {
   handle: string;
   name: string;
   role?: string;
+  identity?: string;
+  sourceIdentity?: string;
   source?: string;
   browserContext?: string;
   uiIndex?: number;
@@ -36,6 +38,8 @@ export interface NativeFinalCutOccurrence {
   name: string;
   start?: string;
   duration?: string;
+  timelineOffset?: number;
+  sourceIdentity?: string;
   role?: string;
   sequence?: string;
   sequenceId?: string;
@@ -46,6 +50,15 @@ export interface NativeFinalCutOccurrence {
 export interface NativeFinalCutOccurrenceSearchResult {
   status: "none" | "unique" | "ambiguous";
   occurrences: NativeFinalCutOccurrence[];
+}
+
+export interface NativeFinalCutTargetResult {
+  query: string;
+  status: "unique";
+  media: NativeFinalCutMediaMatch;
+  occurrence: NativeFinalCutOccurrence;
+  selected: boolean;
+  playheadTime?: string;
 }
 
 export interface NativeFinalCutBladePreview {
@@ -245,6 +258,7 @@ export interface NativeFinalCutEditor {
   searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
+  targetMedia(query: string): Promise<NativeFinalCutTargetResult>;
   previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview>;
   executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult>;
   previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview>;
@@ -499,16 +513,58 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle));
   }
 
-  private async locateOccurrenceNative(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
+  public async targetMedia(query: string): Promise<NativeFinalCutTargetResult> {
+    return this.withNativeUi(() => this.targetMediaNative(query));
+  }
+
+  private async targetMediaNative(query: string): Promise<NativeFinalCutTargetResult> {
+    this.assertEnabled();
+    const matches = await this.searchMediaNative(query);
+    if (matches.length === 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_NOT_FOUND: no Browser media matched the query");
+    if (matches.length > 1) throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: media query matched multiple Browser items");
+
+    const media = matches[0]!;
+    await this.selectMediaNative(media.handle);
+    const located = await this.locateOccurrenceNative(media.handle, true);
+    if (located.status === "none") {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_NOT_FOUND: selected Browser media has no timeline occurrence");
+    }
+    if (located.status === "ambiguous") {
+      throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: media has multiple timeline occurrences");
+    }
+    if (located.occurrences[0]?.timelineOffset === undefined) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: unique timeline occurrence has no selectable position");
+    }
+
+    const live = await this.readLiveState();
+    if (!live?.playheadTime) {
+      throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_UNAVAILABLE: deterministic targeting requires live playhead state");
+    }
+    return {
+      query,
+      status: "unique",
+      media,
+      occurrence: located.occurrences[0]!,
+      selected: true,
+      playheadTime: `${live.playheadTime.value}/${live.playheadTime.timescale}`,
+    };
+  }
+
+  private async locateOccurrenceNative(mediaHandle: string, scanAll = false): Promise<NativeFinalCutOccurrenceSearchResult> {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
+    if (!match.sourceIdentity) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Browser result has no shared source-media identifier");
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     try {
-      const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match, false)), mediaHandle);
+      const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match, scanAll)), mediaHandle);
       if (occurrences.length === 1 && this.canDriveNativeMouse) {
-        await selectTimelineClipAtPlayhead(this.executor);
+        const timelineOffset = occurrences[0]?.timelineOffset;
+        if (timelineOffset === undefined) {
+          throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: unique timeline occurrence has no selectable position");
+        }
+        await selectTimelineOccurrence(this.executor, timelineOffset);
       }
       const live = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
       for (const occurrence of occurrences) {
@@ -1531,7 +1587,48 @@ function searchMediaScript(query: string): string {
       set value of attribute "AXFocused" of searchField to true
     end try
     delay 0.5
-    return ${appleScriptString(query)} & (ASCII character 31) & "AXBrowserMedia" & (ASCII character 30)
+    set output to ""
+    set seenIdentities to {}
+    try
+      repeat with candidate in entire contents of mainWindow
+        try
+          set candidateRole to role of candidate as text
+          set candidateName to ""
+          try
+            set candidateName to value of candidate as text
+          end try
+          if candidateName is "" then
+            try
+              set candidateName to name of candidate as text
+            end try
+          end if
+          set candidateDescription to ""
+          try
+            set candidateDescription to description of candidate as text
+          end try
+          set candidatePosition to position of candidate
+          set candidateY to item 2 of candidatePosition
+          set browserRegion to candidateY < ((item 2 of origin) + 500)
+          set browserRole to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton"
+          if candidateName is not "" and browserRegion and (browserRole or candidateDescription contains "Browser" or candidateDescription contains "browser") then
+            set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
+            set candidateSourceIdentity to ""
+            try
+              set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            if candidateName contains searchQuery and seenIdentities does not contain candidateIdentity then
+              set end of seenIdentities to candidateIdentity
+              set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+            end if
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue enumerating Browser results.
+        end try
+      end repeat
+    on error
+      error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible"
+    end try
+    return output
   end tell
 end tell`;
 }
@@ -1551,8 +1648,20 @@ tell application "System Events"
       set value of attribute "AXFocused" of searchField to true
     end try
     delay 0.5
-    click at {(item 1 of origin) + 275, (item 2 of origin) + 185}
-    return "selected"
+    set targetIdentity to ${appleScriptString(match.identity ?? "")}
+    if targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
+    repeat with candidate in entire contents of mainWindow
+      try
+        set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
+        if candidateIdentity is targetIdentity then
+          perform action "AXPress" of candidate
+          return "selected"
+        end if
+      on error
+        -- Ignore inaccessible descendants and continue looking for the target.
+      end try
+    end repeat
+    error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result could not be selected"
   end tell
 end tell`;
 }
@@ -1565,6 +1674,8 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
+    set sourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
+    if sourceIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline lookup requires a shared source-media identifier"
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
     set timelineSelection to click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
@@ -1581,9 +1692,13 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
         set candidateRole to role of candidate as text
         set candidateName to value of candidate as text
         set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-        if candidateName is ${appleScriptString(match.name)} then
+        set candidateSourceIdentity to ""
+        try
+          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+        end try
+        if candidateSourceIdentity is sourceIdentity then
           if candidateIdentity is not lastMatchIdentity then
-            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & (xOffset as text) & (ASCII character 30)
           end if
           set lastMatchIdentity to candidateIdentity
           set inMatch to true
@@ -1606,14 +1721,14 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
 end tell`;
 }
 
-async function selectTimelineClipAtPlayhead(executor: (script: string) => Promise<string>): Promise<void> {
+async function selectTimelineOccurrence(executor: (script: string) => Promise<string>, timelineOffset: number): Promise<void> {
   const coordinates = (await executor(timelineSelectionCoordinatesScript())).split("|").map(Number);
   const [originX, originY] = coordinates;
   if (!Number.isFinite(originX) || !Number.isFinite(originY)) {
     throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
   }
-  const x = Math.round(originX + 800);
-  const y = Math.round(originY + 670);
+  const x = Math.round(originX + timelineOffset);
+  const y = Math.round(originY + 650);
   try {
     await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
   } catch (error) {
@@ -1793,11 +1908,13 @@ function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = ""] = record.split(String.fromCharCode(31));
+      const [name = "", role = "", identity = "", sourceIdentity = ""] = record.split(String.fromCharCode(31));
       return {
         handle: opaqueHandle("media", index),
         name,
         ...(role ? { role } : {}),
+        ...(identity ? { identity } : {}),
+        ...(sourceIdentity ? { sourceIdentity } : {}),
         uiIndex: index,
       };
     });
@@ -1809,16 +1926,25 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = "", start, duration] = record.split(String.fromCharCode(31));
+      const [name = "", role = "", sourceIdentity = "", timelineOffsetOrDuration = "", legacyTimelineOffset] = record.split(String.fromCharCode(31));
+      const legacyRecord = legacyTimelineOffset !== undefined;
+      const identityOrStart = sourceIdentity;
+      const timelineOffsetText = legacyRecord ? legacyTimelineOffset : timelineOffsetOrDuration;
+      const legacyRange = legacyRecord || (!legacyRecord && isRational(identityOrStart) && isRational(timelineOffsetOrDuration));
       return {
         handle: opaqueHandle("occurrence", index),
         mediaHandle,
         name,
         ...(role ? { role } : {}),
-        ...(start ? { start } : {}),
-        ...(duration ? { duration } : {}),
+        ...(sourceIdentity && !legacyRange ? { sourceIdentity } : {}),
+        ...(legacyRange ? { start: identityOrStart, duration: timelineOffsetOrDuration } : {}),
+        ...(timelineOffsetText && Number.isFinite(Number(timelineOffsetText)) ? { timelineOffset: Number(timelineOffsetText) } : {}),
       };
     });
+}
+
+function isRational(value: string): boolean {
+  return /^-?\d+\/\d+$/.test(value);
 }
 
 function opaqueHandle(kind: string, suffix?: number): string {

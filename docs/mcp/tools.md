@@ -17,6 +17,7 @@
 | `editor.native.media.insert.preview` | Preview inserting selected Browser media at the playhead | Requires selected media, live playhead, and timeline focus |
 | `editor.native.media.insert.execute` | Insert a previously previewed Browser media result at the playhead | Requires unchanged sequence revision/duration/playhead; verifies duration and revision |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
+| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Fails closed for missing/ambiguous media or occurrences; requires live playhead state |
 | `editor.native.blade.preview` | Prepare a Blade-at-playhead preview token | Token expires and is bound to the occurrence |
 | `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost, timeline-focused Final Cut and post-command verification |
 | `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute and timeline focus |
