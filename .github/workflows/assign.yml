@@ -140,11 +140,12 @@ jobs:
             - uses: actions/checkout@v6
             - uses: actions/setup-node@v6
               with:
-                  node-version: '24'
-            - name: Install dependencies
-              run: yarn add -D @azu/github-label-setup
+                  node-version: '22.14.0'
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 11.10.0
             - name: Run github-label-setup
-              run: yarn github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
+              run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
 
     assign-author:
         if: ${{ ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
