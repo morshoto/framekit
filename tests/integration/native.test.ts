@@ -691,6 +691,27 @@ test("native Final Cut refuses a retry when focus recovery changes the playhead"
   assert.equal(markerCalls, 1);
 });
 
+test("native Final Cut refuses a playhead-dependent retry without live state", async () => {
+  let markerCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes('menu item "Marker"')) {
+        markerCalls += 1;
+        throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.edit({ type: "add-marker-at-playhead", name: "Review" }),
+    /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/,
+  );
+  assert.equal(markerCalls, 1);
+});
+
 test("native timeline preflight reports a missing timeline window without mutating", async () => {
   let clock = 0;
   const scripts: string[] = [];
@@ -783,6 +804,33 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(result.resultingSegments.length, 2);
   assert.equal(scripts.some((script) => script.includes("Blade")), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
+});
+
+test("native Final Cut refuses a Blade retry without live state", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+        return context(true, "Final Cut Pro", "Interview", 1, true);
+      }
+      if (script.includes('set output to ""') && script.includes("xOffset")) {
+        return `Interview${separator}AXRow${recordSeparator}`;
+      }
+      if (script.includes('click menu item "Blade"')) {
+        bladeCalls += 1;
+        throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+      }
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/);
+  assert.equal(bladeCalls, 1);
 });
 
 test("native Final Cut media selection refocuses Final Cut without closing the extension window", async () => {
