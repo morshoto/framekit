@@ -391,7 +391,7 @@ export class AgentVideoRuntime {
       && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");
     }
-    if (operations.some((operation) => !["media.import", "timeline.title.add"].includes(operation.type))
+    if (operations.some((operation) => operation.type !== "media.import")
       && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
     }

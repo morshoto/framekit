@@ -217,6 +217,26 @@ test("composite execute consumes tokens and rejects stale, expired, and unavaila
   assert.deepEqual(await runtime.inspectProject(), afterExternalChange);
 });
 
+test("title placement requires timeline mutation capability", async () => {
+  const { adapter, runtime } = createCompositeRuntime();
+  const before = await runtime.inspectProject();
+  const originalCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => ({
+    ...await originalCapabilities(),
+    editor: {
+      ...(await originalCapabilities()).editor,
+      timelineWrite: false,
+      timelineArtifactWrite: false,
+    },
+  });
+
+  await assert.rejects(
+    runtime.previewEdit({ baseRevision: before.revision, operations: [workflowOperations()[5]!] }),
+    /CAPABILITY_UNAVAILABLE: editor timeline mutation/,
+  );
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
+
 test("composite execute is single-use and rolls back timeline and media after failed verification", async () => {
   const failingVerification: VerificationEngine = {
     verify: async () => ({
