@@ -13,6 +13,7 @@ import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
 
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
@@ -52,18 +53,14 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
-    env: {
-      ...process.env,
-      FRAMEKIT_EDITOR: "final-cut-live",
-      FRAMEKIT_FINAL_CUT_HEADLESS: "0",
-      FRAMEKIT_AUTO_CONNECT: "0",
+    env: finalCutMcpEnvironment({
       FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
       FRAMEKIT_FCPXML_PATH: xmlPath,
       FRAMEKIT_FINAL_CUT_ASSET_ROOTS: join(directory, "Motion Templates.localized"),
       FRAMEKIT_SPEECH_ANALYZER: speech,
       FRAMEKIT_AUDIO_ANALYZER: audio,
       FRAMEKIT_VISUAL_ANALYZER: visual,
-    },
+    }),
     stderr: "pipe",
   });
   const client = new Client({ name: "finalcut-mcp-test", version: "0.1.0" });
@@ -141,6 +138,7 @@ test("local analyzer commands fail closed for unavailable media and invalid outp
 });
 
 test("Final Cut live MCP exposes native range contracts and capabilities", async () => {
+  const commitValidation = process.env.FRAMEKIT_COMMIT_VALIDATION === "1";
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-mcp-contract-"));
   const socketPath = join(directory, "bridge.sock");
   const bridge = createServer((socket) => {
@@ -201,14 +199,10 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
-    env: {
-      ...process.env,
-      FRAMEKIT_EDITOR: "final-cut-live",
-      FRAMEKIT_FINAL_CUT_HEADLESS: "0",
-      FRAMEKIT_AUTO_CONNECT: "0",
+    env: finalCutMcpEnvironment({
       FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
       FRAMEKIT_FINAL_CUT_SOCKET: socketPath,
-    },
+    }),
     stderr: "pipe",
   });
   const client = new Client({ name: "native-contract-test", version: "0.1.0" });
@@ -224,21 +218,23 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     assert.deepEqual(Object.keys(trimPreview.inputSchema.properties ?? {}).sort(), ["duration"]);
 
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
-    assert.equal(editor.native.deleteRange, true);
-    assert.equal(editor.native.trimToDuration, true);
-    assert.equal(editor.native.mediaAppend, true);
-    assert.equal(editor.native.mediaInsert, true);
-    assert.equal(editor.native.timelineFocus, true);
+    assert.equal(editor.native.deleteRange, !commitValidation);
+    assert.equal(editor.native.trimToDuration, !commitValidation);
+    assert.equal(editor.native.mediaAppend, !commitValidation);
+    assert.equal(editor.native.mediaInsert, !commitValidation);
+    assert.equal(editor.native.timelineFocus, !commitValidation);
 
     const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    if (commitValidation) assert.equal(native.error?.code, "CAPABILITY_UNAVAILABLE");
     assert.equal(typeof native.timelineWindowAvailable, "boolean");
     assert.equal(typeof native.timelineFocused, "boolean");
     assert.ok(["timeline", "browser", "text-field", "modal", "unknown", "none"].includes(native.focusTarget));
     if (native.error) {
-      assert.match(native.error.code, /^FINAL_CUT_NATIVE_/);
+      assert.match(native.error.code, commitValidation ? /^CAPABILITY_UNAVAILABLE$/ : /^FINAL_CUT_NATIVE_/);
       assert.equal(typeof native.error.message, "string");
     }
     const focus = JSON.parse(textFrom(await client.callTool({ name: "editor.native.focus", arguments: {} })));
+    if (commitValidation) assert.equal(focus.error?.code, "CAPABILITY_UNAVAILABLE");
     assert.equal(typeof focus.timelineWindowAvailable, "boolean");
     assert.equal(typeof focus.timelineFocused, "boolean");
     assert.ok(["timeline", "browser", "text-field", "modal", "unknown", "none"].includes(focus.focusTarget));
@@ -251,7 +247,7 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
       },
     });
     if (preview.isError) {
-      assert.match(textFrom(preview), /FINAL_CUT_NATIVE_/);
+      assert.match(textFrom(preview), /CAPABILITY_UNAVAILABLE|FINAL_CUT_NATIVE_/);
     } else {
       const payload = JSON.parse(textFrom(preview));
       assert.equal(payload.operation, "delete-range");
