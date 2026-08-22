@@ -1854,14 +1854,23 @@ tell application "System Events"
       set value of attribute "AXFocused" of searchField to true
     end try
     delay 0.5
+    set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
-    if targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
+    if targetSourceIdentity is "" and targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
     repeat with candidate in entire contents of mainWindow
       try
-        set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-        if candidateIdentity is targetIdentity then
-          perform action "AXPress" of candidate
-          return "selected"
+        if targetSourceIdentity is not "" then
+          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+          if candidateSourceIdentity is targetSourceIdentity then
+            perform action "AXPress" of candidate
+            return "selected"
+          end if
+        else
+          set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
+          if candidateIdentity is targetIdentity then
+            perform action "AXPress" of candidate
+            return "selected"
+          end if
         end if
       on error
         -- Ignore inaccessible descendants and continue looking for the target.

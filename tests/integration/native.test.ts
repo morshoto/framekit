@@ -1321,6 +1321,14 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("set targetIdentity to")) {
+        const selectsBySourceIdentity = script.includes('set targetSourceIdentity to "file:///imported/interview.mov"')
+          && script.includes("if candidateSourceIdentity is targetSourceIdentity then");
+        if (!selectsBySourceIdentity) {
+          throw new Error("selection used stale Browser geometry");
+        }
+        return "selected";
+      }
       if (script.includes("AXBrowserMedia") && script.includes("interview.mov")) {
         interviewSearches += 1;
         return interviewSearches === 1
