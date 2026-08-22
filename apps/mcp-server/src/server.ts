@@ -149,6 +149,38 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.selectMedia(mediaHandle));
   });
 
+  server.registerTool("editor.native.media.append.preview", {
+    description: "Preview appending the selected Final Cut Browser media to the end of the active timeline.",
+    inputSchema: { mediaHandle: z.string().min(1) },
+  }, async ({ mediaHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
+    return jsonResult(await options.nativeEditor.previewAppendMedia(mediaHandle));
+  });
+
+  server.registerTool("editor.native.media.append.execute", {
+    description: "Execute a previously previewed append of selected Final Cut Browser media.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
+    return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken));
+  });
+
+  server.registerTool("editor.native.media.insert.preview", {
+    description: "Preview inserting the selected Final Cut Browser media at the current playhead.",
+    inputSchema: { mediaHandle: z.string().min(1) },
+  }, async ({ mediaHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
+    return jsonResult(await options.nativeEditor.previewInsertMedia(mediaHandle));
+  });
+
+  server.registerTool("editor.native.media.insert.execute", {
+    description: "Execute a previously previewed insertion of selected Final Cut Browser media at the playhead.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
+    return jsonResult(await options.nativeEditor.executeInsertMedia(previewToken));
+  });
+
   server.registerTool("editor.native.timeline.locate", {
     description: "Locate matching occurrences of a live Browser media result in the active Final Cut timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
