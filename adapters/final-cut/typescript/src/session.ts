@@ -1,3 +1,4 @@
+import { withCanonicalTimelineMode } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditOperation,
@@ -17,7 +18,7 @@ import type {
 interface FinalCutSessionOptions {
   snapshot?: EditorPort;
   mutation?: EditorPort;
-  live?: LiveEditorStatePort & {
+  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore">> & {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
@@ -48,22 +49,39 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const snapshot = await this.options.snapshot?.getCapabilities();
     const mutation = await this.options.mutation?.getCapabilities();
     const live = await optionalCapabilities(this.options.live);
-    return {
+    const hasExplicitDocumentPair = Boolean(this.options.snapshot && this.options.mutation);
+    const useLiveCanonical = !this.options.snapshot && !this.options.mutation;
+    const liveSnapshot = Boolean(
+      useLiveCanonical
+      && live?.editor.timelineSnapshotRead
+      && live.editor.canonicalTimelineMode !== "metadata-only"
+      && this.options.live?.readProject
+    );
+    const liveMutation = Boolean(
+      liveSnapshot
+      && live?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore
+    );
+    return withCanonicalTimelineMode({
       editor: {
-        projectRead: Boolean(snapshot?.editor.projectRead),
-        timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead),
-        timelineWrite: Boolean(mutation?.editor.timelineWrite),
-        timelineArtifactWrite: Boolean(mutation?.editor.timelineArtifactWrite),
-        readAfterWrite: Boolean(snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite),
+        projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
+        timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead || liveSnapshot),
+        timelineWrite: Boolean((hasExplicitDocumentPair && mutation?.editor.timelineWrite) || liveMutation),
+        timelineArtifactWrite: Boolean(hasExplicitDocumentPair && mutation?.editor.timelineArtifactWrite),
+        readAfterWrite: Boolean(
+          (hasExplicitDocumentPair && snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite)
+          || (liveMutation && live?.editor.readAfterWrite)
+        ),
         incrementalChanges: Boolean(live?.editor.incrementalChanges),
-        rollback: Boolean(mutation?.editor.rollback),
+        rollback: Boolean((hasExplicitDocumentPair && mutation?.editor.rollback) || liveMutation),
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
         frameCapture: false,
         playbackControl: Boolean(live?.editor.playbackControl),
-        projectCatalogRead: Boolean(snapshot?.editor.projectCatalogRead || live?.editor.projectCatalogRead),
-        projectSelection: Boolean(snapshot?.editor.projectSelection || live?.editor.projectSelection),
+        projectCatalogRead: Boolean(snapshot?.editor.projectCatalogRead || (!this.options.snapshot && live?.editor.projectCatalogRead)),
+        projectSelection: Boolean(snapshot?.editor.projectSelection || (!this.options.snapshot && live?.editor.projectSelection)),
       },
       analyzers: {
         speechTranscribe: Boolean(snapshot?.analyzers.speechTranscribe || mutation?.analyzers.speechTranscribe || live?.analyzers.speechTranscribe),
@@ -71,7 +89,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         audioLoudness: Boolean(snapshot?.analyzers.audioLoudness || mutation?.analyzers.audioLoudness || live?.analyzers.audioLoudness),
         visualTrack: Boolean(snapshot?.analyzers.visualTrack || mutation?.analyzers.visualTrack || live?.analyzers.visualTrack),
       },
-    };
+    });
   }
 
   public async read(): Promise<ProjectSnapshot> {
@@ -79,22 +97,55 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   }
 
   public async readProject(): Promise<ProjectSnapshot> {
-    if (!this.options.snapshot) {
-      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");
+    if (this.options.snapshot) return this.options.snapshot.readProject();
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    if (liveCapabilities?.editor.timelineSnapshotRead && this.options.live?.readProject) {
+      return this.options.live.readProject();
     }
-    return this.options.snapshot.readProject();
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");
   }
 
-  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
-    const provider = this.options.mutation ?? this.options.snapshot;
-    if (!provider) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
-    await provider.apply(operation, expectedRevision);
+  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    if (this.options.snapshot && this.options.mutation) {
+      return this.options.mutation.apply(operation, expectedRevision);
+    }
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    if (
+      !this.options.snapshot
+      && !this.options.mutation
+      && liveCapabilities?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore
+    ) {
+      return this.options.live.apply(operation, expectedRevision);
+    }
+    if (this.options.snapshot) {
+      return this.options.snapshot.apply(operation, expectedRevision);
+    }
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
-    const provider = this.options.mutation ?? this.options.snapshot;
-    if (!provider) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
-    await provider.restore(snapshot, expectedRevision);
+    if (this.options.snapshot && this.options.mutation) {
+      await this.options.mutation.restore(snapshot, expectedRevision);
+      return;
+    }
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    if (
+      !this.options.snapshot
+      && !this.options.mutation
+      && liveCapabilities?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore
+    ) {
+      await this.options.live.restore(snapshot, expectedRevision);
+      return;
+    }
+    if (this.options.snapshot) {
+      await this.options.snapshot.restore(snapshot, expectedRevision);
+      return;
+    }
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no mutation provider");
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
@@ -104,18 +155,18 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
-    if (this.options.live?.listProjects && (await optionalProjectCatalogCapability(this.options.live))) {
+    if (this.options.snapshot?.listProjects) return this.options.snapshot.listProjects();
+    if (!this.options.snapshot && this.options.live?.listProjects && (await optionalProjectCatalogCapability(this.options.live))) {
       return this.options.live.listProjects();
     }
-    if (this.options.snapshot?.listProjects) return this.options.snapshot.listProjects();
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project catalog");
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
-    if (this.options.live?.selectProject && (await optionalProjectSelectionCapability(this.options.live))) {
+    if (this.options.snapshot?.selectProject) return this.options.snapshot.selectProject(selection);
+    if (!this.options.snapshot && this.options.live?.selectProject && (await optionalProjectSelectionCapability(this.options.live))) {
       return this.options.live.selectProject(selection);
     }
-    if (this.options.snapshot?.selectProject) return this.options.snapshot.selectProject(selection);
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection");
   }
 
@@ -135,7 +186,7 @@ async function optionalCapabilities(
 ): Promise<RuntimeCapabilities | undefined> {
   if (!live) return undefined;
   try {
-    return await live.getCapabilities();
+    return withCanonicalTimelineMode(await live.getCapabilities());
   } catch {
     return undefined;
   }

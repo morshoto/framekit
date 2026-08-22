@@ -410,7 +410,8 @@ export interface EditTransaction {
 
 export interface EditorAdapter {
   read(): Promise<ProjectSnapshot>;
-  apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void>;
+  /** Apply atomically and return the resulting revision for read-failure rollback. */
+  apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision>;
 }
 
 export interface EditorIdentity {
@@ -420,6 +421,8 @@ export interface EditorIdentity {
 }
 
 export interface EditorCapabilities {
+  /** Derived canonical guarantee exposed to agents; omitted only by legacy adapters. */
+  canonicalTimelineMode?: "metadata-only" | "canonical-read" | "canonical-write";
   projectRead: boolean;
   timelineSnapshotRead: boolean;
   timelineWrite: boolean;

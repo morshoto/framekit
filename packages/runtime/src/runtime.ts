@@ -35,6 +35,8 @@ import type {
   WorkflowOperation,
 } from "./domain/types.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
+import { withCanonicalTimelineMode } from "./capabilities.js";
+import { canonicalSnapshotDigest } from "./snapshot-digest.js";
 
 export class AgentVideoRuntime {
   private readonly transactions = new Map<string, EditTransaction>();
@@ -142,7 +144,7 @@ export class AgentVideoRuntime {
   }
 
   public async inspectEditor() {
-    const capabilities = await this.adapter.getCapabilities();
+    const capabilities = withCanonicalTimelineMode(await this.adapter.getCapabilities());
     return {
       identity: await this.adapter.getIdentity(),
       capabilities: {
@@ -182,8 +184,26 @@ export class AgentVideoRuntime {
     if (!capabilities.editor.timelineWrite && !capabilities.editor.timelineArtifactWrite) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
     }
-    await this.adapter.apply(operation, before.revision);
-    const attemptedAfter = await this.inspectProject();
+    if (
+      !capabilities.editor.timelineSnapshotRead
+      || !capabilities.editor.readAfterWrite
+      || !capabilities.editor.rollback
+    ) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation requires snapshot, read-after-write, and rollback");
+    }
+    const appliedRevision = await this.adapter.apply(operation, before.revision);
+    let attemptedAfter: ProjectSnapshot;
+    try {
+      attemptedAfter = await this.inspectProject();
+    } catch (readError) {
+      try {
+        await this.adapter.restore(before, appliedRevision);
+        this.assertRestored(before, await this.inspectProject());
+      } catch (rollbackError) {
+        throw new Error(`READ_AFTER_WRITE_FAILED: compensating rollback failed (${String(readError)}; ${String(rollbackError)})`);
+      }
+      throw new Error(`READ_AFTER_WRITE_FAILED: canonical state was restored (${String(readError)})`);
+    }
     const diff = diffSnapshots(before, attemptedAfter);
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
@@ -203,14 +223,26 @@ export class AgentVideoRuntime {
       transaction.after = transaction.attemptedAfter;
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
+      this.assertRestored(before, await this.inspectProject());
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
-    transaction.verification = await this.verificationEngine.verify(transaction, policy);
+    try {
+      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+    } catch (verificationError) {
+      try {
+        await this.adapter.restore(before, attemptedAfter.revision);
+        this.assertRestored(before, await this.inspectProject());
+      } catch (rollbackError) {
+        throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
+      }
+      throw new Error(`VERIFICATION_FAILED: canonical state was restored (${String(verificationError)})`);
+    }
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
     } else {
       await this.adapter.restore(before, attemptedAfter.revision);
       transaction.after = await this.inspectProject();
+      this.assertRestored(before, transaction.after);
       transaction.status = "ROLLED_BACK";
     }
     this.transactions.set(transaction.id, transaction);
@@ -421,7 +453,15 @@ export class AgentVideoRuntime {
       );
     }
     await this.adapter.restore(transaction.before, current.revision);
-    return this.inspectProject();
+    const restored = await this.inspectProject();
+    this.assertRestored(transaction.before, restored);
+    return restored;
+  }
+
+  private assertRestored(expected: ProjectSnapshot, actual: ProjectSnapshot): void {
+    if (canonicalSnapshotDigest(expected) !== canonicalSnapshotDigest(actual)) {
+      throw new Error("ROLLBACK_FAILED: restored canonical digest does not match pre-edit state");
+    }
   }
 
   private liveAdapter(): LiveEditorStatePort {
