@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,14 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const codex = process.env.CODEX_BIN ?? "codex";
 const codexHome = await mkdtemp(join(os.tmpdir(), "framekit-codex-plugin-"));
 const environment = { ...process.env, CODEX_HOME: codexHome };
+const CODEX_TIMEOUT_MS = 30_000;
+
+const packageManifest = JSON.parse(await readFile(join(repository, "package.json"), "utf8"));
+const pluginManifest = JSON.parse(
+  await readFile(join(repository, "plugins/framekit/.codex-plugin/plugin.json"), "utf8"),
+);
+assert.equal(packageManifest.version, pluginManifest.version, "package and plugin versions must match");
+const expectedVersion = packageManifest.version;
 
 try {
   const marketplaceResult = await runCodex(["plugin", "marketplace", "add", repository, "--json"]);
@@ -18,7 +26,7 @@ try {
 
   const installResult = await runCodex(["plugin", "add", "framekit@framekit", "--json"]);
   assert.equal(installResult.pluginId, "framekit@framekit");
-  assert.equal(installResult.version, "0.1.0");
+  assert.equal(installResult.version, expectedVersion);
 
   const servers = await runCodex(["mcp", "list", "--json"]);
   assert.ok(Array.isArray(servers));
@@ -40,10 +48,23 @@ try {
 }
 
 async function runCodex(args) {
-  const { stdout } = await exec(codex, args, {
-    cwd: repository,
-    env: environment,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return JSON.parse(stdout);
+  try {
+    const { stdout } = await exec(codex, args, {
+      cwd: repository,
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: CODEX_TIMEOUT_MS,
+    });
+    return JSON.parse(stdout);
+  } catch (error) {
+    if (
+      error && typeof error === "object" &&
+      (("killed" in error && error.killed) || ("code" in error && error.code === "ETIMEDOUT"))
+    ) {
+      throw new Error(`Codex command timed out after ${CODEX_TIMEOUT_MS}ms: codex ${args.join(" ")}`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }

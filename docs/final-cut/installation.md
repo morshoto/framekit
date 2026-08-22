@@ -44,7 +44,7 @@ edits. Open Final Cut and its Framekit Workflow Extension before asking Codex to
 connect.
 
 Start troubleshooting with `connection.status`. A missing application,
-extension, socket, or permission must remain an actionable non-ready state;
+extension, or socket must remain an actionable non-ready state;
 `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` and `CAPABILITY_UNAVAILABLE` are not
 successful connections. Live metadata access also does not imply canonical
 timeline snapshot or write capability: inspect the active backend's capability
@@ -57,7 +57,7 @@ execute, frontmost, focus, post-command verification, and undo requirements.
 Check the connection without starting MCP:
 
 ```sh
-framekit doctor finalcut
+npx -y @morshoto/framekit doctor finalcut
 ```
 
 In headed mode, macOS may ask once for permission to let Framekit activate Final

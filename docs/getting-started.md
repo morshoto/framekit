@@ -93,8 +93,12 @@ The plugin starts Framekit with `--editor final-cut-live --headless`. Headless
 mode probes an already-running Workflow Extension socket and does not launch,
 activate, focus, or edit Final Cut through Accessibility. Start with
 `connection.status`, then inspect the live capability flags before choosing
-other tools. Missing Final Cut, extension, socket, or permission prerequisites
+other tools. Missing Final Cut, extension, or socket prerequisites
 remain actionable failures rather than a ready connection.
+
+Accessibility and Automation permissions are required only for an explicit
+headed native-write setup; they are not prerequisites for headless read-only
+access.
 
 For normal repository development mode, build and connect the native extension
 with:

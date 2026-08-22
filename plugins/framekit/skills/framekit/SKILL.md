@@ -13,9 +13,11 @@ Framekit.
 1. Call `connection.status` before relying on the live bridge.
 2. Call `editor.live.inspect` to read the current project, sequence, playhead,
    revision, and advertised capabilities.
-3. Treat missing Final Cut Pro, Workflow Extension, socket, Accessibility, or
-   Automation access as an actionable prerequisite error. Never describe the
-   connection as ready when the server reports otherwise.
+3. Treat missing Final Cut Pro, Workflow Extension, or socket as an actionable
+   prerequisite error. Never describe the connection as ready when the server
+   reports otherwise. Accessibility and Automation permissions are required
+   only for an explicit headed native-write setup; they are not prerequisites
+   for headless read-only access.
 4. Treat `CAPABILITY_UNAVAILABLE` as a hard boundary for the active backend.
    Do not invent timeline snapshots, media results, or edit success.
 
@@ -30,6 +32,6 @@ through macOS UI automation.
 - Native destructive operations are disabled by the plugin's headless startup.
   If the user deliberately switches to a headed native-write setup, retain the
   existing preview, execute, frontmost, focus, verification, and undo workflow.
-- Ask the user to complete missing first-run macOS permissions or Workflow
-  Extension setup; do not broaden filesystem or application access on their
-  behalf.
+- Ask the user to complete missing Workflow Extension setup. Ask for first-run
+  macOS permissions only when the selected headed native-write capability
+  requires them; do not broaden filesystem or application access on their behalf.

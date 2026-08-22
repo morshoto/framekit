@@ -67,6 +67,8 @@ test("Framekit plugin guidance preserves live capability and safety boundaries",
   ]) {
     assert.match(skill, new RegExp(expected.replace(".", "\\."), "i"));
   }
+  assert.match(skill, /headed native-write setup/i);
+  assert.match(skill, /not prerequisites?\s+for headless read-only access/i);
 });
 
 test("CI runs the clean Codex plugin installation smoke test", async () => {
@@ -74,8 +76,16 @@ test("CI runs the clean Codex plugin installation smoke test", async () => {
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
 
   const workflow = await readFile(resolve(repository, ".github/workflows/typescript.yml"), "utf8");
-  assert.match(workflow, /npm install --global @openai\/codex/);
+  assert.match(workflow, /npm install --global @openai\/codex@0\.144\.1/);
   assert.match(workflow, /pnpm run test:codex-plugin/);
+
+  const smoke = await readFile(resolve(repository, "scripts/codex-plugin-smoke.mjs"), "utf8");
+  assert.match(smoke, /package\.json/);
+  assert.match(smoke, /plugins\/framekit\/\.codex-plugin\/plugin\.json/);
+  assert.match(smoke, /installResult\.version, expectedVersion/);
+  assert.match(smoke, /timeout: CODEX_TIMEOUT_MS/);
+  assert.match(smoke, /Codex command timed out after/);
+  assert.doesNotMatch(smoke, /installResult\.version, "0\.1\.0"/);
 });
 
 test("user documentation leads with plugin installation and explains first-run boundaries", async () => {
@@ -100,6 +110,8 @@ test("user documentation leads with plugin installation and explains first-run b
   ]) {
     assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
   }
+  assert.match(installation, /npx -y @morshoto\/framekit doctor finalcut/);
+  assert.match(gettingStarted, /permissions are required only for an explicit\s+headed native-write setup/i);
 });
 
 test("tagpr releases publish the package consumed by the plugin", async () => {
@@ -108,6 +120,7 @@ test("tagpr releases publish the package consumed by the plugin", async () => {
 
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /publish-npm:/);
+  assert.match(workflow, /publish-npm:[\s\S]*?actions\/checkout@v4\s+with:\s+persist-credentials:\s+false/);
   assert.match(workflow, /needs:\s+tagpr/);
   assert.match(workflow, /needs\.tagpr\.outputs\.tagpr-tag != ''/);
   assert.match(workflow, /id-token:\s+write/);
