@@ -86,7 +86,7 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
 <fcpxml version="1.11">
   <resources><asset id="r1" name="Interview.wav" src="file:///Interview.wav" /></resources>
-  <library><event name="Event"><project name="Phase 1 Fixture"><sequence duration="10s"><spine>
+  <library><event name="Event"><project name="Phase 1 Fixture" uid="project-phase-1"><sequence uid="sequence-phase-1" duration="10s"><spine>
     <asset-clip ref="r1" name="Interview" offset="0s" start="0s" duration="1001/24000s" lane="1" />
   </spine></sequence></project></event></library>
 </fcpxml>`);
@@ -133,10 +133,61 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   assert.match(await readFile(path, "utf8"), /adjust-volume amount="2dB"/);
 });
 
+test("FCPXML project identity fails closed without an immutable uid", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-project-identity-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="Mutable Project"><sequence uid="sequence-stable" name="Stable Sequence" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  const adapter = new FcpxmlDocumentAdapter(path);
+
+  await assert.rejects(adapter.listProjects(), /FCPXML_PROJECT_IDENTITY_UNAVAILABLE/);
+  await assert.rejects(adapter.readProject(), /FCPXML_PROJECT_IDENTITY_UNAVAILABLE/);
+});
+
+test("FCPXML sequence identity fails closed without an immutable uid", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-sequence-identity-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-stable" name="Stable Project"><sequence name="Mutable Sequence" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  const adapter = new FcpxmlDocumentAdapter(path);
+
+  await assert.rejects(adapter.listProjects(), /FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE/);
+  await assert.rejects(adapter.readProject(), /FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE/);
+});
+
+test("UID-backed FCPXML identities remain stable across project and sequence renames", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-identity-rename-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-stable" name="Before Project"><sequence uid="sequence-stable" name="Before Sequence" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  const adapter = new FcpxmlDocumentAdapter(path);
+  const before = await adapter.listProjects();
+
+  await writeFile(path, (await readFile(path, "utf8"))
+    .replace("Before Project", "After Project")
+    .replace("Before Sequence", "After Sequence"));
+  const after = await adapter.listProjects();
+
+  assert.equal(after.activeProjectId, before.activeProjectId);
+  assert.equal(after.activeSequenceId, before.activeSequenceId);
+});
+
+test("UID-backed same-name FCPXML targets remain distinct", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-identity-collision-"));
+  const firstPath = join(directory, "first.fcpxml");
+  const secondPath = join(directory, "second.fcpxml");
+  const document = (projectUid: string, sequenceUid: string) => `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="${projectUid}" name="Shared Project"><sequence uid="${sequenceUid}" name="Shared Sequence" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`;
+  await writeFile(firstPath, document("project-first", "sequence-first"));
+  await writeFile(secondPath, document("project-second", "sequence-second"));
+
+  const first = await new FcpxmlDocumentAdapter(firstPath).listProjects();
+  const second = await new FcpxmlDocumentAdapter(secondPath).listProjects();
+
+  assert.notEqual(first.activeProjectId, second.activeProjectId);
+  assert.notEqual(first.activeSequenceId, second.activeSequenceId);
+});
+
 test("Final Cut adapter turns external FCPXML edits into a new revision", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-external-"));
   const path = join(directory, "project.fcpxml");
-  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="External"><sequence duration="2s"><spine><asset-clip ref="r1" name="Original" offset="0s" duration="2s" /></spine></sequence></project></event></library></fcpxml>`);
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-external" name="External"><sequence uid="sequence-external" duration="2s"><spine><asset-clip ref="r1" name="Original" offset="0s" duration="2s" /></spine></sequence></project></event></library></fcpxml>`);
   const adapter = new FcpxmlDocumentAdapter(path);
   const before = await adapter.readProject();
   await writeFile(path, (await readFile(path, "utf8")).replace("Original", "External Edit"));
@@ -152,7 +203,7 @@ test("Final Cut adapter turns external FCPXML edits into a new revision", async 
 test("FCPXML preserves heterogeneous spine order and distinct clip occurrences", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-order-"));
   const path = join(directory, "project.fcpxml");
-  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources><asset id="r1" src="file:///interview.mov" /></resources><library><event><project name="Ordered"><sequence duration="8s"><spine>
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources><asset id="r1" src="file:///interview.mov" /></resources><library><event><project uid="project-ordered" name="Ordered"><sequence uid="sequence-ordered" duration="8s"><spine>
     <asset-clip ref="r1" offset="0s" duration="2s" />
     <gap offset="2s" duration="1s" />
     <title offset="3s" duration="1s" name="Card" />
@@ -180,7 +231,7 @@ test("FCPXML preserves heterogeneous spine order and distinct clip occurrences",
 test("Final Cut session composes document snapshot and live state providers", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-session-"));
   const path = join(directory, "project.fcpxml");
-  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="Session"><sequence duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-session" name="Session"><sequence uid="sequence-session" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
   const live = new FinalCutLiveAdapter(new FakeFinalCutLiveTransport());
   const session = new FinalCutSessionAdapter({
     snapshot: new FcpxmlDocumentAdapter(path),
@@ -199,7 +250,7 @@ test("Final Cut session composes document snapshot and live state providers", as
 test("snapshot-only Final Cut sessions advertise and select their project target", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-snapshot-selection-"));
   const path = join(directory, "project.fcpxml");
-  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="Snapshot Only"><sequence duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-snapshot" name="Snapshot Only"><sequence uid="sequence-snapshot" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
   const document = new FcpxmlDocumentAdapter(path);
   const session = new FinalCutSessionAdapter({ snapshot: document });
   const capabilities = await session.getCapabilities();
