@@ -296,6 +296,29 @@ const canonicalWriteCapabilities: RuntimeCapabilities = {
   },
 };
 
+test("live canonical apply rejects a non-advancing resulting revision", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalWriteCapabilities,
+        revision: canonicalSnapshot.revision,
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Invalid revision" },
+      canonicalSnapshot.revision,
+    ),
+    /FINAL_CUT_LIVE_PROTOCOL: apply response revision must advance expected revision/,
+  );
+});
+
 class MutableCanonicalLiveTransport {
   public snapshot = structuredClone(canonicalSnapshot);
   public applyCalls = 0;
