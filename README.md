@@ -7,8 +7,12 @@ analysis, combined media understanding, native asset discovery, and the Phase
 
 ## Development
 
+Contributor setup, including the local pre-commit hook, is documented in
+[`CONTRIBUTOR.md`](CONTRIBUTOR.md).
+
 ```sh
 pnpm install --frozen-lockfile
+pnpm run hooks:install
 pnpm run test
 pnpm run build
 ```

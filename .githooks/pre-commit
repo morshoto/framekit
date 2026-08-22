@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# pnpm 11 requires Node.js >=22.14. Git hooks often inherit a narrower PATH
+# than an interactive shell, so select a compatible Node installation before
+# invoking the Corepack pnpm shim.
+node_bin=""
+while IFS= read -r candidate; do
+  [[ -x "$candidate" ]] || continue
+  version="$("$candidate" -p 'process.versions.node' 2>/dev/null || true)"
+  IFS=. read -r major minor _ <<< "$version"
+  minor="${minor:-0}"
+  if [[ "${major:-0}" -gt 22 || ( "${major:-0}" -eq 22 && "$minor" -ge 14 ) ]]; then
+    node_bin="$(dirname "$candidate")"
+    break
+  fi
+done < <(type -a -p node 2>/dev/null | awk '!seen[$0]++')
+
+if [[ -z "$node_bin" ]]; then
+  echo "Framekit pre-commit: Node.js >=22.14 is required by pnpm 11.10.0." >&2
+  echo "Install a compatible Node.js version and retry the commit." >&2
+  exit 1
+fi
+
+export PATH="$node_bin:$PATH"
+
+echo "Framekit pre-commit: build"
+corepack pnpm run build
+
+echo "Framekit pre-commit: tests"
+corepack pnpm run test
+
+echo "Framekit pre-commit: package boundaries"
+corepack pnpm run check:boundaries
+
+if [[ "$(node scripts/staged-native-changes.mjs)" != "true" ]]; then
+  exit 0
+fi
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "Framekit pre-commit: staged native files detected; Xcode checks require macOS and will run in CI." >&2
+  exit 0
+fi
+
+echo "Framekit pre-commit: Xcode toolchain"
+corepack pnpm run xcode:check
+
+echo "Framekit pre-commit: Xcode project"
+xcodebuild \
+  -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
+  -list

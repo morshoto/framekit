@@ -14,6 +14,7 @@
     "test:final-cut-headless": "tsx --test tests/integration/connection.test.ts tests/integration/finalcut-mcp.test.ts tests/integration/native.test.ts",
     "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
     "test:watch": "tsx --test --watch tests/integration/*.test.ts",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",
     "framekit": "node ./bin/framekit.mjs",
     "package:final-cut-release": "bash scripts/package-final-cut-release.sh",

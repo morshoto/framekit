@@ -1,5 +1,8 @@
 # Contributing to Framekit
 
+For first-time setup, including installation of the local pre-commit hook, see
+[`CONTRIBUTOR.md`](CONTRIBUTOR.md).
+
 ## Development setup
 
 Requirements:
@@ -52,6 +55,30 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 
 The native bridge is intentionally fail-closed when Final Cut does not expose
 complete timeline or media enumeration.
+
+## What the hook checks
+
+Every commit runs:
+
+```sh
+pnpm run build
+pnpm run test
+pnpm run check:boundaries
+```
+
+When staged files include the Swift Workflow Extension, Xcode project, or
+native toolchain configuration, macOS contributors also run:
+
+```sh
+pnpm run xcode:check
+xcodebuild -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj -list
+```
+
+The hook does not run headed Final Cut Pro tests. Those require a local Final
+Cut installation, an active library, Accessibility permissions, and private
+media/project state. On non-macOS systems, native checks are reported as a CI
+requirement instead of blocking the commit.
+
 
 ## Pull requests
 
