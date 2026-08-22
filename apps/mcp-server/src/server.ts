@@ -3,11 +3,12 @@ import { z } from "zod";
 import { AgentVideoRuntime, resolveEditingIntent } from "@framekit/runtime";
 import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
 
-const revisionSchema = z.object({
+const revisionValueSchema = z.object({
   id: z.string(),
   sequence: z.number().int().nonnegative(),
   timestamp: z.string(),
-}).optional();
+});
+const revisionSchema = revisionValueSchema.optional();
 const rationalTimeSchema = z.object({
   value: z.string().regex(/^-?\d+$/),
   timescale: z.string().regex(/^\d+$/).refine((value) => Number(value) > 0),
@@ -22,19 +23,69 @@ const markerSchema = z.object({
     duration: z.number().nonnegative(),
     name: z.string().min(1),
 });
-const editOperationSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("rename-clip"), clipId: z.string().min(1), name: z.string().min(1), baseRevision: revisionSchema }),
-  z.object({
+const renameClipSchema = z.object({ type: z.literal("rename-clip"), clipId: z.string().min(1), name: z.string().min(1), baseRevision: revisionSchema });
+const trimClipSchema = z.object({
     type: z.literal("trim-clip"),
     clipId: z.string().min(1),
     duration: z.number().positive(),
     durationTime: rationalTimeSchema.optional(),
     baseRevision: revisionSchema,
-  }),
-  z.object({ type: z.literal("set-gain"), clipId: z.string().min(1), gainDb: z.number().finite(), baseRevision: revisionSchema }),
-  z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema }),
-  z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema }),
+});
+const setGainSchema = z.object({ type: z.literal("set-gain"), clipId: z.string().min(1), gainDb: z.number().finite(), baseRevision: revisionSchema });
+const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
+const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
+const editOperationSchema = z.discriminatedUnion("type", [
+  renameClipSchema,
+  trimClipSchema,
+  setGainSchema,
+  rippleDeleteSchema,
+  addMarkerSchema,
 ]);
+const workflowOperationSchema = z.discriminatedUnion("type", [
+  renameClipSchema,
+  trimClipSchema,
+  setGainSchema,
+  rippleDeleteSchema,
+  addMarkerSchema,
+  z.object({
+    type: z.literal("media.import"),
+    mediaId: z.string().min(1),
+    source: z.string().min(1),
+    mediaKind: z.enum(["video", "audio"]),
+    duration: z.number().positive(),
+    sourceDigest: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("timeline.media.add"),
+    occurrenceId: z.string().min(1),
+    mediaId: z.string().min(1),
+    role: z.enum(["video", "music"]),
+    start: z.number().nonnegative(),
+    duration: z.number().positive(),
+    targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
+  }),
+  z.object({
+    type: z.literal("timeline.title.add"),
+    occurrenceId: z.string().min(1),
+    assetId: z.string().min(1),
+    text: z.string().min(1),
+    start: z.number().nonnegative(),
+    duration: z.number().positive(),
+    targetLane: z.number().int().refine((lane) => lane !== 0, "title requires a non-primary lane"),
+  }),
+]);
+const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRefine((operations, context) => {
+  operations.forEach((operation, index) => {
+    if (operation.type === "timeline.media.add" && operation.role === "video"
+      && operation.targetLane !== undefined && operation.targetLane !== "primary") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "video must target the primary storyline" });
+    }
+    if (operation.type === "timeline.media.add" && operation.role === "music"
+      && (typeof operation.targetLane !== "number" || operation.targetLane === 0)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "music requires an explicit non-primary lane" });
+    }
+  });
+});
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
   z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
@@ -354,6 +405,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Apply one supported edit and return read-after-write plus its diff.",
     inputSchema: editOperationSchema,
   }, async (operation) => jsonResult(await runtime.edit(operation)));
+
+  server.registerTool("timeline.edit.preview", {
+    description: "Validate and preview one ordered, atomic Basic Editing MVP workflow without mutating the project.",
+    inputSchema: {
+      baseRevision: revisionValueSchema,
+      operations: workflowOperationsSchema,
+    },
+  }, async (request) => jsonResult(await runtime.previewEdit(request)));
+
+  server.registerTool("timeline.edit.execute", {
+    description: "Execute one short-lived composite edit preview token exactly once and verify the transaction.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
   server.registerTool("speech.analyze", {
     description: "Analyze speech words and filler markers for one media item.",
