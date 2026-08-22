@@ -24,6 +24,7 @@ const capabilities = {
 
 test("connection manager reports a ready live bridge without installing anything", async () => {
   const manager = new FinalCutConnectionManager({
+    headless: false,
     detectFinalCut: async () => true,
     probe: async () => ({
       identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
@@ -73,6 +74,7 @@ test("headless connection fails closed when the existing bridge is unavailable",
 
 test("connection manager remains actionable when the extension is missing", async () => {
   const manager = new FinalCutConnectionManager({
+    headless: false,
     extensionInstallPath: "/tmp/framekit-test-extension-that-does-not-exist.app",
     detectFinalCut: async () => true,
     probe: async () => { throw new Error("socket missing"); },
@@ -91,6 +93,7 @@ test("connection manager starts Final Cut and retries until the bridge is ready"
   const extensionPath = join(directory, "FramekitFinalCutWorkflow.app");
   await mkdir(extensionPath);
   const manager = new FinalCutConnectionManager({
+    headless: false,
     startupTimeoutMs: 1_000,
     detectFinalCut: async () => detected,
     launchFinalCut: async () => { detected = true; },
@@ -124,6 +127,7 @@ test("explicit connection restarts Final Cut after replacing the extension", asy
   const events: string[] = [];
 
   const manager = new FinalCutConnectionManager({
+    headless: false,
     extensionSourcePath: sourcePath,
     extensionInstallPath: installPath,
     restartAfterInstall: true,
@@ -157,6 +161,7 @@ test("background connection does not restart Final Cut after extension replaceme
   let restarted = false;
 
   const manager = new FinalCutConnectionManager({
+    headless: false,
     extensionSourcePath: sourcePath,
     extensionInstallPath: installPath,
     detectFinalCut: async () => true,
@@ -183,6 +188,7 @@ test("restart timeout is reported as user action", async () => {
   await mkdir(installPath, { recursive: true });
 
   const manager = new FinalCutConnectionManager({
+    headless: false,
     extensionSourcePath: sourcePath,
     extensionInstallPath: installPath,
     restartAfterInstall: true,

@@ -27,6 +27,14 @@ fi
 
 export PATH="$node_bin:$PATH"
 
+# Keep commit validation deterministic even when the developer's shell is
+# configured to run the live Final Cut MCP. No commit check may launch or
+# activate Final Cut Pro.
+export FRAMEKIT_EDITOR=fixture
+export FRAMEKIT_FINAL_CUT_HEADLESS=1
+export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0
+export FRAMEKIT_AUTO_CONNECT=0
+
 echo "Framekit pre-commit: build"
 corepack pnpm run build
 

@@ -79,6 +79,12 @@ Cut installation, an active library, Accessibility permissions, and private
 media/project state. On non-macOS systems, native checks are reported as a CI
 requirement instead of blocking the commit.
 
+The hook also forces `FRAMEKIT_EDITOR=fixture`,
+`FRAMEKIT_FINAL_CUT_HEADLESS=1`, `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0`, and
+`FRAMEKIT_AUTO_CONNECT=0` while running validation. This prevents inherited
+shell configuration from launching or activating Final Cut Pro during a
+commit.
+
 
 ## Pull requests
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { access, constants, stat } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -46,4 +46,12 @@ test("pre-commit hook is executable and shell-valid", async () => {
   await access(hookPath, constants.X_OK);
   assert.notEqual((await stat(hookPath)).mode & 0o111, 0);
   await exec("bash", ["-n", hookPath]);
+});
+
+test("pre-commit hook forces headless fixture validation", async () => {
+  const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
+  assert.match(hook, /export FRAMEKIT_EDITOR=fixture/);
+  assert.match(hook, /export FRAMEKIT_FINAL_CUT_HEADLESS=1/);
+  assert.match(hook, /export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0/);
+  assert.match(hook, /export FRAMEKIT_AUTO_CONNECT=0/);
 });

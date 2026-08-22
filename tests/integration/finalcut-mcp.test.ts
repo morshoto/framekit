@@ -55,6 +55,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     env: {
       ...process.env,
       FRAMEKIT_EDITOR: "final-cut-live",
+      FRAMEKIT_FINAL_CUT_HEADLESS: "0",
       FRAMEKIT_AUTO_CONNECT: "0",
       FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
       FRAMEKIT_FCPXML_PATH: xmlPath,
@@ -203,6 +204,7 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     env: {
       ...process.env,
       FRAMEKIT_EDITOR: "final-cut-live",
+      FRAMEKIT_FINAL_CUT_HEADLESS: "0",
       FRAMEKIT_AUTO_CONNECT: "0",
       FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
       FRAMEKIT_FINAL_CUT_SOCKET: socketPath,
