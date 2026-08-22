@@ -46,6 +46,13 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
         clips: [],
       },
       {
+        projectId: "project-alpha",
+        projectName: "Alpha",
+        timelineId: "sequence-alpha-social",
+        timelineName: "Social",
+        clips: [],
+      },
+      {
         projectId: "project-beta",
         projectName: "Beta",
         timelineId: "sequence-beta-main",
@@ -68,6 +75,13 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
       "sequence-alpha-social",
     ]);
 
+    const selectedMain = JSON.parse(textFrom(await client.callTool({
+      name: "project.select",
+      arguments: { projectId: "project-alpha", sequenceId: "sequence-alpha-main" },
+    })));
+    assert.equal(selectedMain.activeProjectId, "project-alpha");
+    assert.equal(selectedMain.activeSequenceId, "sequence-alpha-main");
+
     const selected = JSON.parse(textFrom(await client.callTool({
       name: "project.select",
       arguments: { projectId: "project-beta", sequenceId: "sequence-beta-main" },
@@ -77,6 +91,16 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
     const inspected = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
     assert.equal(inspected.projectId, "project-beta");
     assert.equal(inspected.timeline.id, "sequence-beta-main");
+
+    const selectedSocial = JSON.parse(textFrom(await client.callTool({
+      name: "project.select",
+      arguments: { projectId: "project-alpha", sequenceId: "sequence-alpha-social" },
+    })));
+    assert.equal(selectedSocial.activeProjectId, "project-alpha");
+    assert.equal(selectedSocial.activeSequenceId, "sequence-alpha-social");
+    const inspectedSocial = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+    assert.equal(inspectedSocial.projectId, "project-alpha");
+    assert.equal(inspectedSocial.timeline.id, "sequence-alpha-social");
 
     const ambiguous = await client.callTool({ name: "project.select", arguments: { projectId: "project-alpha" } });
     assert.equal(ambiguous.isError, true);

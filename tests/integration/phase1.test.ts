@@ -95,8 +95,11 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   const identity = await adapter.getIdentity();
   const capabilities = await adapter.getCapabilities();
   const before = await adapter.readProject();
+  const catalog = await adapter.listProjects();
   assert.equal(identity.name, "Final Cut Pro");
   assert.equal(capabilities.editor.timelineArtifactWrite, true);
+  assert.equal(catalog.projects[0]?.id, before.projectId);
+  assert.equal(catalog.projects[0]?.sequences[0]?.id, before.timeline.id);
   assert.equal(before.timeline.clips[0]?.name, "Interview");
   assert.deepEqual(before.timeline.clips[0]?.durationTime, { value: "1001", timescale: "24000" });
 
@@ -205,6 +208,16 @@ test("snapshot-only Final Cut sessions advertise and select their project target
   const selected = await session.selectProject({ projectId: catalog.activeProjectId! });
   assert.equal(selected.activeProjectId, catalog.activeProjectId);
   assert.equal(selected.activeSequenceId, catalog.activeSequenceId);
+});
+
+test("Final Cut sessions do not advertise mutation-only project selection", async () => {
+  const session = new FinalCutSessionAdapter({ mutation: fixtureAdapter() });
+  const capabilities = await session.getCapabilities();
+  assert.equal(capabilities.editor.projectSelection, false);
+  await assert.rejects(
+    new AgentVideoRuntime(session).selectProject({ projectId: "project-1" }),
+    /CAPABILITY_UNAVAILABLE: editor project selection/,
+  );
 });
 
 test("post-write verification invokes analyzers for affected ranges", async () => {
