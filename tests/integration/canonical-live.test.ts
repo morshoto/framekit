@@ -229,6 +229,63 @@ test("canonical-read live sessions expose complete snapshots with explicit stabl
   assert.ok(requests.some(({ method }) => method === "snapshot"));
 });
 
+test("live project selection fails closed on ambiguous or mismatched targets", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [{
+            id: canonicalSnapshot.projectId,
+            name: canonicalSnapshot.projectName,
+            sequences: [
+              { id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name },
+              { id: "final-cut:sequence:social", name: "Social" },
+            ],
+          }],
+          activeProjectId: canonicalSnapshot.projectId,
+          activeSequenceId: canonicalSnapshot.timeline.id,
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.selectProject({ projectId: canonicalSnapshot.projectId }),
+    /AMBIGUOUS_PROJECT_TARGET: sequenceId is required/,
+  );
+  await assert.rejects(
+    adapter.selectProject({ projectId: canonicalSnapshot.projectId, sequenceId: "final-cut:sequence:social" }),
+    /TARGET_MISMATCH: live project selection did not activate requested target/,
+  );
+});
+
+test("live project catalogs fail closed on duplicate project identities", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [
+            { id: "duplicate-project", name: "One", sequences: [] },
+            { id: "duplicate-project", name: "Two", sequences: [] },
+          ],
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(adapter.listProjects(), /FINAL_CUT_LIVE_PROTOCOL: duplicate project id duplicate-project/);
+});
+
 const canonicalWriteCapabilities: RuntimeCapabilities = {
   ...canonicalReadCapabilities,
   editor: {
