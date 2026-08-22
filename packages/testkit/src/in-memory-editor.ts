@@ -169,11 +169,12 @@ export class InMemoryEditorAdapter implements EditorPort {
     };
   }
 
-  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
+  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
     if (this.snapshot.revision.id !== expectedRevision.id) {
       throw new Error("STALE_CONTEXT: editor revision changed before write");
     }
     this.snapshot = this.nextSnapshot(this.applyOperation(this.snapshot, operation));
+    return structuredClone(this.snapshot.revision);
   }
 
   public async previewTransaction(

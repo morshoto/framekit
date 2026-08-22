@@ -20,5 +20,7 @@ successful.
 
 A live bridge that can safely provide canonical state uses the additive socket
 methods `snapshot`, `apply`, and `restore`. `apply` and `restore` carry an
-expected revision, so stale or mismatched targets fail before mutation. Native
+expected revision, so stale or mismatched targets fail before mutation. A
+successful `apply` response returns the resulting revision so Framekit can
+perform compensating rollback even when the subsequent snapshot read fails. Native
 Accessibility operations remain a separate capability surface.

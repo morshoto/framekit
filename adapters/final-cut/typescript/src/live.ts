@@ -51,6 +51,7 @@ export type FinalCutLiveResponse =
         changes?: EditorChange[];
         catalog?: ProjectCatalog;
         snapshot?: ProjectSnapshot;
+        revision?: ContextRevision;
       };
     }
   | {
@@ -141,25 +142,32 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
 
   public async readProject(): Promise<ProjectSnapshot> {
     const capabilities = await this.getCapabilities();
-    if (!capabilities.editor.timelineSnapshotRead) {
+    if (!capabilities.editor.timelineSnapshotRead || capabilities.editor.canonicalTimelineMode === "metadata-only") {
+      if (!capabilities.editor.projectCatalogRead || !capabilities.editor.projectSelection) {
+        throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical snapshot targeting");
+      }
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical snapshot");
     }
     const response = await this.request({ method: "snapshot" });
     if (!response.snapshot) throw new Error("FINAL_CUT_LIVE_PROTOCOL: snapshot response was empty");
+    validateCanonicalSnapshot(response.snapshot);
+    validateSnapshotTarget(response.snapshot, await this.listProjects());
     return response.snapshot;
   }
 
-  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
+  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
     const capabilities = await this.getCapabilities();
-    if (!capabilities.editor.timelineWrite || !capabilities.editor.readAfterWrite) {
+    if (capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical mutation");
     }
-    await this.request({ method: "apply", operation, expectedRevision });
+    const response = await this.request({ method: "apply", operation, expectedRevision });
+    if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: apply response revision was empty");
+    return response.revision;
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
     const capabilities = await this.getCapabilities();
-    if (!capabilities.editor.rollback) {
+    if (capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical rollback");
     }
     await this.request({ method: "restore", snapshot, expectedRevision });
@@ -216,4 +224,98 @@ export function createFinalCutLiveAdapter(
   socketPath = process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET,
 ): FinalCutLiveAdapter {
   return new FinalCutLiveAdapter(new UnixSocketFinalCutLiveTransport(socketPath), socketPath);
+}
+
+function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
+  requireNonEmpty(snapshot.projectId, "project id");
+  requireNonEmpty(snapshot.projectName, "project name");
+  requireNonEmpty(snapshot.timeline?.id, "timeline id");
+  requireNonEmpty(snapshot.timeline?.name, "timeline name");
+  requireFiniteNonNegative(snapshot.timeline?.duration, "timeline duration");
+  requireRational(snapshot.timeline?.durationTime, "timeline duration time");
+  requireArray(snapshot.timeline?.clips, "timeline clips");
+  requireArray(snapshot.timeline?.storyElements, "timeline story elements");
+  requireArray(snapshot.timeline?.markers, "timeline markers");
+  requireArray(snapshot.timeline?.captions, "timeline captions");
+  requireArray(snapshot.media, "media references");
+  requireNonEmpty(snapshot.revision?.id, "revision id");
+  if (!Number.isInteger(snapshot.revision?.sequence) || snapshot.revision.sequence < 0) {
+    protocolError("revision sequence must be a non-negative integer");
+  }
+  requireNonEmpty(snapshot.revision?.timestamp, "revision timestamp");
+
+  const mediaIds = uniqueIds(snapshot.media, ({ mediaId }) => mediaId, "media");
+  uniqueIds(snapshot.timeline.markers, ({ id }) => id, "marker");
+  uniqueIds(snapshot.timeline.captions, ({ id }) => id, "caption");
+  const occurrenceIds = uniqueIds(snapshot.timeline.clips, ({ id }) => id, "timeline occurrence");
+  const storyElementIds = uniqueIds(snapshot.timeline.storyElements, ({ id }) => id, "story element");
+  for (const clip of snapshot.timeline.clips) {
+    requireFiniteNonNegative(clip.start, `occurrence ${clip.id} start`);
+    requireFiniteNonNegative(clip.duration, `occurrence ${clip.id} duration`);
+    if (!Number.isInteger(clip.track)) protocolError(`occurrence ${clip.id} track must be an integer`);
+    requireRational(clip.startTime, `occurrence ${clip.id} start time`);
+    requireRational(clip.durationTime, `occurrence ${clip.id} duration time`);
+    if (clip.mediaId && !mediaIds.has(clip.mediaId)) {
+      protocolError(`occurrence ${clip.id} references missing media ${clip.mediaId}`);
+    }
+    if (!storyElementIds.has(clip.id)) protocolError(`occurrence ${clip.id} has no storyline relationship`);
+  }
+  for (const occurrenceId of occurrenceIds) {
+    if (mediaIds.has(occurrenceId)) protocolError(`occurrence identity ${occurrenceId} must be distinct from media identity`);
+  }
+}
+
+function validateSnapshotTarget(snapshot: ProjectSnapshot, catalog: ProjectCatalog): void {
+  if (catalog.activeProjectId !== snapshot.projectId || catalog.activeSequenceId !== snapshot.timeline.id) {
+    throw new Error(
+      `TARGET_MISMATCH: live canonical snapshot ${snapshot.projectId}/${snapshot.timeline.id} does not match active target ${catalog.activeProjectId ?? "unknown"}/${catalog.activeSequenceId ?? "unknown"}`,
+    );
+  }
+  const project = catalog.projects.find(({ id }) => id === snapshot.projectId);
+  if (!project?.sequences.some(({ id }) => id === snapshot.timeline.id)) {
+    protocolError("active canonical snapshot target is absent from the project catalog");
+  }
+}
+
+function uniqueIds<T>(values: T[], identify: (value: T) => string, kind: string): Set<string> {
+  const ids = new Set<string>();
+  for (const value of values) {
+    const id = identify(value);
+    requireNonEmpty(id, `${kind} id`);
+    if (ids.has(id)) protocolError(`duplicate ${kind} id ${id}`);
+    ids.add(id);
+  }
+  return ids;
+}
+
+function requireArray(value: unknown, field: string): asserts value is unknown[] {
+  if (!Array.isArray(value)) protocolError(`${field} must be an array`);
+}
+
+function requireNonEmpty(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string" || value.trim().length === 0) protocolError(`${field} must be a non-empty string`);
+}
+
+function requireFiniteNonNegative(value: unknown, field: string): asserts value is number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    protocolError(`${field} must be finite and non-negative`);
+  }
+}
+
+function requireRational(value: unknown, field: string): void {
+  const candidate = value as { value?: unknown; timescale?: unknown } | undefined;
+  if (
+    !candidate
+    || typeof candidate.value !== "string"
+    || !/^-?\d+$/.test(candidate.value)
+    || typeof candidate.timescale !== "string"
+    || !/^\d+$/.test(candidate.timescale)
+    || BigInt(candidate.timescale) <= 0n
+  ) {
+    protocolError(`${field} must use an integer value and positive timescale`);
+  }
+}
+
+function protocolError(message: string): never {
+  throw new Error(`FINAL_CUT_LIVE_PROTOCOL: ${message}`);
 }

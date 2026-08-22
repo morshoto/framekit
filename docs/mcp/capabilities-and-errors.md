@@ -29,8 +29,11 @@ Extension reports:
 ```
 
 `canonical-read` requires a complete project/timeline snapshot with stable
-project, sequence, media, and occurrence identities. `canonical-write`
-additionally requires revision-guarded mutation, read-after-write, and rollback.
+project, sequence, media, and occurrence identities plus explicit project
+catalog and sequence-selection guarantees. `canonical-write` additionally
+requires revision-guarded mutation, read-after-write, and rollback. A successful
+canonical apply returns the resulting revision so read failures can be rolled
+back without guessing the current editor revision.
 The mode is returned by both `connection.status` and `editor.inspect` for live
 backends.
 

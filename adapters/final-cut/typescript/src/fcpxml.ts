@@ -152,7 +152,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     return { ...catalog, activeProjectId: project.id, activeSequenceId: sequenceId };
   }
 
-  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
+  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
     await this.ensureLoaded();
     if (!sameRevision(expectedRevision, this.revision())) {
       throw new Error("STALE_CONTEXT: FCPXML document changed before write");
@@ -208,6 +208,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     this.updateSequenceDuration(sequence, spine);
     this.sequence += 1;
     await this.persist();
+    return this.revision();
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
