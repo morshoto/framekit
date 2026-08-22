@@ -68,6 +68,7 @@ export interface NativeFinalCutBladeResult {
     detail: string;
   };
   undoAvailable: boolean;
+  undoCommand?: string;
 }
 
 export type NativeFinalCutRangeOperation = "delete-range" | "trim-to-duration";
@@ -104,6 +105,7 @@ export interface NativeFinalCutRangeResult {
     detail: string;
   };
   undoAvailable: boolean;
+  undoCommand?: string;
 }
 
 export interface NativeFinalCutContext {
@@ -162,12 +164,29 @@ export interface NativeFinalCutEditResult {
     detail: string;
   };
   undoAvailable: boolean;
+  undoCommand?: string;
 }
 
 export interface NativeFinalCutUndoResult {
   operationId: string;
   undone: boolean;
   context: NativeFinalCutContext;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+}
+
+type NativeOperationKind = "selection" | "blade" | "range";
+
+interface NativeOperationRecord {
+  kind: NativeOperationKind;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeLive?: EditorLiveState;
+  afterLive?: EditorLiveState;
+  beforeDuration?: RationalTime;
+  undoCommand?: string;
 }
 
 export interface NativeFinalCutAutomationOptions {
@@ -207,7 +226,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private nativeUiDepth = 0;
-  private readonly operations = new Set<string>();
+  private readonly operations = new Map<string, NativeOperationRecord>();
+  private latestOperationId?: string;
   private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
@@ -302,6 +322,20 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
+  private async readLiveState(): Promise<EditorLiveState | undefined> {
+    if (!this.liveState) return undefined;
+    try {
+      return await this.liveState();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private rememberOperation(operationId: string, record: NativeOperationRecord): void {
+    this.operations.set(operationId, record);
+    this.latestOperationId = operationId;
+  }
+
   public async edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
     return this.withNativeUi(() => this.editNative(operation));
   }
@@ -309,6 +343,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async editNative(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
     this.assertEnabled();
     const before = await this.requireTimelineTarget(operation);
+    const beforeLive = await this.readLiveState();
     const operationId = `native-op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const command = commandName(operation);
     try {
@@ -317,12 +352,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
     const after = await this.requireTimelineContext();
+    const afterLive = await this.readLiveState();
     const verification = verifyNativeEdit(operation, before, after);
     if (!verification.verified) {
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
     }
-    this.operations.add(operationId);
-    return { operationId, operation, command, before, after, verification, undoAvailable: after.undoAvailable };
+    this.rememberOperation(operationId, { kind: "selection", before, after, beforeLive, afterLive, undoCommand: after.undoCommand });
+    return { operationId, operation, command, before, after, verification, undoAvailable: after.undoAvailable, ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}) };
   }
 
   public async undo(operationId: string): Promise<NativeFinalCutUndoResult> {
@@ -331,17 +367,30 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async undoNative(operationId: string): Promise<NativeFinalCutUndoResult> {
     this.assertEnabled();
-    if (!this.operations.has(operationId)) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
+    const operation = this.operations.get(operationId);
+    if (!operation) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
+    if (this.latestOperationId !== operationId) throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: operation is no longer the latest native edit");
     const before = await this.requireTimelineContext();
+    const currentLive = await this.readLiveState();
+    if (operation.afterLive && currentLive && operation.afterLive.revision.id !== currentLive.revision.id) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: Final Cut timeline changed after the native edit");
+    }
     if (!before.undoAvailable || !before.undoCommand) throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command");
+    if (!operation.undoCommand || before.undoCommand !== operation.undoCommand) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
+    }
     try {
-      await this.executor(undoScript(before.undoCommand));
+      await this.executor(undoScript(operation.undoCommand));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
     const after = await this.requireTimelineContext();
+    const afterLive = await this.waitForUndo(operation);
+    const verification = verifyNativeUndo(operation, after, afterLive);
+    if (!verification.verified) throw new Error(`FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED: ${verification.detail}`);
     this.operations.delete(operationId);
-    return { operationId, undone: true, context: after };
+    this.latestOperationId = undefined;
+    return { operationId, undone: true, context: after, verification };
   }
 
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
@@ -484,7 +533,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
     }
     const operationId = opaqueHandle("native-blade");
-    this.operations.add(operationId);
+    const afterLive = await this.readLiveState();
+    this.rememberOperation(operationId, { kind: "blade", before, after, beforeLive: undefined, afterLive, undoCommand: after.undoCommand });
     return {
       operationId,
       previewToken,
@@ -494,6 +544,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       after,
       verification: { verified: true, detail: "Final Cut accepted the Blade command while the target remained frontmost" },
       undoAvailable: after.undoAvailable,
+      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
   }
 
@@ -617,7 +668,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     );
     if (!detail.verified) throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${detail.detail}`);
     const operationId = opaqueHandle(`native-${preview.operation}`);
-    this.operations.add(operationId);
+    this.rememberOperation(operationId, {
+      kind: "range",
+      before,
+      after,
+      beforeLive,
+      afterLive,
+      beforeDuration: preview.beforeDuration,
+      undoCommand: after.undoCommand,
+    });
     return {
       operationId,
       previewToken,
@@ -630,6 +689,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       expectedAfterDuration: preview.expectedAfterDuration,
       verification: { verified: true, detail: detail.detail },
       undoAvailable: after.undoAvailable,
+      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
   }
 
@@ -652,6 +712,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       const duration = latest.sequenceTimeRange?.duration ?? latest.sequence?.duration;
       if (duration && durationVerificationDetail(duration, expected, latest.sequence?.frameDuration).verified && latest.revision.id !== previousRevision) return latest;
       await new Promise((resolve) => setTimeout(resolve, 100));
+      latest = await this.requireLiveState();
+    }
+    return latest;
+  }
+
+  private async waitForUndo(operation: NativeOperationRecord): Promise<EditorLiveState | undefined> {
+    if (!operation.afterLive || !this.liveState) return undefined;
+    const deadline = this.now() + 5_000;
+    let latest = await this.requireLiveState();
+    while (this.now() < deadline) {
+      const duration = latest.sequenceTimeRange?.duration ?? latest.sequence?.duration;
+      const durationRestored = operation.beforeDuration
+        ? Boolean(duration && compareRational(duration, operation.beforeDuration) === 0)
+        : true;
+      if (latest.revision.id !== operation.afterLive.revision.id && durationRestored) return latest;
+      await this.sleep(100);
       latest = await this.requireLiveState();
     }
     return latest;
@@ -785,6 +861,28 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.available) throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native context unavailable"}`);
     return context;
   }
+}
+
+function verifyNativeUndo(
+  operation: NativeOperationRecord,
+  after: NativeFinalCutContext,
+  afterLive?: EditorLiveState,
+): NativeFinalCutUndoResult["verification"] {
+  if (operation.afterLive && (!afterLive || afterLive.revision.id === operation.afterLive.revision.id)) {
+    return { verified: false, detail: "Final Cut did not expose a new revision after Undo" };
+  }
+  if (operation.beforeDuration) {
+    const duration = afterLive?.sequenceTimeRange?.duration ?? afterLive?.sequence?.duration;
+    const detail = durationVerificationDetail(duration, operation.beforeDuration);
+    if (!detail.verified) return detail;
+  }
+  if (operation.kind === "selection" && operation.before.target.name !== after.target.name) {
+    return {
+      verified: false,
+      detail: `expected selected target ${operation.before.target.name ?? "<unnamed>"}, observed ${after.target.name ?? "<unnamed>"}`,
+    };
+  }
+  return { verified: true, detail: "Final Cut restored the native edit's pre-operation state" };
 }
 
 async function runAppleScript(script: string): Promise<string> {

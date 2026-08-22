@@ -108,6 +108,171 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
+test("native range undo uses Final Cut's Undo Delete Range command and restores duration", async () => {
+  let revision = 1;
+  let duration = "20";
+  let playhead = "0";
+  const scripts: string[] = [];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:10:00")) playhead = "10";
+      if (script.includes("00:00:15:00")) playhead = "15";
+      if (script.includes("key code 51")) {
+        duration = "15";
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Delete Range"')) {
+        duration = "20";
+        revision = 3;
+      }
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Delete Range")
+        : "";
+    },
+  });
+
+  const preview = await adapter.previewDeleteRange({ start: { value: "10", timescale: "1" }, end: { value: "15", timescale: "1" } });
+  const result = await adapter.executeDeleteRange(preview.previewToken);
+  assert.equal(result.undoAvailable, true);
+  assert.equal(result.undoCommand, "Undo Delete Range");
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Delete Range" of menu "Edit"')), true);
+});
+
+test("native Blade undo uses Final Cut's Undo Blade command", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Blade");
+      }
+      if (script.includes('set output to ""') && script.includes("xOffset")) {
+        return `Interview${separator}${"AXRow"}${recordSeparator}Interview${separator}${"AXRow"}${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+  const media = { handle: "media-1", name: "Interview" };
+  const occurrence = { handle: "occurrence-1", mediaHandle: media.handle, name: media.name };
+  (adapter as unknown as { mediaHandles: Map<string, unknown>; occurrenceHandles: Map<string, unknown> }).mediaHandles.set(media.handle, media);
+  (adapter as unknown as { mediaHandles: Map<string, unknown>; occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  const result = await adapter.executeBlade(preview.previewToken);
+  assert.equal(result.undoCommand, "Undo Blade");
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
+});
+
+test("native Undo fails closed when Final Cut has no enabled Undo command", async () => {
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) renamed = true;
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, false)
+        : "";
+    },
+  });
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.undoAvailable, false);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
+  await assert.rejects(adapter.undo("native-op-missing"), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
+});
+
+test("native Undo rejects an operation after the timeline revision changes", async () => {
+  let revision = 1;
+  let renamed = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) {
+        renamed = true;
+        revision = 2;
+      }
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, "Undo")
+        : "";
+    },
+  });
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  revision = 3;
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_STALE/);
+});
+
+test("native Undo rejects when Final Cut changes the current Undo command", async () => {
+  let undoCommand = "Undo Rename";
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) renamed = true;
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, undoCommand)
+        : "";
+    },
+  });
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  undoCommand = "Undo Delete Range";
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED/);
+});
+
+test("native Undo reports failed restoration when Final Cut exposes no new revision", async () => {
+  let clock = 0;
+  let revision = 1;
+  let renamed = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    liveState,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) {
+        renamed = true;
+        revision = 2;
+      }
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, "Undo")
+        : "";
+    },
+  });
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED/);
+});
+
 test("native Final Cut adapter refuses edits without a selected clip", async () => {
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
