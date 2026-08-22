@@ -656,6 +656,41 @@ test("native Final Cut refuses a retry when focus recovery changes the selection
   assert.equal(editCalls, 1);
 });
 
+test("native Final Cut refuses a retry when focus recovery changes the playhead", async () => {
+  let preflightCalls = 0;
+  let markerCalls = 0;
+  let playhead = "0";
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        if (preflightCalls === 2) playhead = "5";
+        return context(true, "Final Cut Pro", "", 0, true);
+      }
+      if (script.includes('menu item "Marker"')) {
+        markerCalls += 1;
+        throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.edit({ type: "add-marker-at-playhead", name: "Review" }),
+    /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/,
+  );
+  assert.equal(markerCalls, 1);
+});
+
 test("native timeline preflight reports a missing timeline window without mutating", async () => {
   let clock = 0;
   const scripts: string[] = [];
