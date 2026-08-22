@@ -116,10 +116,10 @@ export function resolveEditingIntent(request: string): EditingIntentResolution {
 
 function secondsToRational(seconds: string): RationalTime {
   if (!seconds.includes(".")) return { value: seconds, timescale: "1" };
-  const decimals = seconds.length - seconds.indexOf(".") - 1;
-  const timescale = 10 ** decimals;
+  const [whole, fraction = ""] = seconds.split(".");
+  const value = `${whole}${fraction}`.replace(/^0+(?=\d)/, "");
   return {
-    value: String(Math.round(Number(seconds) * timescale)),
-    timescale: String(timescale),
+    value,
+    timescale: `1${"0".repeat(fraction.length)}`,
   };
 }

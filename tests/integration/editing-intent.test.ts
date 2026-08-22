@@ -86,6 +86,24 @@ test("editing intent does not select delete_range for a reversed range", () => {
   assert.equal(resolveEditingIntent("Remove 15-10 seconds").status, "clarification_required");
 });
 
+test("editing intent does not select delete_range for a zero-length range", () => {
+  assert.equal(resolveEditingIntent("Remove 10-10 seconds").status, "clarification_required");
+});
+
+test("editing intent preserves high-precision decimal seconds as a rational time", () => {
+  const resolution = resolveEditingIntent("Cut at 0.12345678901234567890 seconds and remove the rest");
+  assert.equal(resolution.status, "resolved");
+  if (resolution.status === "resolved") {
+    assert.equal(resolution.operation.type, "trim_to_duration");
+    if (resolution.operation.type === "trim_to_duration") {
+      assert.deepEqual(resolution.operation.duration, {
+        value: "12345678901234567890",
+        timescale: "100000000000000000000",
+      });
+    }
+  }
+});
+
 test("MCP exposes the resolved operation, affected range, and preview requirement", async () => {
   const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "project-1",
