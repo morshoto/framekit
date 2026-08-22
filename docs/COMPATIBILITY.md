@@ -42,7 +42,10 @@ automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, and do not change the
 canonical `timelineWrite` or `timelineSnapshotRead` capability flags. With the
 same opt-in, the native path can search the active Browser, locate a unique
 timeline occurrence, and Blade it at the playhead. These operations use
-short-lived handles and are not canonical timeline identities.
+short-lived handles and are not canonical timeline identities. The combined
+`editor.native.media.target` operation additionally requires live playhead
+state so it can report the deterministic target it selected; missing or
+ambiguous targets, or missing shared source-media identifiers, fail closed.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `timelinePublishNewProject` allows a verified artifact to be imported as a new
