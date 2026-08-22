@@ -226,6 +226,8 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.native.deleteRange, true);
     assert.equal(editor.native.trimToDuration, true);
+    assert.equal(editor.native.mediaAppend, true);
+    assert.equal(editor.native.mediaInsert, true);
     assert.equal(editor.native.timelineFocus, true);
 
     const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));

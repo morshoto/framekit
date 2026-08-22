@@ -80,7 +80,7 @@ The default Final Cut validation is headless and does not launch, activate, or
 focus Final Cut Pro. It uses deterministic native and MCP fixtures to verify
 the same fail-closed contracts, including overlay minimization through
 `AXMinimize`, timeline focus races, missing windows, Blade, range deletion,
-duration trimming, and Undo:
+duration trimming, media append/insert, and Undo:
 
 ```sh
 pnpm run test:final-cut-headless
@@ -113,8 +113,15 @@ minimized.
 ## Optional native UI validation
 
 Final Cut Pro does not provide a supported headless Accessibility mode. Native
-Blade and range edits require a visible Final Cut timeline, so they are not
-part of the headless test command. The native adapter remains fail-closed and
-is covered by deterministic executor tests. If a separate macOS UI smoke test
-is run manually, use a disposable project and do not treat it as headless or
-as a CI requirement.
+Blade, range edits, and media insertion require a visible Final Cut timeline.
+For a separate macOS UI smoke test, use a disposable project and run:
+
+1. Enable native writes and connect the live backend.
+2. Search and select one Browser media handle.
+3. Preview and execute one append, then assert the returned duration and
+   revision changed; call native Undo and assert the original duration returns.
+4. Repeat with insert at a non-terminal playhead position.
+
+Do not treat this manual smoke test as headless or as a CI requirement. The
+deterministic native and MCP tests remain the regression gate when Final Cut or
+its Accessibility permissions are unavailable.
