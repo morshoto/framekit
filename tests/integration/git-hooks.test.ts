@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { hasNativeChanges, isNativePath } from "../../scripts/staged-native-changes.mjs";
 import { installHooks } from "../../scripts/install-git-hooks.mjs";
+import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
 
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -51,7 +52,18 @@ test("pre-commit hook is executable and shell-valid", async () => {
 test("pre-commit hook forces headless fixture validation", async () => {
   const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
   assert.match(hook, /export FRAMEKIT_EDITOR=fixture/);
+  assert.match(hook, /export FRAMEKIT_COMMIT_VALIDATION=1/);
   assert.match(hook, /export FRAMEKIT_FINAL_CUT_HEADLESS=1/);
   assert.match(hook, /export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0/);
   assert.match(hook, /export FRAMEKIT_AUTO_CONNECT=0/);
+
+  const environment = finalCutMcpEnvironment({
+    FRAMEKIT_COMMIT_VALIDATION: "1",
+    FRAMEKIT_EDITOR: "fixture",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+  });
+  assert.equal(environment.FRAMEKIT_EDITOR, "final-cut-live");
+  assert.equal(environment.FRAMEKIT_FINAL_CUT_HEADLESS, "1");
+  assert.equal(environment.FRAMEKIT_FINAL_CUT_NATIVE_WRITES, "0");
 });
