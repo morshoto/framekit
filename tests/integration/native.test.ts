@@ -914,8 +914,8 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
         const name = script.includes("interview.mov") ? "interview.mov" : "music.wav";
         const calls = (searchCalls.get(name) ?? 0) + 1;
         searchCalls.set(name, calls);
-        if (name === "interview.mov" && calls === 1) return "";
-        return `${name}${separator}AXBrowserMedia${recordSeparator}`;
+        if (calls === 1) return "";
+        return `${name}${separator}AXBrowserMedia${separator}file:///imported/${name}${recordSeparator}`;
       }
       return "";
     },

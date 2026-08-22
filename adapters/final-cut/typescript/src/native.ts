@@ -440,6 +440,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
     const context = await this.requireAvailableContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    const beforeMatches = await this.searchMediaNative(name);
+    const beforeIdentities = new Set(
+      beforeMatches
+        .filter((match) => match.name.toLowerCase() === name.toLowerCase())
+        .map((match) => browserMediaIdentity(match))
+        .filter((identity): identity is string => Boolean(identity)),
+    );
+    const hasIndistinguishablePreExistingMatch = beforeMatches.some(
+      (match) => match.name.toLowerCase() === name.toLowerCase() && !browserMediaIdentity(match),
+    );
+    if (hasIndistinguishablePreExistingMatch) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`);
+    }
     try {
       await this.executor(importMediaScript(normalizedPath));
     } catch (error) {
@@ -447,17 +460,32 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
 
     const deadline = this.now() + this.mediaImportTimeoutMs;
+    let sawPreExistingMatch = false;
     while (this.now() <= deadline) {
       const matches = await this.searchMediaNative(name);
       const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
-      if (exactMatches.length > 1) {
-        throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS: Final Cut exposed multiple Browser results for ${name}`);
+      if (exactMatches.some((match) => !browserMediaIdentity(match))) {
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
       }
-      const match = exactMatches[0];
+      const newMatches = exactMatches.filter((match) => {
+        const identity = browserMediaIdentity(match);
+        if (!identity) return false;
+        if (beforeIdentities.has(identity)) {
+          sawPreExistingMatch = true;
+          return false;
+        }
+        return true;
+      });
+      if (newMatches.length > 1) {
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS: Final Cut exposed multiple newly appearing Browser results for ${name}`);
+      }
+      const match = newMatches[0];
       if (match) {
-        const mediaHandle = this.stableMediaHandle(normalizedPath);
-        const stableMatch = { ...match, handle: mediaHandle, source: normalizedPath };
-        this.stableMediaHandles.set(name.toLowerCase(), mediaHandle);
+        const identity = browserMediaIdentity(match);
+        if (!identity) throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
+        const mediaHandle = this.stableMediaHandle(identity);
+        const stableMatch = { ...match, handle: mediaHandle };
+        this.stableMediaHandles.set(identity, mediaHandle);
         this.mediaHandles.set(mediaHandle, stableMatch);
         return {
           mediaHandle,
@@ -468,6 +496,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
       if (this.now() >= deadline) break;
       await this.sleep(Math.min(this.mediaImportPollMs, deadline - this.now()));
+    }
+    if (sawPreExistingMatch) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING: Final Cut exposed only pre-existing Browser results for ${name}`);
     }
     throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: Final Cut did not expose ${name} in the Browser within ${this.mediaImportTimeoutMs}ms`);
   }
@@ -483,7 +514,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       const matches = parseMediaMatches(await this.executor(searchMediaScript(query))).map((match) => {
-        const stableHandle = this.stableMediaHandles.get(match.name.toLowerCase());
+        const identity = browserMediaIdentity(match);
+        const stableHandle = identity ? this.stableMediaHandles.get(identity) : undefined;
         return stableHandle ? { ...match, handle: stableHandle } : match;
       });
       this.mediaHandles.clear();
@@ -995,8 +1027,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
-  private stableMediaHandle(sourcePath: string): string {
-    return `media-import-${createHash("sha256").update(sourcePath).digest("hex").slice(0, 24)}`;
+  private stableMediaHandle(identity: string): string {
+    return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
   }
 }
 
@@ -1411,7 +1443,39 @@ function searchMediaScript(query: string): string {
       set value of attribute "AXFocused" of searchField to true
     end try
     delay 0.5
-    return ${appleScriptString(query)} & (ASCII character 31) & "AXBrowserMedia" & (ASCII character 30)
+    set output to ""
+    set foundWithoutIdentity to false
+    set lastIdentity to ""
+    try
+      repeat with candidate in entire contents of mainWindow
+        try
+          if (value of candidate as text) is searchQuery then
+            set mediaRole to role of candidate as text
+            set mediaIdentity to ""
+            try
+              set mediaIdentity to value of attribute "AXURL" of candidate as text
+            end try
+            if mediaIdentity is "" then
+              try
+                set mediaIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+            end if
+            if mediaIdentity is not "" then
+              if mediaIdentity is not lastIdentity then
+                set output to output & searchQuery & (ASCII character 31) & mediaRole & (ASCII character 31) & mediaIdentity & (ASCII character 30)
+              end if
+              set lastIdentity to mediaIdentity
+            else
+              set foundWithoutIdentity to true
+            end if
+          end if
+        end try
+      end repeat
+    end try
+    if output is "" and foundWithoutIdentity then
+      set output to ${appleScriptString(query)} & (ASCII character 31) & "AXBrowserMedia" & (ASCII character 31) & (ASCII character 30)
+    end if
+    return output
   end tell
 end tell`;
 }
@@ -1681,14 +1745,20 @@ function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = ""] = record.split(String.fromCharCode(31));
+      const [name = "", role = "", source = ""] = record.split(String.fromCharCode(31));
       return {
         handle: opaqueHandle("media", index),
         name,
         ...(role ? { role } : {}),
+        ...(source ? { source } : {}),
         uiIndex: index,
       };
     });
+}
+
+function browserMediaIdentity(match: NativeFinalCutMediaMatch): string | undefined {
+  const identity = match.source?.trim();
+  return identity || undefined;
 }
 
 function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOccurrence[] {
