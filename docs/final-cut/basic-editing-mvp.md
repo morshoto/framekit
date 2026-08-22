@@ -72,13 +72,27 @@ The existing `timeline.edit` path is the deterministic transaction seam. The
 preview token API is a required extension of this contract; it must not weaken
 the existing transaction, diff, or fail-closed behavior.
 
+The MVP also requires an explicit placement contract for the media it adds:
+
+- `timeline.media.add` accepts a stable `mediaId`, `role` (`video` or `music`),
+  start time, duration, and target lane, then returns the planned occurrence;
+- `timeline.title.add` accepts a stable title `assetId`, title text, start time,
+  duration, and target lane, then returns the planned title occurrence.
+
+Both operations are required extensions of the current `timeline.edit` surface.
+They must participate in the same preview/execute transaction and revision
+checks. The current runtime does not implement them yet; the missing
+capabilities must remain explicit until their schemas, adapters, and fixture
+behavior exist.
+
 ### 4. Add music and a title
 
 Use `media.import` for the local music file, then use `editor.assets` with
 `kind: "title"` to select an installed title by returned asset ID. Apply the
-music placement and title placement through the same preview/execute
-transaction rules as the video edit. The title and music must reference stable
-media or asset IDs, never an agent-invented name or path.
+music placement through `timeline.media.add` and title placement through
+`timeline.title.add`, using the same preview/execute transaction rules as the
+video edit. The title and music must reference stable media or asset IDs, never
+an agent-invented name or path.
 
 The fixture must include at least one known title asset and a music item. A
 backend without `assetDiscovery` or the required media/edit capability must
@@ -126,6 +140,8 @@ rollback before returning a failed result.
 | `context.inspect` | Existing | Read the agent editing context and capabilities. |
 | `media.import` | Required extension | Ingest and identify a local media file. |
 | `media.inspect` | Existing | Read normalized media metadata and attached analysis. |
+| `timeline.media.add` | Required extension | Place an imported video or music occurrence by stable media ID. |
+| `timeline.title.add` | Required extension | Place a discovered title asset with explicit text and timing. |
 | `timeline.edit` | Existing | Execute supported deterministic edits and return a transaction. |
 | `timeline.edit.preview` / `timeline.edit.execute` | Required extension | Provide non-mutating preview and guarded execution. |
 | `editor.assets` | Existing | Select a real installed title asset. |

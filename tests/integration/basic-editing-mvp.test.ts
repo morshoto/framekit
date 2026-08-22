@@ -29,6 +29,8 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
     "timeline.edit",
     "timeline.media.add",
     "timeline.title.add",
+    "timeline.edit.preview",
+    "timeline.edit.execute",
     "editor.assets",
     "timeline.export",
     "edit.verify",
@@ -37,8 +39,6 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
     assert.match(contract, new RegExp("`" + tool + "`"));
   }
 
-  assert.match(contract, /preview/);
-  assert.match(contract, /execute/);
   assert.match(contract, /base revision/i);
   assert.match(contract, /CAPABILITY_UNAVAILABLE/);
   assert.match(contract, /deterministic fixture/i);
