@@ -30,6 +30,7 @@ import type {
   VerificationPolicy,
 } from "./domain/types.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
+import { withCanonicalTimelineMode } from "./capabilities.js";
 
 export class AgentVideoRuntime {
   private readonly transactions = new Map<string, EditTransaction>();
@@ -79,7 +80,7 @@ export class AgentVideoRuntime {
   }
 
   public async inspectEditor() {
-    const capabilities = await this.adapter.getCapabilities();
+    const capabilities = withCanonicalTimelineMode(await this.adapter.getCapabilities());
     return {
       identity: await this.adapter.getIdentity(),
       capabilities: {

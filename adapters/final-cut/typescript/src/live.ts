@@ -2,6 +2,7 @@ import { createConnection, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { withCanonicalTimelineMode } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditorChange,
@@ -125,7 +126,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {
     const response = await this.request({ method: "capabilities" });
-    return response.capabilities;
+    return withCanonicalTimelineMode(response.capabilities);
   }
 
   public async readLiveState(): Promise<EditorLiveState> {

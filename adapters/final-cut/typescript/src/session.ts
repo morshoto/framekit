@@ -1,3 +1,4 @@
+import { withCanonicalTimelineMode } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditOperation,
@@ -48,7 +49,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const snapshot = await this.options.snapshot?.getCapabilities();
     const mutation = await this.options.mutation?.getCapabilities();
     const live = await optionalCapabilities(this.options.live);
-    return {
+    return withCanonicalTimelineMode({
       editor: {
         projectRead: Boolean(snapshot?.editor.projectRead),
         timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead),
@@ -70,7 +71,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         audioLoudness: Boolean(snapshot?.analyzers.audioLoudness || mutation?.analyzers.audioLoudness || live?.analyzers.audioLoudness),
         visualTrack: Boolean(snapshot?.analyzers.visualTrack || mutation?.analyzers.visualTrack || live?.analyzers.visualTrack),
       },
-    };
+    });
   }
 
   public async read(): Promise<ProjectSnapshot> {

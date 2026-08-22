@@ -340,6 +340,8 @@ export interface EditorIdentity {
 }
 
 export interface EditorCapabilities {
+  /** Derived canonical guarantee exposed to agents; omitted only by legacy adapters. */
+  canonicalTimelineMode?: "metadata-only" | "canonical-read" | "canonical-write";
   projectRead: boolean;
   timelineSnapshotRead: boolean;
   timelineWrite: boolean;
