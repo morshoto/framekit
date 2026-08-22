@@ -77,3 +77,27 @@ test("CI runs the clean Codex plugin installation smoke test", async () => {
   assert.match(workflow, /npm install --global @openai\/codex/);
   assert.match(workflow, /pnpm run test:codex-plugin/);
 });
+
+test("user documentation leads with plugin installation and explains first-run boundaries", async () => {
+  const readme = await readFile(resolve(repository, "README.md"), "utf8");
+  const gettingStarted = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
+  const installation = await readFile(resolve(repository, "docs/final-cut/installation.md"), "utf8");
+
+  for (const content of [readme, gettingStarted]) {
+    assert.match(content, /codex plugin marketplace add morshoto\/framekit/);
+    assert.match(content, /\/plugins/);
+    assert.match(content, /new\s+Codex session/i);
+    assert.doesNotMatch(content, /codex mcp add framekit/);
+  }
+
+  for (const expected of [
+    "Workflow Extension",
+    "Accessibility",
+    "Automation",
+    "headless",
+    "connection.status",
+    "capability",
+  ]) {
+    assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
+  }
+});
