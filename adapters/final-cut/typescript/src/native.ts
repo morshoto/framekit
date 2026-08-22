@@ -347,7 +347,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const operationId = `native-op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const command = commandName(operation);
     try {
-      await this.executor(editScript(operation));
+      await this.executeNativeCommand(editScript(operation));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -519,7 +519,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     await this.validateOccurrenceBinding(preview.occurrence);
     if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     try {
-      await this.executor(bladeScript());
+      await this.executeNativeCommand(bladeScript());
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -736,12 +736,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async positionAndDeleteRange(range: NativeFinalCutRange, beforeLive: EditorLiveState): Promise<void> {
     const startTimecode = this.toTimecode(range.start, beforeLive);
     const endTimecode = this.toTimecode(range.end, beforeLive);
-    await this.executor(setPlayheadScript(startTimecode));
+    await this.executeNativeCommand(setPlayheadScript(startTimecode));
     await this.waitForPlayhead(range.start, beforeLive.sequence?.id);
-    await this.executor(markRangeStartScript());
-    await this.executor(setPlayheadScript(endTimecode));
+    await this.executeNativeCommand(markRangeStartScript());
+    await this.executeNativeCommand(setPlayheadScript(endTimecode));
     await this.waitForPlayhead(range.end, beforeLive.sequence?.id);
-    await this.executor(markRangeEndAndDeleteScript());
+    await this.executeNativeCommand(markRangeEndAndDeleteScript());
+  }
+
+  private async executeNativeCommand(script: string): Promise<void> {
+    try {
+      await this.executor(script);
+    } catch (error) {
+      if (!isRecoverableNativeFocusRace(error)) throw error;
+      await this.ensureTimelineReady();
+      await this.executor(script);
+    }
   }
 
   private async waitForPlayhead(expected: RationalTime, sequenceId?: string): Promise<EditorLiveState> {
@@ -1712,4 +1722,11 @@ function nativeErrorMessage(error: unknown): string {
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "Grant Accessibility and Automation permission to the MCP host for Final Cut Pro";
   const executionError = message.split("\n").find((line) => line.includes("execution error:"));
   return executionError?.trim() ?? message;
+}
+
+function isRecoverableNativeFocusRace(error: unknown): boolean {
+  const code = nativeErrorCode(error);
+  if (code === "FINAL_CUT_NATIVE_NOT_FRONTMOST" || code === "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED") return true;
+  const message = String(error);
+  return message.includes("execution error:") && message.includes("-1719");
 }
