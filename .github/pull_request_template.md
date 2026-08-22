@@ -1,21 +1,21 @@
+- [ ] Request PR review
+- [ ] If you are unable to review, please set it as a [PR draft](https://github.blog/2019-02-14-introducing-draft-pull-requests/) draft.
+- [ ] Github issue: Closes: #
+
 ## Summary
 
-<!-- What changed, and why? Link the issue or design decision when applicable. -->
+<!-- Please provide a summary of what you did in this pull request -->
+<!-- Example: Added △△ functionality to resolve the issue with 〇〇 -->
+<!-- Please attach a Github Label to indicate the type of PR -->
+<!-- open -->
 
-## Scope
-
-- [ ] Runtime or domain model
-- [ ] MCP server
-- [ ] Editor adapter
-- [ ] Native Final Cut bridge
-- [ ] Tests or fixtures
-- [ ] Documentation
+<!-- close -->
 
 ## Validation
 
 <!-- List the commands you ran and summarize the result. -->
 
-```text
+```bash
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
