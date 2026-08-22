@@ -14,6 +14,7 @@ function context(
   timelineFocused = frontmost && timelineWindowAvailable,
   focusTarget = timelineFocused ? "timeline" : timelineWindowAvailable ? "unknown" : "none",
   focusAttempts = 0,
+  undoCommand = undo ? "Undo" : "",
 ): string {
   return [
     frontmost ? "true" : "false",
@@ -30,6 +31,11 @@ function context(
     timelineFocused ? "true" : "false",
     focusTarget,
     String(focusAttempts),
+    "",
+    "",
+    windowName,
+    "false",
+    undoCommand,
   ].join(separator);
 }
 
@@ -49,23 +55,22 @@ function contextWithOverlay(
     overlayBlocked?: boolean;
   } = {},
 ): string {
-  return [
-    ...context(
-      frontmost,
-      windowName,
-      selectedName,
-      selectedCount,
-      undo,
-      true,
-      options.timelineFocused ?? true,
-      options.focusTarget ?? (options.timelineFocused === false ? "unknown" : "timeline"),
-      options.focusAttempts ?? 1,
-    ).split(separator),
-    options.framekitWindowAvailable === undefined ? "false" : String(options.framekitWindowAvailable),
-    options.framekitWindowMinimized === undefined ? "false" : String(options.framekitWindowMinimized),
-    options.focusedWindowName ?? windowName,
-    options.overlayBlocked === undefined ? "false" : String(options.overlayBlocked),
-  ].join(separator);
+  const values = context(
+    frontmost,
+    windowName,
+    selectedName,
+    selectedCount,
+    undo,
+    true,
+    options.timelineFocused ?? true,
+    options.focusTarget ?? (options.timelineFocused === false ? "unknown" : "timeline"),
+    options.focusAttempts ?? 1,
+  ).split(separator);
+  values[14] = options.framekitWindowAvailable === undefined ? "false" : String(options.framekitWindowAvailable);
+  values[15] = options.framekitWindowMinimized === undefined ? "false" : String(options.framekitWindowMinimized);
+  values[16] = options.focusedWindowName ?? windowName;
+  values[17] = options.overlayBlocked === undefined ? "false" : String(options.overlayBlocked);
+  return values.join(separator);
 }
 
 test("native Final Cut adapter edits the active selection and uses native undo", async () => {
@@ -99,7 +104,7 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
   assert.equal(undone.context.target.name, "Interview");
-  assert.equal(scripts.some((script) => script.includes('keystroke "z" using {command down}')), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo" of menu "Edit"')), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 

@@ -132,6 +132,7 @@ export interface NativeFinalCutContext {
   };
   bladeAvailable: boolean;
   undoAvailable: boolean;
+  undoCommand?: string;
   error?: { code: string; message: string };
 }
 
@@ -332,9 +333,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertEnabled();
     if (!this.operations.has(operationId)) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
     const before = await this.requireTimelineContext();
-    if (!before.undoAvailable) throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command");
+    if (!before.undoAvailable || !before.undoCommand) throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command");
     try {
-      await this.executor(undoScript());
+      await this.executor(undoScript(before.undoCommand));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -1095,15 +1096,22 @@ function inspectScript(): string {
       end repeat
     end try
     set undoEnabled to false
+    set undoCommand to ""
     try
-      set undoEnabled to enabled of menu item "Undo" of menu "Edit" of menu bar 1
+      repeat with candidate in menu items of menu "Edit" of menu bar 1
+        try
+          set candidateName to name of candidate as text
+          if candidateName starts with "Undo" and (enabled of candidate) is true then
+            set undoEnabled to true
+            set undoCommand to candidateName
+            exit repeat
+          end if
+        end try
+      end repeat
     end try
     set bladeEnabled to false
     try
       set bladeEnabled to enabled of menu item "Blade" of menu "Trim" of menu bar 1
-    end try
-    try
-      if not undoEnabled then set undoEnabled to enabled of menu item "Undo Blade" of menu "Edit" of menu bar 1
     end try
     set inspectorName to ""
     set inspectorRole to ""
@@ -1124,7 +1132,7 @@ function inspectScript(): string {
       set focusedDescription to description of focusedElement as text
     end try
     set frontState to frontmost as text
-    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription
+    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & frontWindowName & (ASCII character 31) & "false" & (ASCII character 31) & undoCommand
   end tell
 end tell`;
 }
@@ -1338,18 +1346,18 @@ tell application "System Events"
 end tell`;
 }
 
-function undoScript(): string {
+function undoScript(command: string): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
-    keystroke "z" using {command down}
+    click menu item ${appleScriptString(command)} of menu "Edit" of menu bar 1
   end tell
 end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState, undoCommandState] = output.split(String.fromCharCode(31));
   const selectedCount = Number(selectedCountText ?? "0");
   const timelineWindowAvailable = timelineWindowState === undefined ? Boolean(frontWindow) : timelineWindowState === "true";
   const timelineFocused = timelineFocusedState === undefined
@@ -1386,6 +1394,7 @@ function parseContext(output: string): NativeFinalCutContext {
     target,
     bladeAvailable: bladeState === "true",
     undoAvailable: undoState === "true",
+    ...(undoCommandState ? { undoCommand: undoCommandState } : {}),
   };
 }
 
