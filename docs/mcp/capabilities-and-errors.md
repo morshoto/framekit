@@ -42,6 +42,8 @@ Important error codes include:
 - `FINAL_CUT_LIVE_PROTOCOL`: framing, JSON, or version failure.
 - `EDITOR_NOT_CONNECTED`: no usable editor backend is connected.
 - `STALE_CONTEXT`: an edit used an old revision.
+- `TARGET_MISMATCH`: restore or undo targets a different project or sequence
+  from the active editor target.
 - `ANALYZER_MEDIA_UNAVAILABLE`: the configured analyzer cannot read the media source.
 - `ANALYZER_TIMEOUT`: a configured analyzer exceeded its time limit.
 - `ANALYZER_FAILED`: a configured analyzer exited unsuccessfully.
