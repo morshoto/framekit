@@ -629,6 +629,33 @@ test("native Final Cut recovers when frontmost is lost after preflight", async (
   assert.equal(preflightCalls >= 3, true);
 });
 
+test("native Final Cut refuses a retry when focus recovery changes the selection", async () => {
+  let preflightCalls = 0;
+  let editCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        return context(true, "Final Cut Pro", preflightCalls === 1 ? "Interview" : "Other", 1, true);
+      }
+      if (script.includes("Apply Custom Name")) {
+        editCalls += 1;
+        if (editCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }),
+    /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/,
+  );
+  assert.equal(editCalls, 1);
+});
+
 test("native timeline preflight reports a missing timeline window without mutating", async () => {
   let clock = 0;
   const scripts: string[] = [];
@@ -882,6 +909,66 @@ test("native Final Cut previews and executes a primary-storyline delete range", 
   assert.equal(scripts.some((script) => script.includes("00:00:15:00")), true);
   assert.equal(scripts.some((script) => script.includes("key code 51")), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
+});
+
+test("native range recovery restarts positioning before deleting", async () => {
+  let revision = 1;
+  let duration = "20";
+  let playhead = "0";
+  let preflightCalls = 0;
+  let startPlayheadCalls = 0;
+  let markStartCalls = 0;
+  let endPlayheadCalls = 0;
+  let deleteCalls = 0;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        return context(true, "Final Cut Pro", "Interview", 1, true);
+      }
+      if (script.includes("00:00:10:00")) {
+        startPlayheadCalls += 1;
+        playhead = "10";
+      }
+      if (script.includes("00:00:15:00")) {
+        endPlayheadCalls += 1;
+        playhead = "15";
+      }
+      if (script.includes('keystroke "i"')) {
+        markStartCalls += 1;
+        if (markStartCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+      }
+      if (script.includes("key code 51")) {
+        deleteCalls += 1;
+        duration = "15";
+        revision = 2;
+      }
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewDeleteRange({
+    start: { value: "10", timescale: "1" },
+    end: { value: "15", timescale: "1" },
+  });
+  const result = await adapter.executeDeleteRange(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.equal(startPlayheadCalls, 2);
+  assert.equal(markStartCalls, 2);
+  assert.equal(endPlayheadCalls, 1);
+  assert.equal(deleteCalls, 1);
+  assert.equal(preflightCalls >= 4, true);
 });
 
 test("native Final Cut trim-to-duration deletes the tail and is idempotent when already short enough", async () => {
