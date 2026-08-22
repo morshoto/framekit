@@ -145,6 +145,8 @@ export manifest and output digest. The required verification tiers are:
   for this MVP.
 
 `edit.undo` must restore the pre-edit snapshot for a completed transaction.
+The transaction is scoped to its original project and sequence; if another
+target is active, undo fails with `TARGET_MISMATCH` before requesting a restore.
 After undo, `project.inspect` must show the original timeline digest and no
 MVP-created media or title occurrence may remain. A failed verification must
 rollback before returning a failed result.

@@ -255,6 +255,14 @@ export class AgentVideoRuntime {
   public async undo(transactionId: string): Promise<ProjectSnapshot> {
     const transaction = this.getTransaction(transactionId);
     const current = await this.inspectProject();
+    if (
+      current.projectId !== transaction.before.projectId
+      || current.timeline.id !== transaction.before.timeline.id
+    ) {
+      throw new Error(
+        `TARGET_MISMATCH: cannot undo ${transaction.before.projectId}/${transaction.before.timeline.id} while ${current.projectId}/${current.timeline.id} is active`,
+      );
+    }
     await this.adapter.restore(transaction.before, current.revision);
     return this.inspectProject();
   }
