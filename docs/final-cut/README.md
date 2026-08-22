@@ -10,6 +10,7 @@ Framekit uses two distinct Final Cut backends:
   selected range, and change events.
 
 - [Workflow Extension](./workflow-extension.md)
+- [Basic editing MVP](./basic-editing-mvp.md)
 - [IPC](./ipc.md)
 - [Installation](./installation.md)
 - [Troubleshooting](./troubleshooting.md)

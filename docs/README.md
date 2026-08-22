@@ -8,6 +8,8 @@ This directory is the shareable knowledge base for Framekit.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.
 - [Tests](./tests/README.md): reproducible checks and evidence.
 - [Final Cut](./final-cut/README.md): native integration and operations.
+- [Basic Final Cut Editing MVP](./final-cut/basic-editing-mvp.md): issue #7
+  workflow, MCP contract, validation gates, and success metrics.
 - [Architecture](./architecture/runtime-boundaries.md): runtime boundaries.
 - [ADRs](./adr/): durable implementation decisions.
 
