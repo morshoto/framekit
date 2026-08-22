@@ -60,8 +60,8 @@ test("pre-commit hook forces headless fixture validation", async () => {
   const environment = finalCutMcpEnvironment({
     FRAMEKIT_COMMIT_VALIDATION: "1",
     FRAMEKIT_EDITOR: "fixture",
-    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
-    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "0",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
   });
   assert.equal(environment.FRAMEKIT_EDITOR, "final-cut-live");
   assert.equal(environment.FRAMEKIT_FINAL_CUT_HEADLESS, "1");
