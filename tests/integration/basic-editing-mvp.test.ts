@@ -43,6 +43,7 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
 
   assert.match(contract, /base revision/i);
   assert.match(contract, /CAPABILITY_UNAVAILABLE/);
+  assert.match(contract, /TARGET_MISMATCH/);
   assert.match(contract, /deterministic fixture/i);
   assert.match(contract, /live Final Cut/i);
   assert.match(contract, /success metrics/i);

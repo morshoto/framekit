@@ -237,6 +237,11 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (this.snapshot.revision.id !== expectedRevision.id) {
       throw new Error("STALE_CONTEXT: editor revision changed before rollback");
     }
+    if (snapshot.projectId !== this.activeProjectId || snapshot.timeline.id !== this.activeSequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: cannot restore ${snapshot.projectId}/${snapshot.timeline.id} while ${this.activeProjectId}/${this.activeSequenceId} is active`,
+      );
+    }
     this.snapshot = {
       ...structuredClone(snapshot),
       revision: {
