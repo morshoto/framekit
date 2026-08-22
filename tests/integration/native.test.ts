@@ -150,6 +150,7 @@ test("native range undo uses Final Cut's Undo Delete Range command and restores 
   assert.equal(undone.verification.verified, true);
   assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Delete Range" of menu "Edit"')), true);
+  assert.equal(scripts.some((script) => script.includes('menu items of menu "Edit" of menu bar 1')), true);
 });
 
 test("native Blade undo uses Final Cut's Undo Blade command", async () => {

@@ -913,7 +913,25 @@ function timelinePreflightScript(): string {
   return `
 tell application "Final Cut Pro" to activate
 on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
-  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked
+  set undoEnabled to false
+  set undoCommand to ""
+  try
+    tell application "System Events"
+      tell process "Final Cut Pro"
+        repeat with candidate in menu items of menu "Edit" of menu bar 1
+          try
+            set candidateName to name of candidate as text
+            if candidateName starts with "Undo" and (enabled of candidate) is true then
+              set undoEnabled to true
+              set undoCommand to candidateName
+              exit repeat
+            end if
+          end try
+        end repeat
+      end tell
+    end tell
+  end try
+  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked & (ASCII character 31) & undoCommand
 end preflightResult
 
 on focusSnapshot()

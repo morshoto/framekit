@@ -328,6 +328,71 @@ test("Final Cut MCP preserves overlay-blocked focus diagnostics", async () => {
   }
 });
 
+test("Final Cut MCP exposes the native Undo command and preserves Undo errors", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    focusedWindowName: "Final Cut Pro",
+    framekitWindowAvailable: true,
+    framekitWindowMinimized: true,
+    overlayBlocked: false,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Delete Range",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    undo: async () => {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Undo Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "undo-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const inspect = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    assert.equal(inspect.undoAvailable, true);
+    assert.equal(inspect.undoCommand, "Undo Delete Range");
+    const response = await client.callTool({ name: "editor.native.undo", arguments: { operationId: "native-range-1" } });
+    assert.equal(response.isError, true);
+    assert.match(textFrom(response), /FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 async function makeAnalyzer(directory: string, output: string): Promise<string> {
   const path = join(directory, `analyzer-${Math.random().toString(16).slice(2)}.sh`);
   await writeFile(path, `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${output.replaceAll("'", "'\\''")}'\n`);

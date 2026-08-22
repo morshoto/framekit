@@ -123,6 +123,13 @@ Native range operations use rational frame times and a preview/execute flow:
 4. Verify the returned live duration and use `editor.native.undo` if the user
    requests a rollback.
 
+Native Undo records the enabled operation-specific Final Cut menu command (for
+example, `Undo Delete Range` or `Undo Blade`) and invokes that exact command.
+The returned native operation ID is session-scoped. Undo fails closed if the
+timeline revision changed, the current Undo command no longer matches the
+recorded operation, or Final Cut does not expose a new revision restoring the
+pre-edit state.
+
 `delete-range` is limited to the primary storyline and ripple-deletes the
 selected range. `trim-to-duration` preserves the beginning of the sequence and
 deletes everything after the requested duration. A target duration that is

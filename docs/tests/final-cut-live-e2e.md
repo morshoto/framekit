@@ -104,7 +104,9 @@ pnpm run test:final-cut-overlay-headed
 The runner verifies that the Framekit window began visible, that the preflight
 detected and minimized it with `AXMinimize`, raised and focused Final Cut's
 timeline, trimmed one disposable second, observed the new duration through
-live state, and restored the original duration through native Undo. It fails
+live state, and restored the original duration through native Undo. The runner
+also records the operation-specific Undo command and verifies that the live
+revision and duration return to their pre-edit values. It fails
 closed if the project name does not match or if the overlay cannot be
 minimized.
 
