@@ -18,6 +18,8 @@ import type {
   MediaContext,
   MediaUnderstanding,
   ProjectSnapshot,
+  ProjectCatalog,
+  ProjectSelection,
   SpeechAnalysis,
   SpeechAnalyzer,
   TimelineDiff,
@@ -54,6 +56,26 @@ export class AgentVideoRuntime {
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     const project = await this.inspectProject();
     return project.timeline;
+  }
+
+  public async listProjects(): Promise<ProjectCatalog> {
+    const capabilities = await this.adapter.getCapabilities();
+    if (!capabilities.editor.projectCatalogRead || !this.adapter.listProjects) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor project catalog");
+    }
+    return this.adapter.listProjects();
+  }
+
+  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    const capabilities = await this.adapter.getCapabilities();
+    if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor project selection");
+    }
+    if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
+    if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
+      throw new Error("INVALID_PROJECT_SELECTION: sequenceId cannot be empty");
+    }
+    return this.adapter.selectProject(selection);
   }
 
   public async inspectEditor() {

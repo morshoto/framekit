@@ -9,6 +9,8 @@ import type {
   AssetSearchQuery,
   LiveEditorStatePort,
   ProjectSnapshot,
+  ProjectCatalog,
+  ProjectSelection,
   RuntimeCapabilities,
 } from "@framekit/runtime";
 
@@ -18,6 +20,8 @@ interface FinalCutSessionOptions {
   live?: LiveEditorStatePort & {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(): Promise<RuntimeCapabilities>;
+    listProjects?(): Promise<ProjectCatalog>;
+    selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
   };
   assets?: Pick<EditorPort, "listAssets">;
 }
@@ -57,6 +61,8 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
         playbackControl: Boolean(live?.editor.playbackControl),
+        projectCatalogRead: Boolean(snapshot?.editor.projectCatalogRead || live?.editor.projectCatalogRead),
+        projectSelection: Boolean(snapshot?.editor.projectSelection || live?.editor.projectSelection),
       },
       analyzers: {
         speechTranscribe: Boolean(snapshot?.analyzers.speechTranscribe || mutation?.analyzers.speechTranscribe || live?.analyzers.speechTranscribe),
@@ -96,6 +102,22 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     return provider.listAssets(query);
   }
 
+  public async listProjects(): Promise<ProjectCatalog> {
+    if (this.options.live?.listProjects && (await optionalProjectCatalogCapability(this.options.live))) {
+      return this.options.live.listProjects();
+    }
+    if (this.options.snapshot?.listProjects) return this.options.snapshot.listProjects();
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project catalog");
+  }
+
+  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    if (this.options.live?.selectProject && (await optionalProjectSelectionCapability(this.options.live))) {
+      return this.options.live.selectProject(selection);
+    }
+    if (this.options.snapshot?.selectProject) return this.options.snapshot.selectProject(selection);
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection");
+  }
+
   public async readLiveState(): Promise<EditorLiveState> {
     if (!this.options.live) throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
     return this.options.live.readLiveState();
@@ -115,5 +137,25 @@ async function optionalCapabilities(
     return await live.getCapabilities();
   } catch {
     return undefined;
+  }
+}
+
+async function optionalProjectCatalogCapability(
+  live: FinalCutSessionOptions["live"],
+): Promise<boolean> {
+  try {
+    return Boolean((await live?.getCapabilities())?.editor.projectCatalogRead);
+  } catch {
+    return false;
+  }
+}
+
+async function optionalProjectSelectionCapability(
+  live: FinalCutSessionOptions["live"],
+): Promise<boolean> {
+  try {
+    return Boolean((await live?.getCapabilities())?.editor.projectSelection);
+  } catch {
+    return false;
   }
 }

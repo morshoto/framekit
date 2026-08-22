@@ -9,7 +9,7 @@ authoritative at runtime; unsupported operations must fail with an explicit
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes | artifact only | yes | yes | external provider required | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | Motion-template registry |
-| Final Cut live | Workflow Extension live IPC | project/sequence metadata only | no | no | no | no | no | no |
+| Final Cut live | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no |
 
 ## Verified local environment
 
@@ -28,8 +28,11 @@ OS version is supported.
 The FCPXML adapter is intentionally not a live Final Cut automation backend.
 The session adapter composes independent snapshot, mutation, live-state,
 analyzer, and asset ports. The Workflow Extension backend is a separate
-live-state port: it exposes active project/sequence metadata, playhead,
-selected range, and observer-backed change events. It reports
+live-state port: it exposes active project metadata and a project-scoped
+sequence identity derived from the current sequence name, plus playhead,
+selected range, and observer-backed change events. The sequence identity is
+not an immutable host identifier; native handles fail closed when it changes.
+It reports
 `timelineSnapshotRead: false` because the public Workflow Extension proxy does
 not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.

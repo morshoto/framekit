@@ -11,12 +11,14 @@ import type {
   MediaContext,
   Marker,
   ProjectSnapshot,
+  ProjectCatalog,
+  ProjectSelection,
   RationalTime,
   RuntimeCapabilities,
 } from "@framekit/runtime";
 import { diffSnapshots } from "@framekit/runtime";
 
-export interface InMemoryFixture {
+export interface InMemoryProjectFixture {
   projectId: string;
   projectName: string;
   timelineId: string;
@@ -27,43 +29,38 @@ export interface InMemoryFixture {
   assets?: EditorAsset[];
 }
 
+export interface InMemoryFixture extends InMemoryProjectFixture {
+  projects?: ProjectCatalog["projects"];
+  /** Canonical snapshots available for explicit project selection. */
+  projectSnapshots?: InMemoryProjectFixture[];
+}
+
 export class InMemoryEditorAdapter implements EditorPort {
   private snapshot: ProjectSnapshot;
   private readonly assets: EditorAsset[];
   private readonly history = new Map<string, ProjectSnapshot>();
+  private readonly snapshotsByTarget: Map<string, ProjectSnapshot>;
+  private readonly projects: ProjectCatalog["projects"];
+  private activeProjectId: string;
+  private activeSequenceId: string;
+  private selectionRevision = 0;
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
-    const clips = fixture.clips.map((clip) => normalizeClip(clip));
-    this.snapshot = {
-      projectId: fixture.projectId,
-      projectName: fixture.projectName,
-      timeline: {
-        id: fixture.timelineId,
-        name: fixture.timelineName,
-        duration: clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
-        durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
-        clips,
-        storyElements: clips.map((clip) => ({
-          id: clip.id,
-          kind: "asset-clip",
-          start: clip.start,
-          duration: clip.duration,
-          startTime: clip.startTime,
-          durationTime: clip.durationTime,
-          lane: clip.track,
-          mediaId: clip.mediaId,
-        })),
-        markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
-        captions: [],
-      },
-      media: structuredClone(fixture.media ?? []),
-      revision: {
-        id: "rev-0",
-        sequence: 0,
-        timestamp: new Date(0).toISOString(),
-      },
-    };
+    this.projects = structuredClone(fixture.projects ?? [{
+      id: fixture.projectId,
+      name: fixture.projectName,
+      sequences: [{ id: fixture.timelineId, name: fixture.timelineName }],
+    }]);
+    this.snapshotsByTarget = new Map((fixture.projectSnapshots ?? [fixture]).map((candidate) => [
+      snapshotKey(candidate.projectId, candidate.timelineId),
+      createSnapshot(candidate),
+    ]));
+    this.activeProjectId = fixture.projectId;
+    this.activeSequenceId = fixture.timelineId;
+    const initialSnapshot = this.snapshotsByTarget.get(snapshotKey(fixture.projectId, fixture.timelineId));
+    if (!initialSnapshot) throw new Error(`PROJECT_NOT_FOUND: ${fixture.projectId}`);
+    this.snapshot = structuredClone(initialSnapshot);
     this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
   }
 
@@ -92,6 +89,8 @@ export class InMemoryEditorAdapter implements EditorPort {
         assetDiscovery: true,
         liveStateRead: false,
         playheadWrite: false,
+        projectCatalogRead: true,
+        projectSelection: true,
       },
       analyzers: {
         speechTranscribe: false,
@@ -110,6 +109,47 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (query?.vendor && asset.vendor.toLowerCase() !== query.vendor.trim().toLowerCase()) return false;
       return true;
     }));
+  }
+
+  public async listProjects(): Promise<ProjectCatalog> {
+    return {
+      projects: structuredClone(this.projects),
+      activeProjectId: this.activeProjectId,
+      activeSequenceId: this.activeSequenceId,
+    };
+  }
+
+  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    const project = this.projects.find((candidate) => candidate.id === selection.projectId);
+    if (!project) throw new Error(`PROJECT_NOT_FOUND: ${selection.projectId}`);
+    const sequenceId = selection.sequenceId
+      ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+    if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: ${selection.projectId} has multiple sequences`);
+    if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
+      throw new Error(`SEQUENCE_NOT_FOUND: ${sequenceId}`);
+    }
+    const target = this.snapshotsByTarget.get(snapshotKey(project.id, sequenceId));
+    if (!target) {
+      throw new Error(`UNSUPPORTED_PROJECT_SELECTION: no canonical snapshot for ${project.id}`);
+    }
+    if (target.timeline.id !== sequenceId) {
+      throw new Error(`UNSUPPORTED_PROJECT_SELECTION: no canonical snapshot for sequence ${sequenceId}`);
+    }
+    if (this.activeProjectId === project.id && this.activeSequenceId === sequenceId) return this.listProjects();
+    this.selectionRevision += 1;
+    this.snapshot = {
+      ...structuredClone(target),
+      revision: {
+        id: `rev-select-${this.selectionRevision}`,
+        sequence: this.selectionRevision,
+        timestamp: new Date(this.selectionRevision).toISOString(),
+      },
+    };
+    this.history.clear();
+    this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
+    this.activeProjectId = project.id;
+    this.activeSequenceId = sequenceId;
+    return this.listProjects();
   }
 
   public async readChanges(since: ContextRevision): Promise<ContextChangeSet> {
@@ -267,7 +307,44 @@ export class InMemoryEditorAdapter implements EditorPort {
   }
 }
 
-function normalizeClip(clip: InMemoryFixture["clips"][number]): Clip {
+function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
+  const clips = fixture.clips.map((clip) => normalizeClip(clip));
+  return {
+    projectId: fixture.projectId,
+    projectName: fixture.projectName,
+    timeline: {
+      id: fixture.timelineId,
+      name: fixture.timelineName,
+      duration: clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
+      durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
+      clips,
+      storyElements: clips.map((clip) => ({
+        id: clip.id,
+        kind: "asset-clip",
+        start: clip.start,
+        duration: clip.duration,
+        startTime: clip.startTime,
+        durationTime: clip.durationTime,
+        lane: clip.track,
+        mediaId: clip.mediaId,
+      })),
+      markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
+      captions: [],
+    },
+    media: structuredClone(fixture.media ?? []),
+    revision: {
+      id: "rev-0",
+      sequence: 0,
+      timestamp: new Date(0).toISOString(),
+    },
+  };
+}
+
+function snapshotKey(projectId: string, timelineId: string): string {
+  return `${projectId}\u0000${timelineId}`;
+}
+
+function normalizeClip(clip: InMemoryProjectFixture["clips"][number]): Clip {
   return withClipTime({ ...clip, startTime: clip.startTime, durationTime: clip.durationTime });
 }
 
