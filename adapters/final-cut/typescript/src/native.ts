@@ -592,7 +592,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         const stableHandle = identity ? this.stableMediaHandles.get(identity) : undefined;
         return stableHandle ? { ...match, handle: stableHandle } : match;
       });
-      this.mediaHandles.clear();
+      const stableHandles = new Set(this.stableMediaHandles.values());
+      for (const handle of this.mediaHandles.keys()) {
+        if (!stableHandles.has(handle)) this.mediaHandles.delete(handle);
+      }
       this.selectedMediaHandle = undefined;
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
