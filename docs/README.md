@@ -10,7 +10,7 @@ Repository-local GitHub agent playbooks are documented in
 - [SDD](./SDD.md): architecture and design contracts.
 - [Compatibility](./COMPATIBILITY.md): verified editor and toolchain support.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.
-- [Tests](./tests/README.md): reproducible checks and evidence.
+- [Tests](./tests/README.md): reproducible checks and evidence, including the [deterministic MCP evaluation](./tests/mcp-evaluation.md).
 - [Final Cut](./final-cut/README.md): native integration and operations.
 - [Basic Final Cut Editing MVP](./final-cut/basic-editing-mvp.md): issue #7
   workflow, MCP contract, validation gates, and success metrics.
