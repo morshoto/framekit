@@ -1,5 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
   ContextRevision,
   EditorChange,
@@ -12,7 +14,10 @@ import type {
 export const FINAL_CUT_LIVE_PROTOCOL_VERSION = 1;
 
 /** Shared deterministic endpoint used by both the Node client and Swift host. */
-export const DEFAULT_FINAL_CUT_LIVE_SOCKET = "/tmp/framekit-finalcut.sock";
+export const DEFAULT_FINAL_CUT_LIVE_SOCKET = join(
+  homedir(),
+  "Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock",
+);
 
 export type FinalCutLiveMethod = "capabilities" | "state" | "changes";
 

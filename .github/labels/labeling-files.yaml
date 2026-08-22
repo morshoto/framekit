@@ -1,0 +1,141 @@
+# Label: Group Tag
+'Group: Frontend':
+    - changed-files:
+          - any-glob-to-any-file: ['frontend/**']
+'Group: Backend':
+    - changed-files:
+          - any-glob-to-any-file: ['backend/**']
+'Group: Database':
+    - changed-files:
+          - any-glob-to-any-file:
+                [
+                    '**/*.sql',
+                    '**/*.db',
+                    '**/*.db3',
+                    '**/*.sqlite',
+                    '**/*.sqlite3',
+                    '**/*.psql',
+                ]
+'Group: Machine Learning':
+    - changed-files:
+          - any-glob-to-any-file:
+                ['**/*.ipynb', '**/*.r', '**/*.jl', '**/*.pt', '**/*.onnx']
+'Group: Infrastructure':
+    - changed-files:
+          - any-glob-to-any-file:
+                [
+                    'terraform/**',
+                    'Dockerfile',
+                    'docker/**',
+                    'k8s/**',
+                    'kubernetes/**',
+                    '**/*.tf',
+                    '**/*.tfvars',
+                ]
+
+# Label: Type Tag
+'Type: Design':
+    - changed-files:
+          - any-glob-to-any-file: ['**/*.sketch', '**/*.fig', '**/*.xd', '**/*.ai', '**/*.psd']
+'Type: Document':
+    - changed-files:
+          - any-glob-to-any-file: ['**/*.md', '**/*.rst', '**/*.tex', '**/*.pdf']
+'Type: Improvement':
+    - changed-files:
+          - any-glob-to-any-file:
+                [
+                    '**/*.py',
+                    '**/*.js',
+                    '**/*.rb',
+                    '**/*.go',
+                    '**/*.java',
+                    '**/*.cpp',
+                ]
+# 'Type: New Feature':
+#     - changed-files:
+#           - any-glob-to-any-file:
+#                 [
+#                     '**/*.py',
+#                     '**/*.js',
+#                     '**/*.rb',
+#                     '**/*.go',
+#                     '**/*.java',
+#                     '**/*.cpp',
+#                 ]
+
+# Label: Outside Topic Tag
+# 'O: Good 1st Issue':
+#     - changed-files:
+#           - any-glob-to-any-file:
+#                 [
+#                     '**/*.md',
+#                     '**/*.py',
+#                     '**/*.js',
+#                     '**/*.rb',
+#                     '**/*.go',
+#                     '**/*.java',
+#                     '**/*.cpp',
+#                 ]
+# 'O: Help Wanted':
+#     - changed-files:
+#           - any-glob-to-any-file:
+#                 [
+#                     '**/*.md',
+#                     '**/*.py',
+#                     '**/*.js',
+#                     '**/*.rb',
+#                     '**/*.go',
+#                     '**/*.java',
+#                     '**/*.cpp',
+#                 ]
+
+# Label: Priority Tag
+# 'Priority: High':
+#   - changed-files:
+#     - any-glob-to-any-file: ['**/*.py', '**/*.js', '**/*.rb', '**/*.go', '**/*.java', '**/*.cpp']
+'Priority: Mid':
+    - changed-files:
+          - any-glob-to-any-file:
+                [
+                    '**/*.py',
+                    '**/*.js',
+                    '**/*.rb',
+                    '**/*.go',
+                    '**/*.java',
+                    '**/*.cpp',
+                ]
+# 'Priority: Low':
+#   - changed-files:
+#     - any-glob-to-any-file: ['**/*.py', '**/*.js', '**/*.rb', '**/*.go', '**/*.java', '**/*.cpp']
+
+# Label: Feedback Tag
+'Feedback: Feature Request':
+    - changed-files:
+          - any-glob-to-any-file: ['**/*.md', '**/*.txt']
+# 'Feedback: Question':
+#     - changed-files:
+#           - any-glob-to-any-file: ['**/*.md', '**/*.txt']
+
+# Label: Problem Tag
+# 'Problem: Bug':
+#     - changed-files:
+#           - any-glob-to-any-file:
+#                 [
+#                     '**/*.py',
+#                     '**/*.js',
+#                     '**/*.rb',
+#                     '**/*.go',
+#                     '**/*.java',
+#                     '**/*.cpp',
+#                 ]
+# 'Problem: Security':
+#     - changed-files:
+#           - any-glob-to-any-file:
+#                 [
+#                     '**/*.py',
+#                     '**/*.js',
+#                     '**/*.rb',
+#                     '**/*.go',
+#                     '**/*.java',
+#                     '**/*.cpp',
+#                 ]

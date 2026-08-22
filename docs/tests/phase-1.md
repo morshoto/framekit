@@ -18,5 +18,5 @@ Run:
 npm test
 ```
 
-The suite passed 12 tests on 2026-08-16. These tests exercise runtime and
+The full suite passed 20 tests on 2026-08-16. These tests exercise runtime and
 adapter contracts without exporting media.

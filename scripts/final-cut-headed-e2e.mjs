@@ -1,0 +1,249 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { execFile as execFileCallback } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const execFile = promisify(execFileCallback);
+const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
+const query = process.env.FRAMEKIT_FINAL_CUT_E2E_QUERY;
+
+if (process.argv.includes("--help")) {
+  process.stdout.write([
+    "Disposable headed Final Cut E2E",
+    "",
+    "Required:",
+    "  FRAMEKIT_FINAL_CUT_E2E_PROJECT=exact-disposable-project-name",
+    "  FRAMEKIT_FINAL_CUT_E2E_QUERY=browser-search-query",
+    "",
+    "The test searches, selects, locates, Blades, verifies two segments, and undoes.",
+  ].join("\n"));
+  process.stdout.write("\n");
+  process.exit(0);
+}
+
+if (!expectedProject || !query) {
+  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_PROJECT and FRAMEKIT_FINAL_CUT_E2E_QUERY before running the headed E2E");
+}
+
+const transport = new StdioClientTransport({
+  command: process.execPath,
+  args: ["--import", "tsx", join(root, "apps/mcp-server/src/main.ts")],
+  env: {
+    ...process.env,
+    FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
+  },
+  stderr: "pipe",
+});
+const client = new Client({ name: "framekit-headed-e2e", version: "0.1.0" });
+
+try {
+  await client.connect(transport);
+  await activateFinalCut();
+  const native = await waitForNativeReady();
+  if (!native.available || !native.frontmost || !native.timelineWindowAvailable || !native.timelineFocused || native.focusTarget !== "timeline") {
+    throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.code ?? nativePreflightError(native)}: ${native.error?.message ?? "Final Cut timeline preflight did not establish a focused timeline"}`);
+  }
+  if (native.framekitWindowAvailable !== true || native.framekitWindowMinimized !== true) {
+    throw new Error("FINAL_CUT_E2E_OVERLAY_NOT_MINIMIZED: expected the visible Framekit window to be detected and minimized by Accessibility");
+  }
+  if (native.project && native.project !== expectedProject) {
+    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${native.project}`);
+  }
+  await assertFinalCutProject(expectedProject);
+
+  const preflightLive = await callJson("editor.live.inspect");
+  const preflightDuration = preflightLive.sequenceTimeRange?.duration ?? preflightLive.sequence?.duration;
+  const preflightFrameDuration = preflightLive.sequence?.frameDuration;
+  if (!preflightDuration || !preflightFrameDuration) throw new Error("FINAL_CUT_E2E_PREFLIGHT_DURATION_UNAVAILABLE: live sequence duration and frame duration are required");
+  const disposableOneSecond = { value: preflightFrameDuration.timescale, timescale: preflightFrameDuration.timescale };
+  const disposableTrimDuration = subtractRational(preflightDuration, disposableOneSecond);
+  if (BigInt(disposableTrimDuration.value) <= 0n) throw new Error("FINAL_CUT_E2E_PREFLIGHT_DURATION_TOO_SHORT: disposable trim requires a sequence longer than one second");
+  const preflight = await callJson("editor.native.trim-to-duration.preview", { duration: disposableTrimDuration });
+  if (!preflight.previewToken) throw new Error("FINAL_CUT_E2E_PREFLIGHT_FAILED: native timeline preflight did not return a preview token");
+  const preflightTrimmed = await callJson("editor.native.trim-to-duration.execute", { previewToken: preflight.previewToken });
+  if (!preflightTrimmed.verification?.verified) throw new Error("FINAL_CUT_E2E_PREFLIGHT_TRIM_FAILED: disposable trim was not verified");
+  await assertLiveDuration(disposableTrimDuration, "overlay-focus-trim");
+  await callJson("editor.native.undo", { operationId: preflightTrimmed.operationId });
+  await assertLiveDuration(preflightDuration, "overlay-focus-trim undo");
+
+  await focusFinalCut();
+  const matches = await callJson("editor.native.media.search", { query });
+  if (!Array.isArray(matches) || matches.length === 0) throw new Error("FINAL_CUT_E2E_MEDIA_NOT_FOUND: Browser search returned no results");
+  const selected = matches[0];
+  await focusFinalCut();
+  await callJson("editor.native.media.select", { mediaHandle: selected.handle });
+  await focusFinalCut();
+  const located = await callJson("editor.native.timeline.locate", { mediaHandle: selected.handle });
+  if (located.status !== "unique") {
+    throw new Error(`FINAL_CUT_E2E_OCCURRENCE_${String(located.status).toUpperCase()}: expected exactly one timeline occurrence`);
+  }
+  await focusFinalCut();
+  const preview = await callJson("editor.native.blade.preview", { occurrenceHandle: located.occurrences[0].handle });
+  await focusFinalCut();
+  const blade = await callJson("editor.native.blade.execute", { previewToken: preview.previewToken });
+  if (!blade.verification?.verified || blade.resultingSegments?.length < 2) {
+    throw new Error("FINAL_CUT_E2E_BLADE_VERIFICATION_FAILED: expected two resulting segments");
+  }
+  await focusFinalCut();
+  await callJson("editor.native.undo", { operationId: blade.operationId });
+  await focusFinalCut();
+  const restored = await callJson("editor.native.timeline.locate", { mediaHandle: selected.handle });
+  if (restored.status !== "unique") throw new Error("FINAL_CUT_E2E_UNDO_VERIFICATION_FAILED: original occurrence was not restored");
+
+  const originalLive = await callJson("editor.live.inspect");
+  const originalDuration = originalLive.sequenceTimeRange?.duration ?? originalLive.sequence?.duration;
+  const frameDuration = originalLive.sequence?.frameDuration;
+  if (!originalDuration || !frameDuration) throw new Error("FINAL_CUT_E2E_DURATION_UNAVAILABLE: live sequence duration is required");
+  const oneSecond = { value: frameDuration.timescale, timescale: frameDuration.timescale };
+  const deleteStart = subtractRational(originalDuration, oneSecond);
+  const deletePreview = await callJson("editor.native.delete-range.preview", { start: deleteStart, end: originalDuration });
+  await focusFinalCut();
+  const deleted = await callJson("editor.native.delete-range.execute", { previewToken: deletePreview.previewToken });
+  if (!deleted.verification?.verified) throw new Error("FINAL_CUT_E2E_DELETE_VERIFICATION_FAILED: range delete was not verified");
+  await assertLiveDuration(deletePreview.expectedAfterDuration, "delete-range");
+  await focusFinalCut();
+  await callJson("editor.native.undo", { operationId: deleted.operationId });
+  await assertLiveDuration(originalDuration, "delete-range undo");
+
+  const trimPreview = await callJson("editor.native.trim-to-duration.preview", { duration: deleteStart });
+  await focusFinalCut();
+  const trimmed = await callJson("editor.native.trim-to-duration.execute", { previewToken: trimPreview.previewToken });
+  if (!trimmed.verification?.verified) throw new Error("FINAL_CUT_E2E_TRIM_VERIFICATION_FAILED: duration trim was not verified");
+  await assertLiveDuration(deleteStart, "trim-to-duration");
+  await focusFinalCut();
+  await callJson("editor.native.undo", { operationId: trimmed.operationId });
+  await assertLiveDuration(originalDuration, "trim-to-duration undo");
+
+  process.stdout.write(JSON.stringify({
+    passed: true,
+    project: expectedProject,
+    query,
+    media: selected,
+    bladeOperationId: blade.operationId,
+    deleteRangeOperationId: deleted.operationId,
+    trimToDurationOperationId: trimmed.operationId,
+    restored: true,
+  }, null, 2));
+  process.stdout.write("\n");
+} finally {
+  await client.close().catch(() => {});
+  await transport.close().catch(() => {});
+}
+
+async function activateFinalCut() {
+  try {
+    let running = true;
+    try {
+      await execFile("pgrep", ["-x", "Final Cut Pro"]);
+    } catch {
+      running = false;
+    }
+    if (running) {
+      await focusFinalCut();
+    } else {
+      await execFile("open", ["-a", "Final Cut Pro"]);
+      await focusFinalCut();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`FINAL_CUT_NATIVE_NOT_READY: could not activate Final Cut Pro: ${message}`);
+  }
+}
+
+async function waitForNativeReady() {
+  let last;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      last = await callJson("editor.native.focus");
+      if (last.available && last.frontmost && last.timelineWindowAvailable && last.timelineFocused && last.focusTarget === "timeline") return last;
+    } catch (error) {
+      last = { error: { message: error instanceof Error ? error.message : String(error) } };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return last;
+}
+
+function nativePreflightError(native) {
+  if (!native?.timelineWindowAvailable) return "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
+  if (!native?.frontmost) return "FINAL_CUT_NATIVE_NOT_FRONTMOST";
+  return "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED";
+}
+
+async function focusFinalCut() {
+  await execFile("osascript", ["-e", "tell application \"System Events\" to tell process \"Final Cut Pro\" to set frontmost to true"]);
+}
+
+async function assertFinalCutProject(project) {
+  const script = `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set expectedProject to ${appleScriptString(project)}
+    set menuItems to name of every menu item of menu "File" of menu bar 1
+    return menuItems as text
+  end tell
+end tell`;
+  const result = await execFile("osascript", ["-e", script]);
+  if (!result.stdout.includes(project)) {
+    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${project} was not present in Final Cut's File menu`);
+  }
+}
+
+function appleScriptString(value) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replace(/[\\r\\n]/g, " ")}"`;
+}
+
+async function callJson(name, arguments_ = {}) {
+  const result = await client.callTool({ name, arguments: arguments_ });
+  const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+  if (result.isError) throw new Error(text || `${name} failed`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${name} returned invalid JSON: ${text}`);
+  }
+}
+
+async function assertLiveDuration(expected, operation) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const live = await callJson("editor.live.inspect");
+    const actual = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    if (actual && sameRational(actual, expected)) return;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`FINAL_CUT_E2E_${operation.toUpperCase().replaceAll("-", "_")}_DURATION_FAILED`);
+}
+
+function subtractRational(left, right) {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRational(leftValue * rightScale - rightValue * leftScale, leftScale * rightScale);
+}
+
+function sameRational(left, right) {
+  return BigInt(left.value) * BigInt(right.timescale) === BigInt(right.value) * BigInt(left.timescale);
+}
+
+function normalizeRational(value, scale) {
+  const divisor = gcd(value < 0n ? -value : value, scale);
+  return { value: (value / divisor).toString(), timescale: (scale / divisor).toString() };
+}
+
+function gcd(left, right) {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
+}

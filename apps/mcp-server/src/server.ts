@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime } from "@framekit/runtime";
+import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionSchema = z.object({
   id: z.string(),
@@ -34,6 +35,12 @@ const editOperationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema }),
   z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema }),
 ]);
+const nativeEditSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
+  z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
+  z.object({ type: z.literal("set-selected-clip-gain"), gainDb: z.number().finite() }),
+  z.object({ type: z.literal("add-marker-at-playhead"), name: z.string().min(1), duration: z.number().nonnegative().optional() }),
+]);
 
 function jsonResult(value: unknown) {
   return {
@@ -41,16 +48,176 @@ function jsonResult(value: unknown) {
   };
 }
 
-export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
+export interface McpServerOptions {
+  connectionStatus?: () => unknown;
+  nativeEditor?: NativeFinalCutEditor;
+  projectPublisher?: FinalCutProjectPublisher;
+}
+
+export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   const server = new McpServer({ name: "framekit", version: "0.1.0" });
+
+  server.registerTool("connection.status", {
+    description: "Read Framekit's Final Cut connection state, setup progress, and live capabilities.",
+    inputSchema: {},
+  }, async () => jsonResult(options.connectionStatus?.() ?? {
+    state: "ready",
+    editorDetected: false,
+    extensionInstalled: false,
+    socketPath: null,
+    capabilities: null,
+    lastError: null,
+  }));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot.",
   }, async () => jsonResult(await runtime.inspectProject()));
 
   server.registerTool("editor.inspect", {
-    description: "Read editor identity and machine-readable Phase 1 capabilities.",
-  }, async () => jsonResult(await runtime.inspectEditor()));
+    description: "Read editor identity and machine-readable Phase 2 capabilities.",
+  }, async () => {
+    const inspected = await runtime.inspectEditor();
+    return jsonResult({
+      ...inspected,
+      capabilities: {
+        ...inspected.capabilities,
+        editor: {
+          ...inspected.capabilities.editor,
+          timelinePublishNewProject: Boolean(options.projectPublisher),
+        },
+      },
+      ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+    });
+  });
+
+  server.registerTool("editor.native.inspect", {
+    description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
+    inputSchema: {},
+  }, async () => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.inspect()
+    : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
+
+  server.registerTool("editor.native.focus", {
+    description: "Activate Final Cut Pro and focus its timeline without changing project or timeline content.",
+    inputSchema: {},
+  }, async () => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.focusTimeline()
+    : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
+
+  server.registerTool("editor.native.edit", {
+    description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
+    inputSchema: nativeEditSchema,
+  }, async (operation) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
+    return jsonResult(await options.nativeEditor.edit(operation));
+  });
+
+  server.registerTool("editor.native.undo", {
+    description: "Undo a previously accepted native Final Cut UI edit using Final Cut's native Undo command.",
+    inputSchema: { operationId: z.string().min(1) },
+  }, async ({ operationId }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
+    return jsonResult(await options.nativeEditor.undo(operationId));
+  });
+
+  server.registerTool("editor.native.media.search", {
+    description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
+    inputSchema: { query: z.string().min(1) },
+  }, async ({ query }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
+    return jsonResult(await options.nativeEditor.searchMedia(query));
+  });
+
+  server.registerTool("editor.native.media.select", {
+    description: "Select one live Final Cut Browser media result using its short-lived handle.",
+    inputSchema: { mediaHandle: z.string().min(1) },
+  }, async ({ mediaHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media selection is not configured");
+    return jsonResult(await options.nativeEditor.selectMedia(mediaHandle));
+  });
+
+  server.registerTool("editor.native.timeline.locate", {
+    description: "Locate matching occurrences of a live Browser media result in the active Final Cut timeline.",
+    inputSchema: { mediaHandle: z.string().min(1) },
+  }, async ({ mediaHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut timeline occurrence location is not configured");
+    return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle));
+  });
+
+  server.registerTool("editor.native.blade.preview", {
+    description: "Prepare a short-lived confirmation token for a Blade-at-playhead operation.",
+    inputSchema: { occurrenceHandle: z.string().min(1) },
+  }, async ({ occurrenceHandle }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
+    return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle));
+  });
+
+  server.registerTool("editor.native.blade.execute", {
+    description: "Execute a previously previewed Blade-at-playhead operation in Final Cut Pro.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
+    return jsonResult(await options.nativeEditor.executeBlade(previewToken));
+  });
+
+  server.registerTool("editor.native.delete-range.preview", {
+    description: "Preview a destructive ripple-delete of an explicit rational time range from the Final Cut primary storyline.",
+    inputSchema: { start: rationalTimeSchema, end: rationalTimeSchema },
+  }, async ({ start, end }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
+    return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }));
+  });
+
+  server.registerTool("editor.native.delete-range.execute", {
+    description: "Execute a previously previewed primary-storyline ripple-delete range operation in Final Cut Pro.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
+    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken));
+  });
+
+  server.registerTool("editor.native.trim-to-duration.preview", {
+    description: "Preview a destructive operation that preserves the beginning of the Final Cut sequence and removes everything after the requested rational duration.",
+    inputSchema: { duration: rationalTimeSchema },
+  }, async ({ duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
+    return jsonResult(await options.nativeEditor.previewTrimToDuration(duration));
+  });
+
+  server.registerTool("editor.native.trim-to-duration.execute", {
+    description: "Execute a previously previewed trim-to-duration operation in Final Cut Pro.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
+    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken));
+  });
+
+  server.registerTool("timeline.publish.new-project", {
+    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
+    inputSchema: { transactionId: z.string().min(1) },
+  }, async ({ transactionId }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const verification = await runtime.verifyTransaction(transactionId);
+    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+    return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
+  });
+
+  server.registerTool("context.inspect", {
+    description: "Read the queryable agent editing context and its current revision.",
+    inputSchema: {},
+  }, async () => jsonResult(await runtime.inspectContext()));
+
+  server.registerTool("context.changes", {
+    description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
+    inputSchema: {
+      sequence: z.number().int().nonnegative(),
+      waitMs: z.number().int().min(0).max(30_000).optional(),
+    },
+  }, async ({ sequence, waitMs }) => jsonResult(await runtime.contextChangesSince({
+    id: `rev-${sequence}`,
+    sequence,
+    timestamp: new Date(sequence).toISOString(),
+  }, waitMs ?? 0)));
 
   server.registerTool("editor.live.inspect", {
     description: "Read live Final Cut Workflow Extension state: project, active sequence, playhead, and selected range.",
@@ -84,14 +251,26 @@ export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
   }, async ({ query }) => jsonResult(await runtime.searchMedia(query)));
 
   server.registerTool("visual.analyze", {
-    description: "Analyze visual content; unavailable until the Phase 2 visual analyzer is installed.",
+    description: "Analyze scenes, subjects, motion, and keyframes for one media item.",
+    inputSchema: {
+      mediaId: z.string().min(1),
+      range: rangeSchema.optional(),
+    },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
+
+  server.registerTool("media.understand", {
+    description: "Return combined speech, audio, and visual understanding for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
-  }, async () => jsonResult(await runtime.analyzeVisual()));
+  }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
 
   server.registerTool("editor.assets", {
-    description: "List editor-native assets when the selected backend supports discovery.",
-    inputSchema: {},
-  }, async () => jsonResult(await runtime.listAssets()));
+    description: "Search editor-native transitions, effects, titles, generators, and templates.",
+    inputSchema: {
+      query: z.string().optional(),
+      kind: z.enum(["transition", "effect", "title", "generator", "audio-effect", "template"]).optional(),
+      vendor: z.string().optional(),
+    },
+  }, async (query) => jsonResult(await runtime.listAssets(query)));
 
   server.registerTool("timeline.changes", {
     description: "Return the canonical timeline diff since a previously observed revision.",
@@ -106,7 +285,7 @@ export function createMcpServer(runtime: AgentVideoRuntime): McpServer {
   });
 
   server.registerTool("timeline.edit", {
-    description: "Apply one supported Phase 0 edit and return read-after-write plus its diff.",
+    description: "Apply one supported edit and return read-after-write plus its diff.",
     inputSchema: editOperationSchema,
   }, async (operation) => jsonResult(await runtime.edit(operation)));
 

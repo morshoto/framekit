@@ -106,11 +106,57 @@ export interface AudioAnalysis {
   silenceMs: number;
 }
 
+export interface VisualScene {
+  id: string;
+  start: number;
+  end: number;
+  label?: string;
+  confidence?: number;
+}
+
+export interface VisualSubject {
+  id: string;
+  label: string;
+  confidence: number;
+  start?: number;
+  end?: number;
+}
+
+export interface VisualKeyframe {
+  time: number;
+  source: string;
+  labels?: string[];
+}
+
+export interface VisualMotion {
+  score: number;
+  label?: "static" | "low" | "medium" | "high";
+}
+
+export interface VisualAnalysis {
+  scenes: VisualScene[];
+  subjects: VisualSubject[];
+  motion?: VisualMotion;
+  keyframes: VisualKeyframe[];
+}
+
 export interface MediaContext {
   mediaId: string;
   source: string;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
+  visual?: VisualAnalysis;
+  /** Revision of the source context used to produce attached analysis. */
+  analysisRevision?: string;
+}
+
+export interface MediaUnderstanding {
+  mediaId: string;
+  source: string;
+  speech?: SpeechAnalysis;
+  audio?: AudioAnalysis;
+  visual?: VisualAnalysis;
+  analysisRevision: ContextRevision;
 }
 
 export interface ProjectSnapshot {
@@ -212,6 +258,38 @@ export interface TimelineDiff {
   affectedRanges: TimeRange[];
 }
 
+export interface AssetChange {
+  type: "ASSET_ADDED" | "ASSET_REMOVED" | "ASSET_MODIFIED";
+  assetId: string;
+  before?: EditorAsset;
+  after?: EditorAsset;
+}
+
+export interface ContextChangeSet {
+  from: ContextRevision;
+  to: ContextRevision;
+  timeline?: TimelineDiff;
+  stateChanges: EditorChange[];
+  assetChanges: AssetChange[];
+}
+
+export interface ContextDiff {
+  from: ContextRevision;
+  to: ContextRevision;
+  timeline?: TimelineDiff;
+  stateChanges: EditorChange[];
+  assetChanges: AssetChange[];
+}
+
+export interface AgentContext {
+  revision: ContextRevision;
+  project: ProjectSnapshot;
+  editorState?: EditorLiveState;
+  media: MediaContext[];
+  recentChanges: ContextDiff;
+  capabilities: RuntimeCapabilities;
+}
+
 export interface EditTransaction {
   id: string;
   operation: EditOperation;
@@ -250,6 +328,8 @@ export interface EditorCapabilities {
   liveStateRead: boolean;
   playheadWrite: boolean;
   playbackControl?: boolean;
+  /** Canonical artifact can be imported as a new editor project. */
+  timelinePublishNewProject?: boolean;
 }
 
 export interface AnalyzerCapabilities {
@@ -269,7 +349,9 @@ export interface EditorPort extends EditorAdapter {
   getCapabilities(): Promise<RuntimeCapabilities>;
   readProject(): Promise<ProjectSnapshot>;
   restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void>;
-  listAssets?(): Promise<EditorAsset[]>;
+  listAssets?(query?: AssetSearchQuery): Promise<EditorAsset[]>;
+  /** Optional native change feed; absence falls back to a snapshot diff. */
+  readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
 }
 
 export interface LiveEditorStatePort {
@@ -283,6 +365,16 @@ export interface EditorAsset {
   name: string;
   vendor: string;
   metadata: Record<string, unknown>;
+  compatibility?: {
+    timelineKinds?: string[];
+    mediaKinds?: string[];
+  };
+}
+
+export interface AssetSearchQuery {
+  query?: string;
+  kind?: EditorAsset["kind"];
+  vendor?: string;
 }
 
 export interface AnalysisInput {
@@ -296,6 +388,10 @@ export interface SpeechAnalyzer {
 
 export interface AudioAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis>;
+}
+
+export interface VisualAnalyzer {
+  analyze(input: AnalysisInput, range?: TimeRange): Promise<VisualAnalysis>;
 }
 
 export interface VerificationPolicy {

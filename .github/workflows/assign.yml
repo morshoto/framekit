@@ -1,0 +1,55 @@
+name: Assign
+
+on:
+    pull_request:
+        types: [opened, synchronize]
+    issues:
+        types: [opened]
+
+jobs:
+    assign-label:
+        if: ${{ github.event_name == 'pull_request' }}
+        permissions:
+            contents: read
+            pull-requests: write
+            issues: write
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Test label rules
+              run: python3 .github/scripts/test_assign_labels.py
+            - name: Apply labels from branch and changed files
+              shell: bash
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+              run: python3 .github/scripts/assign_labels.py
+
+    sync-labels:
+        permissions:
+            issues: write
+            contents: read
+            pages: write
+            id-token: write
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: '22.14.0'
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 11.10.0
+            - name: Run github-label-setup
+              run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
+
+    assign-author:
+        if: ${{ ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
+        permissions:
+            issues: write
+            pull-requests: write
+        runs-on: ubuntu-latest
+        steps:
+            - uses: technote-space/assign-author@v1

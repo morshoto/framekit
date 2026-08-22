@@ -3,6 +3,8 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 final_cut_app="${FINAL_CUT_APP:-/Applications/Final Cut Pro.app}"
+signing_identity="${FRAMEKIT_CODESIGN_IDENTITY:--}"
+signing_required="${FRAMEKIT_CODESIGN_REQUIRED:-NO}"
 frameworks="${final_cut_app}/Contents/Frameworks"
 framework_link="/tmp/framekit-finalcut-frameworks"
 
@@ -19,8 +21,8 @@ xcodebuild \
   -configuration Debug \
   -derivedDataPath /tmp/framekit-finalcut-derived \
   build \
-  CODE_SIGN_IDENTITY=- \
-  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_IDENTITY="$signing_identity" \
+  CODE_SIGNING_REQUIRED="$signing_required" \
   CODE_SIGNING_ALLOWED=YES
 
 # The build uses a space-free symlink so XcodeGen can link the embedded Final
@@ -37,7 +39,7 @@ install_name_tool -delete_rpath "$framework_link" "$extension_binary" 2>/dev/nul
 if ! otool -l "$extension_binary" | grep -Fq "path $frameworks"; then
   install_name_tool -add_rpath "$frameworks" "$extension_binary"
 fi
-codesign --force --sign - --entitlements "$extension_entitlements" --timestamp=none "$extension_binary"
-codesign --force --sign - --entitlements "$extension_entitlements" --timestamp=none "$extension_bundle"
-codesign --force --sign - --entitlements "$container_entitlements" --timestamp=none "$container_app"
+codesign --force --sign "$signing_identity" --entitlements "$extension_entitlements" --timestamp=none "$extension_binary"
+codesign --force --sign "$signing_identity" --entitlements "$extension_entitlements" --timestamp=none "$extension_bundle"
+codesign --force --sign "$signing_identity" --entitlements "$container_entitlements" --timestamp=none "$container_app"
 codesign --verify --deep --strict "$container_app"

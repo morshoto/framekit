@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 import { ContextEngine } from "./context/context-engine.js";
 import { diffSnapshots } from "./diff/diff.js";
 import type {
+  AgentContext,
   AudioAnalysis,
   AudioAnalyzer,
+  AssetSearchQuery,
+  ContextDiff,
   ContextRevision,
   EditOperation,
   EditTransaction,
@@ -13,10 +16,14 @@ import type {
   EditorLiveState,
   LiveEditorStatePort,
   MediaContext,
+  MediaUnderstanding,
   ProjectSnapshot,
   SpeechAnalysis,
   SpeechAnalyzer,
   TimelineDiff,
+  TimeRange,
+  VisualAnalysis,
+  VisualAnalyzer,
   VerificationEngine,
   VerificationPolicy,
 } from "./domain/types.js";
@@ -32,6 +39,7 @@ export class AgentVideoRuntime {
     private readonly options: {
       speechAnalyzer?: SpeechAnalyzer;
       audioAnalyzer?: AudioAnalyzer;
+      visualAnalyzer?: VisualAnalyzer;
       verificationEngine?: VerificationEngine;
     } = {},
   ) {
@@ -58,9 +66,15 @@ export class AgentVideoRuntime {
           ...capabilities.analyzers,
           speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
           audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
+          visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
         },
       },
     };
+  }
+
+  public async inspectContext(): Promise<AgentContext> {
+    const editor = await this.inspectEditor();
+    return this.context.inspectContext(editor.capabilities);
   }
 
   public async inspectLiveEditor(): Promise<EditorLiveState> {
@@ -122,6 +136,10 @@ export class AgentVideoRuntime {
     return this.context.changesSince(revision);
   }
 
+  public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
+    return this.context.contextChangesSince(revision, waitMs);
+  }
+
   public async analyzeSpeech(mediaId: string): Promise<SpeechAnalysis> {
     if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
     const project = await this.inspectProject();
@@ -136,6 +154,39 @@ export class AgentVideoRuntime {
     const media = project.media.find((candidate) => candidate.mediaId === mediaId);
     if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
     return this.options.audioAnalyzer.analyze({ project, media });
+  }
+
+  public async analyzeVisual(mediaId: string, range?: TimeRange): Promise<VisualAnalysis> {
+    if (!this.options.visualAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
+    const project = await this.inspectProject();
+    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
+    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
+    return this.options.visualAnalyzer.analyze({ project, media }, range);
+  }
+
+  public async understandMedia(mediaId: string): Promise<MediaUnderstanding> {
+    const project = await this.inspectProject();
+    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
+    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
+    const input = { project, media };
+    const [speech, audio, visual] = await Promise.all([
+      this.options.speechAnalyzer?.analyze(input),
+      this.options.audioAnalyzer?.analyze(input),
+      this.options.visualAnalyzer?.analyze(input),
+    ]);
+    if (!speech && !audio && !visual) {
+      throw new Error("CAPABILITY_UNAVAILABLE: media understanding");
+    }
+    const understanding: MediaUnderstanding = {
+      mediaId: media.mediaId,
+      source: media.source,
+      ...(speech ? { speech } : {}),
+      ...(audio ? { audio } : {}),
+      ...(visual ? { visual } : {}),
+      analysisRevision: project.revision,
+    };
+    this.context.attachMediaUnderstanding(understanding);
+    return structuredClone(understanding);
   }
 
   public async inspectMedia(mediaId: string): Promise<MediaContext> {
@@ -153,16 +204,13 @@ export class AgentVideoRuntime {
     );
   }
 
-  public async listAssets(): Promise<EditorAsset[]> {
+  public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.assetDiscovery || !this.adapter.listAssets) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor assets");
     }
-    return this.adapter.listAssets();
-  }
-
-  public async analyzeVisual(): Promise<never> {
-    throw new Error("CAPABILITY_UNAVAILABLE: visual analysis is Phase 2");
+    const assets = await this.context.listAssets(query);
+    return assets.filter((asset) => matchesAssetQuery(asset, query));
   }
 
   public getDiff(transactionId: string): TimelineDiff {
@@ -220,9 +268,32 @@ export class AgentVideoRuntime {
         const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
         if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
       }
+      if (this.options.visualAnalyzer) {
+        const analyses = await Promise.all(ranges.map((range) => this.options.visualAnalyzer!.analyze(input, range)));
+        media.visual = {
+          scenes: analyses.flatMap((analysis) => analysis.scenes),
+          subjects: analyses.flatMap((analysis) => analysis.subjects),
+          keyframes: analyses.flatMap((analysis) => analysis.keyframes),
+          motion: analyses[analyses.length - 1]?.motion,
+        };
+      }
+      if (this.options.speechAnalyzer || this.options.audioAnalyzer || this.options.visualAnalyzer) {
+        for (const candidate of next.media) {
+          if (candidate.mediaId === mediaId) candidate.analysisRevision = next.revision.id;
+        }
+      }
     }
     return next;
   }
+}
+
+function matchesAssetQuery(asset: EditorAsset, query?: AssetSearchQuery): boolean {
+  if (!query) return true;
+  const normalized = query.query?.trim().toLowerCase();
+  if (normalized && ![asset.id, asset.name, asset.vendor].some((value) => value.toLowerCase().includes(normalized))) return false;
+  if (query.kind && asset.kind !== query.kind) return false;
+  if (query.vendor && asset.vendor.toLowerCase() !== query.vendor.trim().toLowerCase()) return false;
+  return true;
 }
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {

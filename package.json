@@ -5,20 +5,35 @@
   "private": true,
   "type": "module",
   "description": "Agentic video editing runtime spikes",
+  "bin": {
+    "framekit": "./bin/framekit.mjs"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test tests/integration/*.test.ts",
+    "test:final-cut-headless": "tsx --test tests/integration/connection.test.ts tests/integration/finalcut-mcp.test.ts tests/integration/native.test.ts",
+    "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
     "test:watch": "tsx --test --watch tests/integration/*.test.ts",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",
+    "framekit": "node ./bin/framekit.mjs",
+    "package:final-cut-release": "bash scripts/package-final-cut-release.sh",
     "xcode:check": "bash nix/check-xcode.sh",
     "check:boundaries": "node scripts/check-boundaries.mjs"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/git-cz"
+    }
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "commitizen": "^4.3.1",
     "fast-xml-parser": "^5.10.1",
+    "git-cz": "^4.9.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

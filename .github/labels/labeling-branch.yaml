@@ -1,0 +1,7 @@
+'Problem: Bug':
+    - head-branch: ['^hotfix']
+    - head-branch: ['^fix']
+'Type: New Feature':
+    - head-branch: ['^feat']
+'Type: Improvement':
+    - head-branch: ['^refactor']
