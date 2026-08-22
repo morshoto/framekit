@@ -64,6 +64,10 @@ Important error codes include:
 - `ANALYZER_TIMEOUT`: a configured analyzer exceeded its time limit.
 - `ANALYZER_FAILED`: a configured analyzer exited unsuccessfully.
 - `ANALYZER_INVALID_OUTPUT`: a configured analyzer returned invalid typed JSON.
+- `FINAL_CUT_EXPORT_COMPLETION_TIMEOUT`: Final Cut did not produce a non-empty output file before the export deadline.
+- `FINAL_CUT_EXPORT_OUTPUT_EXISTS`: an existing output was protected from replacement without `overwrite: true`.
+- `FINAL_CUT_EXPORT_VERIFICATION_FAILED`: the output media metadata was missing, invalid, or did not match requested expectations.
+- `FINAL_CUT_EXPORT_METADATA_FAILED`: `ffprobe` could not inspect the exported video.
 
 ## Connection status
 
@@ -158,3 +162,14 @@ mutate timeline content, and it never clicks the Framekit close button.
 `timelinePublishNewProject` is reported separately from `timelineWrite`. It
 means a verified FCPXML artifact can be imported as a new Final Cut project;
 it does not mean the currently open timeline is directly writable.
+
+`videoExport` is reported separately from canonical timeline capabilities. It is
+true only when the live server has enabled the guarded native Final Cut export
+adapter with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`; deterministic fixtures do not
+claim to render video. `timeline.export` supports the `master` (`Export File`)
+and `web` (`Web Hosting`) Final Cut share presets. It waits for a new non-empty
+file, probes it with `ffprobe`, and verifies duration, width, height, frame rate,
+and audio presence before returning success. Export performs the same native
+timeline-window/frontmost/focus preflight as other guarded UI operations. An
+existing file is never replaced unless the request explicitly sets
+`overwrite: true`.
