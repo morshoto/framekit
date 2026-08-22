@@ -785,6 +785,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       await this.selectMediaNative(preview.mediaHandle);
       await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
         this.assertRetryContext(before, recovered, preview.operation === "insert");
+        await this.selectMediaNative(preview.mediaHandle);
+        const refocused = await this.prepareNativeRetry();
+        this.assertRetryContext(before, refocused, preview.operation === "insert");
         this.validateMediaInsertionBinding(preview, await this.requireLiveState());
       });
     } catch (error) {
@@ -2094,7 +2097,6 @@ function mediaInsertionVerificationDetail(
 }
 
 function mediaInsertionMutationObserved(before: EditorLiveState, after: EditorLiveState): boolean {
-  if (after.revision.id !== before.revision.id) return true;
   const beforeDuration = before.sequenceTimeRange?.duration ?? before.sequence?.duration;
   const afterDuration = after.sequenceTimeRange?.duration ?? after.sequence?.duration;
   return Boolean(beforeDuration && afterDuration && compareRational(afterDuration, beforeDuration) > 0);

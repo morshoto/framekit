@@ -985,7 +985,52 @@ test("native media insertion fails closed when media selection or preview revisi
   assert.equal(scripts.some((script) => script.includes('keystroke "e"')), false);
 });
 
-test("native media insertion rolls back when post-command verification observes a mutation without duration growth", async () => {
+test("native media insertion rolls back when post-command verification observes duration growth without a new revision", async () => {
+  let revision = 1;
+  let now = 0;
+  let undoCalls = 0;
+  let duration = "10";
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: duration, timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    now: () => now,
+    sleep: async (milliseconds) => { now += milliseconds; },
+    executor: async (script) => {
+      if (script.includes("keystroke \"e\"")) duration = "15";
+      if (script.includes('click menu item "Undo Append"')) {
+        undoCalls += 1;
+        duration = "10";
+        revision = 3;
+      }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, duration === "15" ? "Undo Append" : "Undo")
+        : "";
+    },
+  });
+
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewAppendMedia(media.handle);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /insertion was rolled back/);
+  assert.equal(undoCalls, 1);
+  assert.equal(revision, 3);
+});
+
+test("native media insertion does not undo an unrelated revision change", async () => {
   let revision = 1;
   let now = 0;
   let undoCalls = 0;
@@ -1009,12 +1054,53 @@ test("native media insertion rolls back when post-command verification observes 
     sleep: async (milliseconds) => { now += milliseconds; },
     executor: async (script) => {
       if (script.includes("keystroke \"e\"")) revision = 2;
-      if (script.includes('click menu item "Undo Append"')) {
-        undoCalls += 1;
-        revision = 3;
-      }
+      if (script.includes('click menu item "Undo Other"')) undoCalls += 1;
       if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
       return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo Other")
+        : "";
+    },
+  });
+
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewAppendMedia(media.handle);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /FINAL_CUT_NATIVE_VERIFICATION_FAILED/);
+  assert.equal(undoCalls, 0);
+  assert.equal(revision, 2);
+});
+
+test("native media insertion reselects Browser media before a focus-recovery retry", async () => {
+  let revision = 1;
+  let duration = "10";
+  let insertionCalls = 0;
+  const scripts: string[] = [];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: duration, timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('keystroke "e"')) {
+        insertionCalls += 1;
+        if (insertionCalls === 1) throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        duration = "15";
+        revision = 2;
+      }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
         ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo")
         : "";
     },
@@ -1023,9 +1109,17 @@ test("native media insertion rolls back when post-command verification observes 
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewAppendMedia(media.handle);
-  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /insertion was rolled back/);
-  assert.equal(undoCalls, 1);
-  assert.equal(revision, 3);
+  const result = await adapter.executeAppendMedia(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.equal(insertionCalls, 2);
+  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length, 3);
+  const selectionScripts = scripts
+    .map((script, index) => ({ script, index }))
+    .filter(({ script }) => script.includes('set targetIdentity to "browser-1"'));
+  const insertionScripts = scripts
+    .map((script, index) => ({ script, index }))
+    .filter(({ script }) => script.includes('keystroke "e"'));
+  assert.equal(selectionScripts[2]!.index < insertionScripts[1]!.index, true);
 });
 
 test("native Final Cut adapter targets one media occurrence and reports live playhead state", async () => {
