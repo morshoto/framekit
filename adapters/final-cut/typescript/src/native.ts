@@ -347,8 +347,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const beforeLive = await this.readLiveState();
     const operationId = `native-op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const command = commandName(operation);
+    const requiresPlayhead = operation.type === "trim-selected-clip-to-playhead" || operation.type === "add-marker-at-playhead";
     try {
-      await this.executeNativeCommand(editScript(operation), (recovered) => this.assertRetryContext(before, recovered));
+      await this.executeNativeCommand(editScript(operation), (recovered) => this.assertRetryContext(before, recovered, requiresPlayhead));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -526,7 +527,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     try {
       await this.executeNativeCommand(bladeScript(), async (recovered) => {
-        this.assertRetryContext(before, recovered);
+        this.assertRetryContext(before, recovered, true);
         await this.validateOccurrenceBinding(preview.occurrence);
         if (!recovered.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
       });
@@ -787,11 +788,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.attachLiveState(await this.ensureTimelineReady());
   }
 
-  private assertRetryContext(expected: NativeFinalCutContext, recovered: NativeFinalCutContext): void {
+  private assertRetryContext(expected: NativeFinalCutContext, recovered: NativeFinalCutContext, requirePlayhead = false): void {
     const targetChanged = expected.target.kind !== recovered.target.kind
       || expected.target.name !== recovered.target.name
       || expected.target.role !== recovered.target.role;
-    if (targetChanged || expected.playheadTime !== recovered.playheadTime) {
+    const playheadChanged = requirePlayhead
+      ? !expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime
+      : expected.playheadTime !== recovered.playheadTime;
+    if (targetChanged || playheadChanged) {
       throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection or playhead changed during focus recovery");
     }
   }
