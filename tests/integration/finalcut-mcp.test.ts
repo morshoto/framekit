@@ -356,7 +356,7 @@ test("Final Cut MCP exposes deterministic append and insert media workflows", as
     sequenceId: "sequence-1",
     revision: "rev-1",
     command: "Append selected media" as const,
-    expiresAt: new Date(30_000).toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
   };
   const result = {
     operationId: "native-append-1",

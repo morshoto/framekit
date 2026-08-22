@@ -779,6 +779,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const beforeLive = await this.requireLiveState();
     this.validateMediaInsertionBinding(preview, beforeLive);
     try {
+      // Re-select by the stable Browser identity immediately before the edit. The
+      // cached handle only proves what this process selected, not what Final Cut
+      // currently has selected after another UI interaction.
+      await this.selectMediaNative(preview.mediaHandle);
       await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
         this.assertRetryContext(before, recovered, preview.operation === "insert");
         this.validateMediaInsertionBinding(preview, await this.requireLiveState());
@@ -786,13 +790,37 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
-    const after = await this.requireTimelineContext();
-    const afterLive = await this.waitForMediaInsertion(preview.beforeDuration, beforeLive.revision.id);
+    const operationId = opaqueHandle(`native-${preview.operation}-media`);
+    let after: NativeFinalCutContext | undefined;
+    let afterLive: EditorLiveState | undefined;
+    try {
+      after = await this.requireTimelineContext();
+      afterLive = await this.waitForMediaInsertion(preview.beforeDuration, beforeLive.revision.id);
+    } catch (error) {
+      const observedContext = after ?? await this.inspectRawNative();
+      const observedLive = afterLive ?? await this.readLiveState();
+      if (observedLive && mediaInsertionMutationObserved(beforeLive, observedLive) && observedContext.undoCommand) {
+        this.rememberOperation(operationId, {
+          kind: "media-insertion",
+          before,
+          after: observedContext,
+          beforeLive,
+          afterLive: observedLive,
+          beforeDuration: preview.beforeDuration,
+          undoCommand: observedContext.undoCommand,
+        });
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`${nativeErrorCode(error)}: ${String(error)}; insertion was rolled back`);
+      }
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}; post-command state was not safely recoverable, so no Undo handle was retained`);
+    }
     const afterDuration = afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration;
     const verification = mediaInsertionVerificationDetail(afterDuration, preview.beforeDuration, afterLive.revision.id, beforeLive.revision.id);
-    if (!verification.verified) throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
-    const operationId = opaqueHandle(`native-${preview.operation}-media`);
-    this.rememberOperation(operationId, {
+    const operation = {
       kind: "media-insertion",
       before,
       after,
@@ -800,7 +828,20 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       afterLive,
       beforeDuration: preview.beforeDuration,
       undoCommand: after.undoCommand,
-    });
+    } satisfies NativeOperationRecord;
+    if (!verification.verified) {
+      if (mediaInsertionMutationObserved(beforeLive, afterLive) && after.undoAvailable && after.undoCommand) {
+        this.rememberOperation(operationId, operation);
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; insertion was rolled back`);
+      }
+      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+    }
+    this.rememberOperation(operationId, operation);
     return {
       operationId,
       previewToken,
@@ -2050,6 +2091,13 @@ function mediaInsertionVerificationDetail(
   }
   if (revision === previousRevision) return { verified: false, detail: "Final Cut did not expose a new revision after media insertion" };
   return { verified: true, detail: `Final Cut exposed resulting duration ${actual.value}/${actual.timescale} at revision ${revision}` };
+}
+
+function mediaInsertionMutationObserved(before: EditorLiveState, after: EditorLiveState): boolean {
+  if (after.revision.id !== before.revision.id) return true;
+  const beforeDuration = before.sequenceTimeRange?.duration ?? before.sequence?.duration;
+  const afterDuration = after.sequenceTimeRange?.duration ?? after.sequence?.duration;
+  return Boolean(beforeDuration && afterDuration && compareRational(afterDuration, beforeDuration) > 0);
 }
 
 function unavailableContext(code: string, message: string, observed?: NativeFinalCutContext): NativeFinalCutContext {
