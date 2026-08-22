@@ -1,3 +1,7 @@
+<div align="center">
+  <img width="300" height="300" alt="image" src="https://github.com/user-attachments/assets/64248af3-2738-4f60-8155-11d63990624d" />
+</div>
+
 <p align="center">
   <img src="https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white" alt="Swift 5.9 or newer" />
   <img src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white" alt="Python 3.13" />
