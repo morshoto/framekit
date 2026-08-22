@@ -27,12 +27,14 @@ are not part of the current contract; the evaluator treats a missing tool as a
 passing fail-closed capability result rather than pretending the workflow is
 supported.
 
-Each scenario checks its postcondition (or expected error), and the report
-includes total/passed/failed counts and pass rates for each category. The
-intent-mapping metric compares the tool selected by each scenario trace with
-the tool declared as correct by the scenario. This measures protocol-level
-mapping accuracy; it is not a claim about the quality of an external language
-model planner.
+Each scenario checks its postcondition (or expected error). The report
+separates scenario correctness from capability coverage: an unavailable
+workflow may pass its fail-closed expectation while still lowering the
+capability coverage rate. Category metrics expose supported and unavailable
+counts separately. The scenario-consistency metric checks that each fixture
+declares the same primary tool as its final request; it is intentionally not
+called intent-mapping accuracy because this suite does not run an external
+planner.
 
 The command exits non-zero if any scenario or postcondition fails, making it
 suitable for CI. The deterministic suite is separate from the optional live

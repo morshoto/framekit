@@ -23,7 +23,7 @@ test("deterministic MCP evaluation covers editing workflows and reports actionab
   assert.ok(report.byCategory["failure-path"].total >= 2);
   assert.equal(report.byCategory["workflow-assets"].supported, 2);
   assert.equal(report.byCategory["workflow-assets"].unavailable, 3);
-  assert.ok(report.scenarios.some((scenario) => scenario.id === "undo-verified" && scenario.passed));
+  assert.ok(report.scenarios.some((scenario) => scenario.id === "undo-verified" && scenario.passed && scenario.support === "supported"));
 
   const rendered = renderEvaluationReport(report);
   assert.match(rendered, /MCP evaluation/);

@@ -9,6 +9,7 @@ type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string
 type JsonObject = { [key: string]: JsonValue };
 
 type EvaluationCategory = "project" | "media" | "editing" | "workflow-assets" | "publishing" | "failure-path";
+type EvaluationSupport = "supported" | "unavailable";
 
 interface EvaluationExpectation {
   toolAvailable?: boolean;
@@ -34,6 +35,7 @@ interface EvaluationStep {
 interface EvaluationScenario {
   id: string;
   category: EvaluationCategory;
+  support: EvaluationSupport;
   intent: string;
   expectedTool: string;
   steps: EvaluationStep[];
@@ -42,6 +44,7 @@ interface EvaluationScenario {
 export interface EvaluationScenarioResult {
   id: string;
   category: EvaluationCategory;
+  support: EvaluationSupport;
   intent: string;
   passed: boolean;
   message?: string;
@@ -51,20 +54,32 @@ export interface EvaluationCategoryMetrics {
   total: number;
   passed: number;
   failed: number;
-  passRate: number;
+  supported: number;
+  unavailable: number;
+  correctnessRate: number;
+  coverageRate: number;
 }
 
 export interface EvaluationReport {
   version: 1;
-  total: number;
-  passed: number;
-  failed: number;
-  passRate: number;
-  byCategory: Record<EvaluationCategory, EvaluationCategoryMetrics>;
-  intentMapping: {
+  correctness: {
     total: number;
-    correct: number;
-    accuracy: number;
+    passed: number;
+    failed: number;
+    rate: number;
+  };
+  capability: {
+    total: number;
+    supported: number;
+    unavailable: number;
+    coverageRate: number;
+  };
+  byCategory: Record<EvaluationCategory, EvaluationCategoryMetrics>;
+  scenarioConsistency: {
+    total: number;
+    consistent: number;
+    inconsistent: number;
+    rate: number;
   };
   scenarios: EvaluationScenarioResult[];
 }
@@ -73,6 +88,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "active-project-selection",
     category: "project",
+    support: "supported",
     intent: "Select and inspect the active project",
     expectedTool: "project.inspect",
     steps: [{
@@ -83,6 +99,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "target-interview-media",
     category: "media",
+    support: "supported",
     intent: "Find the interview source to target for editing",
     expectedTool: "media.search",
     steps: [{
@@ -94,6 +111,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "target-music-media",
     category: "media",
+    support: "supported",
     intent: "Find the music bed for the edit",
     expectedTool: "media.search",
     steps: [{
@@ -105,6 +123,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "media-import-capability",
     category: "media",
+    support: "unavailable",
     intent: "Import a new source media item into the project",
     expectedTool: "media.import",
     steps: [{ tool: "media.import", expect: { toolAvailable: false } }],
@@ -112,6 +131,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "rename-clip-and-verify",
     category: "editing",
+    support: "supported",
     intent: "Rename the interview clip and verify the change",
     expectedTool: "timeline.edit",
     steps: [{
@@ -123,6 +143,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "trim-clip-and-verify",
     category: "editing",
+    support: "supported",
     intent: "Trim the b-roll clip to the requested duration",
     expectedTool: "timeline.edit",
     steps: [{
@@ -134,6 +155,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "set-music-gain",
     category: "editing",
+    support: "supported",
     intent: "Lower the music bed gain under dialogue",
     expectedTool: "timeline.edit",
     steps: [{
@@ -145,6 +167,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "ripple-delete-range",
     category: "editing",
+    support: "supported",
     intent: "Remove an unwanted range and ripple the remaining edit",
     expectedTool: "timeline.edit",
     steps: [{
@@ -156,6 +179,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "add-review-marker",
     category: "editing",
+    support: "supported",
     intent: "Add a review marker at a known timeline position",
     expectedTool: "timeline.edit",
     steps: [{
@@ -171,6 +195,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "transition-discovery",
     category: "workflow-assets",
+    support: "supported",
     intent: "Find a compatible transition for the edit",
     expectedTool: "editor.assets",
     steps: [{
@@ -182,6 +207,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "title-discovery",
     category: "workflow-assets",
+    support: "supported",
     intent: "Find a title template for the interview",
     expectedTool: "editor.assets",
     steps: [{
@@ -193,6 +219,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "music-edit-capability",
     category: "workflow-assets",
+    support: "unavailable",
     intent: "Apply a music bed to the timeline",
     expectedTool: "music.add",
     steps: [{ tool: "music.add", expect: { toolAvailable: false } }],
@@ -200,6 +227,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "title-edit-capability",
     category: "workflow-assets",
+    support: "unavailable",
     intent: "Apply a title template to the timeline",
     expectedTool: "title.apply",
     steps: [{ tool: "title.apply", expect: { toolAvailable: false } }],
@@ -207,6 +235,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "transition-edit-capability",
     category: "workflow-assets",
+    support: "unavailable",
     intent: "Apply a transition between timeline clips",
     expectedTool: "transition.apply",
     steps: [{ tool: "transition.apply", expect: { toolAvailable: false } }],
@@ -214,6 +243,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "export-capability",
     category: "publishing",
+    support: "unavailable",
     intent: "Export the verified edit as a new project",
     expectedTool: "timeline.publish.new-project",
     steps: [{
@@ -225,6 +255,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "invalid-edit-fails-closed",
     category: "failure-path",
+    support: "supported",
     intent: "Reject an edit that targets an unknown clip",
     expectedTool: "timeline.edit",
     steps: [{
@@ -236,6 +267,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "invalid-range-fails-closed",
     category: "failure-path",
+    support: "supported",
     intent: "Reject a ripple delete with an invalid range",
     expectedTool: "timeline.edit",
     steps: [{
@@ -247,6 +279,7 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "undo-verified",
     category: "failure-path",
+    support: "supported",
     intent: "Undo a verified rename and confirm the original state",
     expectedTool: "edit.undo",
     steps: [
@@ -270,28 +303,49 @@ export async function runMcpEvaluation(): Promise<EvaluationReport> {
   const byCategory = {} as Record<EvaluationCategory, EvaluationCategoryMetrics>;
   for (const scenario of scenarios) {
     const category = scenario.category;
-    const current = byCategory[category] ?? { total: 0, passed: 0, failed: 0, passRate: 0 };
+    const current = byCategory[category] ?? {
+      total: 0,
+      passed: 0,
+      failed: 0,
+      supported: 0,
+      unavailable: 0,
+      correctnessRate: 0,
+      coverageRate: 0,
+    };
     const result = results.find((candidate) => candidate.id === scenario.id);
     current.total += 1;
     if (result?.passed) current.passed += 1;
     current.failed = current.total - current.passed;
-    current.passRate = current.total === 0 ? 1 : current.passed / current.total;
+    if (scenario.support === "supported") current.supported += 1;
+    else current.unavailable += 1;
+    current.correctnessRate = current.total === 0 ? 1 : current.passed / current.total;
+    current.coverageRate = current.total === 0 ? 1 : current.supported / current.total;
     byCategory[category] = current;
   }
 
   const passed = results.filter((result) => result.passed).length;
-  const correctMappings = scenarios.filter((scenario) => scenario.expectedTool === scenario.steps.at(-1)?.tool).length;
+  const supported = scenarios.filter((scenario) => scenario.support === "supported").length;
+  const consistent = scenarios.filter((scenario) => scenario.expectedTool === scenario.steps.at(-1)?.tool).length;
   return {
     version: 1,
-    total: results.length,
-    passed,
-    failed: results.length - passed,
-    passRate: results.length === 0 ? 1 : passed / results.length,
-    byCategory,
-    intentMapping: {
+    correctness: {
+      total: results.length,
+      passed,
+      failed: results.length - passed,
+      rate: results.length === 0 ? 1 : passed / results.length,
+    },
+    capability: {
       total: scenarios.length,
-      correct: correctMappings,
-      accuracy: scenarios.length === 0 ? 1 : correctMappings / scenarios.length,
+      supported,
+      unavailable: scenarios.length - supported,
+      coverageRate: scenarios.length === 0 ? 1 : supported / scenarios.length,
+    },
+    byCategory,
+    scenarioConsistency: {
+      total: scenarios.length,
+      consistent,
+      inconsistent: scenarios.length - consistent,
+      rate: scenarios.length === 0 ? 1 : consistent / scenarios.length,
     },
     scenarios: results,
   };
@@ -300,11 +354,12 @@ export async function runMcpEvaluation(): Promise<EvaluationReport> {
 export function renderEvaluationReport(report: EvaluationReport): string {
   const lines = [
     `MCP evaluation v${report.version}`,
-    `scenarios=${report.total} passed=${report.passed} failed=${report.failed} pass_rate=${formatPercent(report.passRate)}`,
-    `intent_mapping total=${report.intentMapping.total} correct=${report.intentMapping.correct} intent_mapping_accuracy=${formatPercent(report.intentMapping.accuracy)}`,
+    `scenarios=${report.correctness.total} passed=${report.correctness.passed} failed=${report.correctness.failed} correctness_rate=${formatPercent(report.correctness.rate)}`,
+    `capability total=${report.capability.total} supported=${report.capability.supported} unavailable=${report.capability.unavailable} capability_coverage=${formatPercent(report.capability.coverageRate)}`,
+    `scenario_consistency total=${report.scenarioConsistency.total} consistent=${report.scenarioConsistency.consistent} inconsistent=${report.scenarioConsistency.inconsistent} scenario_consistency_rate=${formatPercent(report.scenarioConsistency.rate)}`,
   ];
   for (const [category, metrics] of Object.entries(report.byCategory)) {
-    lines.push(`category=${category} total=${metrics.total} passed=${metrics.passed} failed=${metrics.failed} pass_rate=${formatPercent(metrics.passRate)}`);
+    lines.push(`category=${category} total=${metrics.total} passed=${metrics.passed} failed=${metrics.failed} supported=${metrics.supported} unavailable=${metrics.unavailable} correctness_rate=${formatPercent(metrics.correctnessRate)} capability_coverage=${formatPercent(metrics.coverageRate)}`);
   }
   for (const scenario of report.scenarios.filter((candidate) => !candidate.passed)) {
     lines.push(`failure=${scenario.id} message=${scenario.message ?? "unknown"}`);
@@ -352,11 +407,12 @@ async function runScenario(scenario: EvaluationScenario): Promise<EvaluationScen
         captures[step.capture.name] = captureValue!;
       }
     }
-    return { id: scenario.id, category: scenario.category, intent: scenario.intent, passed: true };
+    return { id: scenario.id, category: scenario.category, support: scenario.support, intent: scenario.intent, passed: true };
   } catch (error) {
     return {
       id: scenario.id,
       category: scenario.category,
+      support: scenario.support,
       intent: scenario.intent,
       passed: false,
       message: error instanceof Error ? error.message : String(error),
