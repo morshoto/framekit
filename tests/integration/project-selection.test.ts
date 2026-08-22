@@ -22,8 +22,6 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
     timelineId: "sequence-alpha-main",
     timelineName: "Main",
     clips: [],
-  });
-  const catalog = {
     projects: [
       {
         id: "project-alpha",
@@ -39,30 +37,26 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
         sequences: [{ id: "sequence-beta-main", name: "Main" }],
       },
     ],
-    activeProjectId: "project-alpha",
-    activeSequenceId: "sequence-alpha-main",
-  };
-  const projectAdapter = adapter as typeof adapter & {
-    listProjects: () => Promise<typeof catalog>;
-    selectProject: (selection: { projectId: string; sequenceId?: string }) => Promise<typeof catalog>;
-  };
-  projectAdapter.listProjects = async () => structuredClone(catalog);
-  projectAdapter.selectProject = async ({ projectId, sequenceId }) => {
-    const project = catalog.projects.find((candidate) => candidate.id === projectId);
-    if (!project) throw new Error(`PROJECT_NOT_FOUND: ${projectId}`);
-    const targetSequenceId = sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
-    if (!targetSequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: ${projectId} has multiple sequences`);
-    if (!project.sequences.some((candidate) => candidate.id === targetSequenceId)) {
-      throw new Error(`SEQUENCE_NOT_FOUND: ${targetSequenceId}`);
-    }
-    catalog.activeProjectId = projectId;
-    catalog.activeSequenceId = targetSequenceId;
-    return structuredClone(catalog);
-  };
-
+    projectSnapshots: [
+      {
+        projectId: "project-alpha",
+        projectName: "Alpha",
+        timelineId: "sequence-alpha-main",
+        timelineName: "Main",
+        clips: [],
+      },
+      {
+        projectId: "project-beta",
+        projectName: "Beta",
+        timelineId: "sequence-beta-main",
+        timelineName: "Main",
+        clips: [],
+      },
+    ],
+  });
   const client = new Client({ name: "project-selection-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = createMcpServer(new AgentVideoRuntime(projectAdapter));
+  const server = createMcpServer(new AgentVideoRuntime(adapter));
   try {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
@@ -80,6 +74,9 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
     })));
     assert.equal(selected.activeProjectId, "project-beta");
     assert.equal(selected.activeSequenceId, "sequence-beta-main");
+    const inspected = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+    assert.equal(inspected.projectId, "project-beta");
+    assert.equal(inspected.timeline.id, "sequence-beta-main");
 
     const ambiguous = await client.callTool({ name: "project.select", arguments: { projectId: "project-alpha" } });
     assert.equal(ambiguous.isError, true);

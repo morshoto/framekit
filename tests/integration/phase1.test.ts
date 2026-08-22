@@ -193,6 +193,20 @@ test("Final Cut session composes document snapshot and live state providers", as
   assert.equal((await session.readProject()).projectName, "Session");
 });
 
+test("snapshot-only Final Cut sessions advertise and select their project target", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-snapshot-selection-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project name="Snapshot Only"><sequence duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+  const document = new FcpxmlDocumentAdapter(path);
+  const session = new FinalCutSessionAdapter({ snapshot: document });
+  const capabilities = await session.getCapabilities();
+  assert.equal(capabilities.editor.projectSelection, true);
+  const catalog = await session.listProjects();
+  const selected = await session.selectProject({ projectId: catalog.activeProjectId! });
+  assert.equal(selected.activeProjectId, catalog.activeProjectId);
+  assert.equal(selected.activeSequenceId, catalog.activeSequenceId);
+});
+
 test("post-write verification invokes analyzers for affected ranges", async () => {
   const editor = fixtureAdapter();
   let speechCalls = 0;
