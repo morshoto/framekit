@@ -71,9 +71,9 @@ forms:
 - `Blade at 30 seconds` → `blade_at_playhead`
 - `Remove 10–15 seconds` → `delete_range`
 
-The result includes the selected operation, the affected range, and
-`previewRequired: true`. The resolver never mutates the editor. Callers must
-use the operation-specific native preview tool before an execute call; native
-execute tools accept only their short-lived preview tokens. An unrecognized or
-ambiguous destructive request returns `clarification_required` without an
-operation or preview token.
+The result includes the selected operation, the affected range,
+`previewRequired: true`, and the exact `previewTool` to call. The resolver never
+mutates the editor. Callers must use that operation-specific native preview tool
+before an execute call; native execute tools accept only their short-lived
+preview tokens. An unrecognized or ambiguous destructive request returns
+`clarification_required` without an operation or preview tool.

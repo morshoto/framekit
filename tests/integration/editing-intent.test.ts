@@ -21,6 +21,7 @@ test("editing intent maps cut-and-remove-the-rest to trim_to_duration", () => {
     status: "resolved",
     destructive: true,
     previewRequired: true,
+    previewTool: "editor.native.trim-to-duration.preview",
     operation: {
       type: "trim_to_duration",
       duration: { value: "30", timescale: "1" },
@@ -38,6 +39,7 @@ test("editing intent maps a blade request to blade_at_playhead", () => {
     status: "resolved",
     destructive: true,
     previewRequired: true,
+    previewTool: "editor.native.blade.preview",
     operation: {
       type: "blade_at_playhead",
       playheadTime: { value: "30", timescale: "1" },
@@ -54,6 +56,7 @@ test("editing intent maps a range removal to delete_range", () => {
     status: "resolved",
     destructive: true,
     previewRequired: true,
+    previewTool: "editor.native.delete-range.preview",
     operation: {
       type: "delete_range",
       range: {
@@ -79,6 +82,10 @@ test("editing intent asks for clarification without selecting an operation", () 
   });
 });
 
+test("editing intent does not select delete_range for a reversed range", () => {
+  assert.equal(resolveEditingIntent("Remove 15-10 seconds").status, "clarification_required");
+});
+
 test("MCP exposes the resolved operation, affected range, and preview requirement", async () => {
   const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "project-1",
@@ -100,6 +107,7 @@ test("MCP exposes the resolved operation, affected range, and preview requiremen
     })));
     assert.equal(resolved.status, "resolved");
     assert.equal(resolved.operation.type, "delete_range");
+    assert.equal(resolved.previewTool, "editor.native.delete-range.preview");
     assert.deepEqual(resolved.affectedRange, {
       kind: "range",
       start: { value: "10", timescale: "1" },

@@ -38,6 +38,10 @@ export type EditingIntentResolution =
       status: "resolved";
       destructive: true;
       previewRequired: true;
+      previewTool:
+        | "editor.native.trim-to-duration.preview"
+        | "editor.native.blade.preview"
+        | "editor.native.delete-range.preview";
       operation: EditingIntentOperation;
       affectedRange: EditingIntentAffectedRange;
     }
@@ -66,6 +70,7 @@ export function resolveEditingIntent(request: string): EditingIntentResolution {
       status: "resolved",
       destructive: true,
       previewRequired: true,
+      previewTool: "editor.native.trim-to-duration.preview",
       operation: { type: "trim_to_duration", duration },
       affectedRange: { kind: "tail", start: duration, end: "sequence-end" },
     };
@@ -78,6 +83,7 @@ export function resolveEditingIntent(request: string): EditingIntentResolution {
       status: "resolved",
       destructive: true,
       previewRequired: true,
+      previewTool: "editor.native.blade.preview",
       operation: { type: "blade_at_playhead", playheadTime },
       affectedRange: { kind: "playhead", at: playheadTime },
     };
@@ -92,6 +98,7 @@ export function resolveEditingIntent(request: string): EditingIntentResolution {
         status: "resolved",
         destructive: true,
         previewRequired: true,
+        previewTool: "editor.native.delete-range.preview",
         operation: { type: "delete_range", range: { start, end } },
         affectedRange: { kind: "range", start, end },
       };
