@@ -77,6 +77,7 @@ private struct EditorCapabilities: Codable {
     let assetDiscovery: Bool
     let liveStateRead: Bool
     let playheadWrite: Bool
+    let frameCapture: Bool
     let playbackControl: Bool
 }
 
@@ -309,7 +310,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-            editor: EditorCapabilities(projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, playbackControl: false),
+            editor: EditorCapabilities(projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false)
         )
         switch request.method {

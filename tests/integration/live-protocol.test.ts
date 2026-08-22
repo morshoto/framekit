@@ -34,6 +34,7 @@ test("Final Cut live transport round-trips newline-delimited JSON over a Unix so
               assetDiscovery: false,
               liveStateRead: true,
               playheadWrite: false,
+              frameCapture: false,
             },
             analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
           },

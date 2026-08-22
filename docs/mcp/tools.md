@@ -32,6 +32,7 @@
 | `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture and FCPXML-backed session; live-only Final Cut is unavailable |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture and FCPXML-backed session; ambiguous targets fail closed |
 | `timeline.inspect` | Canonical timeline snapshot | FCPXML-backed Final Cut session; not live-only |
+| `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed Final Cut session |
 | `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path |
 | `timeline.publish.new-project` | Import a verified FCPXML artifact as a new project | Requires verified `transactionId`, FCPXML path, and native writes; never replaces the active project |

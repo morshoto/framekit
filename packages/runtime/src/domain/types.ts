@@ -375,7 +375,7 @@ export interface EditorCapabilities {
   liveStateRead: boolean;
   playheadWrite: boolean;
   /** The backend can return image data for an exact timeline position. */
-  frameCapture?: boolean;
+  frameCapture: boolean;
   playbackControl?: boolean;
   /** Canonical artifact can be imported as a new editor project. */
   timelinePublishNewProject?: boolean;

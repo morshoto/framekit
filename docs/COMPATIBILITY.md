@@ -4,12 +4,12 @@ Phase 0, Phase 1, and Phase 2 are local runtime spikes. Capability declarations 
 authoritative at runtime; unsupported operations must fail with an explicit
 `CAPABILITY_UNAVAILABLE` error.
 
-| Adapter | Backend | Project read | Timeline write | Read-after-write | Rollback | Speech/audio | Visual | Native assets |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture assets |
-| Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no |
-| Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | Motion-template registry |
-| Final Cut live | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no |
+| Adapter | Backend | Project read | Timeline write | Read-after-write | Rollback | Speech/audio | Visual | Frame capture | Native assets |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |
+| Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no | no |
+| Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | unavailable until configured | Motion-template registry |
+| Final Cut live | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
 
 ## Verified local environment
 
@@ -60,7 +60,9 @@ Final Cut project. The active project is never replaced automatically.
 
 The deterministic fixture provides the Phase 2 context engine, including
 incremental change feeds, visual analysis, combined media understanding, and
-queryable native assets. These are replaceable ports. Final Cut can provide
+queryable native assets. It also provides deterministic frame images for exact
+rational timeline positions, including timecode and active-clip metadata. These
+are replaceable ports. Final Cut can provide
 the same contracts through configured local JSON analyzers and filesystem
 Motion-template discovery; no fixture data is injected into live mode.
 

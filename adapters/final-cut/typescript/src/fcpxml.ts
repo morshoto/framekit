@@ -67,6 +67,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         assetDiscovery: false,
         liveStateRead: false,
         playheadWrite: false,
+        frameCapture: false,
         projectCatalogRead: true,
         projectSelection: true,
       },

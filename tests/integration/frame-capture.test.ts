@@ -30,7 +30,7 @@ function frameFixture(options: { withFrame?: boolean } = {}) {
       position: { value: "48", timescale: "24" },
       timecode: "00:00:02:00",
       image: {
-        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         mimeType: "image/png",
         width: 1,
         height: 1,
@@ -57,7 +57,7 @@ test("captures a deterministic frame with timeline and clip metadata", async () 
     track: 1,
   });
   assert.equal(captured.image.mimeType, "image/png");
-  assert.equal(captured.image.data, "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB");
+  assert.equal(captured.image.data, "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 });
 
 test("fails explicitly when frame capture is not configured", async () => {
