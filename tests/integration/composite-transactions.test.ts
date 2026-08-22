@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import type { VerificationEngine } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function createCompositeRuntime(options: ConstructorParameters<typeof AgentVideoRuntime>[1] = {}) {
   const adapter = new InMemoryEditorAdapter({
@@ -78,6 +81,15 @@ function workflowOperations() {
 
 function projectContent(snapshot: Awaited<ReturnType<AgentVideoRuntime["inspectProject"]>>) {
   return { projectId: snapshot.projectId, timeline: snapshot.timeline, media: snapshot.media };
+}
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { type?: string; text?: unknown } | undefined;
+  assert.equal(first?.type, "text");
+  assert.equal(typeof first?.text, "string");
+  return first?.text as string;
 }
 
 test("composite preview is non-mutating and execute applies the ordered MVP workflow once", async () => {
@@ -176,4 +188,53 @@ test("composite execute compensates for an adapter failure after a partial write
 
   await assert.rejects(runtime.executeEdit(preview.previewToken), /TRANSACTION_FAILED.*FIXTURE_PARTIAL_WRITE/);
   assert.deepEqual(projectContent(await runtime.inspectProject()), projectContent(before));
+});
+
+test("MCP exposes one composite preview and execute contract with workflow operation schemas", async () => {
+  const { runtime } = createCompositeRuntime();
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "composite-edit-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.some((tool) => tool.name === "timeline.edit.preview"));
+    assert.ok(tools.tools.some((tool) => tool.name === "timeline.edit.execute"));
+
+    const before = await runtime.inspectProject();
+    const preview = JSON.parse(textFrom(await client.callTool({
+      name: "timeline.edit.preview",
+      arguments: { baseRevision: before.revision, operations: workflowOperations() },
+    })));
+    assert.match(preview.previewToken, /^preview-/);
+    assert.deepEqual(await runtime.inspectProject(), before);
+
+    const executed = JSON.parse(textFrom(await client.callTool({
+      name: "timeline.edit.execute",
+      arguments: { previewToken: preview.previewToken },
+    })));
+    assert.equal(executed.status, "VERIFIED");
+    assert.equal(executed.diff.added.length, 3);
+    assert.equal(executed.diff.mediaChanges.length, 2);
+
+    const invalid = await client.callTool({
+      name: "timeline.edit.preview",
+      arguments: {
+        baseRevision: executed.after.revision,
+        operations: [{
+          type: "timeline.media.add",
+          occurrenceId: "invalid-music",
+          mediaId: "media-music",
+          role: "music",
+          start: 0,
+          duration: 1,
+          targetLane: "primary",
+        }],
+      },
+    });
+    assert.equal(invalid.isError, true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
