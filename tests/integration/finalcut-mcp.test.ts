@@ -140,6 +140,13 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
     vendor: "Framekit Fixture",
     metadata: { path: "/Motion Templates.localized/Titles.localized/Lower Third.moti" },
   };
+  const effectAsset = {
+    id: "effect-blur",
+    kind: "effect" as const,
+    name: "Blur",
+    vendor: "Framekit Fixture",
+    metadata: { path: "/Motion Templates.localized/Effects.localized/Blur.moef" },
+  };
   const calls: Array<{ assetId: string; text: string }> = [];
   const nativeContext = {
     available: true,
@@ -217,7 +224,7 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
     timelineName: "Main Edit",
     clips: [],
     media: [],
-    assets: [titleAsset],
+    assets: [titleAsset, effectAsset],
   }));
   const server = createMcpServer(runtime, { nativeEditor });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -242,6 +249,20 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
     })));
     assert.equal(titleResult.verification.verified, true);
     assert.equal(titleResult.afterRevision.id, "rev-2");
+
+    const missing = await client.callTool({
+      name: "editor.native.title.add.preview",
+      arguments: { assetId: "title-missing", text: "Missing", duration: { value: "1", timescale: "1" } },
+    });
+    assert.equal(missing.isError, true);
+    assert.match(textFrom(missing), /TITLE_ASSET_NOT_FOUND/);
+
+    const incompatible = await client.callTool({
+      name: "editor.native.title.add.preview",
+      arguments: { assetId: effectAsset.id, text: "Wrong kind", duration: { value: "1", timescale: "1" } },
+    });
+    assert.equal(incompatible.isError, true);
+    assert.match(textFrom(incompatible), /TITLE_ASSET_INCOMPATIBLE/);
   } finally {
     await client.close();
     await server.close();

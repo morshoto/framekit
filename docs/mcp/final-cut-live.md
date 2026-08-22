@@ -219,6 +219,29 @@ selected range. `trim-to-duration` preserves the beginning of the sequence and
 deletes everything after the requested duration. A target duration that is
 already at or beyond the current duration returns a verified no-op.
 
+## Native title placement
+
+Native titles use the installed Motion-template registry and a guarded
+preview/execute flow:
+
+1. Call `editor.assets` with `kind: "title"` and choose one returned `assetId`.
+2. Call `editor.native.title.add.preview` with that `assetId`, title `text`,
+   and a positive rational `duration`. Omit `start` to use the current
+   playhead; provide `start` to place the title across an explicit range.
+3. Confirm the returned title, range, sequence, and revision, then call
+   `editor.native.title.add.execute` with the short-lived preview token.
+4. Confirm the returned selected title, changed revision, duration metadata,
+   and Undo command. Use `editor.native.undo` with the returned `operationId`
+   to revert it.
+
+The preview fails closed with `TITLE_ASSET_NOT_FOUND` for an undiscovered ID,
+`TITLE_ASSET_INCOMPATIBLE` for a non-title asset, and an explicit range error
+when the placement falls outside the active sequence. The native adapter does
+not invent title assets or claim canonical timeline enumeration; it uses
+Accessibility automation to open Final Cut's Titles and Generators browser,
+select the discovered template, apply the text, and verify the selected title
+and live revision.
+
 Before timeline-native preview or execute calls in normal native mode, Framekit activates Final Cut
 Pro, waits up to two seconds for an accessible project timeline, and focuses
 the timeline pane through semantic Accessibility candidates followed by

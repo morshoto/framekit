@@ -10,6 +10,8 @@
 | `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
+| `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
+| `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
 | `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Validates the path, waits for Browser availability, and returns a stable session media handle |
 | `editor.native.media.search` | Search the active Final Cut Browser | Returns short-lived media handles; native writes required |

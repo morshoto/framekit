@@ -336,6 +336,8 @@ export interface NativeFinalCutEditor {
   executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
+  previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
+  executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult>;
 }
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
