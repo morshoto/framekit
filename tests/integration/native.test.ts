@@ -1309,6 +1309,48 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   assert.equal(selected.target.name, "interview.mov");
 });
 
+test("native Final Cut keeps an imported media handle usable after an unrelated Browser search", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-stable-handle-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const recordSeparator = String.fromCharCode(30);
+  let interviewSearches = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("set targetIdentity to")) {
+        const selectsBySourceIdentity = script.includes('set targetSourceIdentity to "file:///imported/interview.mov"')
+          && script.includes("if candidateSourceIdentity is targetSourceIdentity then");
+        if (!selectsBySourceIdentity) {
+          throw new Error("selection used stale Browser geometry");
+        }
+        return "selected";
+      }
+      if (script.includes("AXBrowserMedia") && script.includes("interview.mov")) {
+        interviewSearches += 1;
+        return interviewSearches === 1
+          ? ""
+          : `interview.mov${separator}AXBrowserMedia${separator}browser-interview${separator}file:///imported/interview.mov${recordSeparator}`;
+      }
+      if (script.includes("AXBrowserMedia") && script.includes("other.mov")) {
+        return `other.mov${separator}AXBrowserMedia${separator}browser-other${separator}file:///library/other.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const imported = await adapter.importMedia(sourcePath);
+  const unrelated = await adapter.searchMedia("other.mov");
+  assert.equal(unrelated[0]?.name, "other.mov");
+
+  const selected = await adapter.selectMedia(imported.mediaHandle);
+  assert.equal(selected.target.kind, "browser-media");
+  assert.equal(selected.target.name, "interview.mov");
+});
+
 test("native Final Cut ignores a pre-existing same-name Browser item during import", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-identity-"));
   const sourcePath = join(directory, "interview.mov");
