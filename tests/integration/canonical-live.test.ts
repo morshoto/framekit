@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
@@ -9,6 +11,7 @@ import {
   type FinalCutLiveResponse,
 } from "@framekit/final-cut";
 import type { EditOperation, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const emptyAnalyzers = {
   speechTranscribe: false,
@@ -289,6 +292,50 @@ test("failed canonical live verification restores the pre-edit digest", async ()
   assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
 });
 
+test("MCP inspects, edits, diffs, and undoes a canonical live timeline", async () => {
+  const transport = new MutableCanonicalLiveTransport();
+  const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({
+    live: new FinalCutLiveAdapter(transport),
+  }));
+  const client = new Client({ name: "canonical-live-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer(runtime);
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-write");
+    const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+
+    const edited = JSON.parse(textFrom(await client.callTool({
+      name: "timeline.edit",
+      arguments: {
+        type: "rename-clip",
+        clipId: "final-cut:occurrence:one",
+        name: "Edited through MCP",
+        baseRevision: before.revision,
+      },
+    })));
+    assert.equal(edited.status, "VERIFIED");
+    assert.equal(edited.after.timeline.clips[0].name, "Edited through MCP");
+
+    const diff = JSON.parse(textFrom(await client.callTool({
+      name: "edit.diff",
+      arguments: { transactionId: edited.id },
+    })));
+    assert.equal(diff.modified[0].itemId, "final-cut:occurrence:one");
+
+    const restored = JSON.parse(textFrom(await client.callTool({
+      name: "edit.undo",
+      arguments: { transactionId: edited.id },
+    })));
+    assert.equal(canonicalSnapshotDigest(restored), canonicalSnapshotDigest(before));
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 function sameRevision(left: ProjectSnapshot["revision"] | undefined, right: ProjectSnapshot["revision"]): boolean {
   return Boolean(left && left.id === right.id && left.sequence === right.sequence);
 }
@@ -307,4 +354,12 @@ function applyOperation(snapshot: ProjectSnapshot, operation: EditOperation): vo
   const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
   if (!clip) throw new Error(`missing test clip: ${operation.clipId}`);
   clip.name = operation.name;
+}
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.equal(typeof first?.text, "string");
+  return first!.text as string;
 }
