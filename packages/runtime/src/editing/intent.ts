@@ -93,7 +93,7 @@ export function resolveEditingIntent(request: string): EditingIntentResolution {
   if (deleteMatch) {
     const start = secondsToRational(deleteMatch[1]!);
     const end = secondsToRational(deleteMatch[2]!);
-    if (Number(deleteMatch[2]) > Number(deleteMatch[1])) {
+    if (compareDecimalSeconds(deleteMatch[2]!, deleteMatch[1]!) > 0) {
       return {
         status: "resolved",
         destructive: true,
@@ -122,4 +122,22 @@ function secondsToRational(seconds: string): RationalTime {
     value,
     timescale: `1${"0".repeat(fraction.length)}`,
   };
+}
+
+function compareDecimalSeconds(left: string, right: string): number {
+  const [leftWhole, leftFraction = ""] = normalizeDecimalSeconds(left);
+  const [rightWhole, rightFraction = ""] = normalizeDecimalSeconds(right);
+  if (leftWhole.length !== rightWhole.length) return leftWhole.length > rightWhole.length ? 1 : -1;
+  if (leftWhole !== rightWhole) return leftWhole > rightWhole ? 1 : -1;
+
+  const precision = Math.max(leftFraction.length, rightFraction.length);
+  const paddedLeft = leftFraction.padEnd(precision, "0");
+  const paddedRight = rightFraction.padEnd(precision, "0");
+  if (paddedLeft === paddedRight) return 0;
+  return paddedLeft > paddedRight ? 1 : -1;
+}
+
+function normalizeDecimalSeconds(seconds: string): [string, string] {
+  const [whole, fraction = ""] = seconds.split(".");
+  return [whole.replace(/^0+(?=\d)/, ""), fraction];
 }
