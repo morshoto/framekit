@@ -15,6 +15,7 @@ import type {
   ProjectSelection,
   RationalTime,
   RuntimeCapabilities,
+  CapturedFrameSource,
   WorkflowOperation,
 } from "@framekit/runtime";
 import { diffSnapshots } from "@framekit/runtime";
@@ -28,6 +29,11 @@ export interface InMemoryProjectFixture {
   media?: MediaContext[];
   markers?: Marker[];
   assets?: EditorAsset[];
+  frames?: Array<{
+    position: RationalTime;
+    timecode: string;
+    image: CapturedFrameSource["image"];
+  }>;
 }
 
 export interface InMemoryFixture extends InMemoryProjectFixture {
@@ -45,6 +51,7 @@ export class InMemoryEditorAdapter implements EditorPort {
   private activeProjectId: string;
   private activeSequenceId: string;
   private selectionRevision = 0;
+  private readonly framesByTarget: Map<string, InMemoryProjectFixture["frames"]>;
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
@@ -53,9 +60,14 @@ export class InMemoryEditorAdapter implements EditorPort {
       name: fixture.projectName,
       sequences: [{ id: fixture.timelineId, name: fixture.timelineName }],
     }]);
-    this.snapshotsByTarget = new Map((fixture.projectSnapshots ?? [fixture]).map((candidate) => [
+    const projectSnapshots = fixture.projectSnapshots ?? [fixture];
+    this.snapshotsByTarget = new Map(projectSnapshots.map((candidate) => [
       snapshotKey(candidate.projectId, candidate.timelineId),
       createSnapshot(candidate),
+    ]));
+    this.framesByTarget = new Map(projectSnapshots.map((candidate) => [
+      snapshotKey(candidate.projectId, candidate.timelineId),
+      candidate.frames ? structuredClone(candidate.frames) : undefined,
     ]));
     this.activeProjectId = fixture.projectId;
     this.activeSequenceId = fixture.timelineId;
@@ -90,6 +102,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         assetDiscovery: true,
         liveStateRead: false,
         playheadWrite: false,
+        frameCapture: Boolean(this.activeFrames()),
         projectCatalogRead: true,
         projectSelection: true,
         compositeTransactions: true,
@@ -104,6 +117,27 @@ export class InMemoryEditorAdapter implements EditorPort {
         visualTrack: false,
       },
     };
+  }
+
+  public async captureFrame(
+    position: RationalTime,
+    expectedRevision: ContextRevision,
+  ): Promise<CapturedFrameSource> {
+    if (
+      this.snapshot.revision.id !== expectedRevision.id
+      || this.snapshot.revision.sequence !== expectedRevision.sequence
+    ) {
+      throw new Error("STALE_CONTEXT: editor revision changed before frame capture");
+    }
+    const frames = this.activeFrames();
+    if (!frames) throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
+    const frame = frames.find((candidate) => sameRational(candidate.position, position));
+    if (!frame) throw new Error(`FRAME_NOT_FOUND: ${position.value}/${position.timescale}`);
+    return structuredClone({ image: frame.image, timecode: frame.timecode });
+  }
+
+  private activeFrames(): InMemoryProjectFixture["frames"] {
+    return this.framesByTarget.get(snapshotKey(this.activeProjectId, this.activeSequenceId));
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
@@ -414,6 +448,10 @@ export class InMemoryEditorAdapter implements EditorPort {
     this.history.set(next.revision.id, structuredClone(next));
     return next;
   }
+}
+
+function sameRational(left: RationalTime, right: RationalTime): boolean {
+  return BigInt(left.value) * BigInt(right.timescale) === BigInt(right.value) * BigInt(left.timescale);
 }
 
 function nextRevision(revision: ContextRevision): ContextRevision {

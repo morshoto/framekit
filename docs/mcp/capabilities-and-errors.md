@@ -16,6 +16,7 @@ Extension reports:
     "assetDiscovery": false,
     "liveStateRead": true,
     "playheadWrite": false,
+    "frameCapture": false,
     "playbackControl": false
   },
   "analyzers": {
@@ -33,6 +34,11 @@ reports `timelineSnapshotRead`, `timelineArtifactWrite`, `readAfterWrite`, and
 managed FCPXML artifact rather than the open Final Cut timeline. Analyzer flags
 are true only for configured local analyzer commands, and `assetDiscovery` is
 true when the Motion-template registry is available.
+
+`frameCapture` is true only when the selected editor backend has an actual
+frame-image provider. `timeline.frame.capture` never fabricates an image: it
+returns `CAPABILITY_UNAVAILABLE` when capture is missing, and does the same for
+requested visual analysis when no visual analyzer is configured.
 
 Important error codes include:
 

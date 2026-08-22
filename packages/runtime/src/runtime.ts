@@ -16,6 +16,7 @@ import type {
   EditorAsset,
   EditorChange,
   EditorLiveState,
+  RationalTime,
   LiveEditorStatePort,
   MediaContext,
   MediaUnderstanding,
@@ -25,6 +26,7 @@ import type {
   SpeechAnalysis,
   SpeechAnalyzer,
   TimelineDiff,
+  TimelineFrameCapture,
   TimeRange,
   VisualAnalysis,
   VisualAnalyzer,
@@ -63,6 +65,60 @@ export class AgentVideoRuntime {
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     const project = await this.inspectProject();
     return project.timeline;
+  }
+
+  public async captureFrame(
+    position: RationalTime,
+    options: { analyze?: boolean } = {},
+  ): Promise<TimelineFrameCapture> {
+    const exactPosition = parseRational(position, "INVALID_TIMELINE_POSITION");
+    const capabilities = await this.adapter.getCapabilities();
+    if (!capabilities.editor.frameCapture || !this.adapter.captureFrame) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
+    }
+    if (options.analyze && !this.options.visualAnalyzer) {
+      throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
+    }
+    const project = await this.inspectProject();
+    const source = await this.adapter.captureFrame(position, project.revision);
+    const clip = project.timeline.clips
+      .filter((candidate) => isWithinClip(exactPosition, candidate.startTime, candidate.durationTime))
+      .sort((left, right) => right.track - left.track)[0];
+    let analysis: VisualAnalysis | undefined;
+    if (options.analyze) {
+      const media = clip?.mediaId
+        ? project.media.find((candidate) => candidate.mediaId === clip.mediaId)
+        : undefined;
+      if (!clip || !media) {
+        throw new Error("CAPABILITY_UNAVAILABLE: visual analysis requires media at the captured position");
+      }
+      const mediaTime = rationalDifferenceSeconds(
+        exactPosition,
+        parseRational(clip.startTime, "INVALID_PROJECT_STATE"),
+      );
+      analysis = await this.options.visualAnalyzer!.analyze(
+        { project, media },
+        { start: mediaTime, end: mediaTime },
+      );
+    }
+    return {
+      image: structuredClone(source.image),
+      position: { ...position },
+      timecode: source.timecode,
+      project: { id: project.projectId, name: project.projectName },
+      sequence: { id: project.timeline.id, name: project.timeline.name },
+      ...(clip ? {
+        clip: {
+          id: clip.id,
+          ...(clip.mediaId ? { mediaId: clip.mediaId } : {}),
+          name: clip.name,
+          startTime: { ...clip.startTime },
+          durationTime: { ...clip.durationTime },
+          track: clip.track,
+        },
+      } : {}),
+      ...(analysis ? { analysis } : {}),
+    };
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
@@ -461,4 +517,44 @@ function matchesAssetQuery(asset: EditorAsset, query?: AssetSearchQuery): boolea
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence;
+}
+
+interface RationalParts {
+  value: bigint;
+  timescale: bigint;
+}
+
+function parseRational(time: RationalTime, errorCode: string): RationalParts {
+  if (!/^-?\d+$/.test(time.value) || !/^\d+$/.test(time.timescale)) {
+    throw new Error(`${errorCode}: rational time requires integer value and timescale`);
+  }
+  const value = BigInt(time.value);
+  const timescale = BigInt(time.timescale);
+  if (timescale <= 0n) throw new Error(`${errorCode}: rational timescale must be positive`);
+  return { value, timescale };
+}
+
+function isWithinClip(
+  position: RationalParts,
+  startTime: RationalTime,
+  durationTime: RationalTime,
+): boolean {
+  const start = parseRational(startTime, "INVALID_PROJECT_STATE");
+  const duration = parseRational(durationTime, "INVALID_PROJECT_STATE");
+  if (duration.value < 0n) throw new Error("INVALID_PROJECT_STATE: clip duration cannot be negative");
+  const startsBeforeOrAtPosition = start.value * position.timescale <= position.value * start.timescale;
+  const endValue = start.value * duration.timescale + duration.value * start.timescale;
+  const endTimescale = start.timescale * duration.timescale;
+  const positionBeforeEnd = position.value * endTimescale < endValue * position.timescale;
+  return startsBeforeOrAtPosition && positionBeforeEnd;
+}
+
+function rationalDifferenceSeconds(left: RationalParts, right: RationalParts): number {
+  const numerator = left.value * right.timescale - right.value * left.timescale;
+  const denominator = left.timescale * right.timescale;
+  const seconds = Number(numerator) / Number(denominator);
+  if (!Number.isFinite(seconds)) {
+    throw new Error("INVALID_TIMELINE_POSITION: relative media time is outside the supported analysis range");
+  }
+  return seconds;
 }

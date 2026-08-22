@@ -60,6 +60,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
+        frameCapture: false,
         playbackControl: Boolean(live?.editor.playbackControl),
         projectCatalogRead: Boolean(snapshot?.editor.projectCatalogRead || live?.editor.projectCatalogRead),
         projectSelection: Boolean(snapshot?.editor.projectSelection || live?.editor.projectSelection),

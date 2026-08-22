@@ -10,6 +10,7 @@
 | Playhead position | fixture state | file-derived | passed live |
 | Selected range | fixture state | file-derived | passed live |
 | Speech/audio analysis | fixture provider | external provider required | unavailable |
+| Timeline frame capture | deterministic image and metadata | unavailable | unavailable |
 | Verification/rollback | passed | passed | unavailable |
 | Local media import | deterministic native fixture | deterministic native executor | headed UI validation required |
 | Native assets | fixture assets | unavailable | unavailable |

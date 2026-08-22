@@ -41,6 +41,16 @@ const fixture = new InMemoryEditorAdapter({
     vendor: "Framekit Fixture",
     metadata: { durationFrames: 12 },
   }],
+  frames: [{
+    position: { value: "24", timescale: "24" },
+    timecode: "00:00:01:00",
+    image: {
+      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      mimeType: "image/png",
+      width: 1,
+      height: 1,
+    },
+  }],
 });
 
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";

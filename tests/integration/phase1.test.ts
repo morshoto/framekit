@@ -41,6 +41,7 @@ class FakeFinalCutLiveTransport {
         assetDiscovery: false,
         liveStateRead: true,
         playheadWrite: false,
+        frameCapture: false,
         playbackControl: false,
       },
       analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
