@@ -150,6 +150,30 @@ Handles are bound to the current Final Cut UI state. A changed selection,
 sequence, or expired preview causes a fail-closed error. Blade execution
 verifies that Final Cut exposes two resulting segments after the command.
 
+## Native media insertion
+
+With native writes enabled, append or insert selected Browser media through the
+same preview/execute safety boundary:
+
+1. Call `editor.native.media.search` with a Browser query.
+2. Call `editor.native.media.select` with exactly one returned `mediaHandle`.
+3. Call `editor.native.media.append.preview` to append at the end of the active
+   sequence, or `editor.native.media.insert.preview` to insert at the current
+   `playheadTime`.
+4. Confirm the returned media handle, insertion time, sequence, current
+   duration, and revision before executing the preview token.
+5. Call the matching `.execute` tool. Framekit uses Final Cut's native Append
+   (`E`) or Insert (`W`) command and verifies that the live sequence duration
+   increased and that the live revision changed.
+6. Use `editor.native.undo` with the returned `operationId` when the insertion
+   should be rolled back. Undo verifies restoration of the prior duration and
+   a new live revision.
+
+Insertion previews expire and fail closed when the selected media handle,
+sequence, revision, duration, or insert playhead changes. The live Workflow
+Extension remains a read-only state source; the guarded Node-side native
+adapter performs the visible Final Cut command and post-command verification.
+
 ## Native range deletion and duration trimming
 
 Native range operations use rational frame times and a preview/execute flow:

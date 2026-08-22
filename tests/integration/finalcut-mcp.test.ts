@@ -220,6 +220,8 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.native.deleteRange, !commitValidation);
     assert.equal(editor.native.trimToDuration, !commitValidation);
+    assert.equal(editor.native.mediaAppend, !commitValidation);
+    assert.equal(editor.native.mediaInsert, !commitValidation);
     assert.equal(editor.native.timelineFocus, !commitValidation);
 
     const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
@@ -320,6 +322,127 @@ test("Final Cut MCP preserves overlay-blocked focus diagnostics", async () => {
       assert.equal(response.framekitWindowMinimized, false);
       assert.equal(response.overlayBlocked, true);
     }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP exposes deterministic append and insert media workflows", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Append",
+  };
+  const media = { handle: "media-1", name: "Interview", role: "AXBrowserMedia" };
+  const preview = {
+    previewToken: "append-preview-1",
+    operation: "append" as const,
+    media,
+    beforeDuration: { value: "10", timescale: "1" },
+    insertionTime: { value: "10", timescale: "1" },
+    sequenceId: "sequence-1",
+    revision: "rev-1",
+    command: "Append selected media" as const,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    operationId: "native-append-1",
+    previewToken: preview.previewToken,
+    operation: preview.operation,
+    media,
+    before: nativeContext,
+    after: nativeContext,
+    beforeDuration: preview.beforeDuration,
+    afterDuration: { value: "15", timescale: "1" },
+    beforeRevision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    afterRevision: { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() },
+    verification: { verified: true, detail: "verified" },
+    undoAvailable: true,
+    undoCommand: "Undo Append",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      mediaAppend: true,
+      mediaInsert: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    previewAppendMedia: async () => preview,
+    executeAppendMedia: async () => result,
+    previewInsertMedia: async () => ({ ...preview, operation: "insert" as const, command: "Insert selected media at playhead" as const }),
+    executeInsertMedia: async () => ({ ...result, operation: "insert" as const }),
+    undo: async () => ({ operationId: result.operationId, undone: true, context: nativeContext, verification: { verified: true, detail: "restored" } }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Media Insertion Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "media-insertion-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    for (const name of [
+      "editor.native.media.append.preview",
+      "editor.native.media.append.execute",
+      "editor.native.media.insert.preview",
+      "editor.native.media.insert.execute",
+    ]) assert.ok(tools.tools.find((tool) => tool.name === name));
+
+    const appendPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.preview",
+      arguments: { mediaHandle: media.handle },
+    })));
+    assert.equal(appendPreview.operation, "append");
+    const appendResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.execute",
+      arguments: { previewToken: appendPreview.previewToken },
+    })));
+    assert.equal(appendResult.verification.verified, true);
+    assert.equal(appendResult.afterRevision.id, "rev-2");
+
+    const insertPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.insert.preview",
+      arguments: { mediaHandle: media.handle },
+    })));
+    assert.equal(insertPreview.operation, "insert");
+    const insertResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.insert.execute",
+      arguments: { previewToken: insertPreview.previewToken },
+    })));
+    assert.equal(insertResult.operation, "insert");
+    const undone = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.undo",
+      arguments: { operationId: appendResult.operationId },
+    })));
+    assert.equal(undone.undone, true);
   } finally {
     await client.close();
     await server.close();

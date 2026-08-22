@@ -80,7 +80,7 @@ The default Final Cut validation is headless and does not launch, activate, or
 focus Final Cut Pro. It uses deterministic native and MCP fixtures to verify
 the same fail-closed contracts, including overlay minimization through
 `AXMinimize`, timeline focus races, missing windows, Blade, range deletion,
-duration trimming, and Undo:
+duration trimming, media append/insert, and Undo:
 
 ```sh
 pnpm run test:final-cut-headless
@@ -117,7 +117,12 @@ Blade and range edits require a visible Final Cut timeline, so they are not
 part of the headless test command. The native adapter remains fail-closed and
 is covered by deterministic executor tests. If a separate macOS UI smoke test
 is run manually, use a disposable project and do not treat it as headless or
-as a CI requirement. For local media import validation, enable native writes,
+as a CI requirement. For media insertion, enable native writes and connect the
+live backend, search and select one Browser media handle, preview and execute
+one append, assert the returned duration and revision changed, then call native
+Undo and assert the original duration returns. Repeat with insert at a
+non-terminal playhead position. For local media import validation, enable
+native writes,
 call `editor.native.media.import` with one disposable `.mov` and one disposable
 audio file, then pass each returned `mediaHandle` to
 `editor.native.media.select`. Confirm that the returned `sourcePath`, `kind`,
