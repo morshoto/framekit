@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, resolveEditingIntent } from "@framekit/runtime";
 import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionSchema = z.object({
@@ -102,6 +102,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
     });
   });
+
+  server.registerTool("editing.intent.resolve", {
+    description: "Map a supported natural-language editing request to one explicit operation without executing it.",
+    inputSchema: { request: z.string().trim().min(1) },
+  }, async ({ request }) => jsonResult(resolveEditingIntent(request)));
 
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
