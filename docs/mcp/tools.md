@@ -62,7 +62,11 @@ backend. The current Workflow Extension exposes only the active project and
 sequence metadata, not a project browser or project-selection API, so a
 live-only session rejects these tools with `CAPABILITY_UNAVAILABLE`. An
 FCPXML-backed session can inspect and select its single managed project;
-selection never silently changes the open Final Cut project.
+selection never silently changes the open Final Cut project. Its project and
+sequence nodes must both provide non-empty `uid` attributes; otherwise project
+inspection and catalog operations fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE`
+or `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
+names.
 
 `media.search` remains canonical snapshot search. Live Browser import and search
 use the explicit `editor.native.media.*` tools because Browser media identity and

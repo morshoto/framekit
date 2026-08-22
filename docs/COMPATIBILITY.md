@@ -7,7 +7,7 @@ authoritative at runtime; unsupported operations must fail with an explicit
 | Adapter | Backend | Project read | Timeline write | Read-after-write | Rollback | Speech/audio | Visual | Native assets |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture assets |
-| Final Cut document | FCPXML file interchange | yes | artifact only | yes | yes | external provider required | no | no |
+| Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | Motion-template registry |
 | Final Cut live | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no |
 
@@ -26,6 +26,11 @@ This is a local verification record, not a claim that every nearby editor or
 OS version is supported.
 
 The FCPXML adapter is intentionally not a live Final Cut automation backend.
+It uses non-empty FCPXML `uid` attributes as the only stable project and
+sequence identities. UID-less documents fail closed with
+`FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
+`FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE`; names are never used as ID fallbacks.
+Renaming a UID-backed project or sequence therefore does not change its ID.
 The session adapter composes independent snapshot, mutation, live-state,
 analyzer, and asset ports. The Workflow Extension backend is a separate
 live-state port: it exposes active project metadata and a project-scoped

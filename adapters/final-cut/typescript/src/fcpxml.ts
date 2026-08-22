@@ -470,19 +470,19 @@ function hash(content: string): string {
 }
 
 function stableProjectId(project: XmlNode): string {
-  const uid = attribute(project, "uid");
-  if (uid === undefined || String(uid).trim().length === 0) {
-    throw new Error("FCPXML_PROJECT_IDENTITY_UNAVAILABLE: project has no immutable uid");
-  }
-  return `fcpxml:project:${String(uid)}`;
+  return `fcpxml:project:${immutableUid(project, "PROJECT")}`;
 }
 
 function stableSequenceId(sequence: XmlNode | undefined): string {
-  const uid = sequence ? attribute(sequence, "uid") : undefined;
+  return `fcpxml:sequence:${immutableUid(sequence, "SEQUENCE")}`;
+}
+
+function immutableUid(node: XmlNode | undefined, kind: "PROJECT" | "SEQUENCE"): string {
+  const uid = node ? attribute(node, "uid") : undefined;
   if (uid === undefined || String(uid).trim().length === 0) {
-    throw new Error("FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE: sequence has no immutable uid");
+    throw new Error(`FCPXML_${kind}_IDENTITY_UNAVAILABLE: ${kind.toLowerCase()} has no immutable uid`);
   }
-  return `fcpxml:sequence:${String(uid)}`;
+  return String(uid);
 }
 
 function stableTimelineId(project: XmlNode, sequence: XmlNode | undefined): string {
