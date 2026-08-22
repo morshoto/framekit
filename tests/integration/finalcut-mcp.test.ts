@@ -6,8 +6,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CommandAudioAnalyzer } from "@framekit/final-cut";
+import type { NativeFinalCutEditor } from "@framekit/final-cut";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
@@ -219,6 +224,7 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.native.deleteRange, true);
     assert.equal(editor.native.trimToDuration, true);
+    assert.equal(editor.native.timelineFocus, true);
 
     const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
     assert.equal(typeof native.timelineWindowAvailable, "boolean");
@@ -228,6 +234,10 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
       assert.match(native.error.code, /^FINAL_CUT_NATIVE_/);
       assert.equal(typeof native.error.message, "string");
     }
+    const focus = JSON.parse(textFrom(await client.callTool({ name: "editor.native.focus", arguments: {} })));
+    assert.equal(typeof focus.timelineWindowAvailable, "boolean");
+    assert.equal(typeof focus.timelineFocused, "boolean");
+    assert.ok(["timeline", "browser", "text-field", "modal", "unknown", "none"].includes(focus.focusTarget));
 
     const preview = await client.callTool({
       name: "editor.native.delete-range.preview",
@@ -247,6 +257,74 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     await client.close();
     await transport.close();
     await new Promise<void>((resolve) => bridge.close(() => resolve()));
+  }
+});
+
+test("Final Cut MCP preserves overlay-blocked focus diagnostics", async () => {
+  const nativeContext = {
+    available: false,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: false,
+    focusTarget: "unknown" as const,
+    focusedWindowName: "Framekit",
+    framekitWindowAvailable: true,
+    framekitWindowMinimized: false,
+    overlayBlocked: true,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: false,
+    error: {
+      code: "FINAL_CUT_NATIVE_OVERLAY_BLOCKED",
+      message: "The Framekit window could not be minimized; close or minimize the overlay and retry",
+    },
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Overlay Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "overlay-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const inspect = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    const focus = JSON.parse(textFrom(await client.callTool({ name: "editor.native.focus", arguments: {} })));
+    for (const response of [inspect, focus]) {
+      assert.equal(response.error.code, "FINAL_CUT_NATIVE_OVERLAY_BLOCKED");
+      assert.equal(response.focusedWindowName, "Framekit");
+      assert.equal(response.framekitWindowAvailable, true);
+      assert.equal(response.framekitWindowMinimized, false);
+      assert.equal(response.overlayBlocked, true);
+    }
+  } finally {
+    await client.close();
+    await server.close();
   }
 });
 

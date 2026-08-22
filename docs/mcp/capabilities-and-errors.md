@@ -77,6 +77,7 @@ capabilities:
     "bladeAtPlayhead": true,
     "deleteRange": true,
     "trimToDuration": true,
+    "timelineFocus": true,
     "requiresAccessibility": true,
     "requiresFinalCutFrontmost": true
   }
@@ -114,8 +115,16 @@ waits briefly for an accessible timeline window, and verifies timeline-pane
 focus. The preflight fails closed with `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`
 when no project timeline is accessible, `FINAL_CUT_NATIVE_NOT_FRONTMOST` when
 Final Cut remains background, and `FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`
-when the timeline pane cannot be focused. `editor.native.inspect` includes
-`timelineWindowAvailable`, `timelineFocused`, and `focusTarget` diagnostics.
+when the timeline pane cannot be focused. If the Framekit extension overlay is
+visible, preflight minimizes it through Accessibility with `AXMinimize`, raises
+Final Cut's timeline window, and re-checks the focused window after every focus
+attempt. If it cannot be minimized or remains focused, the operation fails
+closed with `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`. `editor.native.inspect` and
+`editor.native.focus` include `timelineWindowAvailable`, `timelineFocused`,
+`focusTarget`, `focusedWindowName`, `framekitWindowAvailable`,
+`framekitWindowMinimized`, `overlayBlocked`, and focus-attempt diagnostics. The
+focus tool changes application focus only; it does not select a project or
+mutate timeline content, and it never clicks the Framekit close button.
 
 `timelinePublishNewProject` is reported separately from `timelineWrite`. It
 means a verified FCPXML artifact can be imported as a new Final Cut project;

@@ -90,5 +90,11 @@ framekit mcp --editor final-cut-live
 ```
 
 Framekit activates Final Cut and focuses the timeline before timeline-native
-operations. The user must open the intended project timeline and select the
-target clip; Framekit does not choose projects automatically.
+operations using Accessibility hierarchy discovery with bounded coordinate
+fallbacks. If the visible Framekit extension window overlaps the editor,
+Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
+and verifies the focused window after each attempt. It never clicks the
+Framekit close button. The user must open the intended project timeline and
+select the target clip; Framekit does not choose projects automatically. A
+failed focus can be retried with `editor.native.focus` without changing
+timeline content.

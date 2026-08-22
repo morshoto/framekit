@@ -4,6 +4,17 @@ import type { EditorLiveState, RationalTime } from "@framekit/runtime";
 
 const execFile = promisify(execFileCallback);
 
+class NativeFinalCutPreflightError extends Error {
+  public constructor(
+    public readonly code: string,
+    message: string,
+    public readonly context?: NativeFinalCutContext,
+  ) {
+    super(`${code}: ${message}`);
+    this.name = "NativeFinalCutPreflightError";
+  }
+}
+
 export type NativeFinalCutEdit =
   | { type: "rename-selected-clip"; name: string }
   | { type: "trim-selected-clip-to-playhead"; edge: "start" | "end" }
@@ -103,6 +114,14 @@ export interface NativeFinalCutContext {
   timelineWindowAvailable: boolean;
   timelineFocused: boolean;
   focusTarget: "timeline" | "browser" | "text-field" | "modal" | "unknown" | "none";
+  focusAttempts?: number;
+  focusedName?: string;
+  focusedRole?: string;
+  focusedDescription?: string;
+  focusedWindowName?: string;
+  framekitWindowAvailable?: boolean;
+  framekitWindowMinimized?: boolean;
+  overlayBlocked?: boolean;
   project?: string;
   sequence?: string;
   playheadTime?: string;
@@ -125,6 +144,7 @@ export interface NativeFinalCutCapabilities {
   bladeAtPlayhead: boolean;
   deleteRange: boolean;
   trimToDuration: boolean;
+  timelineFocus: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
 }
@@ -162,6 +182,7 @@ export interface NativeFinalCutAutomationOptions {
 export interface NativeFinalCutEditor {
   capabilities(): NativeFinalCutCapabilities;
   inspect(): Promise<NativeFinalCutContext>;
+  focusTimeline(): Promise<NativeFinalCutContext>;
   edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult>;
   undo(operationId: string): Promise<NativeFinalCutUndoResult>;
   searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
@@ -221,6 +242,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       bladeAtPlayhead: this.enabled,
       deleteRange: this.enabled,
       trimToDuration: this.enabled,
+      timelineFocus: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
     };
@@ -230,6 +252,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.inspectNative());
   }
 
+  public async focusTimeline(): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.focusTimelineNative());
+  }
+
   private async inspectNative(): Promise<NativeFinalCutContext> {
     if (!this.enabled) {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
@@ -237,7 +263,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       return await this.attachLiveState(await this.ensureTimelineReady());
     } catch (error) {
-      return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error));
+      return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
+    }
+  }
+
+  private async focusTimelineNative(): Promise<NativeFinalCutContext> {
+    if (!this.enabled) {
+      return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
+    }
+    try {
+      return await this.attachLiveState(await this.ensureTimelineReady());
+    } catch (error) {
+      return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
   }
 
@@ -608,7 +645,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async waitForDuration(expected: RationalTime, previousRevision: string): Promise<EditorLiveState> {
-    const deadline = this.now() + 2_000;
+    const deadline = this.now() + 5_000;
     let latest = await this.requireLiveState();
     while (this.now() < deadline) {
       const duration = latest.sequenceTimeRange?.duration ?? latest.sequence?.duration;
@@ -631,7 +668,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async waitForPlayhead(expected: RationalTime, sequenceId?: string): Promise<EditorLiveState> {
-    const deadline = this.now() + 2_000;
+    const deadline = this.now() + 5_000;
     let latest = await this.requireLiveState();
     while (this.now() < deadline) {
       if ((!sequenceId || latest.sequence?.id === sequenceId) && latest.playheadTime && compareRational(latest.playheadTime, expected) === 0) return latest;
@@ -709,13 +746,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const deadline = this.now() + 2_000;
     let lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
     let lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
+    let lastContext: NativeFinalCutContext | undefined;
 
     while (this.now() <= deadline) {
       try {
         const context = parseContext(await this.executor(timelinePreflightScript()));
+        lastContext = context;
         if (!context.timelineWindowAvailable) {
           lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
           lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
+        } else if (context.overlayBlocked) {
+          lastCode = "FINAL_CUT_NATIVE_OVERLAY_BLOCKED";
+          lastMessage = "The Framekit window could not be minimized; close or minimize the overlay and retry";
         } else if (!context.frontmost) {
           lastCode = "FINAL_CUT_NATIVE_NOT_FRONTMOST";
           lastMessage = "Final Cut is running but is not the frontmost application";
@@ -727,14 +769,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         }
       } catch (error) {
         const code = nativeErrorCode(error);
-        if (code === "FINAL_CUT_NATIVE_PERMISSION_REQUIRED") throw new Error(`${code}: ${nativeErrorMessage(error)}`);
+        if (code === "FINAL_CUT_NATIVE_PERMISSION_REQUIRED") throw new NativeFinalCutPreflightError(code, nativeErrorMessage(error), lastContext);
         lastCode = code;
         lastMessage = nativeErrorMessage(error);
       }
       if (this.now() >= deadline) break;
       await this.sleep(Math.min(100, deadline - this.now()));
     }
-    throw new Error(`${lastCode}: ${lastMessage}`);
+    throw new NativeFinalCutPreflightError(lastCode, lastMessage, lastContext);
   }
 
   private async requireAvailableContext(): Promise<NativeFinalCutContext> {
@@ -771,33 +813,243 @@ function requireFrontmostAppleScript(): string {
 function timelinePreflightScript(): string {
   return `
 tell application "Final Cut Pro" to activate
+on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked
+end preflightResult
+
+on focusSnapshot()
   tell application "System Events"
+    tell process "Final Cut Pro"
+      set processState to frontmost as text
+      set windowName to ""
+      set elementName to ""
+      set elementRole to ""
+      set elementDescription to ""
+      try
+        set focusedWindow to value of attribute "AXFocusedWindow"
+        set windowName to name of focusedWindow as text
+      end try
+      try
+        set focusedElement to value of attribute "AXFocusedUIElement"
+        set elementName to name of focusedElement as text
+        set elementRole to role of focusedElement as text
+        set elementDescription to description of focusedElement as text
+      end try
+      return {processState, windowName, elementName, elementRole, elementDescription}
+    end tell
+  end tell
+end focusSnapshot
+
+on attemptTimelineFocus(candidatePoint)
+  tell application "System Events"
+    tell process "Final Cut Pro"
+      set clickedName to ""
+      set clickedRole to ""
+      set clickedDescription to ""
+      try
+        set clickedElement to click at candidatePoint
+        set clickedName to name of clickedElement as text
+        set clickedRole to role of clickedElement as text
+        set clickedDescription to description of clickedElement as text
+        try
+          perform action "AXPress" of clickedElement
+        end try
+      end try
+    end tell
+  end tell
+  delay 0.1
+  return (my focusSnapshot()) & {clickedName, clickedRole, clickedDescription}
+end attemptTimelineFocus
+
+on timelineFocus(roleName, descriptionText, elementName)
+  if roleName is "AXTextField" or roleName is "AXSearchField" then return false
+  if roleName is "AXSheet" or roleName is "AXDialog" then return false
+  if descriptionText contains "Browser" or descriptionText contains "browser" or descriptionText contains "search" or descriptionText contains "Search" or elementName contains "Browser" or elementName contains "browser" or elementName contains "search" or elementName contains "Search" then return false
+  if roleName is "AXGroup" or roleName is "AXScrollArea" or roleName is "AXLayoutArea" or roleName is "AXCanvas" then return true
+  if roleName is "AXImage" and (descriptionText contains "Filmstrip" or descriptionText contains "filmstrip" or descriptionText contains "Video") then return true
+  if descriptionText contains "timeline" or descriptionText contains "Timeline" or elementName contains "timeline" or elementName contains "Timeline" then return true
+  return false
+end timelineFocus
+
+tell application "System Events"
   tell process "Final Cut Pro"
+    try
+      set frontmost to true
+      delay 0.1
+    end try
     set processFrontmost to frontmost as text
     set timelineWindowAvailable to false
     set frontWindowName to ""
+    set focusAttempts to 0
+    set framekitWindowAvailable to false
+    set framekitWindowMinimized to false
+    set overlayBlocked to false
+    set focusedWindowName to ""
     try
       set frontWindow to window "Final Cut Pro"
       set timelineWindowAvailable to true
       set frontWindowName to name of frontWindow as text
     on error
-      return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & "0" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & "false" & (ASCII character 31) & "none"
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", "", "", "", "", timelineWindowAvailable, false, "none", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
     end try
-    if processFrontmost is not "true" then
-      return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & "0" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & "false" & (ASCII character 31) & "unknown"
-    end if
-    set origin to position of frontWindow
-    click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
-    delay 0.1
-    set focusedRole to ""
-    set focusedDescription to ""
-    set focusedName to ""
+
     try
-      set focusedElement to value of attribute "AXFocusedUIElement"
-      set focusedRole to role of focusedElement as text
-      set focusedDescription to description of focusedElement as text
-      set focusedName to name of focusedElement as text
+      repeat with candidateWindow in windows
+        try
+          set candidateWindowName to name of candidateWindow as text
+          if candidateWindowName contains "Framekit" then
+            set framekitWindowAvailable to true
+            set framekitWindow to contents of candidateWindow
+            try
+              set framekitWindowMinimized to (value of attribute "AXMinimized" of framekitWindow) as boolean
+            end try
+            if not framekitWindowMinimized then
+              try
+                perform action "AXMinimize" of framekitWindow
+              on error
+                try
+                  set value of attribute "AXMinimized" of framekitWindow to true
+                end try
+              end try
+              delay 0.1
+              try
+                set framekitWindowMinimized to (value of attribute "AXMinimized" of framekitWindow) as boolean
+              end try
+            end if
+            if not framekitWindowMinimized then set overlayBlocked to true
+            exit repeat
+          end if
+        end try
+      end repeat
     end try
+
+    if overlayBlocked then
+      set snapshot to my focusSnapshot()
+      set processFrontmost to item 1 of snapshot
+      set focusedWindowName to item 2 of snapshot
+      set focusedName to item 3 of snapshot
+      set focusedRole to item 4 of snapshot
+      set focusedDescription to item 5 of snapshot
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+    end if
+    tell application "Final Cut Pro" to activate
+    try
+      set frontmost to true
+      delay 0.1
+    end try
+    set snapshot to my focusSnapshot()
+    set processFrontmost to item 1 of snapshot
+    set focusedWindowName to item 2 of snapshot
+    if processFrontmost is not "true" then
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", item 3 of snapshot, item 4 of snapshot, item 5 of snapshot, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+    end if
+    try
+      perform action "AXRaise" of frontWindow
+    end try
+    tell application "Final Cut Pro" to activate
+    delay 0.1
+    set snapshot to my focusSnapshot()
+    set processFrontmost to item 1 of snapshot
+    set focusedWindowName to item 2 of snapshot
+    if processFrontmost is not "true" then
+      return my preflightResult(processFrontmost, frontWindowName, 0, "", "", item 3 of snapshot, item 4 of snapshot, item 5 of snapshot, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
+    end if
+
+    set windowPosition to position of frontWindow
+    set windowSize to size of frontWindow
+    set originX to item 1 of windowPosition
+    set originY to item 2 of windowPosition
+    set windowWidth to item 1 of windowSize
+    set windowHeight to item 2 of windowSize
+    set semanticPoints to {}
+    try
+      repeat with candidate in entire contents of frontWindow
+        try
+          set candidateRole to role of candidate as text
+          set candidateDescription to description of candidate as text
+          set candidateName to name of candidate as text
+          set candidatePosition to position of candidate
+          set candidateSize to size of candidate
+          set candidateX to item 1 of candidatePosition
+          set candidateY to item 2 of candidatePosition
+          set candidateWidth to item 1 of candidateSize
+          set candidateHeight to item 2 of candidateSize
+          set semanticMatch to false
+          if candidateRole is "AXGroup" or candidateRole is "AXScrollArea" or candidateRole is "AXLayoutArea" or candidateRole is "AXCanvas" then
+            if candidateDescription contains "timeline" or candidateDescription contains "Timeline" or candidateDescription contains "storyline" or candidateDescription contains "Storyline" or candidateDescription contains "canvas" or candidateDescription contains "Canvas" or candidateName contains "timeline" or candidateName contains "Timeline" or candidateName contains "storyline" or candidateName contains "Storyline" then set semanticMatch to true
+          end if
+          if semanticMatch and (count of semanticPoints) < 8 and candidateY > originY + (windowHeight * 0.4) and candidateWidth > (windowWidth * 0.25) and candidateHeight > 20 then
+            set end of semanticPoints to {candidateX + (candidateWidth / 2), candidateY + (candidateHeight / 2)}
+          end if
+        end try
+      end repeat
+    end try
+
+    set fallbackPoints to {{originX + (windowWidth * 0.50), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.75), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.25), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.50), originY + (windowHeight * 0.90)}}
+    set timelineFocused to false
+    set focusTarget to "unknown"
+    repeat with candidatePoint in semanticPoints
+      set focusAttempts to focusAttempts + 1
+      set snapshot to my attemptTimelineFocus(contents of candidatePoint)
+      set processFrontmost to item 1 of snapshot
+      set focusedWindowName to item 2 of snapshot
+      set focusedName to item 3 of snapshot
+      set focusedRole to item 4 of snapshot
+      set focusedDescription to item 5 of snapshot
+      set clickedName to item 6 of snapshot
+      set clickedRole to item 7 of snapshot
+      set clickedDescription to item 8 of snapshot
+      if focusedWindowName contains "Framekit" then
+        set overlayBlocked to true
+        exit repeat
+      else if (my timelineFocus(focusedRole, focusedDescription, focusedName) or my timelineFocus(clickedRole, clickedDescription, clickedName)) and processFrontmost is "true" then
+        set timelineFocused to true
+        set focusTarget to "timeline"
+        exit repeat
+      else if focusedRole is "AXTextField" or focusedRole is "AXSearchField" then
+        set focusTarget to "text-field"
+      else if focusedDescription contains "Browser" or focusedDescription contains "browser" or focusedDescription contains "search" or focusedDescription contains "Search" or focusedName contains "Browser" or focusedName contains "browser" or focusedName contains "search" or focusedName contains "Search" then
+        set focusTarget to "browser"
+      end if
+    end repeat
+    if not timelineFocused then
+      repeat with fallbackPoint in fallbackPoints
+        set focusAttempts to focusAttempts + 1
+        set snapshot to my attemptTimelineFocus(contents of fallbackPoint)
+        set processFrontmost to item 1 of snapshot
+        set focusedWindowName to item 2 of snapshot
+        set focusedName to item 3 of snapshot
+        set focusedRole to item 4 of snapshot
+        set focusedDescription to item 5 of snapshot
+        set clickedName to item 6 of snapshot
+        set clickedRole to item 7 of snapshot
+        set clickedDescription to item 8 of snapshot
+        if focusedWindowName contains "Framekit" then
+          set overlayBlocked to true
+          exit repeat
+        else if (my timelineFocus(focusedRole, focusedDescription, focusedName) or my timelineFocus(clickedRole, clickedDescription, clickedName)) and processFrontmost is "true" then
+          set timelineFocused to true
+          set focusTarget to "timeline"
+          exit repeat
+        else if focusedRole is "AXTextField" or focusedRole is "AXSearchField" then
+          set focusTarget to "text-field"
+        else if focusedRole is "AXSheet" or focusedRole is "AXDialog" then
+          set focusTarget to "modal"
+        else if focusedDescription contains "Browser" or focusedDescription contains "browser" or focusedDescription contains "search" or focusedDescription contains "Search" or focusedName contains "Browser" or focusedName contains "browser" or focusedName contains "search" or focusedName contains "Search" then
+          set focusTarget to "browser"
+        else
+          set focusTarget to "unknown"
+        end if
+      end repeat
+    end if
+
+    set snapshot to my focusSnapshot()
+    set processFrontmost to item 1 of snapshot
+    set focusedWindowName to item 2 of snapshot
+    set focusedName to item 3 of snapshot
+    set focusedRole to item 4 of snapshot
+    set focusedDescription to item 5 of snapshot
+    if focusedWindowName contains "Framekit" then set overlayBlocked to true
     set selectedName to ""
     set selectedRole to ""
     set selectedCount to 0
@@ -814,19 +1066,7 @@ tell application "Final Cut Pro" to activate
         end try
       end repeat
     end try
-    set focusTarget to "unknown"
-    set timelineFocused to false
-    if focusedRole is "AXTextField" or focusedRole is "AXSearchField" then
-      set focusTarget to "text-field"
-    else if focusedRole is "AXSheet" or focusedRole is "AXDialog" then
-      set focusTarget to "modal"
-    else if focusedDescription contains "Browser" or focusedDescription contains "search" then
-      set focusTarget to "browser"
-    else if focusedRole is "AXGroup" or focusedRole is "AXScrollArea" or focusedRole is "AXLayoutArea" or focusedRole is "AXCanvas" or focusedDescription contains "timeline" or focusedName contains "timeline" then
-      set focusTarget to "timeline"
-      set timelineFocused to true
-    end if
-    return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget
+    return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked)
   end tell
 end tell`;
 }
@@ -1109,7 +1349,7 @@ end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState] = output.split(String.fromCharCode(31));
   const selectedCount = Number(selectedCountText ?? "0");
   const timelineWindowAvailable = timelineWindowState === undefined ? Boolean(frontWindow) : timelineWindowState === "true";
   const timelineFocused = timelineFocusedState === undefined
@@ -1135,6 +1375,14 @@ function parseContext(output: string): NativeFinalCutContext {
     timelineWindowAvailable,
     timelineFocused,
     focusTarget,
+    ...(focusedName ? { focusedName } : {}),
+    ...(focusedRole ? { focusedRole } : {}),
+    ...(focusedDescription ? { focusedDescription } : {}),
+    ...(focusedWindowName ? { focusedWindowName } : {}),
+    ...(focusAttemptsState && Number.isFinite(Number(focusAttemptsState)) ? { focusAttempts: Number(focusAttemptsState) } : {}),
+    ...(framekitWindowState !== undefined ? { framekitWindowAvailable: framekitWindowState === "true" } : {}),
+    ...(framekitMinimizedState !== undefined ? { framekitWindowMinimized: framekitMinimizedState === "true" } : {}),
+    ...(overlayBlockedState !== undefined ? { overlayBlocked: overlayBlockedState === "true" } : {}),
     target,
     bladeAvailable: bladeState === "true",
     undoAvailable: undoState === "true",
@@ -1266,19 +1514,25 @@ function durationVerificationDetail(actual: RationalTime | undefined, expected: 
   return { verified: false, detail: `expected duration ${expected.value}/${expected.timescale}, observed ${actual.value}/${actual.timescale}` };
 }
 
-function unavailableContext(code: string, message: string): NativeFinalCutContext {
+function unavailableContext(code: string, message: string, observed?: NativeFinalCutContext): NativeFinalCutContext {
   return {
+    ...(observed ?? {
+      application: "Final Cut Pro" as const,
+      frontmost: false,
+      timelineWindowAvailable: false,
+      timelineFocused: false,
+      focusTarget: "none" as const,
+      target: { kind: "none" as const },
+      undoAvailable: false,
+      bladeAvailable: false,
+    }),
     available: false,
-    application: "Final Cut Pro",
-    frontmost: false,
-    timelineWindowAvailable: false,
-    timelineFocused: false,
-    focusTarget: "none",
-    target: { kind: "none" },
-    undoAvailable: false,
-    bladeAvailable: false,
     error: { code, message },
   };
+}
+
+function preflightContext(error: unknown): NativeFinalCutContext | undefined {
+  return error instanceof NativeFinalCutPreflightError ? error.context : undefined;
 }
 
 function verifyNativeEdit(operation: NativeFinalCutEdit, before: NativeFinalCutContext, after: NativeFinalCutContext): NativeFinalCutEditResult["verification"] {
@@ -1311,16 +1565,19 @@ function appleScriptString(value: string): string {
 
 function nativeErrorCode(error: unknown): string {
   const message = String(error);
+  const explicitCodes = [...message.matchAll(/FINAL_CUT_NATIVE_[A-Z_]+/g)].map((match) => match[0]);
+  if (explicitCodes.length > 0) return explicitCodes[explicitCodes.length - 1];
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "FINAL_CUT_NATIVE_PERMISSION_REQUIRED";
   if (message.includes("-600") || message.includes("isn't running") || message.includes("is not running")) return "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
   if (message.includes("-1728") || message.includes("Can’t get window") || message.includes("Can't get window")) return "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
   if (message.includes("-1719") || message.includes("window 1") || message.includes("Invalid index")) return "FINAL_CUT_NATIVE_NOT_FRONTMOST";
   if (message.includes("MODAL")) return "FINAL_CUT_NATIVE_MODAL_BLOCKED";
-  return message.match(/FINAL_CUT_NATIVE_[A-Z_]+/)?.[0] ?? "FINAL_CUT_NATIVE_AUTOMATION_FAILED";
+  return "FINAL_CUT_NATIVE_AUTOMATION_FAILED";
 }
 
 function nativeErrorMessage(error: unknown): string {
   const message = String(error);
+  if (message.includes("FINAL_CUT_NATIVE_OVERLAY_BLOCKED")) return "The Framekit window could not be minimized; close or minimize the overlay and retry";
   if (message.includes("FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW")) return "Final Cut has no accessible timeline window; open a project timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED")) return "Final Cut's timeline pane could not be focused; click the timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_NOT_FRONTMOST")) return "Final Cut is running but is not the frontmost application";

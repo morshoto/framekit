@@ -61,6 +61,15 @@ and select the target clip before calling `editor.native.edit`; Framekit does
 not choose projects automatically. Native writes fail closed when permission,
 window, focus, selection, or menu verification is unavailable.
 
+If focus recovery needs to be retried explicitly, call `editor.native.focus`. It
+performs a bounded Accessibility-only focus attempt and returns the same UI
+diagnostics as `editor.native.inspect`; it never selects a project, moves the
+playhead, or changes timeline content. When the visible Framekit extension
+window overlaps Final Cut, preflight detects it, minimizes it through
+Accessibility, raises the timeline window, and verifies the focused window
+after every attempt. It never clicks the Framekit close button. An overlay that
+cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
+
 ## Live Browser search and Blade
 
 With native writes enabled, use the live UI workflow in this order:
@@ -95,8 +104,9 @@ already at or beyond the current duration returns a verified no-op.
 
 Before timeline-native preview or execute calls, Framekit activates Final Cut
 Pro, waits up to two seconds for an accessible project timeline, and focuses
-the timeline pane through Accessibility UI automation. It does not open or
-select projects automatically. If setup is incomplete, it returns one of
+the timeline pane through semantic Accessibility candidates followed by
+bounded lower-pane coordinate fallbacks. It does not open or select projects
+automatically. If setup is incomplete, it returns one of
 `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`,
 `FINAL_CUT_NATIVE_NOT_FRONTMOST`, or
 `FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED` without issuing an edit command.

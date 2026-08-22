@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test tests/integration/*.test.ts",
     "test:final-cut-headed": "node scripts/final-cut-headed-e2e.mjs",
+    "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
     "test:watch": "tsx --test --watch tests/integration/*.test.ts",
     "mcp": "tsx apps/mcp-server/src/main.ts",
     "framekit": "node ./bin/framekit.mjs",

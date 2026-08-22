@@ -48,6 +48,9 @@ try {
   if (!native.available || !native.frontmost || !native.timelineWindowAvailable || !native.timelineFocused || native.focusTarget !== "timeline") {
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.code ?? nativePreflightError(native)}: ${native.error?.message ?? "Final Cut timeline preflight did not establish a focused timeline"}`);
   }
+  if (native.framekitWindowAvailable !== true || native.framekitWindowMinimized !== true) {
+    throw new Error("FINAL_CUT_E2E_OVERLAY_NOT_MINIMIZED: expected the visible Framekit window to be detected and minimized by Accessibility");
+  }
   if (native.project && native.project !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${native.project}`);
   }
@@ -55,10 +58,20 @@ try {
 
   const preflightLive = await callJson("editor.live.inspect");
   const preflightDuration = preflightLive.sequenceTimeRange?.duration ?? preflightLive.sequence?.duration;
-  if (!preflightDuration) throw new Error("FINAL_CUT_E2E_PREFLIGHT_DURATION_UNAVAILABLE: live sequence duration is required");
-  const preflight = await callJson("editor.native.trim-to-duration.preview", { duration: preflightDuration });
+  const preflightFrameDuration = preflightLive.sequence?.frameDuration;
+  if (!preflightDuration || !preflightFrameDuration) throw new Error("FINAL_CUT_E2E_PREFLIGHT_DURATION_UNAVAILABLE: live sequence duration and frame duration are required");
+  const disposableOneSecond = { value: preflightFrameDuration.timescale, timescale: preflightFrameDuration.timescale };
+  const disposableTrimDuration = subtractRational(preflightDuration, disposableOneSecond);
+  if (BigInt(disposableTrimDuration.value) <= 0n) throw new Error("FINAL_CUT_E2E_PREFLIGHT_DURATION_TOO_SHORT: disposable trim requires a sequence longer than one second");
+  const preflight = await callJson("editor.native.trim-to-duration.preview", { duration: disposableTrimDuration });
   if (!preflight.previewToken) throw new Error("FINAL_CUT_E2E_PREFLIGHT_FAILED: native timeline preflight did not return a preview token");
+  const preflightTrimmed = await callJson("editor.native.trim-to-duration.execute", { previewToken: preflight.previewToken });
+  if (!preflightTrimmed.verification?.verified) throw new Error("FINAL_CUT_E2E_PREFLIGHT_TRIM_FAILED: disposable trim was not verified");
+  await assertLiveDuration(disposableTrimDuration, "overlay-focus-trim");
+  await callJson("editor.native.undo", { operationId: preflightTrimmed.operationId });
+  await assertLiveDuration(preflightDuration, "overlay-focus-trim undo");
 
+  await focusFinalCut();
   const matches = await callJson("editor.native.media.search", { query });
   if (!Array.isArray(matches) || matches.length === 0) throw new Error("FINAL_CUT_E2E_MEDIA_NOT_FOUND: Browser search returned no results");
   const selected = matches[0];
@@ -147,8 +160,7 @@ async function waitForNativeReady() {
   let last;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
-      await focusFinalCut();
-      last = await callJson("editor.native.inspect");
+      last = await callJson("editor.native.focus");
       if (last.available && last.frontmost && last.timelineWindowAvailable && last.timelineFocused && last.focusTarget === "timeline") return last;
     } catch (error) {
       last = { error: { message: error instanceof Error ? error.message : String(error) } };

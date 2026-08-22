@@ -33,7 +33,8 @@ It exposes these tools over stdio:
 
 - `connection.status`
 - `editor.inspect`
-- `editor.native.inspect`, `editor.native.edit`, `editor.native.undo`
+- `editor.native.inspect`, `editor.native.focus`, `editor.native.edit`,
+  `editor.native.undo`
 - `editor.native.media.search`, `editor.native.media.select`,
   `editor.native.timeline.locate`
 - `editor.native.blade.preview`, `editor.native.blade.execute`

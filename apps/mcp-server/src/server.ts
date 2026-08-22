@@ -97,6 +97,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ? await options.nativeEditor.inspect()
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
+  server.registerTool("editor.native.focus", {
+    description: "Activate Final Cut Pro and focus its timeline without changing project or timeline content.",
+    inputSchema: {},
+  }, async () => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.focusTimeline()
+    : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
+
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
     inputSchema: nativeEditSchema,

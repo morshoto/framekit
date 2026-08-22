@@ -48,11 +48,15 @@ This is expected for complete live timeline reads, rollback,
 playback control, analyzers, and native assets. The runtime fails closed by
 design.
 
-Native UI writes are separate. Set `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, grant
-Accessibility and Automation permission to the MCP host, bring a Final Cut
-timeline window to the front, and select one clip. If those conditions are not
-met, `editor.native.inspect` and `editor.native.edit` return structured native
-capability or target errors.
+Native UI writes are separate. Set `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1` and
+grant Accessibility and Automation permission to the MCP host. Framekit will
+activate Final Cut and attempt semantic timeline focus automatically. Use
+`editor.native.focus` to retry focus without changing timeline content. If
+focus still cannot be proven, inspect `focusTarget`, `focusAttempts`, and the
+structured error before retrying. If `focusedWindowName` is `Framekit`, or
+`overlayBlocked` is true, the operation returns
+`FINAL_CUT_NATIVE_OVERLAY_BLOCKED`; Framekit attempts to minimize that window
+with Accessibility and never closes it.
 
 ## Build or signing errors
 

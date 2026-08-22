@@ -90,6 +90,7 @@ timeline, and focuses the timeline pane before the operation. If setup is
 incomplete, expect one of `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`,
 `FINAL_CUT_NATIVE_NOT_FRONTMOST`, or
 `FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`. Verify
+`editor.native.focus` reports successful timeline focus and
 `editor.native.inspect` reports the focus diagnostics and a selected clip,
 then test one rename or trim operation followed by `editor.native.undo`.
 Native operations are selection-scoped and do not produce a canonical
@@ -144,6 +145,14 @@ Use the same disposable project and native opt-in to verify:
 
 The headed test must use a disposable project with known duration and must
 never run against an unsaved user project.
+
+Before running the headed test, leave the Framekit extension window visible
+over Final Cut. The first native focus preflight must detect that window,
+minimize it through Accessibility without clicking its close button, raise the
+Final Cut timeline, and report `framekitWindowMinimized: true`. The test then
+continues with the disposable operations and verifies each result through live
+duration reads followed by native Undo. If the extension window cannot be
+minimized, the expected failure is `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
 
 ## FCPXML publish E2E
 
