@@ -853,8 +853,8 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
     executor: async (script) => {
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview.mov", 1, true);
-      if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${recordSeparator}`;
-      if (script.includes("set output to \"\"")) return `Interview.mov${separator}AXRow${separator}clip-1${separator}10/1${separator}800${recordSeparator}`;
+      if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${separator}browser-1${recordSeparator}`;
+      if (script.includes("set output to \"\"")) return `Interview.mov${separator}AXRow${separator}clip-1${separator}800${recordSeparator}`;
       return "";
     },
   });
@@ -866,7 +866,11 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.equal(target.selected, true);
   assert.equal(target.playheadTime, "1/1");
   assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
-  assert.equal(scripts.some((script) => script.includes("xOffset")), true);
+  assert.equal(scripts.some((script) => script.includes("set browserRegion to") && script.includes("AXRow")), true);
+  const occurrenceScript = scripts.find((script) => script.includes("xOffset"));
+  assert.ok(occurrenceScript);
+  assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
+  assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
 });
 
 test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {
@@ -879,7 +883,7 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
     sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
     revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
   });
-  const makeAdapter = (browserOutput: string, occurrenceOutput = `Interview${separator}AXRow${separator}clip-1${separator}10/1${separator}800${recordSeparator}`) => new FinalCutNativeAutomationAdapter({
+  const makeAdapter = (browserOutput: string, occurrenceOutput = `Interview${separator}AXRow${separator}clip-1${separator}800${recordSeparator}`) => new FinalCutNativeAutomationAdapter({
     enabled: true,
     liveState,
     executor: async (script) => {
@@ -892,12 +896,16 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
 
   await assert.rejects(makeAdapter("").targetMedia("missing"), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
   await assert.rejects(
-    makeAdapter(`Interview${separator}AXBrowserMedia${recordSeparator}Interview copy${separator}AXBrowserMedia${recordSeparator}`).targetMedia("ambiguous"),
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${recordSeparator}Interview copy${separator}AXBrowserMedia${separator}browser-2${recordSeparator}`).targetMedia("ambiguous"),
     /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
   );
   await assert.rejects(
-    makeAdapter(`Interview${separator}AXBrowserMedia${recordSeparator}`, `${"Interview"}${separator}AXRow${separator}one${recordSeparator}Interview${separator}AXRow${separator}two${recordSeparator}`).targetMedia("duplicate"),
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${recordSeparator}`, `${"Interview"}${separator}AXRow${separator}one${separator}40${recordSeparator}Interview${separator}AXRow${separator}two${separator}880${recordSeparator}`).targetMedia("duplicate"),
     /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${recordSeparator}`, `Interview${separator}AXRow${separator}one${separator}${recordSeparator}`).targetMedia("missing-position"),
+    /FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE/,
   );
 });
 
