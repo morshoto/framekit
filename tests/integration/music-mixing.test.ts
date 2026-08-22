@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function createMusicRuntime() {
   const adapter = new InMemoryEditorAdapter({
@@ -26,6 +29,15 @@ function createMusicRuntime() {
     }],
   });
   return { adapter, runtime: new AgentVideoRuntime(adapter) };
+}
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { type?: string; text?: unknown } | undefined;
+  assert.equal(first?.type, "text");
+  assert.equal(typeof first?.text, "string");
+  return first.text as string;
 }
 
 test("music workflow previews, mixes, verifies, and undoes an appended music bed", async () => {
@@ -69,4 +81,103 @@ test("music workflow previews, mixes, verifies, and undoes an appended music bed
   const restored = await runtime.undo(transaction.id);
   assert.deepEqual(restored.timeline.clips, before.timeline.clips);
   assert.deepEqual(restored.media, before.media);
+});
+
+test("MCP exposes guarded music preview, execute, verification, and undo", async () => {
+  const { runtime } = createMusicRuntime();
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "music-mixing-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.some((tool) => tool.name === "music.add"));
+    assert.ok(tools.tools.some((tool) => tool.name === "music.add.execute"));
+
+    const before = await runtime.inspectProject();
+    const preview = JSON.parse(textFrom(await client.callTool({
+      name: "music.add",
+      arguments: {
+        baseRevision: before.revision,
+        occurrenceId: "clip-music-mcp",
+        import: {
+          mediaId: "media-music-mcp",
+          source: "/fixtures/music-mcp.wav",
+          duration: 4,
+          sourceDigest: "sha256:music-mcp",
+        },
+        placement: "append",
+        duration: 4,
+        targetLane: -1,
+        gainDb: -12,
+        fadeIn: 0.25,
+        fadeOut: 0.5,
+      },
+    })));
+    assert.match(preview.previewToken, /^preview-/);
+    assert.deepEqual(await runtime.inspectProject(), before);
+
+    const transaction = JSON.parse(textFrom(await client.callTool({
+      name: "music.add.execute",
+      arguments: { previewToken: preview.previewToken },
+    })));
+    assert.equal(transaction.status, "VERIFIED");
+    assert.equal(transaction.after.timeline.clips.at(-1).gainDb, -12);
+
+    const undone = JSON.parse(textFrom(await client.callTool({
+      name: "edit.undo",
+      arguments: { transactionId: transaction.id },
+    })));
+    assert.deepEqual(undone.timeline.clips, before.timeline.clips);
+    assert.deepEqual(undone.media, before.media);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("music workflow inserts an existing searched media item at an explicit position", async () => {
+  const { runtime } = createMusicRuntime();
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewMusic({
+    baseRevision: before.revision,
+    occurrenceId: "clip-music-insert",
+    mediaId: "media-dialogue",
+    placement: "insert",
+    start: 2,
+    duration: 3,
+    targetLane: -2,
+    gainDb: -10,
+  });
+
+  assert.equal(preview.expectedDiff.added[0]?.after?.start, 2);
+  assert.equal(preview.expectedDiff.added[0]?.after?.duration, 3);
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  const inserted = transaction.after.timeline.clips.find((clip) => clip.id === "clip-music-insert");
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(
+    { start: inserted?.start, duration: inserted?.duration, track: inserted?.track, gainDb: inserted?.gainDb },
+    { start: 2, duration: 3, track: -2, gainDb: -10 },
+  );
+});
+
+test("music workflow reports dialogue ducking as an explicit unavailable capability", async () => {
+  const { runtime } = createMusicRuntime();
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.previewMusic({
+      baseRevision: before.revision,
+      occurrenceId: "clip-music-ducked",
+      mediaId: "media-dialogue",
+      placement: "insert",
+      start: 0,
+      duration: 3,
+      targetLane: -1,
+      ducking: { enabled: true, dialogueClipIds: ["clip-dialogue"], reductionDb: 6 },
+    }),
+    /CAPABILITY_UNAVAILABLE: dialogue ducking/,
+  );
+  assert.deepEqual(await runtime.inspectProject(), before);
 });

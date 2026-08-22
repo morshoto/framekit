@@ -65,6 +65,11 @@ Important error codes include:
 - `ANALYZER_FAILED`: a configured analyzer exited unsuccessfully.
 - `ANALYZER_INVALID_OUTPUT`: a configured analyzer returned invalid typed JSON.
 
+Music mixing reports `CAPABILITY_UNAVAILABLE: dialogue ducking` when a request
+asks for automatic dialogue ducking. Gain and fades are verified for the
+deterministic composite workflow, but ducking must not be silently approximated
+with a fixed music gain.
+
 ## Connection status
 
 The `connection.status` MCP tool is available while the live bridge is being

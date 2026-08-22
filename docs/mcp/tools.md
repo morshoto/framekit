@@ -35,6 +35,9 @@
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed Final Cut session |
 | `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path |
+| `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
+| `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
+| `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
 | `timeline.edit.preview` | Validate an ordered Basic Editing MVP workflow and return a short-lived token plus expected diff | Deterministic fixture; non-mutating and capability-gated |
 | `timeline.edit.execute` | Execute one composite preview exactly once, verify it, and return the transaction | Deterministic fixture; stale, expired, reused, or unsupported previews fail before mutation |
 | `timeline.publish.new-project` | Import a verified FCPXML artifact as a new project | Requires verified `transactionId`, FCPXML path, and native writes; never replaces the active project |
@@ -76,6 +79,32 @@ use the explicit `editor.native.media.*` tools because Browser media identity an
 timeline occurrence identity are different. Imported media handles are stable
 for the current native session; timeline occurrence handles remain short-lived
 and bound to the active sequence/playhead state.
+
+## Music mixing workflow
+
+`music.add` is the high-level guarded entry point for the issue-11 music
+workflow. It accepts either an existing canonical `mediaId` (normally found
+with `media.search`) or an inline `import` source containing a stable media ID,
+source path, duration, and source digest. `placement: "append"` resolves the
+start to the current timeline duration; `placement: "insert"` requires an
+explicit non-negative `start`. Music always targets an explicit non-primary
+numeric `targetLane`.
+
+The preview is non-mutating and returns the same short-lived token contract as
+`timeline.edit.preview`. Optional `gainDb`, `fadeIn`, and `fadeOut` values are
+included in the planned workflow and checked after execution. Execute with
+`music.add.execute`, inspect the returned verification and diff, and undo with
+`edit.undo` using the returned transaction ID.
+
+Dialogue ducking is not implemented by the deterministic adapter. A request
+with `ducking.enabled: true` returns
+`CAPABILITY_UNAVAILABLE: dialogue ducking` before preview or mutation.
+
+The canonical `music.add` workflow currently requires a composite transaction
+provider. Live Final Cut Browser search/import/append/insert and selection gain
+remain the separate `editor.native.*` tools; a live-only backend must not be
+treated as a canonical snapshot or composite music provider without advertising
+those capabilities.
 
 ## Composite editing transactions
 
