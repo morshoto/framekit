@@ -51,6 +51,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.native.focus",
         "editor.native.inspect",
         "editor.native.media.search",
+        "editor.native.media.import",
         "editor.native.media.select",
         "editor.native.timeline.locate",
         "editor.native.trim-to-duration.execute",
