@@ -65,8 +65,9 @@ async function runMcp(args: string[]): Promise<void> {
     throw new Error("Usage: --headless is only supported with --editor final-cut-live");
   }
   const root = repoRoot();
-  const entrypoint = join(root, "apps/mcp-server/src/main.ts");
-  const child = spawn(process.execPath, ["--import", "tsx", entrypoint], {
+  const compiled = fileURLToPath(import.meta.url).endsWith(".js");
+  const entrypoint = join(root, `apps/mcp-server/src/main.${compiled ? "js" : "ts"}`);
+  const child = spawn(process.execPath, [...(compiled ? [] : ["--import", "tsx"]), entrypoint], {
     stdio: "inherit",
     env: {
       ...process.env,
