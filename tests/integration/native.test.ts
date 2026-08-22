@@ -569,6 +569,34 @@ test("native timeline preflight retries a focus race before editing", async () =
   assert.equal(scripts.some((script) => script.includes("tell application \"Final Cut Pro\" to activate")), true);
 });
 
+test("native Final Cut recovers when frontmost is lost after preflight", async () => {
+  let preflightCalls = 0;
+  let editCalls = 0;
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true);
+      }
+      if (script.includes("Apply Custom Name")) {
+        editCalls += 1;
+        if (editCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+        renamed = true;
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.verification.verified, true);
+  assert.equal(editCalls, 2);
+  assert.equal(preflightCalls >= 3, true);
+});
+
 test("native timeline preflight reports a missing timeline window without mutating", async () => {
   let clock = 0;
   const scripts: string[] = [];
