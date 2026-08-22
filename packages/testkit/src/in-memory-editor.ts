@@ -50,19 +50,23 @@ export class InMemoryEditorAdapter implements EditorPort {
   private activeProjectId: string;
   private activeSequenceId: string;
   private selectionRevision = 0;
-  private readonly frames?: InMemoryProjectFixture["frames"];
+  private readonly framesByTarget: Map<string, InMemoryProjectFixture["frames"]>;
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
-    this.frames = fixture.frames ? structuredClone(fixture.frames) : undefined;
     this.projects = structuredClone(fixture.projects ?? [{
       id: fixture.projectId,
       name: fixture.projectName,
       sequences: [{ id: fixture.timelineId, name: fixture.timelineName }],
     }]);
-    this.snapshotsByTarget = new Map((fixture.projectSnapshots ?? [fixture]).map((candidate) => [
+    const projectSnapshots = fixture.projectSnapshots ?? [fixture];
+    this.snapshotsByTarget = new Map(projectSnapshots.map((candidate) => [
       snapshotKey(candidate.projectId, candidate.timelineId),
       createSnapshot(candidate),
+    ]));
+    this.framesByTarget = new Map(projectSnapshots.map((candidate) => [
+      snapshotKey(candidate.projectId, candidate.timelineId),
+      candidate.frames ? structuredClone(candidate.frames) : undefined,
     ]));
     this.activeProjectId = fixture.projectId;
     this.activeSequenceId = fixture.timelineId;
@@ -97,7 +101,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         assetDiscovery: true,
         liveStateRead: false,
         playheadWrite: false,
-        frameCapture: Boolean(this.frames),
+        frameCapture: Boolean(this.activeFrames()),
         projectCatalogRead: true,
         projectSelection: true,
       },
@@ -111,10 +115,15 @@ export class InMemoryEditorAdapter implements EditorPort {
   }
 
   public async captureFrame(position: RationalTime): Promise<CapturedFrameSource> {
-    if (!this.frames) throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
-    const frame = this.frames.find((candidate) => sameRational(candidate.position, position));
+    const frames = this.activeFrames();
+    if (!frames) throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
+    const frame = frames.find((candidate) => sameRational(candidate.position, position));
     if (!frame) throw new Error(`FRAME_NOT_FOUND: ${position.value}/${position.timescale}`);
     return structuredClone({ image: frame.image, timecode: frame.timecode });
+  }
+
+  private activeFrames(): InMemoryProjectFixture["frames"] {
+    return this.framesByTarget.get(snapshotKey(this.activeProjectId, this.activeSequenceId));
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

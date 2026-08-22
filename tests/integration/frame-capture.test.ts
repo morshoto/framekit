@@ -69,6 +69,23 @@ test("fails explicitly when frame capture is not configured", async () => {
   );
 });
 
+test("rejects an invalid timeline position before invoking the capture provider", async () => {
+  const adapter = frameFixture();
+  const originalCaptureFrame = adapter.captureFrame.bind(adapter);
+  let captureCalls = 0;
+  adapter.captureFrame = async (position) => {
+    captureCalls += 1;
+    return originalCaptureFrame(position);
+  };
+  const runtime = new AgentVideoRuntime(adapter);
+
+  await assert.rejects(
+    runtime.captureFrame({ value: "48", timescale: "0" }),
+    /INVALID_TIMELINE_POSITION/,
+  );
+  assert.equal(captureCalls, 0);
+});
+
 test("attaches visual analysis when requested and configured", async () => {
   const runtime = new AgentVideoRuntime(frameFixture(), {
     visualAnalyzer: new FixtureVisualAnalyzer(),
@@ -85,10 +102,17 @@ test("attaches visual analysis when requested and configured", async () => {
 });
 
 test("fails explicitly when requested visual analysis is not configured", async () => {
-  const runtime = new AgentVideoRuntime(frameFixture());
+  const adapter = frameFixture();
+  let captureCalls = 0;
+  adapter.captureFrame = async () => {
+    captureCalls += 1;
+    throw new Error("CAPTURE_SHOULD_NOT_RUN");
+  };
+  const runtime = new AgentVideoRuntime(adapter);
 
   await assert.rejects(
     runtime.captureFrame({ value: "48", timescale: "24" }, { analyze: true }),
     /CAPABILITY_UNAVAILABLE: visual analysis/,
   );
+  assert.equal(captureCalls, 0);
 });
