@@ -77,6 +77,28 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     })),
   ];
 
+  const beforeMedia = new Map(before.media.map((media) => [media.mediaId, media]));
+  const afterMedia = new Map(after.media.map((media) => [media.mediaId, media]));
+  const mediaChanges: TimelineDiff["mediaChanges"] = [
+    ...after.media
+      .filter((media) => !beforeMedia.has(media.mediaId))
+      .map((media) => ({ type: "MEDIA_ADDED" as const, media, after: media })),
+    ...before.media
+      .filter((media) => !afterMedia.has(media.mediaId))
+      .map((media) => ({ type: "MEDIA_REMOVED" as const, media, before: media })),
+    ...after.media
+      .filter((media) => {
+        const previous = beforeMedia.get(media.mediaId);
+        return previous !== undefined && JSON.stringify(previous) !== JSON.stringify(media);
+      })
+      .map((media) => ({
+        type: "MEDIA_MODIFIED" as const,
+        media,
+        before: beforeMedia.get(media.mediaId)!,
+        after: media,
+      })),
+  ];
+
   const affectedRanges = [
     ...added.flatMap((change) => rangesForClip(change.after)),
     ...removed.flatMap((change) => rangesForClip(change.before)),
@@ -110,6 +132,7 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     markerChanges,
     captionChanges,
     storyElementChanges,
+    mediaChanges,
     affectedRanges,
   };
 }
