@@ -12,8 +12,12 @@ export function finalCutMcpEnvironment(overrides: NodeJS.ProcessEnv = {}): Recor
   return {
     ...environment,
     FRAMEKIT_EDITOR: "final-cut-live",
-    FRAMEKIT_FINAL_CUT_HEADLESS: commitValidation ? "1" : "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: commitValidation
+      ? "1"
+      : (environment.FRAMEKIT_FINAL_CUT_HEADLESS ?? "0"),
     FRAMEKIT_AUTO_CONNECT: "0",
-    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: commitValidation ? "0" : "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: commitValidation
+      ? "0"
+      : (environment.FRAMEKIT_FINAL_CUT_NATIVE_WRITES ?? "1"),
   };
 }
