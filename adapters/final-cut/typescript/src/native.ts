@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import type { EditorLiveState, RationalTime } from "@framekit/runtime";
+import type { ContextRevision, EditorLiveState, RationalTime } from "@framekit/runtime";
 
 const execFile = promisify(execFileCallback);
 
@@ -63,6 +63,39 @@ export interface NativeFinalCutBladeResult {
   resultingSegments: NativeFinalCutOccurrence[];
   before: NativeFinalCutContext;
   after: NativeFinalCutContext;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+  undoCommand?: string;
+}
+
+export type NativeFinalCutMediaInsertionOperation = "append" | "insert";
+
+export interface NativeFinalCutMediaInsertionPreview {
+  previewToken: string;
+  operation: NativeFinalCutMediaInsertionOperation;
+  media: NativeFinalCutMediaMatch;
+  beforeDuration: RationalTime;
+  insertionTime: RationalTime;
+  sequenceId?: string;
+  revision: string;
+  command: "Append selected media" | "Insert selected media at playhead";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutMediaInsertionResult {
+  operationId: string;
+  previewToken: string;
+  operation: NativeFinalCutMediaInsertionOperation;
+  media: NativeFinalCutMediaMatch;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeDuration: RationalTime;
+  afterDuration: RationalTime;
+  beforeRevision: ContextRevision;
+  afterRevision: ContextRevision;
   verification: {
     verified: boolean;
     detail: string;
@@ -148,6 +181,8 @@ export interface NativeFinalCutCapabilities {
   bladeAtPlayhead: boolean;
   deleteRange: boolean;
   trimToDuration: boolean;
+  mediaAppend: boolean;
+  mediaInsert: boolean;
   timelineFocus: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
@@ -178,7 +213,7 @@ export interface NativeFinalCutUndoResult {
   };
 }
 
-type NativeOperationKind = "selection" | "blade" | "range";
+type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion";
 type NativeRetryValidator = (context: NativeFinalCutContext) => Promise<void> | void;
 
 interface NativeOperationRecord {
@@ -216,6 +251,10 @@ export interface NativeFinalCutEditor {
   executeDeleteRange(previewToken: string): Promise<NativeFinalCutRangeResult>;
   previewTrimToDuration(duration: RationalTime): Promise<NativeFinalCutRangePreview>;
   executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult>;
+  previewAppendMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
+  previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
 }
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
@@ -231,6 +270,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
   private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
+  private selectedMediaHandle?: string;
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
@@ -241,6 +281,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     expectedAfterDuration: RationalTime;
     sequenceId?: string;
     revision?: string;
+    expiresAt: number;
+  }>();
+  private readonly mediaInsertionPreviews = new Map<string, {
+    operation: NativeFinalCutMediaInsertionOperation;
+    mediaHandle: string;
+    beforeDuration: RationalTime;
+    insertionTime: RationalTime;
+    sequenceId?: string;
+    revision: string;
     expiresAt: number;
   }>();
 
@@ -265,6 +314,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       bladeAtPlayhead: this.enabled,
       deleteRange: this.enabled,
       trimToDuration: this.enabled,
+      mediaAppend: this.enabled,
+      mediaInsert: this.enabled,
       timelineFocus: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
@@ -413,6 +464,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       const matches = parseMediaMatches(await this.executor(searchMediaScript(query)));
       this.mediaHandles.clear();
+      this.selectedMediaHandle = undefined;
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
     } catch (error) {
@@ -436,6 +488,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
     const after = await this.requireAvailableContext();
+    this.selectedMediaHandle = handle;
     return {
       ...after,
       target: { kind: "browser-media", name: match.name, ...(match.role ? { role: match.role } : {}) },
@@ -591,6 +644,124 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.executeRangeNative(previewToken, "trim-to-duration"));
   }
 
+  public async previewAppendMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewMediaInsertionNative("append", mediaHandle));
+  }
+
+  public async executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append"));
+  }
+
+  public async previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewMediaInsertionNative("insert", mediaHandle));
+  }
+
+  public async executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "insert"));
+  }
+
+  private async previewMediaInsertionNative(
+    operation: NativeFinalCutMediaInsertionOperation,
+    mediaHandle: string,
+  ): Promise<NativeFinalCutMediaInsertionPreview> {
+    this.assertEnabled();
+    const media = this.mediaHandles.get(mediaHandle);
+    if (!media) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
+    if (this.selectedMediaHandle !== mediaHandle) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: select one Browser media result before insertion");
+    }
+    const context = await this.requireTimelineContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    const live = await this.requireLiveState();
+    const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    const beforeDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    if (!sequenceStart || !beforeDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
+    const insertionTime = operation === "append"
+      ? addRational(sequenceStart, beforeDuration)
+      : live.playheadTime;
+    if (!insertionTime) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut playhead is unavailable for media insertion");
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle(`${operation}-media-preview`);
+    this.mediaInsertionPreviews.set(previewToken, {
+      operation,
+      mediaHandle,
+      beforeDuration,
+      insertionTime,
+      sequenceId: live.sequence?.id,
+      revision: live.revision.id,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      operation,
+      media,
+      beforeDuration,
+      insertionTime,
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      revision: live.revision.id,
+      command: operation === "append" ? "Append selected media" : "Insert selected media at playhead",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  private async executeMediaInsertionNative(
+    previewToken: string,
+    expectedOperation?: NativeFinalCutMediaInsertionOperation,
+  ): Promise<NativeFinalCutMediaInsertionResult> {
+    this.assertEnabled();
+    const preview = this.mediaInsertionPreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown media insertion preview");
+    this.mediaInsertionPreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media insertion preview has expired");
+    if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
+    const media = this.mediaHandles.get(preview.mediaHandle);
+    if (!media) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${preview.mediaHandle}`);
+    if (this.selectedMediaHandle !== preview.mediaHandle) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before insertion");
+    }
+    const before = await this.requireTimelineContext();
+    const beforeLive = await this.requireLiveState();
+    this.validateMediaInsertionBinding(preview, beforeLive);
+    try {
+      await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
+        this.assertRetryContext(before, recovered, preview.operation === "insert");
+        this.validateMediaInsertionBinding(preview, await this.requireLiveState());
+      });
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    const after = await this.requireTimelineContext();
+    const afterLive = await this.waitForMediaInsertion(preview.beforeDuration, beforeLive.revision.id);
+    const afterDuration = afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration;
+    const verification = mediaInsertionVerificationDetail(afterDuration, preview.beforeDuration, afterLive.revision.id, beforeLive.revision.id);
+    if (!verification.verified) throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+    const operationId = opaqueHandle(`native-${preview.operation}-media`);
+    this.rememberOperation(operationId, {
+      kind: "media-insertion",
+      before,
+      after,
+      beforeLive,
+      afterLive,
+      beforeDuration: preview.beforeDuration,
+      undoCommand: after.undoCommand,
+    });
+    return {
+      operationId,
+      previewToken,
+      operation: preview.operation,
+      media,
+      before,
+      after,
+      beforeDuration: preview.beforeDuration,
+      afterDuration: afterDuration!,
+      beforeRevision: beforeLive.revision,
+      afterRevision: afterLive.revision,
+      verification,
+      undoAvailable: after.undoAvailable,
+      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+    };
+  }
+
   private async previewRangeNative(operation: NativeFinalCutRangeOperation, range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
     this.assertEnabled();
     const context = await this.requireTimelineContext();
@@ -717,6 +888,33 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async requireLiveState(): Promise<EditorLiveState> {
     if (!this.liveState) throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut state is required for range operations");
     return this.liveState();
+  }
+
+  private validateMediaInsertionBinding(
+    preview: { sequenceId?: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
+    live: EditorLiveState,
+  ): void {
+    if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+    if (live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+    const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    if (!currentDuration || compareRational(currentDuration, preview.beforeDuration) !== 0) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: sequence duration changed");
+    }
+    if (preview.operation === "insert" && (!live.playheadTime || compareRational(live.playheadTime, preview.insertionTime) !== 0)) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead changed");
+    }
+  }
+
+  private async waitForMediaInsertion(expectedBeforeDuration: RationalTime, previousRevision: string): Promise<EditorLiveState> {
+    const deadline = this.now() + 5_000;
+    let latest = await this.requireLiveState();
+    while (this.now() < deadline) {
+      const duration = latest.sequenceTimeRange?.duration ?? latest.sequence?.duration;
+      if (duration && compareRational(duration, expectedBeforeDuration) > 0 && latest.revision.id !== previousRevision) return latest;
+      await this.sleep(100);
+      latest = await this.requireLiveState();
+    }
+    return latest;
   }
 
   private async waitForDuration(expected: RationalTime, previousRevision: string): Promise<EditorLiveState> {
@@ -1472,6 +1670,18 @@ tell application "System Events"
 end tell`;
 }
 
+function mediaInsertionScript(operation: NativeFinalCutMediaInsertionOperation): string {
+  const shortcut = operation === "append" ? "e" : "w";
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    keystroke "${shortcut}"
+    delay 0.5
+  end tell
+end tell`;
+}
+
 function setPlayheadScript(timecode: string): string {
   return `
 tell application "System Events"
@@ -1700,6 +1910,20 @@ function durationVerificationDetail(actual: RationalTime | undefined, expected: 
     return { verified: true, detail: `Final Cut exposed resulting duration ${actual.value}/${actual.timescale}` };
   }
   return { verified: false, detail: `expected duration ${expected.value}/${expected.timescale}, observed ${actual.value}/${actual.timescale}` };
+}
+
+function mediaInsertionVerificationDetail(
+  actual: RationalTime | undefined,
+  before: RationalTime,
+  revision: string,
+  previousRevision: string,
+): { verified: boolean; detail: string } {
+  if (!actual) return { verified: false, detail: "Final Cut did not expose a resulting sequence duration" };
+  if (compareRational(actual, before) <= 0) {
+    return { verified: false, detail: `expected inserted media to increase duration beyond ${before.value}/${before.timescale}, observed ${actual.value}/${actual.timescale}` };
+  }
+  if (revision === previousRevision) return { verified: false, detail: "Final Cut did not expose a new revision after media insertion" };
+  return { verified: true, detail: `Final Cut exposed resulting duration ${actual.value}/${actual.timescale} at revision ${revision}` };
 }
 
 function unavailableContext(code: string, message: string, observed?: NativeFinalCutContext): NativeFinalCutContext {
