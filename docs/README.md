@@ -2,12 +2,17 @@
 
 This directory is the shareable knowledge base for Framekit.
 
+Repository-local GitHub agent playbooks are documented in
+[`../.agents/README.md`](../.agents/README.md).
+
+- [Getting started](./getting-started.md): development setup, MCP, and Final Cut connection.
 - [PRD](./PRD.md): product goals and roadmap.
 - [SDD](./SDD.md): architecture and design contracts.
 - [Compatibility](./COMPATIBILITY.md): verified editor and toolchain support.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.
 - [Tests](./tests/README.md): reproducible checks and evidence.
 - [Final Cut](./final-cut/README.md): native integration and operations.
+- [Architecture overview](./ARCHITECTURE.md): runtime, MCP, and adapter boundaries.
 - [Architecture](./architecture/runtime-boundaries.md): runtime boundaries.
 - [ADRs](./adr/): durable implementation decisions.
 
