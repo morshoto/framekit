@@ -80,6 +80,15 @@ through the existing `project.inspect`, `timeline.edit`, `edit.diff`, and
 `canonical-write`. The bundled Workflow Extension cannot currently supply
 those methods and fails them with `CAPABILITY_UNAVAILABLE`.
 
+Canonical reads validate complete arrays, rational timeline coordinates,
+unique occurrence and media identities, resolved media references, storyline
+relationships, and an active project/sequence catalog entry. Canonical apply
+responses must include the resulting revision; Framekit uses it for
+compensating rollback if the immediate snapshot read fails. When an FCPXML
+snapshot/mutation pair is configured, that artifact provider remains the
+canonical MCP source and never inherits `timelineWrite` from a separate live
+bridge.
+
 To enable selection-scoped native UI edits:
 
 ```sh

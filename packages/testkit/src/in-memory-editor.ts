@@ -164,14 +164,14 @@ export class InMemoryEditorAdapter implements EditorPort {
     };
   }
 
-  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<void> {
+  public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
     if (this.snapshot.revision.id !== expectedRevision.id) {
       throw new Error("STALE_CONTEXT: editor revision changed before write");
     }
 
     if (operation.type === "ripple-delete") {
       this.applyRippleDelete(operation.timelineId, operation.range.start, operation.range.end);
-      return;
+      return structuredClone(this.snapshot.revision);
     }
     if (operation.type === "add-marker") {
       if (operation.timelineId !== this.snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
@@ -182,7 +182,7 @@ export class InMemoryEditorAdapter implements EditorPort {
           markers: [...this.snapshot.timeline.markers, normalizeMarker(operation.marker)],
         },
       });
-      return;
+      return structuredClone(this.snapshot.revision);
     }
 
     const clip = this.snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
@@ -231,6 +231,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         ),
       },
     });
+    return structuredClone(this.snapshot.revision);
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {

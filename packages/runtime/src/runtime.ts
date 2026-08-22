@@ -121,8 +121,26 @@ export class AgentVideoRuntime {
     if (!capabilities.editor.timelineWrite && !capabilities.editor.timelineArtifactWrite) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
     }
-    await this.adapter.apply(operation, before.revision);
-    const attemptedAfter = await this.inspectProject();
+    if (
+      !capabilities.editor.timelineSnapshotRead
+      || !capabilities.editor.readAfterWrite
+      || !capabilities.editor.rollback
+    ) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation requires snapshot, read-after-write, and rollback");
+    }
+    const appliedRevision = await this.adapter.apply(operation, before.revision);
+    let attemptedAfter: ProjectSnapshot;
+    try {
+      attemptedAfter = await this.inspectProject();
+    } catch (readError) {
+      try {
+        await this.adapter.restore(before, appliedRevision);
+        this.assertRestored(before, await this.inspectProject());
+      } catch (rollbackError) {
+        throw new Error(`READ_AFTER_WRITE_FAILED: compensating rollback failed (${String(readError)}; ${String(rollbackError)})`);
+      }
+      throw new Error(`READ_AFTER_WRITE_FAILED: canonical state was restored (${String(readError)})`);
+    }
     const diff = diffSnapshots(before, attemptedAfter);
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,

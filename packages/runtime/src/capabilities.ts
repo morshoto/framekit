@@ -4,16 +4,18 @@ export type CanonicalTimelineMode = "metadata-only" | "canonical-read" | "canoni
 
 export function canonicalTimelineMode(capabilities: RuntimeCapabilities): CanonicalTimelineMode {
   const editor = capabilities.editor;
+  const hasExplicitTargeting = Boolean(editor.projectCatalogRead && editor.projectSelection);
   if (
     editor.projectRead
     && editor.timelineSnapshotRead
+    && hasExplicitTargeting
     && editor.timelineWrite
     && editor.readAfterWrite
     && editor.rollback
   ) {
     return "canonical-write";
   }
-  if (editor.projectRead && editor.timelineSnapshotRead) return "canonical-read";
+  if (editor.projectRead && editor.timelineSnapshotRead && hasExplicitTargeting) return "canonical-read";
   return "metadata-only";
 }
 
