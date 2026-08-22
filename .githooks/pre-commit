@@ -31,6 +31,7 @@ export PATH="$node_bin:$PATH"
 # configured to run the live Final Cut MCP. No commit check may launch or
 # activate Final Cut Pro.
 export FRAMEKIT_EDITOR=fixture
+export FRAMEKIT_COMMIT_VALIDATION=1
 export FRAMEKIT_FINAL_CUT_HEADLESS=1
 export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0
 export FRAMEKIT_AUTO_CONNECT=0
