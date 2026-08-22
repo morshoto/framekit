@@ -26,6 +26,7 @@ export interface NativeFinalCutMediaMatch {
   name: string;
   role?: string;
   identity?: string;
+  sourceIdentity?: string;
   source?: string;
   browserContext?: string;
   uiIndex?: number;
@@ -38,6 +39,7 @@ export interface NativeFinalCutOccurrence {
   start?: string;
   duration?: string;
   timelineOffset?: number;
+  sourceIdentity?: string;
   role?: string;
   sequence?: string;
   sequenceId?: string;
@@ -499,6 +501,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
+    if (!match.sourceIdentity) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Browser result has no shared source-media identifier");
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     try {
@@ -1411,9 +1414,13 @@ function searchMediaScript(query: string): string {
           set browserRole to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton"
           if candidateName is not "" and browserRegion and (browserRole or candidateDescription contains "Browser" or candidateDescription contains "browser") then
             set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
+            set candidateSourceIdentity to ""
+            try
+              set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
             if candidateName contains searchQuery and seenIdentities does not contain candidateIdentity then
               set end of seenIdentities to candidateIdentity
-              set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+              set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
             end if
           end if
         on error
@@ -1469,6 +1476,8 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
+    set sourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
+    if sourceIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline lookup requires a shared source-media identifier"
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
     set timelineSelection to click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
@@ -1485,9 +1494,13 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
         set candidateRole to role of candidate as text
         set candidateName to value of candidate as text
         set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-        if candidateName is ${appleScriptString(match.name)} then
+        set candidateSourceIdentity to ""
+        try
+          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+        end try
+        if candidateSourceIdentity is sourceIdentity then
           if candidateIdentity is not lastMatchIdentity then
-            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & (xOffset as text) & (ASCII character 30)
+            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & (xOffset as text) & (ASCII character 30)
           end if
           set lastMatchIdentity to candidateIdentity
           set inMatch to true
@@ -1685,12 +1698,13 @@ function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = "", identity = ""] = record.split(String.fromCharCode(31));
+      const [name = "", role = "", identity = "", sourceIdentity = ""] = record.split(String.fromCharCode(31));
       return {
         handle: opaqueHandle("media", index),
         name,
         ...(role ? { role } : {}),
         ...(identity ? { identity } : {}),
+        ...(sourceIdentity ? { sourceIdentity } : {}),
         uiIndex: index,
       };
     });
@@ -1702,17 +1716,17 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = "", identityOrStart = "", timelineOffsetOrDuration = "", legacyTimelineOffset] = record.split(String.fromCharCode(31));
+      const [name = "", role = "", sourceIdentity = "", timelineOffsetOrDuration = "", legacyTimelineOffset] = record.split(String.fromCharCode(31));
       const legacyRecord = legacyTimelineOffset !== undefined;
-      const identity = legacyRecord ? "" : identityOrStart;
+      const identityOrStart = sourceIdentity;
       const timelineOffsetText = legacyRecord ? legacyTimelineOffset : timelineOffsetOrDuration;
-      const legacyRange = !legacyRecord && isRational(identityOrStart) && isRational(timelineOffsetOrDuration);
+      const legacyRange = legacyRecord || (!legacyRecord && isRational(identityOrStart) && isRational(timelineOffsetOrDuration));
       return {
         handle: opaqueHandle("occurrence", index),
         mediaHandle,
         name,
         ...(role ? { role } : {}),
-        ...(identity ? { identity } : {}),
+        ...(sourceIdentity && !legacyRange ? { sourceIdentity } : {}),
         ...(legacyRange ? { start: identityOrStart, duration: timelineOffsetOrDuration } : {}),
         ...(timelineOffsetText && Number.isFinite(Number(timelineOffsetText)) ? { timelineOffset: Number(timelineOffsetText) } : {}),
       };
