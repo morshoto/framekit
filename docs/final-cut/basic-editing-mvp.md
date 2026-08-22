@@ -91,9 +91,12 @@ the existing transaction, diff, or fail-closed behavior.
 The MVP also requires an explicit placement contract for the media it adds:
 
 - `timeline.media.add` accepts a stable `mediaId`, `role` (`video` or `music`),
-  start time, duration, and target lane, then returns the planned occurrence;
+  start time, duration, and `targetLane`, then returns the planned occurrence.
+  For `role: "video"`, `targetLane` is implicitly `"primary"` when omitted and
+  any non-primary lane is rejected. Music requires an explicit non-primary
+  audio lane;
 - `timeline.title.add` accepts a stable title `assetId`, title text, start time,
-  duration, and target lane, then returns the planned title occurrence.
+  duration, and `targetLane`, then returns the planned title occurrence.
 
 Both operations are required extensions of the current `timeline.edit` surface.
 They must participate in the same preview/execute transaction and revision
@@ -156,7 +159,7 @@ rollback before returning a failed result.
 | `context.inspect` | Existing | Read the agent editing context and capabilities. |
 | `media.import` | Required extension | Ingest and identify a local media file. |
 | `media.inspect` | Existing | Read normalized media metadata and attached analysis. |
-| `timeline.media.add` | Required extension | Place an imported video or music occurrence by stable media ID. |
+| `timeline.media.add` | Required extension | Place an imported video or music occurrence by stable media ID and role-specific lane. |
 | `timeline.title.add` | Required extension | Place a discovered title asset with explicit text and timing. |
 | `timeline.edit` | Existing | Execute supported deterministic edits and return a transaction. |
 | `timeline.edit.preview` / `timeline.edit.execute` | Required extension | Provide non-mutating preview and guarded execution. |
@@ -179,6 +182,15 @@ runtime currently applies one `timeline.edit` operation per transaction, so
 this composite orchestration is a required extension rather than a claim about
 the current implementation. Undo must restore the original timeline and media
 registry in one observable operation.
+
+The composite MCP entry point is `timeline.edit.preview` followed by
+`timeline.edit.execute`. Preview accepts a base revision and an ordered operation list
+named `operations`, containing the video `timeline.media.add`, `trim-clip`, music
+`timeline.media.add`, and `timeline.title.add` operations. Each operation keeps
+its stable IDs, role-specific `targetLane`, timing, and operation-specific
+arguments. Execute accepts only `{ previewToken }`; it returns the single
+transaction ID, complete diff, export manifest, and verification record for the
+all-or-nothing workflow.
 
 ## Preview, execute, verify, and Undo rules
 
