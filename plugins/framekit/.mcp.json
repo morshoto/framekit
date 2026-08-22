@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "framekit": {
+      "command": "npx",
+      "args": ["-y", "@morshoto/framekit", "mcp", "--editor", "final-cut-live", "--headless"]
+    }
+  }
+}

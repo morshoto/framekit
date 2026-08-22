@@ -1,0 +1,25 @@
+{
+  "name": "framekit",
+  "version": "0.1.0",
+  "description": "Connect Codex to Framekit's MCP tools for Final Cut Pro",
+  "author": {
+    "name": "Framekit Contributors",
+    "url": "https://github.com/morshoto/framekit"
+  },
+  "homepage": "https://github.com/morshoto/framekit#readme",
+  "repository": "https://github.com/morshoto/framekit",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Framekit",
+    "shortDescription": "Inspect Final Cut Pro through Framekit MCP",
+    "longDescription": "Connect to an existing Framekit Workflow Extension bridge and inspect live Final Cut Pro state with explicit capability and safety boundaries.",
+    "developerName": "Framekit Contributors",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive"],
+    "defaultPrompt": [
+      "Check my live Final Cut connection and available capabilities",
+      "Inspect the current Final Cut project and playhead state"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

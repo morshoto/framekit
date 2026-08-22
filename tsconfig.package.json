@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist-package",
+    "rootDir": "."
+  },
+  "include": [
+    "adapters/final-cut/typescript/src/**/*.ts",
+    "apps/cli/src/**/*.ts",
+    "apps/mcp-server/src/**/*.ts",
+    "packages/runtime/src/**/*.ts",
+    "packages/testkit/src/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", "dist-package", "tests"]
+}
