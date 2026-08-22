@@ -132,6 +132,122 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
   }
 });
 
+test("Final Cut MCP exposes guarded native title preview and execute tools", async () => {
+  const titleAsset = {
+    id: "title-lower-third",
+    kind: "title" as const,
+    name: "Lower Third",
+    vendor: "Framekit Fixture",
+    metadata: { path: "/Motion Templates.localized/Titles.localized/Lower Third.moti" },
+  };
+  const calls: Array<{ assetId: string; text: string }> = [];
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Native Title",
+  };
+  const preview = {
+    previewToken: "title-preview-1",
+    asset: { id: titleAsset.id, kind: titleAsset.kind, name: titleAsset.name, vendor: titleAsset.vendor },
+    text: "Interview",
+    target: "playhead" as const,
+    start: { value: "5", timescale: "1" },
+    end: { value: "8", timescale: "1" },
+    duration: { value: "3", timescale: "1" },
+    sequenceId: "sequence-1",
+    revision: "rev-1",
+    command: "Add native title" as const,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    operationId: "native-title-1",
+    previewToken: preview.previewToken,
+    asset: preview.asset,
+    text: preview.text,
+    target: preview.target,
+    start: preview.start,
+    end: preview.end,
+    duration: preview.duration,
+    before: nativeContext,
+    after: { ...nativeContext, target: { kind: "selected-clip" as const, name: "Lower Third" } },
+    beforeRevision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    afterRevision: { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() },
+    verification: { verified: true, detail: "verified" },
+    undoAvailable: true,
+    undoCommand: "Undo Native Title",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      mediaAppend: true,
+      mediaInsert: true,
+      titlePlacement: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    previewTitleAdd: async (request: { asset: { id: string }; text: string }) => {
+      calls.push({ assetId: request.asset.id, text: request.text });
+      return preview;
+    },
+    executeTitleAdd: async () => result,
+    undo: async () => ({ operationId: result.operationId, undone: true, context: nativeContext, verification: { verified: true, detail: "restored" } }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Title Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+    assets: [titleAsset],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "title-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.title.add.preview"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.title.add.execute"));
+
+    const titlePreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.title.add.preview",
+      arguments: { assetId: titleAsset.id, text: "Interview", duration: { value: "3", timescale: "1" } },
+    })));
+    assert.equal(titlePreview.command, "Add native title");
+    assert.deepEqual(calls, [{ assetId: titleAsset.id, text: "Interview" }]);
+    const titleResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.title.add.execute",
+      arguments: { previewToken: titlePreview.previewToken },
+    })));
+    assert.equal(titleResult.verification.verified, true);
+    assert.equal(titleResult.afterRevision.id, "rev-2");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("local analyzer commands fail closed for unavailable media and invalid output", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-analyzer-errors-"));
   const mediaPath = join(directory, "media.wav");
@@ -239,6 +355,7 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     assert.equal(editor.native.trimToDuration, !commitValidation);
     assert.equal(editor.native.mediaAppend, !commitValidation);
     assert.equal(editor.native.mediaInsert, !commitValidation);
+    assert.equal(editor.native.titlePlacement, !commitValidation);
     assert.equal(editor.native.timelineFocus, !commitValidation);
 
     const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
