@@ -89,7 +89,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const sequence = sequenceNode ?? {};
     const spine = findElement(sequence, "spine") ?? {};
     const projectName = String(attribute(project, "name") ?? "Final Cut Project");
-    const projectId = stableProjectId(project, projectName);
+    const projectId = stableProjectId(project);
     const sequenceName = String(attribute(sequenceNode ?? {}, "name") ?? projectName);
     const timelineId = stableTimelineId(project, sequenceNode);
     const elements = storyEntries(spine);
@@ -125,10 +125,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     await this.ensureLoaded();
     const project = this.projectNode();
     const projectName = String(attribute(project, "name") ?? "Final Cut Project");
-    const projectId = stableProjectId(project, projectName);
+    const projectId = stableProjectId(project);
     const sequence = findElement(project, "sequence");
     const sequenceName = String(attribute(sequence ?? {}, "name") ?? projectName);
-    const sequenceId = stableSequenceId(sequence, projectId, sequenceName);
+    const sequenceId = stableSequenceId(sequence);
     return {
       projects: [{
         id: projectId,
@@ -469,21 +469,25 @@ function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function stableProjectId(project: XmlNode, projectName: string): string {
+function stableProjectId(project: XmlNode): string {
   const uid = attribute(project, "uid");
-  return `fcpxml:project:${String(uid ?? hash(projectName).slice(0, 16))}`;
+  if (uid === undefined || String(uid).trim().length === 0) {
+    throw new Error("FCPXML_PROJECT_IDENTITY_UNAVAILABLE: project has no immutable uid");
+  }
+  return `fcpxml:project:${String(uid)}`;
 }
 
-function stableSequenceId(sequence: XmlNode | undefined, projectId: string, sequenceName: string): string {
+function stableSequenceId(sequence: XmlNode | undefined): string {
   const uid = sequence ? attribute(sequence, "uid") : undefined;
-  return `fcpxml:sequence:${String(uid ?? hash(`${projectId}:${sequenceName}`).slice(0, 16))}`;
+  if (uid === undefined || String(uid).trim().length === 0) {
+    throw new Error("FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE: sequence has no immutable uid");
+  }
+  return `fcpxml:sequence:${String(uid)}`;
 }
 
 function stableTimelineId(project: XmlNode, sequence: XmlNode | undefined): string {
-  const projectName = String(attribute(project, "name") ?? "Final Cut Project");
-  const projectId = stableProjectId(project, projectName);
-  const sequenceName = String(attribute(sequence ?? {}, "name") ?? projectName);
-  return stableSequenceId(sequence, projectId, sequenceName);
+  stableProjectId(project);
+  return stableSequenceId(sequence);
 }
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {

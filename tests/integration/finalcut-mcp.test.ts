@@ -35,7 +35,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
   await writeFile(xmlPath, `<?xml version="1.0" encoding="UTF-8"?>
 <fcpxml version="1.11">
   <resources><asset id="r1" name="Interview.wav" src="interview.wav" /></resources>
-  <library><event name="Event"><project name="MCP Final Cut"><sequence duration="10s"><spine>
+  <library><event name="Event"><project uid="project-mcp" name="MCP Final Cut"><sequence uid="sequence-mcp" duration="10s"><spine>
     <asset-clip ref="r1" name="Interview" offset="0s" start="0s" duration="10s" lane="1" />
   </spine></sequence></project></event></library>
 </fcpxml>`);
