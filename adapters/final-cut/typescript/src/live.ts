@@ -162,6 +162,14 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     }
     const response = await this.request({ method: "apply", operation, expectedRevision });
     if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: apply response revision was empty");
+    validateRevision(expectedRevision, "expected revision");
+    validateRevision(response.revision, "apply response revision");
+    if (
+      response.revision.sequence <= expectedRevision.sequence
+      || response.revision.id === expectedRevision.id
+    ) {
+      protocolError("apply response revision must advance expected revision");
+    }
     return response.revision;
   }
 
@@ -241,11 +249,7 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
   requireArray(snapshot.timeline?.markers, "timeline markers");
   requireArray(snapshot.timeline?.captions, "timeline captions");
   requireArray(snapshot.media, "media references");
-  requireNonEmpty(snapshot.revision?.id, "revision id");
-  if (!Number.isInteger(snapshot.revision?.sequence) || snapshot.revision.sequence < 0) {
-    protocolError("revision sequence must be a non-negative integer");
-  }
-  requireNonEmpty(snapshot.revision?.timestamp, "revision timestamp");
+  validateRevision(snapshot.revision, "revision");
 
   const mediaIds = uniqueIds(snapshot.media, ({ mediaId }) => mediaId, "media");
   uniqueIds(snapshot.timeline.markers, ({ id }) => id, "marker");
@@ -358,6 +362,14 @@ function requireFiniteNonNegative(value: unknown, field: string): asserts value 
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     protocolError(`${field} must be finite and non-negative`);
   }
+}
+
+function validateRevision(revision: ContextRevision | undefined, field: string): asserts revision is ContextRevision {
+  requireNonEmpty(revision?.id, `${field} id`);
+  if (!Number.isInteger(revision?.sequence) || revision.sequence < 0) {
+    protocolError(`${field} sequence must be a non-negative integer`);
+  }
+  requireNonEmpty(revision?.timestamp, `${field} timestamp`);
 }
 
 function requireRational(value: unknown, field: string): void {
