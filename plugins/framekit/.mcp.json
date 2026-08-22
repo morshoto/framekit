@@ -2,7 +2,7 @@
   "mcpServers": {
     "framekit": {
       "command": "npx",
-      "args": ["-y", "framekit", "mcp", "--editor", "final-cut-live", "--headless"]
+      "args": ["-y", "@morshoto/framekit", "mcp", "--editor", "final-cut-live", "--headless"]
     }
   }
 }

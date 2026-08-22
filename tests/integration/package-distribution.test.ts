@@ -14,12 +14,14 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 test("published package contains the runnable Framekit CLI and MCP sources", async () => {
   const manifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
+    name?: string;
     private?: boolean;
     bin?: Record<string, string>;
     dependencies?: Record<string, string>;
     files?: string[];
   };
 
+  assert.equal(manifest.name, "@morshoto/framekit");
   assert.equal(manifest.private, false);
   assert.equal(manifest.bin?.framekit, "./bin/framekit.mjs");
   assert.equal(manifest.dependencies?.tsx, undefined, "published CLI must not depend on the development loader");

@@ -7,7 +7,7 @@ codex plugin marketplace add morshoto/framekit
 ```
 
 Open `/plugins`, install **Framekit**, and start a new Codex session. The plugin
-registers `npx -y framekit mcp --editor final-cut-live --headless`; a repository
+registers `npx -y @morshoto/framekit mcp --editor final-cut-live --headless`; a repository
 checkout and manual `codex mcp add` are not required.
 
 In normal (non-headless) mode, the Framekit MCP process automatically:

@@ -28,7 +28,7 @@ try {
   assert.deepEqual(framekit.transport, {
     type: "stdio",
     command: "npx",
-    args: ["-y", "framekit", "mcp", "--editor", "final-cut-live", "--headless"],
+    args: ["-y", "@morshoto/framekit", "mcp", "--editor", "final-cut-live", "--headless"],
     env: null,
     env_vars: [],
     cwd: null,

@@ -34,7 +34,7 @@ requires neither a repository checkout nor manual `codex mcp add`. The plugin
 starts the published package as:
 
 ```sh
-npx -y framekit mcp --editor final-cut-live --headless
+npx -y @morshoto/framekit mcp --editor final-cut-live --headless
 ```
 
 Headless mode only probes an existing Workflow Extension bridge. It does not

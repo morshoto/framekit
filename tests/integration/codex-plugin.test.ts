@@ -31,7 +31,7 @@ test("Framekit plugin registers the published headless Final Cut MCP command", a
   };
   assert.deepEqual(mcp.mcpServers?.framekit, {
     command: "npx",
-    args: ["-y", "framekit", "mcp", "--editor", "final-cut-live", "--headless"],
+    args: ["-y", "@morshoto/framekit", "mcp", "--editor", "final-cut-live", "--headless"],
   });
 });
 
