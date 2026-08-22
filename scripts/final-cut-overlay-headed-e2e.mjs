@@ -28,9 +28,9 @@ const client = new Client({ name: "framekit-overlay-headed-e2e", version: "0.1.0
 
 try {
   await client.connect(transport);
-  const visible = await framekitWindowMinimized();
+  const visible = await ensureFramekitWindowVisible();
   if (visible !== false) {
-    throw new Error("FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE: leave the Framekit window visible over Final Cut before running this test");
+    throw new Error("FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE: the Framekit window could not be made visible before the preflight");
   }
 
   const focused = await callJson("editor.native.focus");
@@ -74,12 +74,15 @@ try {
   await transport.close().catch(() => {});
 }
 
-async function framekitWindowMinimized() {
+async function ensureFramekitWindowVisible() {
   const script = `
 tell application "System Events"
   tell process "Final Cut Pro"
     try
-      return (value of attribute "AXMinimized" of window "Framekit") as text
+      set framekitWindow to window "Framekit"
+      set value of attribute "AXMinimized" of framekitWindow to false
+      delay 0.2
+      return (value of attribute "AXMinimized" of framekitWindow) as text
     on error
       error "FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING"
     end try

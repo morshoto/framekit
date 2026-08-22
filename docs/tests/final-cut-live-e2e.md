@@ -89,6 +89,25 @@ pnpm run test:final-cut-headless
 This is the supported validation path for Codex and CI. It does not claim that
 the open Final Cut timeline was changed.
 
+## Disposable headed overlay validation
+
+For the required macOS UI proof, use a disposable project and run the explicit
+overlay runner. It makes the Framekit window visible through Accessibility,
+then invokes the shared native preflight; no user click or Codex Computer Use
+session is required:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Native E2E 2" \
+pnpm run test:final-cut-overlay-headed
+```
+
+The runner verifies that the Framekit window began visible, that the preflight
+detected and minimized it with `AXMinimize`, raised and focused Final Cut's
+timeline, trimmed one disposable second, observed the new duration through
+live state, and restored the original duration through native Undo. It fails
+closed if the project name does not match or if the overlay cannot be
+minimized.
+
 ## Optional native UI validation
 
 Final Cut Pro does not provide a supported headless Accessibility mode. Native

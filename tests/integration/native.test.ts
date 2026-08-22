@@ -200,6 +200,7 @@ test("native Final Cut preflight minimizes the Framekit overlay and raises the t
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedWindow"')), true);
   assert.equal(scripts.some((script) => script.includes('click button 1 of window "Framekit"')), false);
   assert.equal(scripts.some((script) => script.includes('button "close"')), false);
+  assert.equal(scripts.some((script) => /click\s+button|button\s+"/i.test(script)), false);
 });
 
 test("native Final Cut returns an overlay-blocked error when Framekit cannot be minimized", async () => {
@@ -251,6 +252,70 @@ test("native Final Cut treats a Framekit-focused race as overlay blocked", async
   assert.equal(focused.error?.code, "FINAL_CUT_NATIVE_OVERLAY_BLOCKED");
   assert.equal(focused.focusedWindowName, "Framekit");
   assert.equal(focused.timelineFocused, false);
+});
+
+test("native Final Cut retries when the process loses frontmost status during focus", async () => {
+  let clock = 0;
+  let preflightCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async (script) => {
+      if (!script.includes("timelineWindowAvailable")) return "";
+      preflightCalls += 1;
+      return preflightCalls === 1
+        ? contextWithOverlay(false, "Final Cut Pro", "Interview", 1, true, {
+            framekitWindowAvailable: true,
+            framekitWindowMinimized: true,
+            focusedWindowName: "Final Cut Pro",
+            timelineFocused: false,
+            focusTarget: "unknown",
+          })
+        : contextWithOverlay(true, "Final Cut Pro", "Interview", 1, true, {
+            framekitWindowAvailable: true,
+            framekitWindowMinimized: true,
+            focusedWindowName: "Final Cut Pro",
+          });
+    },
+  });
+
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.available, true);
+  assert.equal(focused.frontmost, true);
+  assert.equal(focused.timelineFocused, true);
+  assert.equal(preflightCalls >= 2, true);
+});
+
+test("native Final Cut preview fails closed when overlay recovery fails", async () => {
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? contextWithOverlay(true, "Final Cut Pro", "Interview", 1, true, {
+          framekitWindowAvailable: true,
+          framekitWindowMinimized: false,
+          focusedWindowName: "Framekit",
+          timelineFocused: false,
+          focusTarget: "unknown",
+          overlayBlocked: true,
+        })
+      : "",
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "0", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.previewDeleteRange({ start: { value: "10", timescale: "1" }, end: { value: "15", timescale: "1" } }),
+    /FINAL_CUT_NATIVE_OVERLAY_BLOCKED:/,
+  );
 });
 
 test("native range preview and execute share overlay preflight and fail closed before mutation", async () => {
