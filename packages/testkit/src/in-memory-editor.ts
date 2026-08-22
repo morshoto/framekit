@@ -185,7 +185,7 @@ export class InMemoryEditorAdapter implements EditorPort {
       (snapshot, operation) => this.applyOperation(snapshot, operation),
       structuredClone(this.snapshot),
     );
-    return structuredClone(withRevision(preview, nextRevision(this.snapshot.revision)));
+    return structuredClone(withRevision(withTimelineDuration(preview), nextRevision(this.snapshot.revision)));
   }
 
   public async applyTransaction(
@@ -209,14 +209,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         `TARGET_MISMATCH: cannot restore ${snapshot.projectId}/${snapshot.timeline.id} while ${this.activeProjectId}/${this.activeSequenceId} is active`,
       );
     }
-    this.snapshot = {
-      ...structuredClone(snapshot),
-      revision: {
-        id: `rev-${this.snapshot.revision.sequence + 1}`,
-        sequence: this.snapshot.revision.sequence + 1,
-        timestamp: new Date().toISOString(),
-      },
-    };
+    this.snapshot = withRevision(structuredClone(snapshot), nextRevision(this.snapshot.revision));
     this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
   }
 
@@ -225,7 +218,8 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (snapshot.media.some((media) => media.mediaId === operation.mediaId)) {
         throw new Error(`MEDIA_ALREADY_EXISTS: ${operation.mediaId}`);
       }
-      if (!operation.source.trim() || operation.duration <= 0 || !operation.sourceDigest.trim()) {
+      if (!operation.source.trim() || !Number.isFinite(operation.duration) || operation.duration <= 0
+        || !operation.sourceDigest.trim()) {
         throw new Error("INVALID_OPERATION: imported media requires source, duration, and digest");
       }
       return {
@@ -245,7 +239,10 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
         throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
       }
-      if (operation.start < 0 || operation.duration <= 0) throw new Error("INVALID_OPERATION: media placement timing");
+      if (!Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+        || operation.start < 0 || operation.duration <= 0) {
+        throw new Error("INVALID_OPERATION: media placement timing");
+      }
       const lane = operation.targetLane ?? (operation.role === "video" ? "primary" : undefined);
       if (operation.role === "video" && lane !== "primary") {
         throw new Error("INVALID_OPERATION: video must target the primary storyline");
@@ -285,7 +282,8 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
         throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
       }
-      if (!operation.text.trim() || operation.start < 0 || operation.duration <= 0 || operation.targetLane === 0) {
+      if (!operation.text.trim() || !Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+        || operation.start < 0 || operation.duration <= 0 || operation.targetLane === 0) {
         throw new Error("INVALID_OPERATION: title text, timing, and non-primary lane are required");
       }
       const clip = withClipTime({
@@ -401,7 +399,6 @@ export class InMemoryEditorAdapter implements EditorPort {
             return clip ? { ...element, start: clip.start, duration: clip.duration, startTime: clip.startTime, durationTime: clip.durationTime } : element;
           }),
         markers,
-        durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
       },
     };
   }
@@ -413,23 +410,30 @@ export class InMemoryEditorAdapter implements EditorPort {
   }
 
   private nextSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
-    const next = withRevision({
-      ...snapshot,
-      timeline: {
-        ...snapshot.timeline,
-        duration: snapshot.timeline.clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
-      },
-    }, nextRevision(snapshot.revision));
+    const next = withRevision(withTimelineDuration(snapshot), nextRevision(snapshot.revision));
     this.history.set(next.revision.id, structuredClone(next));
     return next;
   }
 }
 
 function nextRevision(revision: ContextRevision): ContextRevision {
+  const sequence = revision.sequence + 1;
   return {
-    id: `rev-${revision.sequence + 1}`,
-    sequence: revision.sequence + 1,
-    timestamp: new Date().toISOString(),
+    id: `rev-${sequence}`,
+    sequence,
+    timestamp: new Date(sequence).toISOString(),
+  };
+}
+
+function withTimelineDuration(snapshot: ProjectSnapshot): ProjectSnapshot {
+  const duration = snapshot.timeline.clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0);
+  return {
+    ...snapshot,
+    timeline: {
+      ...snapshot.timeline,
+      duration,
+      durationTime: decimalToRational(duration),
+    },
   };
 }
 

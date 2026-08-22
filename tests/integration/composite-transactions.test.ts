@@ -3,7 +3,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
-import type { VerificationEngine } from "@framekit/runtime";
+import type { VerificationEngine, WorkflowOperation } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
@@ -26,7 +26,7 @@ function createCompositeRuntime(options: ConstructorParameters<typeof AgentVideo
   return { adapter, runtime: new AgentVideoRuntime(adapter, options) };
 }
 
-function workflowOperations() {
+function workflowOperations(): WorkflowOperation[] {
   return [
     {
       type: "media.import" as const,
@@ -104,6 +104,9 @@ test("composite preview is non-mutating and execute applies the ordered MVP work
   assert.match(preview.previewToken, /^preview-/);
   assert.equal(preview.expectedDiff.added.length, 3);
   assert.equal(preview.expectedDiff.mediaChanges.length, 2);
+  assert.equal(preview.expectedDiff.durationDelta, 8);
+  assert.deepEqual(preview.expectedDiff.durationDeltaTime, { value: "8", timescale: "1" });
+  assert.equal(preview.expectedDiff.to.timestamp, new Date(1).toISOString());
   assert.deepEqual(await runtime.inspectProject(), before);
 
   const transaction = await runtime.executeEdit(preview.previewToken);
@@ -117,12 +120,70 @@ test("composite preview is non-mutating and execute applies the ordered MVP work
     "title-opening",
   ]);
   assert.equal(transaction.after.timeline.clips[0]?.duration, 8);
+  assert.deepEqual(transaction.after.timeline.durationTime, { value: "8", timescale: "1" });
+  assert.deepEqual(transaction.diff, preview.expectedDiff);
   assert.deepEqual(transaction.after.media.map((media) => media.mediaId), ["media-video", "media-music"]);
   assert.equal(transaction.diff.affectedRanges.length > 0, true);
   assert.equal(transaction.verification?.passed, true);
 
   const undone = await runtime.undo(transaction.id);
   assert.deepEqual(projectContent(undone), projectContent(before));
+  assert.equal(undone.revision.timestamp, new Date(2).toISOString());
+});
+
+test("media-only composite transactions count registry changes during verification", async () => {
+  const { runtime } = createCompositeRuntime();
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: [workflowOperations()[0]!],
+  });
+
+  const transaction = await runtime.executeEdit(preview.previewToken);
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.diff.added.length, 0);
+  assert.equal(transaction.diff.mediaChanges.length, 1);
+  assert.equal(transaction.after.media[0]?.mediaId, "media-video");
+});
+
+test("composite preview storage evicts the oldest active token at its configured bound", async () => {
+  const { runtime } = createCompositeRuntime({ maxActivePreviews: 2 });
+  const before = await runtime.inspectProject();
+  const first = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+  const second = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+  const third = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+
+  await assert.rejects(runtime.executeEdit(first.previewToken), /PREVIEW_TOKEN_INVALID/);
+  assert.match(second.previewToken, /^preview-/);
+  assert.match(third.previewToken, /^preview-/);
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("composite operations reject non-finite imported and placement timing", async () => {
+  const mutations: Array<(operations: WorkflowOperation[]) => void> = [
+    (operations) => {
+      const imported = operations.find((operation) => operation.type === "media.import");
+      if (imported?.type === "media.import") imported.duration = Number.NaN;
+    },
+    (operations) => {
+      const placement = operations.find((operation) => operation.type === "timeline.media.add");
+      if (placement?.type === "timeline.media.add") placement.start = Number.NaN;
+    },
+    (operations) => {
+      const title = operations.find((operation) => operation.type === "timeline.title.add");
+      if (title?.type === "timeline.title.add") title.duration = Number.NaN;
+    },
+  ];
+
+  for (const mutate of mutations) {
+    const { runtime } = createCompositeRuntime();
+    const before = await runtime.inspectProject();
+    const operations = workflowOperations();
+    mutate(operations);
+    await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations }), /INVALID_OPERATION/);
+    assert.deepEqual(await runtime.inspectProject(), before);
+  }
 });
 
 test("composite execute consumes tokens and rejects stale, expired, and unavailable workflows before mutation", async () => {

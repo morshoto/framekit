@@ -191,8 +191,8 @@ named `operations`, containing the video `timeline.media.add`, `trim-clip`, musi
 `timeline.media.add`, and `timeline.title.add` operations. Each operation keeps
 its stable IDs, role-specific `targetLane`, timing, and operation-specific
 arguments. Execute accepts only `{ previewToken }`; it returns the single
-transaction ID, complete diff, export manifest, and verification record for the
-all-or-nothing workflow.
+transaction ID, before/after snapshots, complete diff, affected ranges, and
+verification record for the all-or-nothing workflow.
 
 ## Preview, execute, verify, and Undo rules
 

@@ -49,6 +49,7 @@ export class AgentVideoRuntime {
       verificationEngine?: VerificationEngine;
       now?: () => number;
       previewTtlMs?: number;
+      maxActivePreviews?: number;
     } = {},
   ) {
     this.context = new ContextEngine(adapter);
@@ -180,6 +181,16 @@ export class AgentVideoRuntime {
       warnings: [],
       expiresAt: new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
     };
+    this.pruneEditPreviews();
+    const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews)
+      && this.options.maxActivePreviews! > 0
+      ? this.options.maxActivePreviews!
+      : 128;
+    while (this.editPreviews.size >= maxActivePreviews) {
+      const oldestToken = this.editPreviews.keys().next().value;
+      if (oldestToken === undefined) break;
+      this.editPreviews.delete(oldestToken);
+    }
     this.editPreviews.set(previewToken, preview);
     return structuredClone(preview);
   }
@@ -388,6 +399,13 @@ export class AgentVideoRuntime {
 
   private now(): number {
     return this.options.now?.() ?? Date.now();
+  }
+
+  private pruneEditPreviews(): void {
+    const now = this.now();
+    for (const [previewToken, preview] of this.editPreviews) {
+      if (now > Date.parse(preview.expiresAt)) this.editPreviews.delete(previewToken);
+    }
   }
 
   private async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
