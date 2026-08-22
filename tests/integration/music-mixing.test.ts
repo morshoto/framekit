@@ -131,6 +131,23 @@ test("MCP exposes guarded music preview, execute, verification, and undo", async
     })));
     assert.deepEqual(undone.timeline.clips, before.timeline.clips);
     assert.deepEqual(undone.media, before.media);
+
+    const ducked = await client.callTool({
+      name: "music.add",
+      arguments: {
+        baseRevision: before.revision,
+        occurrenceId: "clip-music-ducked-mcp",
+        mediaId: "media-dialogue",
+        placement: "insert",
+        start: 0,
+        duration: 3,
+        targetLane: -1,
+        ducking: { enabled: true, dialogueClipIds: ["clip-dialogue"], reductionDb: 6 },
+      },
+    });
+    assert.equal(ducked.isError, true);
+    assert.match(textFrom(ducked), /CAPABILITY_UNAVAILABLE: dialogue ducking/);
+    assert.deepEqual(await runtime.inspectProject(), undone);
   } finally {
     await client.close();
     await server.close();
@@ -178,6 +195,25 @@ test("music workflow reports dialogue ducking as an explicit unavailable capabil
       ducking: { enabled: true, dialogueClipIds: ["clip-dialogue"], reductionDb: 6 },
     }),
     /CAPABILITY_UNAVAILABLE: dialogue ducking/,
+  );
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("music workflow rejects a duration longer than the known source", async () => {
+  const { runtime } = createMusicRuntime();
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.previewMusic({
+      baseRevision: before.revision,
+      occurrenceId: "clip-music-too-long",
+      mediaId: "media-dialogue",
+      placement: "insert",
+      start: 0,
+      duration: 9,
+      targetLane: -1,
+    }),
+    /INVALID_OPERATION: music duration exceeds the source duration/,
   );
   assert.deepEqual(await runtime.inspectProject(), before);
 });
