@@ -946,6 +946,43 @@ test("native Final Cut adapter previews, inserts selected media at the playhead,
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
 });
 
+test("native media insertion fails closed when media selection or preview revision changes", async () => {
+  let revision = 1;
+  const scripts: string[] = [];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "10", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${String.fromCharCode(30)}`;
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo")
+        : "";
+    },
+  });
+
+  const [media] = await adapter.searchMedia("Interview");
+  await assert.rejects(adapter.previewAppendMedia(media.handle), /MEDIA_SELECTION_REQUIRED/);
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewAppendMedia(media.handle);
+  revision = 2;
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /PREVIEW_STALE/);
+  assert.equal(scripts.some((script) => script.includes('keystroke "e"')), false);
+});
+
 test("native Final Cut refuses a Blade retry without live state", async () => {
   const recordSeparator = String.fromCharCode(30);
   let bladeCalls = 0;
