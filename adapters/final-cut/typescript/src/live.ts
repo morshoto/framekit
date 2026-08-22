@@ -191,6 +191,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   public async listProjects(): Promise<ProjectCatalog> {
     const response = await this.request({ method: "projects" });
     if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project catalog response was empty");
+    validateProjectCatalog(response.catalog);
     return response.catalog;
   }
 
@@ -201,6 +202,8 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
       sequenceId: selection.sequenceId,
     });
     if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response was empty");
+    validateProjectCatalog(response.catalog);
+    validateProjectSelection(response.catalog, selection);
     return response.catalog;
   }
 
@@ -274,6 +277,61 @@ function validateSnapshotTarget(snapshot: ProjectSnapshot, catalog: ProjectCatal
   const project = catalog.projects.find(({ id }) => id === snapshot.projectId);
   if (!project?.sequences.some(({ id }) => id === snapshot.timeline.id)) {
     protocolError("active canonical snapshot target is absent from the project catalog");
+  }
+}
+
+function validateProjectCatalog(catalog: ProjectCatalog): void {
+  if (!Array.isArray(catalog.projects)) protocolError("project catalog projects must be an array");
+  const projectIds = new Set<string>();
+  for (const project of catalog.projects) {
+    requireNonEmpty(project.id, "project id");
+    requireNonEmpty(project.name, `project ${project.id} name`);
+    if (projectIds.has(project.id)) protocolError(`duplicate project id ${project.id}`);
+    projectIds.add(project.id);
+    if (!Array.isArray(project.sequences)) protocolError(`project ${project.id} sequences must be an array`);
+    const sequenceIds = new Set<string>();
+    for (const sequence of project.sequences) {
+      requireNonEmpty(sequence.id, `sequence in project ${project.id} id`);
+      requireNonEmpty(sequence.name, `sequence ${sequence.id} name`);
+      if (sequenceIds.has(sequence.id)) protocolError(`duplicate sequence id ${sequence.id} in project ${project.id}`);
+      sequenceIds.add(sequence.id);
+    }
+  }
+  if (catalog.activeProjectId !== undefined) {
+    requireNonEmpty(catalog.activeProjectId, "active project id");
+    if (!projectIds.has(catalog.activeProjectId)) {
+      protocolError(`active project ${catalog.activeProjectId} is absent from the project catalog`);
+    }
+  }
+  if (catalog.activeSequenceId !== undefined) {
+    requireNonEmpty(catalog.activeSequenceId, "active sequence id");
+    const activeProject = catalog.projects.find(({ id }) => id === catalog.activeProjectId);
+    if (!activeProject?.sequences.some(({ id }) => id === catalog.activeSequenceId)) {
+      protocolError(`active sequence ${catalog.activeSequenceId} is absent from the active project catalog`);
+    }
+  }
+}
+
+function validateProjectSelection(catalog: ProjectCatalog, selection: ProjectSelection): void {
+  if (catalog.activeProjectId !== selection.projectId) {
+    throw new Error(
+      `TARGET_MISMATCH: live project selection did not activate requested target ${selection.projectId}/${selection.sequenceId ?? "unknown"}`,
+    );
+  }
+  const project = catalog.projects.find(({ id }) => id === selection.projectId);
+  if (!project) {
+    throw new Error(`TARGET_MISMATCH: selected project ${selection.projectId} is absent from the project catalog`);
+  }
+  if (selection.sequenceId !== undefined) {
+    if (catalog.activeSequenceId !== selection.sequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: live project selection did not activate requested target ${selection.projectId}/${selection.sequenceId}`,
+      );
+    }
+    return;
+  }
+  if (project.sequences.length !== 1 || catalog.activeSequenceId !== project.sequences[0]?.id) {
+    throw new Error(`AMBIGUOUS_PROJECT_TARGET: sequenceId is required for project ${selection.projectId}`);
   }
 }
 
