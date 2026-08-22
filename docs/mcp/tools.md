@@ -10,6 +10,7 @@
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
+| `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Validates the path, waits for Browser availability, and returns a stable session media handle |
 | `editor.native.media.search` | Search the active Final Cut Browser | Returns short-lived media handles; native writes required |
 | `editor.native.media.select` | Select a Browser result by handle | Fails if the result or selection cannot be verified |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
@@ -57,6 +58,8 @@ live-only session rejects these tools with `CAPABILITY_UNAVAILABLE`. An
 FCPXML-backed session can inspect and select its single managed project;
 selection never silently changes the open Final Cut project.
 
-`media.search` remains canonical snapshot search. Live Browser search uses the
-explicit `editor.native.media.*` tools because Browser media identity and
-timeline occurrence identity are different and short-lived.
+`media.search` remains canonical snapshot search. Live Browser import and search
+use the explicit `editor.native.media.*` tools because Browser media identity and
+timeline occurrence identity are different. Imported media handles are stable
+for the current native session; timeline occurrence handles remain short-lived
+and bound to the active sequence/playhead state.

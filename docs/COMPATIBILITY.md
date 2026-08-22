@@ -37,12 +37,15 @@ It reports
 not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
 
-Native selection writes are a separate MCP capability. They use Accessibility
-automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, and do not change the
-canonical `timelineWrite` or `timelineSnapshotRead` capability flags. With the
-same opt-in, the native path can search the active Browser, locate a unique
-timeline occurrence, and Blade it at the playhead. These operations use
-short-lived handles and are not canonical timeline identities.
+Native selection and media-library operations are separate MCP capabilities.
+They use Accessibility automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`,
+and do not change the canonical `timelineWrite` or `timelineSnapshotRead`
+capability flags. With the same opt-in, the native path can import local video or
+audio, wait for the asset to appear in the active Browser, return a stable
+session media handle, search/select Browser media, locate a unique timeline
+occurrence, and Blade it at the playhead. Imported media handles are session
+stable; timeline occurrence handles remain short-lived and are not canonical
+timeline identities.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `timelinePublishNewProject` allows a verified artifact to be imported as a new

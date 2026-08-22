@@ -96,11 +96,36 @@ Accessibility, raises the timeline window, and verifies the focused window
 after every attempt. It never clicks the Framekit close button. An overlay that
 cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
 
+## Importing local media
+
+With native writes enabled, import a local video or audio file into the active
+Final Cut Browser with:
+
+```json
+{
+  "path": "/absolute/path/to/interview.mov"
+}
+```
+
+Call `editor.native.media.import` with the local file path. Framekit checks that
+the path is a readable file before opening Final Cut's import UI, waits for the
+basename to appear in Browser search, and returns `mediaHandle`, `sourcePath`,
+`name`, and an inferred `kind` (`video` or `audio`). The returned media handle
+can be passed to `editor.native.media.select` and
+`editor.native.timeline.locate`. The handle is stable for the current native
+session and does not itself insert the asset into the timeline.
+
+Invalid paths fail before any import UI command. If Final Cut does not expose
+the imported asset before the bounded wait expires, Framekit returns
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`; duplicate exact Browser results fail
+closed with `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`.
+
 ## Live Browser search and Blade
 
 With native writes enabled, use the live UI workflow in this order:
 
-1. Call `editor.native.media.search` with a Browser query.
+1. Call `editor.native.media.search` with a Browser query, or import a local
+   file with `editor.native.media.import`.
 2. Call `editor.native.media.select` with one returned `mediaHandle`.
 3. Call `editor.native.timeline.locate` with that handle.
 4. Require exactly one returned timeline occurrence.
