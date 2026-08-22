@@ -104,6 +104,14 @@ test("editing intent preserves high-precision decimal seconds as a rational time
   }
 });
 
+test("editing intent compares high-precision delete bounds exactly", () => {
+  const resolution = resolveEditingIntent("Remove 9007199254740992-9007199254740993 seconds");
+  assert.equal(resolution.status, "resolved");
+  if (resolution.status === "resolved") {
+    assert.equal(resolution.operation.type, "delete_range");
+  }
+});
+
 test("MCP exposes the resolved operation, affected range, and preview requirement", async () => {
   const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "project-1",
