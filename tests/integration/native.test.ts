@@ -938,6 +938,43 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   assert.equal(selected.target.name, "interview.mov");
 });
 
+test("native Final Cut ignores a pre-existing same-name Browser item during import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-identity-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const existingIdentity = "file:///existing/interview.mov";
+  const importedIdentity = "file:///imported/interview.mov";
+  let searchCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => 0,
+    sleep: async () => {},
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        const existing = `interview.mov${separator}AXBrowserMedia${separator}${existingIdentity}${recordSeparator}`;
+        if (searchCalls < 3) return existing;
+        return `${existing}interview.mov${separator}AXBrowserMedia${separator}${importedIdentity}${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const imported = await adapter.importMedia(sourcePath);
+  const matches = await adapter.searchMedia("interview.mov");
+  const existing = matches.find((match) => match.source === existingIdentity);
+  const newlyImported = matches.find((match) => match.source === importedIdentity);
+  assert.ok(existing);
+  assert.ok(newlyImported);
+  assert.equal(newlyImported.handle, imported.mediaHandle);
+  assert.notEqual(existing.handle, newlyImported.handle);
+});
+
 test("native Final Cut rejects an unavailable local media path before opening import UI", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
