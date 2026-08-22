@@ -67,6 +67,7 @@ private struct BridgeRequest: Codable {
 }
 
 private struct EditorCapabilities: Codable {
+    let canonicalTimelineMode: String
     let projectRead: Bool
     let timelineSnapshotRead: Bool
     let timelineWrite: Bool
@@ -309,7 +310,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-            editor: EditorCapabilities(projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, playbackControl: false),
+            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, playbackControl: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false)
         )
         switch request.method {
@@ -331,6 +332,8 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: result), error: nil)
         case "projects", "select-project":
             return failure(request, code: "CAPABILITY_UNAVAILABLE", message: "Final Cut Workflow Extension does not expose project catalog or selection")
+        case "snapshot", "apply", "restore":
+            return failure(request, code: "CAPABILITY_UNAVAILABLE", message: "Final Cut Workflow Extension is metadata-only and does not expose canonical timeline guarantees")
         default:
             return failure(request, code: "UNSUPPORTED_METHOD", message: request.method)
         }

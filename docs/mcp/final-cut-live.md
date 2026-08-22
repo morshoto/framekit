@@ -23,7 +23,7 @@ a graceful quit/reopen before activation.
 The registration above uses headless mode, so it skips that lifecycle recovery
 and only probes the existing socket.
 
-The Workflow Extension connection is read-only. Check setup progress with the MCP
+The bundled Workflow Extension connection is metadata-only. Check setup progress with the MCP
 tool `connection.status` or:
 
 ```sh
@@ -72,6 +72,13 @@ sequence range, and incremental change events. Add `FRAMEKIT_FCPXML_PATH` to
 compose canonical project/timeline reads, artifact edits, read-after-write,
 diffs, verification, and undo. These edits update the FCPXML artifact rather
 than the open Final Cut timeline.
+
+The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
+bridge that can prove canonical guarantees. Framekit exposes that provider
+through the existing `project.inspect`, `timeline.edit`, `edit.diff`, and
+`edit.undo` MCP tools only when `canonicalTimelineMode` is `canonical-read` or
+`canonical-write`. The bundled Workflow Extension cannot currently supply
+those methods and fails them with `CAPABILITY_UNAVAILABLE`.
 
 To enable selection-scoped native UI edits:
 

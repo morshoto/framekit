@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
@@ -12,6 +16,8 @@ import {
 } from "@framekit/final-cut";
 import type { EditOperation, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+
+const execFile = promisify(execFileCallback);
 
 const emptyAnalyzers = {
   speechTranscribe: false,
@@ -334,6 +340,26 @@ test("MCP inspects, edits, diffs, and undoes a canonical live timeline", async (
     await client.close();
     await server.close();
   }
+});
+
+test("headed canonical live evidence runner fails closed without a disposable target", async () => {
+  const root = process.cwd();
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  assert.equal(
+    packageJson.scripts["test:final-cut-canonical-headed"],
+    "node scripts/final-cut-canonical-headed-e2e.mjs",
+  );
+  const env = { ...process.env };
+  delete env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
+  delete env.FRAMEKIT_FINAL_CUT_E2E_CLIP_ID;
+
+  await assert.rejects(
+    execFile(process.execPath, [join(root, "scripts/final-cut-canonical-headed-e2e.mjs")], { env }),
+    (error: unknown) => {
+      const stderr = String((error as { stderr?: string }).stderr ?? "");
+      return /Set FRAMEKIT_FINAL_CUT_E2E_PROJECT and FRAMEKIT_FINAL_CUT_E2E_CLIP_ID/.test(stderr);
+    },
+  );
 });
 
 function sameRevision(left: ProjectSnapshot["revision"] | undefined, right: ProjectSnapshot["revision"]): boolean {

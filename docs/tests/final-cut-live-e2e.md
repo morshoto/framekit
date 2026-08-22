@@ -1,7 +1,7 @@
 # Final Cut Pro Live E2E Test
 
-Status: live read-only path passed locally; hybrid document path covered by MCP
-integration tests.
+Status: bundled Workflow Extension metadata path passed locally; canonical live
+provider contract covered deterministically and gated by an opt-in headed run.
 
 ## Purpose
 
@@ -109,6 +109,28 @@ also records the operation-specific Undo command and verifies that the live
 revision and duration return to their pre-edit values. It fails
 closed if the project name does not match or if the overlay cannot be
 minimized.
+
+## Canonical live provider evidence
+
+When a live bridge advertises `canonicalTimelineMode: canonical-write`, open a
+disposable project, copy one occurrence ID from `project.inspect`, and run:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+FRAMEKIT_FINAL_CUT_E2E_CLIP_ID="final-cut:occurrence:example" \
+pnpm run test:final-cut-canonical-headed \
+  > docs/tests/evidence/$(date +%F)-canonical-live.json
+```
+
+The runner disables FCPXML composition, verifies the exact project and
+occurrence before mutation, renames that occurrence, records the capability
+payload plus complete before/after state and deterministic diff, and performs
+compensating undo. It succeeds only when the restored canonical digest matches
+the pre-edit digest. If the bridge is metadata-only or canonical-read, it fails
+before calling `timeline.edit`. Review the JSON for the Framekit version, Final
+Cut identity/version, target IDs, capability payload, and matching digests
+before attaching it to a release or pull request. Do not commit evidence that
+contains private media paths.
 
 ## Optional native UI validation
 

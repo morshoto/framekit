@@ -35,7 +35,10 @@ FRAMEKIT_EDITOR=final-cut-live npm run mcp
 
 Set `FRAMEKIT_FINAL_CUT_SOCKET` explicitly when using a non-default socket.
 
-Supported requests are `capabilities`, `state`, and `changes`. The bridge
+Supported metadata requests are `capabilities`, `state`, and `changes`. The
+additive canonical requests `snapshot`, `apply`, and `restore` are recognized
+but fail with `CAPABILITY_UNAVAILABLE` because this bridge reports
+`canonicalTimelineMode: metadata-only`. The bridge
 reports active project metadata and a project-scoped sequence identity derived
 from the current sequence name, plus rational playhead time, selected sequence
 range, and observer-backed change events. The sequence identity is not an
