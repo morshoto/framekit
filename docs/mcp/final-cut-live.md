@@ -103,8 +103,9 @@ case where an agent has a media query and needs one safe timeline target. It
 performs Browser search, media selection, unique-occurrence lookup, and
 timeline selection as one bounded operation. Success returns the selected
 media, occurrence handle, and observed live `playheadTime`. Missing or
-ambiguous media/occurrences, or unavailable live playhead state, fail closed
-with distinct errors.
+ambiguous media/occurrences, unavailable shared source-media identifiers, or
+unavailable live playhead state, fail closed with distinct errors. Same-name
+media is never used as a fallback for timeline targeting.
 
 For a stepwise workflow, use the live UI workflow in this order:
 

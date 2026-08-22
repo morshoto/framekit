@@ -45,7 +45,7 @@ timeline occurrence, and Blade it at the playhead. These operations use
 short-lived handles and are not canonical timeline identities. The combined
 `editor.native.media.target` operation additionally requires live playhead
 state so it can report the deterministic target it selected; missing or
-ambiguous targets fail closed.
+ambiguous targets, or missing shared source-media identifiers, fail closed.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `timelinePublishNewProject` allows a verified artifact to be imported as a new
