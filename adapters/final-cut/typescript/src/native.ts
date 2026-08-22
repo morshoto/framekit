@@ -178,6 +178,7 @@ export interface NativeFinalCutUndoResult {
 }
 
 type NativeOperationKind = "selection" | "blade" | "range";
+type NativeRetryValidator = (context: NativeFinalCutContext) => Promise<void> | void;
 
 interface NativeOperationRecord {
   kind: NativeOperationKind;
@@ -346,8 +347,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const beforeLive = await this.readLiveState();
     const operationId = `native-op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const command = commandName(operation);
+    const requiresPlayhead = operation.type === "trim-selected-clip-to-playhead" || operation.type === "add-marker-at-playhead";
     try {
-      await this.executor(editScript(operation));
+      await this.executeNativeCommand(editScript(operation), (recovered) => this.assertRetryContext(before, recovered, requiresPlayhead));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -380,7 +382,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
     }
     try {
-      await this.executor(undoScript(operation.undoCommand));
+      await this.executeNativeCommand(undoScript(operation.undoCommand), (recovered) => {
+        this.assertRetryContext(before, recovered);
+        if (!recovered.undoAvailable || recovered.undoCommand !== operation.undoCommand) {
+          throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
+        }
+      });
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -519,7 +526,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     await this.validateOccurrenceBinding(preview.occurrence);
     if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     try {
-      await this.executor(bladeScript());
+      await this.executeNativeCommand(bladeScript(), async (recovered) => {
+        this.assertRetryContext(before, recovered, true);
+        await this.validateOccurrenceBinding(preview.occurrence);
+        if (!recovered.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+      });
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -655,7 +666,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       };
     }
     try {
-      await this.positionAndDeleteRange(preview.range, beforeLive);
+      await this.positionAndDeleteRange(preview.range, beforeLive, async () => {
+        this.validateRangeBinding(preview, await this.requireLiveState());
+      });
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -733,15 +746,58 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return latest;
   }
 
-  private async positionAndDeleteRange(range: NativeFinalCutRange, beforeLive: EditorLiveState): Promise<void> {
+  private async positionAndDeleteRange(
+    range: NativeFinalCutRange,
+    beforeLive: EditorLiveState,
+    validateRetry: NativeRetryValidator,
+  ): Promise<void> {
     const startTimecode = this.toTimecode(range.start, beforeLive);
     const endTimecode = this.toTimecode(range.end, beforeLive);
-    await this.executor(setPlayheadScript(startTimecode));
-    await this.waitForPlayhead(range.start, beforeLive.sequence?.id);
-    await this.executor(markRangeStartScript());
-    await this.executor(setPlayheadScript(endTimecode));
-    await this.waitForPlayhead(range.end, beforeLive.sequence?.id);
-    await this.executor(markRangeEndAndDeleteScript());
+    const executeRange = async (): Promise<void> => {
+      await this.executor(setPlayheadScript(startTimecode));
+      await this.waitForPlayhead(range.start, beforeLive.sequence?.id);
+      await this.executor(markRangeStartScript());
+      await this.executor(setPlayheadScript(endTimecode));
+      await this.waitForPlayhead(range.end, beforeLive.sequence?.id);
+      await this.executor(markRangeEndAndDeleteScript());
+    };
+    await this.executeNativeSequence(executeRange, validateRetry);
+  }
+
+  private async executeNativeCommand(script: string, validateRetry?: NativeRetryValidator): Promise<void> {
+    try {
+      await this.executor(script);
+    } catch (error) {
+      if (!isRecoverableNativeFocusRace(error)) throw error;
+      await validateRetry?.(await this.prepareNativeRetry());
+      await this.executor(script);
+    }
+  }
+
+  private async executeNativeSequence(execute: () => Promise<void>, validateRetry: NativeRetryValidator): Promise<void> {
+    try {
+      await execute();
+    } catch (error) {
+      if (!isRecoverableNativeFocusRace(error)) throw error;
+      await validateRetry(await this.prepareNativeRetry());
+      await execute();
+    }
+  }
+
+  private async prepareNativeRetry(): Promise<NativeFinalCutContext> {
+    return this.attachLiveState(await this.ensureTimelineReady());
+  }
+
+  private assertRetryContext(expected: NativeFinalCutContext, recovered: NativeFinalCutContext, requirePlayhead = false): void {
+    const targetChanged = expected.target.kind !== recovered.target.kind
+      || expected.target.name !== recovered.target.name
+      || expected.target.role !== recovered.target.role;
+    const playheadChanged = requirePlayhead
+      ? !expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime
+      : expected.playheadTime !== recovered.playheadTime;
+    if (targetChanged || playheadChanged) {
+      throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection or playhead changed during focus recovery");
+    }
   }
 
   private async waitForPlayhead(expected: RationalTime, sequenceId?: string): Promise<EditorLiveState> {
@@ -1712,4 +1768,11 @@ function nativeErrorMessage(error: unknown): string {
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "Grant Accessibility and Automation permission to the MCP host for Final Cut Pro";
   const executionError = message.split("\n").find((line) => line.includes("execution error:"));
   return executionError?.trim() ?? message;
+}
+
+function isRecoverableNativeFocusRace(error: unknown): boolean {
+  const code = nativeErrorCode(error);
+  if (code === "FINAL_CUT_NATIVE_NOT_FRONTMOST" || code === "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED") return true;
+  const message = String(error);
+  return message.includes("execution error:") && message.includes("-1719");
 }
