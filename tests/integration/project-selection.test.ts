@@ -65,7 +65,7 @@ function multiProjectAdapter(): InMemoryEditorAdapter {
 
 const framePosition = { value: "24", timescale: "24" };
 const alphaFrameImage = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
-const betaFrameImage = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+const socialFrameImage = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 function frameSelectionAdapter(): InMemoryEditorAdapter {
   return new InMemoryEditorAdapter({
@@ -74,10 +74,14 @@ function frameSelectionAdapter(): InMemoryEditorAdapter {
     timelineId: "sequence-alpha-main",
     timelineName: "Main",
     clips: [],
-    projects: [
-      { id: "project-alpha", name: "Alpha", sequences: [{ id: "sequence-alpha-main", name: "Main" }] },
-      { id: "project-beta", name: "Beta", sequences: [{ id: "sequence-beta-main", name: "Main" }] },
-    ],
+    projects: [{
+      id: "project-alpha",
+      name: "Alpha",
+      sequences: [
+        { id: "sequence-alpha-main", name: "Main" },
+        { id: "sequence-alpha-social", name: "Social" },
+      ],
+    }],
     projectSnapshots: [
       {
         projectId: "project-alpha",
@@ -92,15 +96,15 @@ function frameSelectionAdapter(): InMemoryEditorAdapter {
         }],
       },
       {
-        projectId: "project-beta",
-        projectName: "Beta",
-        timelineId: "sequence-beta-main",
-        timelineName: "Main",
+        projectId: "project-alpha",
+        projectName: "Alpha",
+        timelineId: "sequence-alpha-social",
+        timelineName: "Social",
         clips: [],
         frames: [{
           position: framePosition,
           timecode: "00:00:01:00",
-          image: { data: betaFrameImage, mimeType: "image/gif" },
+          image: { data: socialFrameImage, mimeType: "image/gif" },
         }],
       },
     ],
@@ -167,17 +171,18 @@ test("frame capture follows the selected project and sequence", async () => {
   assert.equal(alpha.project.id, "project-alpha");
   assert.equal(alpha.image.data, alphaFrameImage);
 
-  await runtime.selectProject({ projectId: "project-beta", sequenceId: "sequence-beta-main" });
-  const beta = await runtime.captureFrame(framePosition);
-  assert.equal(beta.project.id, "project-beta");
-  assert.equal(beta.image.data, betaFrameImage);
+  await runtime.selectProject({ projectId: "project-alpha", sequenceId: "sequence-alpha-social" });
+  const social = await runtime.captureFrame(framePosition);
+  assert.equal(social.project.id, "project-alpha");
+  assert.equal(social.sequence.id, "sequence-alpha-social");
+  assert.equal(social.image.data, socialFrameImage);
 });
 
 test("frame capture rejects a project selection change after inspection", async () => {
   const adapter = frameSelectionAdapter();
   const originalCaptureFrame = adapter.captureFrame.bind(adapter);
   adapter.captureFrame = async (position, expectedRevision) => {
-    await adapter.selectProject({ projectId: "project-beta", sequenceId: "sequence-beta-main" });
+    await adapter.selectProject({ projectId: "project-alpha", sequenceId: "sequence-alpha-social" });
     return originalCaptureFrame(position, expectedRevision);
   };
   const runtime = new AgentVideoRuntime(adapter);

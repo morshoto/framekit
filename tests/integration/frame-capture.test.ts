@@ -83,7 +83,51 @@ test("rejects an invalid timeline position before invoking the capture provider"
     runtime.captureFrame({ value: "48", timescale: "0" }),
     /INVALID_TIMELINE_POSITION/,
   );
+  await assert.rejects(
+    runtime.captureFrame({ value: "1.5", timescale: "24" }),
+    /INVALID_TIMELINE_POSITION/,
+  );
   assert.equal(captureCalls, 0);
+});
+
+test("uses exact rational coordinates for clip lookup and analysis time", async () => {
+  const position = { value: "18014398509481985", timescale: "2" };
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-precise",
+    projectName: "Precise",
+    timelineId: "timeline-precise",
+    timelineName: "Main",
+    clips: [{
+      id: "clip-precise",
+      mediaId: "media-precise",
+      name: "Precise Clip",
+      start: 9007199254740992,
+      duration: 1,
+      track: 1,
+      startTime: { value: "9007199254740992", timescale: "1" },
+      durationTime: { value: "1", timescale: "1" },
+    }],
+    media: [{ mediaId: "media-precise", source: "precise.mov" }],
+    frames: [{
+      position,
+      timecode: "2501999792983:36:32:12",
+      image: { data: "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", mimeType: "image/gif" },
+    }],
+  });
+  let analysisStart: number | undefined;
+  const runtime = new AgentVideoRuntime(adapter, {
+    visualAnalyzer: {
+      analyze: async (_input, range) => {
+        analysisStart = range?.start;
+        return { scenes: [], subjects: [], keyframes: [] };
+      },
+    },
+  });
+
+  const captured = await runtime.captureFrame(position, { analyze: true });
+
+  assert.equal(captured.clip?.id, "clip-precise");
+  assert.equal(analysisStart, 0.5);
 });
 
 test("attaches visual analysis when requested and configured", async () => {
