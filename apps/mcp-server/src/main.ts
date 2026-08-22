@@ -114,6 +114,7 @@ const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.
 const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
   ? new FinalCutVideoExporter({
       enabled: true,
+      preflight: () => nativeEditor!.inspect(),
       ...(autoConnect ? {
         suspendLiveConnection: () => connection?.stopAutoConnect(),
         resumeLiveConnection: () => connection?.startAutoConnect(),

@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, stat, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import type { NativeFinalCutContext } from "./native.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -55,6 +56,7 @@ export interface FinalCutVideoExportResult {
 export interface FinalCutVideoExporterOptions {
   enabled?: boolean;
   executor?: (script: string) => Promise<string>;
+  preflight?: () => Promise<NativeFinalCutContext>;
   probe?: (outputPath: string) => Promise<FinalCutVideoProbeResult>;
   waitMs?: number;
   pollMs?: number;
@@ -68,6 +70,7 @@ export interface FinalCutVideoExporterOptions {
 export class FinalCutVideoExporter {
   private readonly enabled: boolean;
   private readonly executor: (script: string) => Promise<string>;
+  private readonly preflight?: () => Promise<NativeFinalCutContext>;
   private readonly probe: (outputPath: string) => Promise<FinalCutVideoProbeResult>;
   private readonly waitMs: number;
   private readonly pollMs: number;
@@ -79,6 +82,7 @@ export class FinalCutVideoExporter {
   public constructor(options: FinalCutVideoExporterOptions = {}) {
     this.enabled = options.enabled ?? false;
     this.executor = options.executor ?? runAppleScript;
+    this.preflight = options.preflight;
     this.probe = options.probe ?? probeWithFfprobe;
     this.waitMs = options.waitMs ?? 120_000;
     this.pollMs = options.pollMs ?? 250;
@@ -101,6 +105,7 @@ export class FinalCutVideoExporter {
     validateExpectation(request.expected);
 
     return this.withNativeUi(async () => {
+      await this.assertPreflight();
       await this.executor(exportScript(outputPath, preset.menuItem));
       const output = await this.waitForOutput(outputPath);
       let probed: FinalCutVideoProbeResult;
@@ -123,6 +128,23 @@ export class FinalCutVideoExporter {
         metadata,
       };
     });
+  }
+
+  private async assertPreflight(): Promise<void> {
+    if (!this.preflight) return;
+    const context = await this.preflight();
+    if (!context.available) {
+      throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native Final Cut context unavailable"}`);
+    }
+    if (!context.timelineWindowAvailable) {
+      throw new Error("FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW: Final Cut has no accessible timeline window; open a project timeline and retry");
+    }
+    if (!context.frontmost) {
+      throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut is running but is not the frontmost application");
+    }
+    if (!context.timelineFocused) {
+      throw new Error("FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED: Final Cut's timeline pane could not be focused; click the timeline and retry");
+    }
   }
 
   private async waitForOutput(outputPath: string): Promise<{ size: number }> {

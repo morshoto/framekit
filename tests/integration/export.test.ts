@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { FinalCutVideoExporter } from "@framekit/final-cut";
 import type { FinalCutVideoExportRequest } from "@framekit/final-cut";
+import type { NativeFinalCutContext } from "@framekit/final-cut";
 
 test("video exporter uses a supported preset and returns verified output metadata", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-"));
@@ -109,6 +110,7 @@ test("video exporter rejects unsupported presets before automation", async () =>
       called = true;
       return "started";
     },
+    waitMs: 0,
   });
 
   await assert.rejects(
@@ -150,4 +152,31 @@ test("video exporter verifies every requested media property", async () => {
       candidate.name,
     );
   }
+});
+
+test("video exporter fails closed when native timeline preflight is unavailable", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-preflight-"));
+  const outputPath = join(directory, "final.mp4");
+  let called = false;
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    preflight: async () => ({
+      available: false,
+      error: {
+        code: "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED",
+        message: "timeline focus required",
+      },
+    } as unknown as NativeFinalCutContext),
+    executor: async () => {
+      called = true;
+      return "started";
+    },
+    waitMs: 0,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({ outputPath, preset: "master" }),
+    /FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED/,
+  );
+  assert.equal(called, false);
 });
