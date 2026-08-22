@@ -8,6 +8,7 @@ import {
   FinalCutConnectionManager,
   FinalCutNativeAutomationAdapter,
   FinalCutProjectPublisher,
+  FinalCutVideoExporter,
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
@@ -110,10 +111,20 @@ const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.
       liveState: () => liveAdapter!.readLiveState(),
     })
   : undefined;
+const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+  ? new FinalCutVideoExporter({
+      enabled: true,
+      ...(autoConnect ? {
+        suspendLiveConnection: () => connection?.stopAutoConnect(),
+        resumeLiveConnection: () => connection?.startAutoConnect(),
+      } : {}),
+    })
+  : undefined;
 const server = createMcpServer(runtime, {
   connectionStatus: () => connection?.getStatus(),
   nativeEditor,
   projectPublisher,
+  videoExporter,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

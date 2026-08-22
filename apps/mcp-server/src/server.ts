@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
-import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
+import type { FinalCutProjectPublisher, FinalCutVideoExporter, NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -92,6 +92,15 @@ const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set-selected-clip-gain"), gainDb: z.number().finite() }),
   z.object({ type: z.literal("add-marker-at-playhead"), name: z.string().min(1), duration: z.number().nonnegative().optional() }),
 ]);
+const exportExpectationSchema = z.object({
+  durationSeconds: z.number().positive().optional(),
+  durationToleranceSeconds: z.number().nonnegative().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  frameRate: z.number().positive().optional(),
+  frameRateTolerance: z.number().nonnegative().optional(),
+  hasAudio: z.boolean().optional(),
+}).optional();
 
 function jsonResult(value: unknown) {
   return {
@@ -119,6 +128,7 @@ export interface McpServerOptions {
   connectionStatus?: () => unknown;
   nativeEditor?: NativeFinalCutEditor;
   projectPublisher?: FinalCutProjectPublisher;
+  videoExporter?: FinalCutVideoExporter;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -164,6 +174,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         editor: {
           ...inspected.capabilities.editor,
           timelinePublishNewProject: Boolean(options.projectPublisher),
+          videoExport: Boolean(options.videoExporter),
         },
       },
       ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
@@ -333,6 +344,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const verification = await runtime.verifyTransaction(transactionId);
     if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
     return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
+  });
+
+  server.registerTool("timeline.export", {
+    description: "Export the active Final Cut timeline to a local video file, wait for completion, and verify its media metadata.",
+    inputSchema: {
+      outputPath: z.string().trim().min(1),
+      preset: z.enum(["master", "web"]),
+      overwrite: z.boolean().optional(),
+      expected: exportExpectationSchema,
+    },
+  }, async ({ outputPath, preset, overwrite, expected }) => {
+    if (!options.videoExporter) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is not configured");
+    return jsonResult(await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected }));
   });
 
   server.registerTool("context.inspect", {
