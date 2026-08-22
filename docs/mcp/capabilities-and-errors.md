@@ -72,6 +72,7 @@ capabilities:
     "selectionEdit": true,
     "undo": true,
     "mediaLibrarySearch": true,
+    "mediaImport": true,
     "mediaSelection": true,
     "timelineOccurrenceLocate": true,
     "bladeAtPlayhead": true,
@@ -113,7 +114,12 @@ Range operations additionally use
 use `FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_PREVIEW_STALE`, and
-`FINAL_CUT_NATIVE_SELECTION_VERIFICATION_FAILED`.
+`FINAL_CUT_NATIVE_SELECTION_VERIFICATION_FAILED`. Local media import additionally
+uses `FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE`,
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`, and
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`,
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`, and
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 
 Timeline-native operations run a UI preflight that activates Final Cut Pro,
 waits briefly for an accessible timeline window, and verifies timeline-pane

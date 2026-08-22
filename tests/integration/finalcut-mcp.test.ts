@@ -449,6 +449,61 @@ test("Final Cut MCP exposes deterministic append and insert media workflows", as
   }
 });
 
+test("Final Cut MCP imports local media and returns a stable media handle", async () => {
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    importMedia: async (sourcePath: string) => ({
+      mediaHandle: "media-import-stable-video",
+      sourcePath,
+      name: "interview.mov",
+      kind: "video" as const,
+    }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Import Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "media-import-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const imported = await client.callTool({
+      name: "editor.native.media.import",
+      arguments: { path: "/tmp/interview.mov" },
+    });
+    assert.equal(imported.isError, undefined);
+    assert.deepEqual(JSON.parse(textFrom(imported)), {
+      mediaHandle: "media-import-stable-video",
+      sourcePath: "/tmp/interview.mov",
+      name: "interview.mov",
+      kind: "video",
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("Final Cut MCP exposes the native Undo command and preserves Undo errors", async () => {
   const nativeContext = {
     available: true,

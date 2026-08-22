@@ -122,6 +122,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ? await options.nativeEditor.focusTimeline()
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
+  server.registerTool("editor.native.media.import", {
+    description: "Import one local video or audio file into the active Final Cut Browser and wait for a stable media handle.",
+    inputSchema: { path: z.string().min(1) },
+  }, async ({ path }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.importMedia(path));
+  });
+
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
     inputSchema: nativeEditSchema,
