@@ -6,7 +6,7 @@ This directory is the shareable knowledge base for Framekit.
 - [SDD](./SDD.md): architecture and design contracts.
 - [Compatibility](./COMPATIBILITY.md): verified editor and toolchain support.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.
-- [Tests](./tests/README.md): reproducible checks and evidence.
+- [Tests](./tests/README.md): reproducible checks and evidence, including the [deterministic MCP evaluation](./tests/mcp-evaluation.md).
 - [Final Cut](./final-cut/README.md): native integration and operations.
 - [Architecture](./architecture/runtime-boundaries.md): runtime boundaries.
 - [ADRs](./adr/): durable implementation decisions.

@@ -8,6 +8,8 @@ real Final Cut Pro process.
   verification, rollback, and MCP.
 - [Phase 2](./phase-2.md): incremental synchronization, visual analysis,
   media understanding, and native asset discovery.
+- [Deterministic MCP evaluation](./mcp-evaluation.md): fixture-backed workflow,
+  failure-path, and intent-mapping metrics.
 - [Final Cut live E2E](./final-cut-live-e2e.md): read-only native bridge test.
 - [Test matrix](./test-matrix.md): scope and evidence by backend.
 - [Evidence](./evidence/2026-08-16-phase-1-live.md): sanitized local run.

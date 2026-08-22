@@ -69,3 +69,6 @@ jobs:
 
       - name: Run unit and integration tests
         run: pnpm run test
+
+      - name: Run deterministic MCP evaluation
+        run: pnpm run evaluate
