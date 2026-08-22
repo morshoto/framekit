@@ -122,7 +122,16 @@ closed with `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`.
 
 ## Live Browser search and Blade
 
-With native writes enabled, use the live UI workflow in this order:
+With native writes enabled, use `editor.native.media.target` for the common
+case where an agent has a media query and needs one safe timeline target. It
+performs Browser search, media selection, unique-occurrence lookup, and
+timeline selection as one bounded operation. Success returns the selected
+media, occurrence handle, and observed live `playheadTime`. Missing or
+ambiguous media/occurrences, unavailable shared source-media identifiers, or
+unavailable live playhead state, fail closed with distinct errors. Same-name
+media is never used as a fallback for timeline targeting.
+
+For a stepwise workflow, use the live UI workflow in this order:
 
 1. Call `editor.native.media.search` with a Browser query, or import a local
    file with `editor.native.media.import`.
