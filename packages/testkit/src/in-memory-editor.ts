@@ -15,6 +15,7 @@ import type {
   ProjectSelection,
   RationalTime,
   RuntimeCapabilities,
+  CapturedFrameSource,
 } from "@framekit/runtime";
 import { diffSnapshots } from "@framekit/runtime";
 
@@ -27,6 +28,11 @@ export interface InMemoryProjectFixture {
   media?: MediaContext[];
   markers?: Marker[];
   assets?: EditorAsset[];
+  frames?: Array<{
+    position: RationalTime;
+    timecode: string;
+    image: CapturedFrameSource["image"];
+  }>;
 }
 
 export interface InMemoryFixture extends InMemoryProjectFixture {
@@ -44,9 +50,11 @@ export class InMemoryEditorAdapter implements EditorPort {
   private activeProjectId: string;
   private activeSequenceId: string;
   private selectionRevision = 0;
+  private readonly frames?: InMemoryProjectFixture["frames"];
 
   public constructor(fixture: InMemoryFixture) {
     this.assets = structuredClone(fixture.assets ?? []);
+    this.frames = fixture.frames ? structuredClone(fixture.frames) : undefined;
     this.projects = structuredClone(fixture.projects ?? [{
       id: fixture.projectId,
       name: fixture.projectName,
@@ -89,6 +97,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         assetDiscovery: true,
         liveStateRead: false,
         playheadWrite: false,
+        frameCapture: Boolean(this.frames),
         projectCatalogRead: true,
         projectSelection: true,
       },
@@ -99,6 +108,13 @@ export class InMemoryEditorAdapter implements EditorPort {
         visualTrack: false,
       },
     };
+  }
+
+  public async captureFrame(position: RationalTime): Promise<CapturedFrameSource> {
+    if (!this.frames) throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
+    const frame = this.frames.find((candidate) => sameRational(candidate.position, position));
+    if (!frame) throw new Error(`FRAME_NOT_FOUND: ${position.value}/${position.timescale}`);
+    return structuredClone({ image: frame.image, timecode: frame.timecode });
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
@@ -310,6 +326,10 @@ export class InMemoryEditorAdapter implements EditorPort {
     this.history.set(next.revision.id, structuredClone(next));
     return next;
   }
+}
+
+function sameRational(left: RationalTime, right: RationalTime): boolean {
+  return BigInt(left.value) * BigInt(right.timescale) === BigInt(right.value) * BigInt(left.timescale);
 }
 
 function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {

@@ -14,6 +14,7 @@ import type {
   EditorAsset,
   EditorChange,
   EditorLiveState,
+  RationalTime,
   LiveEditorStatePort,
   MediaContext,
   MediaUnderstanding,
@@ -23,6 +24,7 @@ import type {
   SpeechAnalysis,
   SpeechAnalyzer,
   TimelineDiff,
+  TimelineFrameCapture,
   TimeRange,
   VisualAnalysis,
   VisualAnalyzer,
@@ -56,6 +58,36 @@ export class AgentVideoRuntime {
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     const project = await this.inspectProject();
     return project.timeline;
+  }
+
+  public async captureFrame(position: RationalTime): Promise<TimelineFrameCapture> {
+    const capabilities = await this.adapter.getCapabilities();
+    if (!capabilities.editor.frameCapture || !this.adapter.captureFrame) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
+    }
+    const project = await this.inspectProject();
+    const source = await this.adapter.captureFrame(position);
+    const positionSeconds = rationalSeconds(position);
+    const clip = project.timeline.clips
+      .filter((candidate) => candidate.start <= positionSeconds && candidate.start + candidate.duration > positionSeconds)
+      .sort((left, right) => right.track - left.track)[0];
+    return {
+      image: structuredClone(source.image),
+      position: { ...position },
+      timecode: source.timecode,
+      project: { id: project.projectId, name: project.projectName },
+      sequence: { id: project.timeline.id, name: project.timeline.name },
+      ...(clip ? {
+        clip: {
+          id: clip.id,
+          ...(clip.mediaId ? { mediaId: clip.mediaId } : {}),
+          name: clip.name,
+          startTime: { ...clip.startTime },
+          durationTime: { ...clip.durationTime },
+          track: clip.track,
+        },
+      } : {}),
+    };
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
@@ -328,4 +360,13 @@ function matchesAssetQuery(asset: EditorAsset, query?: AssetSearchQuery): boolea
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence;
+}
+
+function rationalSeconds(time: RationalTime): number {
+  const value = Number(time.value);
+  const timescale = Number(time.timescale);
+  if (!Number.isFinite(value) || !Number.isFinite(timescale) || timescale <= 0) {
+    throw new Error("INVALID_TIMELINE_POSITION: position must be a valid rational time");
+  }
+  return value / timescale;
 }
