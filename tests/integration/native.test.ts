@@ -825,6 +825,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(matches.length, 1);
   assert.equal(matches[0].name, "Interview");
   assert.equal(scripts.some((script) => script.includes('candidateDescription contains "search"') && script.includes('perform action "AXPress" of searchButton')), true);
+  assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
   assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {561, 531, 501}")), true);
   assert.equal(scripts.some((script) => script.includes('set searchFieldFound to false') && script.includes('candidateRole is "AXSearchField"')), true);
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
@@ -913,7 +914,7 @@ test("native Final Cut appends the currently selected Browser media with AX iden
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(scripts.some((script) => script.includes("selectedBrowserMediaScript")), false);
   assert.equal(scripts.some((script) => script.includes('keystroke "e"')), true);
-  assert.equal(scripts.some((script) => script.includes("searchField")), false);
+  assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
 });
 
 test("native Final Cut selected-media append fails closed without AX identity or after selection changes", async () => {

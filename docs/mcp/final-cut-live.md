@@ -192,6 +192,10 @@ same preview/execute safety boundary:
    should be rolled back. Undo verifies restoration of the prior duration and
    a new live revision.
 
+Native Browser import, search, selection, and selected-media append operations
+focus Final Cut's Browser automatically through Accessibility automation. A
+user does not need to click the Browser pane first.
+
 When Browser search cannot expose the selected item through its usual media
 role, use `editor.native.media.append.selected.preview` and
 `editor.native.media.append.selected.execute`. This path requires Final Cut

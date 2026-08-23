@@ -518,8 +518,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
 
     const deadline = this.now() + this.mediaImportTimeoutMs;
-    const context = await this.requireAvailableContext(deadline);
-    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    await this.ensureBrowserReady(deadline);
     const beforeMatches = await this.searchMediaNative(name, deadline);
     const beforeIdentities = new Set(
       beforeMatches
@@ -589,7 +588,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async searchMediaNative(query: string, deadline?: number): Promise<NativeFinalCutMediaMatch[]> {
     this.assertEnabled();
     if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
-    const context = await this.requireAvailableContext(deadline);
+    const context = await this.ensureBrowserReady(deadline);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       const matches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline)).map((match) => {
@@ -626,7 +625,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async readSelectedMediaNative(): Promise<NativeFinalCutMediaMatch> {
-    const context = await this.requireAvailableContext();
+    const context = await this.ensureBrowserReady();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       const matches = parseMediaMatches(await this.executor(selectedBrowserMediaScript()));
@@ -648,7 +647,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertEnabled();
     const match = this.mediaHandles.get(handle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${handle}`);
-    const before = await this.requireAvailableContext();
+    const before = await this.ensureBrowserReady();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       await this.executor(selectMediaScript(match));
@@ -1390,6 +1389,17 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
+  private async ensureBrowserReady(deadline?: number): Promise<NativeFinalCutContext> {
+    try {
+      await this.executeNativeScript(browserFocusScript(), deadline);
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    const context = await this.requireAvailableContext(deadline);
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut could not be brought to the front for Browser automation");
+    return context;
+  }
+
   private stableMediaHandle(identity: string): string {
     return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
   }
@@ -1942,6 +1952,20 @@ function selectedBrowserMediaScript(): string {
     end if
     if selectedIdentityCount > 1 then error "FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed"
     return output
+  end tell
+end tell`;
+}
+
+function browserFocusScript(): string {
+  return `
+  ${browserSearchControlFinderScript()}
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    ${browserSearchFieldScript()}
+    return "browser-focused"
   end tell
 end tell`;
 }
