@@ -145,6 +145,8 @@ multiple newly appearing same-name results are found, it returns
 an immutable source identity is accepted even when a same-name result existed
 before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
+If Final Cut does not expose a ready Media Import window, folder sheet, or import
+button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
 
 ## Live Browser search and Blade
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ContextRevision, EditorLiveState, RationalTime } from "@framekit/runtime";
 
@@ -342,7 +342,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 15_000;
+    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 30_000;
     this.mediaImportPollMs = options.mediaImportPollMs ?? 100;
   }
 
@@ -529,7 +529,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`);
     }
     try {
-      await this.executeNativeScript(importMediaScript(normalizedPath), deadline);
+      await this.executeNativeScript(importMediaScript(dirname(normalizedPath), name), deadline);
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -1758,11 +1758,11 @@ end tell`;
 
 function searchMediaScript(query: string): string {
   return `
+  ${browserSearchControlFinderScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
     ${browserSearchFieldScript()}
     set searchQuery to ${appleScriptString(query)}
     set value of searchField to searchQuery
@@ -1782,15 +1782,22 @@ function searchMediaScript(query: string): string {
               set candidateName to name of candidate as text
             end try
           end if
-          set candidateDescription to ""
-          try
-            set candidateDescription to description of candidate as text
-          end try
-          set candidatePosition to position of candidate
-          set candidateY to item 2 of candidatePosition
-          set browserRegion to candidateY < ((item 2 of origin) + 500)
           set browserRole to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton"
-          if candidateName is not "" and browserRegion and (browserRole or candidateDescription contains "Browser" or candidateDescription contains "browser") then
+          if not browserRole then
+            set candidateDescription to ""
+            try
+              set candidateDescription to description of candidate as text
+            end try
+            set browserRole to candidateDescription contains "Browser" or candidateDescription contains "browser"
+          end if
+          if candidateName is not "" and browserRole then
+            set candidatePosition to position of candidate
+            set candidateY to item 2 of candidatePosition
+            set browserRegion to candidateY < ((item 2 of origin) + 500)
+          else
+            set browserRegion to false
+          end if
+          if candidateName is not "" and browserRegion then
             set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
             set candidateSourceIdentity to ""
             try
@@ -1815,44 +1822,64 @@ end tell`;
 
 function browserSearchFieldScript(): string {
   return `
+    set origin to position of mainWindow
     set searchFieldFound to false
     set searchField to missing value
+    set searchButton to missing value
     try
-      repeat with candidate in entire contents of mainWindow
+      set directSearchButton to UI element 3 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+      set directSearchDescription to description of directSearchButton as text
+      if directSearchDescription contains "search" or directSearchDescription contains "Search" then
+        set searchButton to directSearchButton
+      end if
+    end try
+    if searchButton is missing value then
+      try
+        set searchControl to my findBrowserSearchControl(mainWindow)
+        if searchControl is not missing value then
+          set searchRole to role of searchControl as text
+          if searchRole is "AXSearchField" or searchRole is "AXTextField" then
+            set searchField to searchControl
+            set searchFieldFound to true
+          else if searchRole is "AXButton" then
+            set searchButton to searchControl
+          end if
+        end if
+      end try
+    end if
+    if not searchFieldFound then
+      if searchButton is not missing value then
         try
-          set candidateRole to role of candidate as text
-          set candidateName to ""
+          perform action "AXPress" of searchButton
+          delay 0.2
+          set focusedCandidate to value of attribute "AXFocusedUIElement"
+          set focusedRole to role of focusedCandidate as text
+          set focusedDescription to description of focusedCandidate as text
+          if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
+            set searchField to focusedCandidate
+            set searchFieldFound to true
+          end if
+        end try
+      end if
+    end if
+    if not searchFieldFound then
+      repeat with searchOffset in {561, 531, 501}
+        try
+          click at {(item 1 of origin) + (searchOffset as integer), (item 2 of origin) + 38}
+          delay 0.15
+          set focusedCandidate to value of attribute "AXFocusedUIElement"
+          set focusedRole to role of focusedCandidate as text
+          set focusedDescription to ""
           try
-            set candidateName to name of candidate as text
+            set focusedDescription to description of focusedCandidate as text
           end try
-          set candidateDescription to ""
-          try
-            set candidateDescription to description of candidate as text
-          end try
-          set candidateHelp to ""
-          try
-            set candidateHelp to help of candidate as text
-          end try
-          set searchCandidate to candidateRole is "AXSearchField"
-          if candidateRole is "AXTextField" and (candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" or candidateHelp contains "search" or candidateHelp contains "Search") then set searchCandidate to true
-          if searchCandidate then
-            set searchField to candidate
+          if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
+            set searchField to focusedCandidate
             set searchFieldFound to true
             exit repeat
           end if
         end try
       end repeat
-    end try
-    if not searchFieldFound then
-      set origin to position of mainWindow
-      set searchX to (item 1 of origin) + 240
-      set searchY to (item 2 of origin) + 83
-      click at {searchX, searchY}
-      delay 0.1
-      try
-        set searchField to value of attribute "AXFocusedUIElement"
-        set searchFieldFound to true
-      end try
     end if
     if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not found through Accessibility or coordinate fallback"
     set searchRole to role of searchField as text
@@ -1866,21 +1893,98 @@ function browserSearchFieldScript(): string {
     delay 0.2`;
 }
 
-function importMediaScript(sourcePath: string): string {
+function browserSearchControlFinderScript(): string {
   return `
+  using terms from application "System Events"
+    on findBrowserSearchControl(containerItem)
+      repeat with candidate in UI elements of containerItem
+        try
+          set candidateRole to role of candidate as text
+          if candidateRole is "AXSearchField" then
+            return candidate
+          end if
+          if candidateRole is "AXTextField" then
+            set candidateName to ""
+            set candidateDescription to ""
+            try
+              set candidateName to name of candidate as text
+            end try
+            try
+              set candidateDescription to description of candidate as text
+            end try
+            if candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" then
+              return candidate
+            end if
+          end if
+          if candidateRole is "AXButton" then
+            set candidateDescription to description of candidate as text
+            if candidateDescription contains "search" or candidateDescription contains "Search" then
+              return candidate
+            end if
+          end if
+        end try
+        try
+          set nestedCandidate to my findBrowserSearchControl(candidate)
+          if nestedCandidate is not missing value then
+            return nestedCandidate
+          end if
+        end try
+      end repeat
+      return missing value
+    end findBrowserSearchControl
+  end using terms from`;
+}
+
+function importMediaScript(sourceDirectory: string, fileName: string): string {
+  return `
+  tell application "Final Cut Pro" to activate
   tell application "System Events"
   tell process "Final Cut Pro"
     -- FRAMEKIT_IMPORT_MEDIA
     set frontmost to true
-    keystroke "i" using {command down}
-    delay 0.5
+    if not (exists window "Media Import") then keystroke "i" using {command down}
+    set mediaImportWindow to missing value
+    repeat 40 times
+      if exists window "Media Import" then
+        set mediaImportWindow to window "Media Import"
+        exit repeat
+      end if
+      delay 0.1
+    end repeat
+    if mediaImportWindow is missing value then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Media Import window did not open"
     keystroke "g" using {command down, shift down}
+    set goSheet to missing value
+    repeat 30 times
+      if exists sheet 1 of mediaImportWindow then
+        set goSheet to sheet 1 of mediaImportWindow
+        exit repeat
+      end if
+      delay 0.1
+    end repeat
+    if goSheet is missing value then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Go to folder sheet did not open"
+    set value of text field 1 of goSheet to ${appleScriptString(sourceDirectory)}
+    click button "Go" of goSheet
+    repeat 30 times
+      if not (exists sheet 1 of mediaImportWindow) then exit repeat
+      delay 0.1
+    end repeat
+    if exists sheet 1 of mediaImportWindow then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Go to folder sheet did not close"
+    set importWindowPosition to position of mediaImportWindow
+    set importWindowSize to size of mediaImportWindow
+    click at {(item 1 of importWindowPosition) + 400, (item 2 of importWindowPosition) + (item 2 of importWindowSize) - 140}
+    keystroke ${appleScriptString(fileName)}
     delay 0.2
-    keystroke ${appleScriptString(sourcePath)}
-    key code 36
-    delay 0.3
-    key code 36
-    delay 0.5
+    set importButton to missing value
+    repeat 40 times
+      try
+        if exists button "Import All" of mediaImportWindow then set importButton to button "Import All" of mediaImportWindow
+        if importButton is missing value and exists button "Import Selected" of mediaImportWindow then set importButton to button "Import Selected" of mediaImportWindow
+        if importButton is not missing value and enabled of importButton then exit repeat
+      end try
+      delay 0.1
+    end repeat
+    if importButton is missing value or (enabled of importButton) is false then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: no enabled import button"
+    perform action "AXPress" of importButton
     return "import-requested"
   end tell
   end tell`;
@@ -1888,6 +1992,7 @@ function importMediaScript(sourcePath: string): string {
 
 function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
+  ${browserSearchControlFinderScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}

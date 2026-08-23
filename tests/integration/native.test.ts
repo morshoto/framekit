@@ -824,7 +824,8 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const matches = await adapter.searchMedia("Interview");
   assert.equal(matches.length, 1);
   assert.equal(matches[0].name, "Interview");
-  assert.equal(scripts.some((script) => script.includes('set searchX to (item 1 of origin) + 240')), true);
+  assert.equal(scripts.some((script) => script.includes('candidateDescription contains "search"') && script.includes('perform action "AXPress" of searchButton')), true);
+  assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {561, 531, 501}")), true);
   assert.equal(scripts.some((script) => script.includes('set searchFieldFound to false') && script.includes('candidateRole is "AXSearchField"')), true);
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
   const searchScript = scripts.find((script) => script.includes("set searchFieldFound to false"));
@@ -1306,6 +1307,14 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   assert.notEqual(video.mediaHandle, audio.mediaHandle);
   assert.equal(searchCalls.get("interview.mov"), 2);
   assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 2);
+  const importScript = scripts.find((script) => script.includes("FRAMEKIT_IMPORT_MEDIA"));
+  assert.ok(importScript);
+  assert.match(importScript, /window "Media Import"/);
+  assert.match(importScript, /sheet 1 of mediaImportWindow/);
+  assert.match(importScript, /text field 1 of goSheet/);
+  assert.match(importScript, /keystroke "interview\.mov"/);
+  assert.match(importScript, /click at \{\(item 1 of importWindowPosition\) \+ 400/);
+  assert.match(importScript, /button "Import All"/);
 
   const searched = await adapter.searchMedia("interview.mov");
   assert.equal(searched[0]?.handle, video.mediaHandle);
