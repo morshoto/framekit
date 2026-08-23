@@ -156,13 +156,13 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    validateRevision(expectedRevision, "expected revision");
     const capabilities = await this.getCapabilities();
     if (capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical mutation");
     }
     const response = await this.request({ method: "apply", operation, expectedRevision });
     if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: apply response revision was empty");
-    validateRevision(expectedRevision, "expected revision");
     validateRevision(response.revision, "apply response revision");
     if (
       response.revision.sequence <= expectedRevision.sequence
@@ -204,6 +204,10 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    requireNonEmpty(selection.projectId, "selected project id");
+    if (selection.sequenceId !== undefined) {
+      requireNonEmpty(selection.sequenceId, "selected sequence id");
+    }
     const response = await this.request({
       method: "select-project",
       projectId: selection.projectId,

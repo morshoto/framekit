@@ -319,6 +319,67 @@ test("live canonical apply rejects a non-advancing resulting revision", async ()
   );
 });
 
+test("live canonical apply rejects an unchanged revision id even when sequence advances", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalWriteCapabilities,
+        revision: {
+          ...canonicalSnapshot.revision,
+          sequence: canonicalSnapshot.revision.sequence + 1,
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Reused revision id" },
+      canonicalSnapshot.revision,
+    ),
+    /FINAL_CUT_LIVE_PROTOCOL: apply response revision must advance expected revision/,
+  );
+});
+
+test("live adapter rejects invalid mutation and selection inputs before transport", async () => {
+  const requests: FinalCutLiveRequest[] = [];
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      requests.push(request);
+      return {
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+          capabilities: canonicalWriteCapabilities,
+        },
+      };
+    },
+  });
+
+  await assert.rejects(
+    adapter.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Invalid input" },
+      { ...canonicalSnapshot.revision, timestamp: "" },
+    ),
+    /FINAL_CUT_LIVE_PROTOCOL: expected revision timestamp must be a non-empty string/,
+  );
+  await assert.rejects(
+    adapter.selectProject({ projectId: "" }),
+    /FINAL_CUT_LIVE_PROTOCOL: selected project id must be a non-empty string/,
+  );
+  await assert.rejects(
+    adapter.selectProject({ projectId: "project-1", sequenceId: " " }),
+    /FINAL_CUT_LIVE_PROTOCOL: selected sequence id must be a non-empty string/,
+  );
+  assert.deepEqual(requests, []);
+});
+
 class MutableCanonicalLiveTransport {
   public snapshot = structuredClone(canonicalSnapshot);
   public applyCalls = 0;
