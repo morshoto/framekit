@@ -260,6 +260,7 @@ export interface NativeFinalCutAutomationOptions {
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
   mediaImportTimeoutMs?: number;
+  mediaImportDiscoveryTimeoutMs?: number;
   mediaImportPollMs?: number;
 }
 
@@ -307,6 +308,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly mediaImportTimeoutMs: number;
+  private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
@@ -347,6 +349,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 30_000;
+    this.mediaImportDiscoveryTimeoutMs = options.mediaImportDiscoveryTimeoutMs ?? 30_000;
     this.mediaImportPollMs = options.mediaImportPollMs ?? 100;
   }
 
@@ -517,9 +520,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE: ${normalizedPath} is not a readable local media file (${String(error)})`);
     }
 
-    const deadline = this.now() + this.mediaImportTimeoutMs;
-    await this.ensureBrowserReady(deadline);
-    const beforeMatches = await this.searchMediaNative(name, deadline);
+    const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
+    await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+    const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
     const beforeIdentities = new Set(
       beforeMatches
         .filter((match) => match.name.toLowerCase() === name.toLowerCase())
@@ -533,14 +536,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`);
     }
     try {
-      await this.executeNativeScript(importMediaScript(dirname(normalizedPath), name), deadline);
+      await this.executeNativeScript(importMediaScript(dirname(normalizedPath), name), this.now() + this.mediaImportTimeoutMs);
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
 
+    const discoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
     let sawPreExistingMatch = false;
-    while (this.now() <= deadline) {
-      const matches = await this.searchMediaNative(name, deadline);
+    while (this.now() <= discoveryDeadline) {
+      let matches: NativeFinalCutMediaMatch[];
+      try {
+        matches = await this.searchMediaNative(name, discoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+      } catch (error) {
+        if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT") {
+          throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity before the ${this.mediaImportDiscoveryTimeoutMs}ms discovery deadline`);
+        }
+        throw error;
+      }
       const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
       if (exactMatches.some((match) => !browserMediaIdentity(match))) {
         throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
@@ -572,30 +584,46 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
           kind: mediaKind(normalizedPath),
         };
       }
-      if (this.now() >= deadline) break;
-      await this.sleep(Math.min(this.mediaImportPollMs, deadline - this.now()));
+      if (this.now() >= discoveryDeadline) break;
+      await this.sleep(Math.min(this.mediaImportPollMs, discoveryDeadline - this.now()));
     }
     if (sawPreExistingMatch) {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING: Final Cut exposed only pre-existing Browser results for ${name}`);
     }
-    throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: Final Cut did not expose ${name} in the Browser within ${this.mediaImportTimeoutMs}ms`);
+    const diagnostics = await this.readBrowserMediaDiagnostics(name);
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
   }
 
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
     return this.withNativeUi(() => this.searchMediaNative(query));
   }
 
-  private async searchMediaNative(query: string, deadline?: number): Promise<NativeFinalCutMediaMatch[]> {
+  private async searchMediaNative(query: string, deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT"): Promise<NativeFinalCutMediaMatch[]> {
     this.assertEnabled();
     if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
-    const context = await this.ensureBrowserReady(deadline);
+    const context = await this.ensureBrowserReady(deadline, timeoutCode);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const matches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline)).map((match) => {
+      const rawMatches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode));
+      const normalizedQuery = query.toLocaleLowerCase();
+      if (rawMatches.some((match) => !browserMediaIdentity(match) && match.name.toLocaleLowerCase().includes(normalizedQuery))) {
+        throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: matching Browser media has no AXIdentifier");
+      }
+      const seenSourceIdentities = new Set<string>();
+      const matches = rawMatches
+        .filter((match) => {
+          const identity = browserMediaIdentity(match);
+          if (!identity || seenSourceIdentities.has(identity)) return false;
+          seenSourceIdentities.add(identity);
+          return true;
+        })
+        .map((match) => {
         const identity = browserMediaIdentity(match);
-        const stableHandle = identity ? this.stableMediaHandles.get(identity) : undefined;
-        return stableHandle ? { ...match, handle: stableHandle } : match;
-      });
+        if (!identity) return match;
+        const stableHandle = this.stableMediaHandles.get(identity) ?? this.stableMediaHandle(identity);
+        this.stableMediaHandles.set(identity, stableHandle);
+        return { ...match, handle: stableHandle };
+        });
       const stableHandles = new Set(this.stableMediaHandles.values());
       for (const handle of this.mediaHandles.keys()) {
         if (!stableHandles.has(handle)) this.mediaHandles.delete(handle);
@@ -604,8 +632,17 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
     } catch (error) {
-      if (deadline !== undefined && nativeErrorCode(error) === "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT") throw error;
+      if (deadline !== undefined && nativeErrorCode(error) === timeoutCode) throw error;
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
+  private async readBrowserMediaDiagnostics(query: string): Promise<string> {
+    try {
+      const output = await this.executeNativeScript(browserMediaDiagnosticScript(query), this.now() + 2_000, "FINAL_CUT_NATIVE_MEDIA_DIAGNOSTIC_TIMEOUT");
+      return output.trim().slice(0, 8_000);
+    } catch {
+      return "";
     }
   }
 
@@ -1393,9 +1430,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
-  private async ensureBrowserReady(deadline?: number): Promise<NativeFinalCutContext> {
+  private async ensureBrowserReady(deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT"): Promise<NativeFinalCutContext> {
     try {
-      await this.executeNativeScript(browserFocusScript(), deadline);
+      await this.executeNativeScript(browserFocusScript(), deadline, timeoutCode);
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -1841,7 +1878,7 @@ function searchMediaScript(query: string): string {
     set searchQuery to ${appleScriptString(query)}
     set value of searchField to searchQuery
     delay 0.5
-    set output to my collectBrowserMedia(mainWindow, 0, searchQuery, origin, {})
+    set output to my collectBrowserMedia(mainWindow, 0, searchQuery, origin, false, {})
     return output
   end tell
 end tell`;
@@ -1849,6 +1886,7 @@ end tell`;
 
 function selectedBrowserMediaScript(): string {
   return `
+  ${browserMediaTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}
@@ -1861,41 +1899,22 @@ function selectedBrowserMediaScript(): string {
     set missingSourceIdentity to false
     set seenSourceIdentities to {}
     try
-      repeat with candidate in entire contents of mainWindow
-        try
-          if (selected of candidate) is true then
-            set candidateName to ""
-            try
-              set candidateName to value of candidate as text
-            end try
-            if candidateName is "" then
-              try
-                set candidateName to name of candidate as text
-              end try
-            end if
-            set candidatePosition to position of candidate
-            set candidateY to item 2 of candidatePosition
-            set browserRegion to candidateY < ((item 2 of origin) + 500)
-            if candidateName is not "" and browserRegion then
-              set selectedCandidateCount to selectedCandidateCount + 1
-              set candidateSourceIdentity to ""
-              try
-                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-              end try
-              if candidateSourceIdentity is "" then
-                set missingSourceIdentity to true
-              else if seenSourceIdentities does not contain candidateSourceIdentity then
-                set end of seenSourceIdentities to candidateSourceIdentity
-                set selectedIdentityCount to selectedIdentityCount + 1
-                set candidateRole to role of candidate as text
-                set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & ((candidatePosition as text) & "|" & ((size of candidate) as text)) & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
-              end if
+      set output to my collectSelectedBrowserMedia(mainWindow, 0, origin, false, {})
+      if output is not "" then
+        repeat with recordItem in my splitText(output, ASCII character 30)
+          if recordItem is not "" then
+            set selectedCandidateCount to selectedCandidateCount + 1
+            set recordParts to my splitText(recordItem, ASCII character 31)
+            set candidateSourceIdentity to item 4 of recordParts
+            if candidateSourceIdentity is "" then
+              set missingSourceIdentity to true
+            else if seenSourceIdentities does not contain candidateSourceIdentity then
+              set end of seenSourceIdentities to candidateSourceIdentity
+              set selectedIdentityCount to selectedIdentityCount + 1
             end if
           end if
-        on error
-          -- Ignore inaccessible descendants and continue looking for the selection.
-        end try
-      end repeat
+        end repeat
+      end if
     on error
       error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: selected Browser media was not accessible"
     end try
@@ -2060,28 +2079,48 @@ function browserSearchControlFinderScript(): string {
 function browserMediaTraversalScript(): string {
   return `
   using terms from application "System Events"
-    on browserMediaRole(candidateRole, browserContainer)
-      if candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton" then return true
-      return browserContainer and (candidateRole is "AXImage" or candidateRole is "AXStaticText")
+    on splitText(valueText, delimiter)
+      set oldDelimiters to AppleScript's text item delimiters
+      set AppleScript's text item delimiters to delimiter
+      set parts to text items of valueText
+      set AppleScript's text item delimiters to oldDelimiters
+      return parts
+    end splitText
+
+    on mediaContainer(containerItem, inheritedContext)
+      set containerText to ""
+      try
+        set containerText to description of containerItem as text
+      end try
+      if containerText is "" then
+        try
+          set containerText to name of containerItem as text
+        end try
+      end if
+      if containerText contains "Browser" or containerText contains "browser" or containerText contains "Events" or containerText contains "events" or containerText contains "Event" or containerText contains "event" then return true
+      return inheritedContext
+    end mediaContainer
+
+    on browserMediaRole(candidateRole, mediaContext, candidateSelected, candidateSourceIdentity)
+      if candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" then return true
+      if candidateRole is "AXButton" then return mediaContext and candidateSourceIdentity is not ""
+      if candidateRole is "AXGroup" or candidateRole is "AXStaticText" or candidateRole is "AXImage" then return mediaContext or (candidateSelected and candidateSourceIdentity is not "")
+      return false
     end browserMediaRole
 
-    on browserRegion(candidatePosition, origin, browserContainer)
-      if browserContainer then return true
+    on browserRegion(candidatePosition, origin, mediaContext)
+      if mediaContext then return true
       set candidateX to item 1 of candidatePosition
       set candidateY to item 2 of candidatePosition
       set originX to item 1 of origin
       set originY to item 2 of origin
-      return candidateX > (originX + 100) and candidateX < (originX + 450) and candidateY < (originY + 500)
+      return candidateX >= originX and candidateX < (originX + 900) and candidateY >= (originY + 60) and candidateY < (originY + 650)
     end browserRegion
 
-    on collectBrowserMedia(containerItem, depth, searchQuery, origin, seenIdentities)
+    on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities)
       if depth > 12 then return ""
       set output to ""
-      set browserContainer to false
-      try
-        set containerDescription to description of containerItem as text
-        set browserContainer to containerDescription contains "Browser" or containerDescription contains "browser"
-      end try
+      set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
         try
           repeat with candidate in UI elements of containerItem
@@ -2105,28 +2144,16 @@ function browserMediaTraversalScript(): string {
                 set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
               end try
               set candidatePosition to position of candidate
-              set candidateBrowserContainer to browserContainer
-              set candidateDescription to ""
-              try
-                set candidateDescription to description of candidate as text
-                if candidateDescription contains "Browser" or candidateDescription contains "browser" then set candidateBrowserContainer to true
-              end try
-              set isBrowserMedia to my browserMediaRole(candidateRole, candidateBrowserContainer)
-              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateBrowserContainer)
-              if not isBrowserMedia and candidateSelected and candidateSourceIdentity is not "" and inBrowserRegion then
-                -- Final Cut can expose a selected Browser result through a
-                -- generic role. Its stable AX identifier plus Browser-region
-                -- position is sufficient to include it.
-                set isBrowserMedia to true
-              end if
-              if candidateName is not "" and isBrowserMedia and inBrowserRegion and candidateName contains searchQuery then
-                set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
-                if seenIdentities does not contain candidateIdentity then
-                  set end of seenIdentities to candidateIdentity
-                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+              set candidateMediaContext to my mediaContainer(candidate, mediaContext)
+              set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
+              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+              if candidateName is not "" and candidateSourceIdentity is not "" and isBrowserMedia and inBrowserRegion and candidateName contains searchQuery then
+                if seenIdentities does not contain candidateSourceIdentity then
+                  set end of seenIdentities to candidateSourceIdentity
+                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
                 end if
               end if
-              set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, seenIdentities)
+              set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities)
             on error
               -- Ignore inaccessible descendants and continue enumerating Browser results.
             end try
@@ -2138,30 +2165,73 @@ function browserMediaTraversalScript(): string {
       return output
     end collectBrowserMedia
 
+    on collectSelectedBrowserMedia(containerItem, depth, origin, inheritedContext, seenIdentities)
+      if depth > 12 then return ""
+      set output to ""
+      set mediaContext to my mediaContainer(containerItem, inheritedContext)
+      tell application "System Events"
+        try
+          repeat with candidate in UI elements of containerItem
+            try
+              set candidateSelected to false
+              try
+                set candidateSelected to (selected of candidate) is true
+              end try
+              set candidateName to ""
+              try
+                set candidateName to value of candidate as text
+              end try
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              set candidateRole to role of candidate as text
+              set candidatePosition to position of candidate
+              set candidateSourceIdentity to ""
+              try
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set candidateMediaContext to my mediaContainer(candidate, mediaContext)
+              set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
+              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+              if candidateSelected and candidateName is not "" and isBrowserMedia and inBrowserRegion then
+                if candidateSourceIdentity is "" or seenIdentities does not contain candidateSourceIdentity then
+                  if candidateSourceIdentity is not "" then set end of seenIdentities to candidateSourceIdentity
+                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+                end if
+              end if
+              set output to output & my collectSelectedBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, seenIdentities)
+            on error
+              -- Ignore inaccessible descendants and continue looking for the selection.
+            end try
+          end repeat
+        on error
+          error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: selected Browser media was not accessible"
+        end try
+      end tell
+      return output
+    end collectSelectedBrowserMedia
+
     on pressBrowserMedia(containerItem, depth, origin, targetSourceIdentity, targetIdentity)
       if depth > 12 then return false
-      set browserContainer to false
-      try
-        set containerDescription to description of containerItem as text
-        set browserContainer to containerDescription contains "Browser" or containerDescription contains "browser"
-      end try
+      set mediaContext to my mediaContainer(containerItem, false)
       tell application "System Events"
         try
           repeat with candidate in UI elements of containerItem
             try
               set candidateRole to role of candidate as text
               set candidatePosition to position of candidate
-              set candidateBrowserContainer to browserContainer
-              set candidateDescription to ""
+              set candidateSourceIdentity to ""
               try
-                set candidateDescription to description of candidate as text
-                if candidateDescription contains "Browser" or candidateDescription contains "browser" then set candidateBrowserContainer to true
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
               end try
-              if my browserMediaRole(candidateRole, candidateBrowserContainer) and my browserRegion(candidatePosition, origin, candidateBrowserContainer) then
-                set candidateSourceIdentity to ""
-                try
-                  set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-                end try
+              set candidateMediaContext to my mediaContainer(candidate, mediaContext)
+              set candidateSelected to false
+              try
+                set candidateSelected to (selected of candidate) is true
+              end try
+              if my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity) and my browserRegion(candidatePosition, origin, candidateMediaContext) then
                 set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
                 if (targetSourceIdentity is not "" and candidateSourceIdentity is targetSourceIdentity) or (targetSourceIdentity is "" and candidateIdentity is targetIdentity) then
                   perform action "AXPress" of candidate
@@ -2178,6 +2248,72 @@ function browserMediaTraversalScript(): string {
       return false
     end pressBrowserMedia
   end using terms from`;
+}
+
+function browserMediaDiagnosticScript(query: string): string {
+  return `
+  using terms from application "System Events"
+    on collectBrowserMediaDiagnostics(containerItem, depth, searchQuery, ancestors)
+      if depth > 12 then return ""
+      set output to ""
+      set nextAncestors to ancestors
+      try
+        set containerDescription to description of containerItem as text
+        if containerDescription is not "" then set nextAncestors to ancestors & containerDescription & " > "
+      end try
+      tell application "System Events"
+        try
+          repeat with candidate in UI elements of containerItem
+            try
+              set candidateValue to ""
+              try
+                set candidateValue to value of candidate as text
+              end try
+              set candidateName to candidateValue
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              if candidateName contains searchQuery and (length of output) < 8000 then
+                set candidateRole to role of candidate as text
+                set candidateDescription to ""
+                try
+                  set candidateDescription to description of candidate as text
+                end try
+                set candidateSelected to "false"
+                try
+                  set candidateSelected to (selected of candidate) as text
+                end try
+                set candidateSourceIdentity to ""
+                try
+                  set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+                end try
+                set candidateBounds to ""
+                try
+                  set candidateBounds to ((position of candidate) as text) & "|" & ((size of candidate) as text)
+                end try
+                set output to output & candidateRole & (ASCII character 31) & candidateValue & (ASCII character 31) & candidateDescription & (ASCII character 31) & candidateSelected & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateBounds & (ASCII character 31) & nextAncestors & candidateDescription & (ASCII character 30)
+              end if
+              set output to output & my collectBrowserMediaDiagnostics(candidate, depth + 1, searchQuery, nextAncestors)
+            on error
+              -- Ignore inaccessible descendants and continue collecting diagnostics.
+            end try
+          end repeat
+        end try
+      end tell
+      return output
+    end collectBrowserMediaDiagnostics
+  end using terms from
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set output to my collectBrowserMediaDiagnostics(mainWindow, 0, ${appleScriptString(query)}, "")
+    return output
+  end tell
+  end tell`;
 }
 
 function importMediaScript(sourceDirectory: string, fileName: string): string {
