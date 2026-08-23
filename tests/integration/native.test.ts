@@ -1592,6 +1592,28 @@ test("native Final Cut classifies AppleEvent timeouts explicitly", async () => {
   assert.match(inspected.error?.message ?? "", /did not respond to an AppleEvent/);
 });
 
+test("native Final Cut bounds a blocking timeline preflight AppleEvent", async () => {
+  let aborted = false;
+  const started = Date.now();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (_script, options) => {
+      return new Promise<never>((_, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("native executor aborted"));
+        }, { once: true });
+      });
+    },
+  });
+
+  const inspected = await adapter.inspect();
+  assert.ok(Date.now() - started < 4_000);
+  assert.equal(aborted, true);
+  assert.equal(inspected.available, false);
+  assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
+});
+
 test("native UI transactions pause and resume live connection supervision", async () => {
   const events: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({

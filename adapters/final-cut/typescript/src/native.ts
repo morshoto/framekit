@@ -1352,9 +1352,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     let lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
     let lastContext: NativeFinalCutContext | undefined;
 
-    while (this.now() <= deadline) {
+    while (this.now() < deadline) {
       try {
-        const context = parseContext(await this.executor(timelinePreflightScript()));
+        const context = parseContext(await this.executeNativeScript(
+          timelinePreflightScript(),
+          deadline,
+          "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT",
+        ));
         lastContext = context;
         if (!context.timelineWindowAvailable) {
           lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
@@ -1404,16 +1408,20 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
   }
 
-  private async executeNativeScript(script: string, deadline?: number): Promise<string> {
+  private async executeNativeScript(
+    script: string,
+    deadline?: number,
+    timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT",
+  ): Promise<string> {
     if (deadline === undefined) return this.executor(script);
     const remaining = deadline - this.now();
-    if (remaining <= 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: native automation deadline expired");
+    if (remaining <= 0) throw new Error(`${timeoutCode}: native automation deadline expired`);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         controller.abort();
-        reject(new Error("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: native automation deadline expired"));
+        reject(new Error(`${timeoutCode}: native automation deadline expired`));
       }, remaining);
     });
     try {
