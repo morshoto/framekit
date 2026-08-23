@@ -4,6 +4,7 @@ import { access, constants, stat } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ContextRevision, EditorLiveState, RationalTime } from "@framekit/runtime";
+import type { NativeOperationLease } from "./native-operation.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -254,6 +255,7 @@ export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
   executor?: NativeFinalCutExecutor;
   liveState?: () => Promise<EditorLiveState>;
+  nativeOperationLease?: NativeOperationLease;
   suspendLiveConnection?: () => void;
   resumeLiveConnection?: () => void;
   now?: () => number;
@@ -299,6 +301,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly executor: NativeFinalCutExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly nativeOperationLease?: NativeOperationLease;
   private readonly suspendLiveConnection?: () => void;
   private readonly resumeLiveConnection?: () => void;
   private readonly now: () => number;
@@ -338,6 +341,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.executor = options.executor ?? runAppleScript;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
+    this.nativeOperationLease = options.nativeOperationLease;
     this.suspendLiveConnection = options.suspendLiveConnection;
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
@@ -1246,13 +1250,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async withNativeUi<T>(operation: () => Promise<T>): Promise<T> {
     const outermost = this.nativeUiDepth === 0;
-    if (outermost && this.enabled) this.suspendLiveConnection?.();
+    if (outermost && this.enabled) {
+      if (this.nativeOperationLease) this.nativeOperationLease.acquire();
+      else this.suspendLiveConnection?.();
+    }
     this.nativeUiDepth += 1;
     try {
       return await operation();
     } finally {
       this.nativeUiDepth -= 1;
-      if (outermost && this.enabled) this.resumeLiveConnection?.();
+      if (outermost && this.enabled) {
+        if (this.nativeOperationLease) this.nativeOperationLease.release();
+        else this.resumeLiveConnection?.();
+      }
     }
   }
 
