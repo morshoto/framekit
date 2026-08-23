@@ -868,6 +868,95 @@ test("native Final Cut search includes selected Browser media with an alternate 
   assert.equal(scripts.some((script) => script.includes("candidateSelected and candidateSourceIdentity is not \"\"")), true);
 });
 
+test("native Final Cut appends the currently selected Browser media with AX identity verification", async () => {
+  let revision = 1;
+  let duration = "10";
+  const scripts: string[] = [];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: duration, timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('keystroke "e"')) {
+        duration = "15";
+        revision = 2;
+        return "";
+      }
+      if (script.includes("selectedCandidateCount")) {
+        return `Hang Tight Bass 03${separator}AXStaticText${separator}(561, 210), (120, 80)${separator}media-source-3${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo");
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewAppendSelectedMedia();
+  assert.equal(preview.media.name, "Hang Tight Bass 03");
+  assert.equal(preview.media.sourceIdentity, "media-source-3");
+  assert.equal(preview.insertionTime.value, "10");
+  const result = await adapter.executeAppendSelectedMedia(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.equal(result.afterDuration.value, "15");
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.some((script) => script.includes("selectedBrowserMediaScript")), false);
+  assert.equal(scripts.some((script) => script.includes('keystroke "e"')), true);
+  assert.equal(scripts.some((script) => script.includes("searchField")), false);
+});
+
+test("native Final Cut selected-media append fails closed without AX identity or after selection changes", async () => {
+  const makeAdapter = (selectedOutput: string | Error) => new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("selectedCandidateCount")) {
+        if (selectedOutput instanceof Error) throw selectedOutput;
+        return selectedOutput;
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      return "";
+    },
+  });
+  const missingIdentity = makeAdapter(new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier"));
+  await assert.rejects(missingIdentity.previewAppendSelectedMedia(), /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE/);
+
+  let selectedReads = 0;
+  let revision = 1;
+  let duration = "10";
+  const changedSelection = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+      revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes("selectedCandidateCount")) {
+        selectedReads += 1;
+        const source = selectedReads === 1 ? "media-source-3" : "media-source-4";
+        return `Hang Tight Bass 03${separator}AXStaticText${separator}(561, 210), (120, 80)${separator}${source}${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      return "";
+    },
+  });
+  const preview = await changedSelection.previewAppendSelectedMedia();
+  await assert.rejects(changedSelection.executeAppendSelectedMedia(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED/);
+});
+
 test("native Final Cut adapter previews, appends selected media, verifies duration and revision, and undoes", async () => {
   let revision = 1;
   let duration = "10";
