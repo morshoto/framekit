@@ -4,8 +4,16 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
+import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 
 const separator = String.fromCharCode(31);
+
+function serializeBrowserFixture(): string {
+  const recordSeparator = String.fromCharCode(30);
+  return finalCutBrowserAccessibilityFixture.media
+    .map((media) => [media.value, media.role, media.bounds, media.axIdentifier].join(separator) + recordSeparator)
+    .join("");
+}
 
 function context(
   frontmost: boolean,
@@ -844,7 +852,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
   assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
-  assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, seenIdentities\)/);
+  assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities\)/);
+  assert.match(searchScript, /on collectSelectedBrowserMedia\(containerItem, depth, origin, inheritedContext, seenIdentities\)/);
+  assert.match(searchScript, /containerText contains "Events"/);
+  assert.match(searchScript, /candidateRole is "AXGroup"/);
   assert.match(searchScript, /repeat with candidate in UI elements of containerItem/);
   assert.match(searchScript, /if depth > 12 then return ""/);
   assert.match(searchScript, /focusedDescription to ""\s+try\s+set focusedDescription to description of focusedCandidate as text/);
@@ -909,6 +920,59 @@ test("native Final Cut search includes selected Browser media with an alternate 
   assert.equal(match?.sourceIdentity, "media-source-3");
   assert.equal(scripts.some((script) => script.includes("(selected of candidate) is true")), true);
   assert.equal(scripts.some((script) => script.includes("candidateSelected and candidateSourceIdentity is not \"\"")), true);
+});
+
+test("native Final Cut Browser discovery accepts generic Events media and reuses source handles", async () => {
+  const browserOutput = serializeBrowserFixture();
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes("set value of searchField to searchQuery")) return browserOutput;
+      return "";
+    },
+  });
+
+  const first = await adapter.searchMedia("Blue Steel Guitar");
+  const second = await adapter.searchMedia("Blue Steel Guitar");
+  assert.equal(first.length, 2);
+  assert.equal(second.length, 2);
+  assert.deepEqual(first.map((match) => match.sourceIdentity), [
+    "fcp://media/blue-steel-guitar",
+    "fcp://media/blue-steel-guitar-copy",
+  ]);
+  assert.equal(first[0]?.handle, second[0]?.handle);
+  assert.equal(first.some((match) => match.sourceIdentity === ""), false);
+  assert.equal(scripts.some((script) => script.includes("entire contents of mainWindow")), false);
+  assert.equal(scripts.some((script) => script.includes("UI elements of containerItem")), true);
+  assert.equal(scripts.some((script) => script.includes("AXIdentifier")), true);
+});
+
+test("native Final Cut selected-media traversal returns the stable generic Browser identity", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  const selected = finalCutBrowserAccessibilityFixture.media[0];
+  const selectedOutput = [selected.value, selected.role, selected.axIdentifier, selected.axIdentifier].join(separator) + recordSeparator;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "0", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes("set frontWindow to window \"Final Cut Pro\"")) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes("selectedCandidateCount")) return selectedOutput;
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewAppendSelectedMedia();
+  assert.equal(preview.media.name, "Blue Steel Guitar");
+  assert.equal(preview.media.sourceIdentity, "fcp://media/blue-steel-guitar");
 });
 
 test("native Final Cut appends the currently selected Browser media with AX identity verification", async () => {
@@ -1319,7 +1383,7 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.equal(target.selected, true);
   assert.equal(target.playheadTime, "1/1");
   assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
-  assert.equal(scripts.some((script) => script.includes("on browserRegion(candidatePosition, origin, browserContainer)") && script.includes("AXRow")), true);
+  assert.equal(scripts.some((script) => script.includes("on browserRegion(candidatePosition, origin, mediaContext)") && script.includes("AXRow")), true);
   const occurrenceScript = scripts.find((script) => script.includes("xOffset"));
   assert.ok(occurrenceScript);
   assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
@@ -1363,7 +1427,7 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
     /FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE/,
   );
   await assert.rejects(
-    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}${recordSeparator}`).targetMedia("missing-source-id"),
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}${recordSeparator}`).targetMedia("Interview"),
     /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE/,
   );
   await assert.rejects(
@@ -1561,6 +1625,31 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   assert.ok(newlyImported);
   assert.equal(newlyImported.handle, imported.mediaHandle);
   assert.notEqual(existing.handle, newlyImported.handle);
+});
+
+test("native Final Cut import reports Browser identity loss separately from import UI timeout", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-id-unavailable-"));
+  const sourcePath = join(directory, "blue-steel-guitar.wav");
+  await writeFile(sourcePath, "audio fixture");
+
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    mediaImportDiscoveryTimeoutMs: 20,
+    mediaImportPollMs: 10,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      return "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.importMedia(sourcePath),
+    /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported blue-steel-guitar\.wav/,
+  );
 });
 
 test("native Final Cut import aborts a stalled native executor at its deadline", async () => {
