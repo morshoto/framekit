@@ -607,7 +607,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       const rawMatches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode));
       const normalizedQuery = query.toLocaleLowerCase();
       if (rawMatches.some((match) => !browserMediaIdentity(match) && match.name.toLocaleLowerCase().includes(normalizedQuery))) {
-        throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: matching Browser media has no AXIdentifier");
+        const diagnostics = await this.readBrowserMediaDiagnostics(query);
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: matching Browser media has no AXIdentifier${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
       }
       const seenSourceIdentities = new Set<string>();
       const matches = rawMatches
@@ -669,7 +670,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (matches.length === 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: no selected Browser media was exposed by Accessibility");
       if (matches.length > 1) throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed");
       const media = matches[0]!;
-      if (!media.sourceIdentity) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier");
+      if (!media.sourceIdentity) {
+        const diagnostics = await this.readBrowserMediaDiagnostics(media.name);
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
+      }
       return media;
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
