@@ -1575,6 +1575,23 @@ test("native Final Cut preserves explicit command errors over embedded frontmost
   await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE/);
 });
 
+test("native Final Cut classifies AppleEvent timeouts explicitly", async () => {
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async () => {
+      throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: Final Cut Pro got an error: AppleEvent timed out (-1712)");
+    },
+  });
+
+  const inspected = await adapter.inspect();
+  assert.equal(inspected.available, false);
+  assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
+  assert.match(inspected.error?.message ?? "", /did not respond to an AppleEvent/);
+});
+
 test("native UI transactions pause and resume live connection supervision", async () => {
   const events: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({

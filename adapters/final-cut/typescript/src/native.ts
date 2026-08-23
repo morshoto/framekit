@@ -2669,6 +2669,7 @@ function appleScriptString(value: string): string {
 
 function nativeErrorCode(error: unknown): string {
   const message = String(error);
+  if (message.includes("-1712") || /AppleEvent.*timed out/i.test(message)) return "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT";
   const explicitCodes = [...message.matchAll(/FINAL_CUT_NATIVE_[A-Z_]+/g)].map((match) => match[0]);
   if (explicitCodes.length > 0) return explicitCodes[explicitCodes.length - 1];
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "FINAL_CUT_NATIVE_PERMISSION_REQUIRED";
@@ -2682,6 +2683,7 @@ function nativeErrorCode(error: unknown): string {
 function nativeErrorMessage(error: unknown): string {
   const message = String(error);
   if (message.includes("FINAL_CUT_NATIVE_OVERLAY_BLOCKED")) return "The Framekit window could not be minimized; close or minimize the overlay and retry";
+  if (message.includes("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") || message.includes("-1712") || /AppleEvent.*timed out/i.test(message)) return "Final Cut did not respond to an AppleEvent; reopen or bring Final Cut Pro to the front and retry";
   if (message.includes("FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW")) return "Final Cut has no accessible timeline window; open a project timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED")) return "Final Cut's timeline pane could not be focused; click the timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_NOT_FRONTMOST")) return "Final Cut is running but is not the frontmost application";

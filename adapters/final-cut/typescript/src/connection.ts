@@ -47,11 +47,16 @@ export interface FinalCutConnectionOptions {
   installExtension?: () => Promise<void>;
   launchExtension?: () => Promise<void>;
   registerExtension?: () => Promise<void>;
-  activateExtension?: () => Promise<void>;
+  activateExtension?: (options?: FinalCutActivationOptions) => Promise<void>;
   restartFinalCut?: () => Promise<void>;
   restartAfterInstall?: boolean;
   probe?: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   sleep?: (milliseconds: number) => Promise<void>;
+}
+
+export interface FinalCutActivationOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 interface StatusPatch {
@@ -83,7 +88,7 @@ export class FinalCutConnectionManager {
   private readonly installExtensionAction: () => Promise<void>;
   private readonly launchExtension: () => Promise<void>;
   private readonly registerExtension: () => Promise<void>;
-  private readonly activateExtension: () => Promise<void>;
+  private readonly activateExtension: (options?: FinalCutActivationOptions) => Promise<void>;
   private readonly restartFinalCut: () => Promise<void>;
   private readonly restartAfterInstall: boolean;
   private readonly probe: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
@@ -113,7 +118,7 @@ export class FinalCutConnectionManager {
     // the bridge socket, so the default launch action is intentionally a no-op.
     this.launchExtension = options.launchExtension ?? (async () => {});
     this.registerExtension = options.registerExtension ?? (() => defaultRegisterExtension(this.extensionInstallPath));
-    this.activateExtension = options.activateExtension ?? (() => defaultActivateFinalCut());
+    this.activateExtension = options.activateExtension ?? ((activationOptions) => defaultActivateFinalCut(activationOptions));
     this.restartAfterInstall = options.restartAfterInstall ?? false;
     this.restartFinalCut = options.restartFinalCut ?? (() => defaultRestartFinalCut(
       this.detectFinalCut,
@@ -225,7 +230,7 @@ export class FinalCutConnectionManager {
         if (result) return this.ready(result);
         if (Date.now() >= nextActivationAt) {
           try {
-            await this.activateExtension();
+            await this.activateWithDeadline(deadline);
           } catch (error) {
             if (isPermissionError(error)) throw error;
           }
@@ -287,7 +292,7 @@ export class FinalCutConnectionManager {
     let lastError: unknown;
     while (Date.now() < deadline) {
       try {
-        await this.activateExtension();
+        await this.activateWithDeadline(deadline);
         return;
       } catch (error) {
         if (isPermissionError(error)) throw error;
@@ -295,7 +300,37 @@ export class FinalCutConnectionManager {
         await this.sleep(Math.min(250, Math.max(25, deadline - Date.now())));
       }
     }
-    throw lastError ?? new Error("FINAL_CUT_ACTIVATION_TIMEOUT: Framekit extension menu was not available");
+    const detail = lastError ? ` (${String(lastError)})` : "";
+    throw new Error(`FINAL_CUT_ACTIVATION_TIMEOUT: Framekit extension menu was not available before the connection deadline${detail}`);
+  }
+
+  private async activateWithDeadline(deadline: number): Promise<void> {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new Error("FINAL_CUT_ACTIVATION_TIMEOUT: Framekit extension activation deadline expired");
+
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    const activation = Promise.resolve().then(() => this.activateExtension({ signal: controller.signal, timeoutMs: remainingMs }));
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error("FINAL_CUT_ACTIVATION_TIMEOUT: Framekit extension activation exceeded the connection deadline"));
+      }, remainingMs);
+    });
+    try {
+      await Promise.race([activation, timeout]);
+    } catch (error) {
+      if (timedOut || isActivationTimeout(error)) {
+        throw new Error(`FINAL_CUT_ACTIVATION_TIMEOUT: Framekit extension activation did not complete (${String(error)})`);
+      }
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (!timedOut) controller.abort();
+      void activation.catch(() => {});
+    }
   }
 
   private async installExtensionIfAvailable(): Promise<void> {
@@ -389,7 +424,7 @@ async function defaultRestartFinalCut(
   throw new Error(`FINAL_CUT_RESTART_TIMEOUT: Final Cut Pro did not reopen; open it and retry${detail}`);
 }
 
-async function defaultActivateFinalCut(): Promise<void> {
+async function defaultActivateFinalCut(options: FinalCutActivationOptions = {}): Promise<void> {
   const script = [
     'tell application "Final Cut Pro" to activate',
     'tell application "System Events"',
@@ -398,7 +433,10 @@ async function defaultActivateFinalCut(): Promise<void> {
     "end tell",
     "end tell",
   ].join("\n");
-  await execFile("osascript", ["-e", script]);
+  await execFile("osascript", ["-e", script], {
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
+  });
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -421,4 +459,9 @@ function defaultExtensionSourcePath(): string | undefined {
 function isPermissionError(error: unknown): boolean {
   const message = String(error);
   return message.includes("not authorized") || message.includes("Automation");
+}
+
+function isActivationTimeout(error: unknown): boolean {
+  const message = String(error);
+  return message.includes("-1712") || message.includes("ETIMEDOUT") || message.includes("timed out");
 }
