@@ -196,6 +196,7 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
       selectionEdit: true,
       undo: true,
       mediaLibrarySearch: true,
+      mediaImport: true,
       mediaSelection: true,
       timelineOccurrenceLocate: true,
       bladeAtPlayhead: true,

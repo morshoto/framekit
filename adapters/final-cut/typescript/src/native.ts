@@ -966,13 +966,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const startTimecode = this.toTimecode(preview.start, beforeLive);
     const endTimecode = this.toTimecode(preview.end, beforeLive);
     try {
-      await this.executeNativeCommand(
-        titleInsertionScript(preview.asset.name, preview.text, startTimecode, endTimecode),
-        async (recovered) => {
-          this.assertRetryContext(before, recovered, true);
-          this.validateTitleBinding(preview, await this.requireLiveState());
-        },
-      );
+      await this.executeNativeSequence(async () => {
+        await this.executor(titleAssetSelectionScript(preview.asset.name));
+        await this.executor(setPlayheadScript(startTimecode));
+        await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
+        await this.executor(markRangeStartScript());
+        await this.executor(setPlayheadScript(endTimecode));
+        await this.waitForPlayhead(preview.end, beforeLive.sequence?.id);
+        await this.executor(markRangeEndAndConnectTitleScript());
+        await this.executor(titleTextEditScript(preview.text));
+      }, async (recovered) => {
+        const targetChanged = before.target.kind !== recovered.target.kind
+          || before.target.name !== recovered.target.name
+          || before.target.role !== recovered.target.role;
+        if (targetChanged) throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection changed during focus recovery");
+        this.validateTitleBinding(preview, await this.requireLiveState());
+      });
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -990,7 +999,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       undoCommand: after.undoCommand,
     } satisfies NativeOperationRecord;
     if (!verification.verified) {
-      if (afterLive && afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
+      if (afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
         this.rememberOperation(operationId, operation);
         try {
           await this.undo(operationId);
@@ -1015,7 +1024,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       before,
       after,
       beforeRevision: beforeLive.revision,
-      afterRevision: afterLive!.revision,
+      afterRevision: afterLive.revision,
       verification,
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
@@ -1434,7 +1443,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     let latest = await this.requireLiveState();
     while (this.now() < deadline) {
       if ((!sequenceId || latest.sequence?.id === sequenceId) && latest.playheadTime && compareRational(latest.playheadTime, expected) === 0) return latest;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await this.sleep(100);
       latest = await this.requireLiveState();
     }
     throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_VERIFICATION_FAILED: Final Cut did not move to the requested frame");
@@ -2262,7 +2271,7 @@ tell application "System Events"
 end tell`;
 }
 
-function titleInsertionScript(assetName: string, text: string, startTimecode: string, endTimecode: string): string {
+function titleAssetSelectionScript(assetName: string): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
@@ -2283,6 +2292,9 @@ tell application "System Events"
     end repeat
     if titleSearchField is missing value then error "FINAL_CUT_NATIVE_TITLE_SEARCH_UNAVAILABLE: Titles browser search field was not accessible"
     set value of titleSearchField to ${appleScriptString(assetName)}
+    try
+      set value of attribute "AXFocused" of titleSearchField to true
+    end try
     delay 0.4
     set titleItem to missing value
     repeat with candidate in entire contents of front window
@@ -2300,18 +2312,27 @@ tell application "System Events"
     on error
       click titleItem
     end try
-    keystroke "p" using {control down}
-    keystroke ${appleScriptString(startTimecode)}
-    key code 36
-    delay 0.1
-    keystroke "i"
-    keystroke "p" using {control down}
-    keystroke ${appleScriptString(endTimecode)}
-    key code 36
-    delay 0.1
+  end tell
+end tell`;
+}
+
+function markRangeEndAndConnectTitleScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
     keystroke "o"
+    delay 0.2
     keystroke "q"
     delay 0.5
+  end tell
+end tell`;
+}
+
+function titleTextEditScript(text: string): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
     keystroke "4" using {command down}
     delay 0.3
     set titleTextField to missing value
