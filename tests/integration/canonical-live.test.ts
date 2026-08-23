@@ -323,6 +323,37 @@ test("live project catalogs reject non-object project and sequence entries", asy
   );
 });
 
+test("live project catalogs fail closed on duplicate sequence identities", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [
+            {
+              id: "project-1",
+              name: "Project",
+              sequences: [
+                { id: "duplicate-sequence", name: "One" },
+                { id: "duplicate-sequence", name: "Two" },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.listProjects(),
+    /FINAL_CUT_LIVE_PROTOCOL: duplicate sequence id duplicate-sequence in project project-1/,
+  );
+});
+
 const canonicalWriteCapabilities: RuntimeCapabilities = {
   ...canonicalReadCapabilities,
   editor: {
