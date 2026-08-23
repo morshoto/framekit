@@ -154,6 +154,43 @@ test("MCP exposes guarded music preview, execute, verification, and undo", async
   }
 });
 
+test("MCP composite preview accepts explicit audio fades", async () => {
+  const { runtime } = createMusicRuntime();
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "music-fade-schema-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const before = await runtime.inspectProject();
+    const previewResult = await client.callTool({
+      name: "timeline.edit.preview",
+      arguments: {
+        baseRevision: before.revision,
+        operations: [{
+          type: "timeline.audio.fades",
+          clipId: "clip-dialogue",
+          fadeIn: 0.5,
+          fadeOut: 1,
+        }],
+      },
+    });
+    assert.equal(previewResult.isError, undefined);
+    const preview = JSON.parse(textFrom(previewResult));
+    assert.equal(preview.expectedDiff.modified[0]?.after.fadeIn, 0.5);
+    assert.equal(preview.expectedDiff.modified[0]?.after.fadeOut, 1);
+
+    const transaction = JSON.parse(textFrom(await client.callTool({
+      name: "timeline.edit.execute",
+      arguments: { previewToken: preview.previewToken },
+    })));
+    assert.equal(transaction.status, "VERIFIED");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("music workflow inserts an existing searched media item at an explicit position", async () => {
   const { runtime } = createMusicRuntime();
   const before = await runtime.inspectProject();

@@ -110,9 +110,10 @@ those capabilities.
 
 `timeline.edit.preview` accepts the canonical `baseRevision` and a non-empty,
 ordered `operations` array. The workflow operation discriminants are
-`media.import`, `timeline.media.add`, the existing edit operation names such as
-`trim-clip`, and `timeline.title.add`. Video placement targets `primary`; music
-and titles require explicit non-primary numeric lanes. Preview validates the
+`media.import`, `timeline.media.add`, `timeline.audio.fades`, the existing edit
+operation names such as `trim-clip`, and `timeline.title.add`. Video placement
+targets `primary`; music and titles require explicit non-primary numeric lanes.
+Preview validates the
 entire sequence against a simulated snapshot and does not change the project,
 media registry, or revision.
 

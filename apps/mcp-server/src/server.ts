@@ -65,6 +65,12 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
   }),
   z.object({
+    type: z.literal("timeline.audio.fades"),
+    clipId: z.string().min(1),
+    fadeIn: z.number().nonnegative(),
+    fadeOut: z.number().nonnegative(),
+  }),
+  z.object({
     type: z.literal("timeline.title.add"),
     occurrenceId: z.string().min(1),
     assetId: z.string().min(1),
