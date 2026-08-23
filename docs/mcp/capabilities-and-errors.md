@@ -68,6 +68,8 @@ Important error codes include:
 - `FINAL_CUT_EXPORT_OUTPUT_EXISTS`: an existing output was protected from replacement without `overwrite: true`.
 - `FINAL_CUT_EXPORT_VERIFICATION_FAILED`: the output media metadata was missing, invalid, or did not match requested expectations.
 - `FINAL_CUT_EXPORT_METADATA_FAILED`: `ffprobe` could not inspect the exported video.
+- `FINAL_CUT_EXPORT_METADATA_UNAVAILABLE`: `ffprobe` was not available before export started.
+- `FINAL_CUT_EXPORT_COMMIT_FAILED`: the verified staging file could not be moved to the requested output path.
 
 ## Connection status
 
@@ -165,11 +167,12 @@ it does not mean the currently open timeline is directly writable.
 
 `videoExport` is reported separately from canonical timeline capabilities. It is
 true only when the live server has enabled the guarded native Final Cut export
-adapter with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`; deterministic fixtures do not
-claim to render video. `timeline.export` supports the `master` (`Export File`)
-and `web` (`Web Hosting`) Final Cut share presets. It waits for a new non-empty
-file, probes it with `ffprobe`, and verifies duration, width, height, frame rate,
-and audio presence before returning success. Export performs the same native
-timeline-window/frontmost/focus preflight as other guarded UI operations. An
-existing file is never replaced unless the request explicitly sets
+adapter with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1` and a usable `ffprobe`; deterministic
+fixtures do not claim to render video. `timeline.export` supports the `master`
+(`Export File`) and `web` (`Web Hosting`) Final Cut share presets. It waits for a
+stable non-empty file, probes it with `ffprobe`, and verifies duration, width,
+height, frame rate, and audio presence before returning success. Export performs
+the same native timeline-window/frontmost/focus preflight as other guarded UI
+operations. An existing file is preserved until the replacement has passed
+verification and is never replaced unless the request explicitly sets
 `overwrite: true`.
