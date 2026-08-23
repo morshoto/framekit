@@ -237,7 +237,9 @@ preview/execute flow:
 The preview fails closed with `TITLE_ASSET_NOT_FOUND` for an undiscovered ID,
 `TITLE_ASSET_INCOMPATIBLE` for a non-title asset, and
 `FINAL_CUT_NATIVE_TITLE_RANGE_OUT_OF_BOUNDS` when the placement falls outside
-the active sequence. The native adapter does
+the active sequence. It also returns `INVALID_OPERATION` for sub-frame or
+misaligned timing and `FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS` when the Titles
+browser exposes multiple matching templates. The native adapter does
 not invent title assets or claim canonical timeline enumeration; it uses
 Accessibility automation to open Final Cut's Titles and Generators browser,
 select the discovered template, apply the text, and verify the selected title

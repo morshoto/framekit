@@ -911,13 +911,21 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const live = await this.requireLiveState();
     const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
     const sequenceDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
-    if (!sequenceStart || !sequenceDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
+    const frameDuration = live.sequence?.frameDuration;
+    if (!sequenceStart || !sequenceDuration || !frameDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence timing is unavailable");
+    if (compareRational(frameDuration, zeroRational()) <= 0) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence frame duration is invalid");
     if (compareRational(request.duration, zeroRational()) <= 0) {
       throw new Error("INVALID_OPERATION: native title duration must be positive");
+    }
+    if (compareRational(request.duration, frameDuration) < 0 || !isFrameAligned(request.duration, zeroRational(), frameDuration)) {
+      throw new Error("INVALID_OPERATION: native title duration must cover a whole number of sequence frames");
     }
 
     const start = request.start ?? live.playheadTime;
     if (!start) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut playhead is unavailable for native title placement");
+    if (!isFrameAligned(start, sequenceStart, frameDuration)) {
+      throw new Error("INVALID_OPERATION: native title start must align to the sequence frame duration");
+    }
     const sequenceEnd = addRational(sequenceStart, sequenceDuration);
     const end = addRational(start, request.duration);
     if (compareRational(start, sequenceStart) < 0 || compareRational(end, sequenceEnd) > 0) {
@@ -2296,16 +2304,45 @@ tell application "System Events"
       set value of attribute "AXFocused" of titleSearchField to true
     end try
     delay 0.4
-    set titleItem to missing value
+    set exactTitleItem to missing value
+    set containingTitleItem to missing value
+    set exactMatchCount to 0
+    set containingMatchCount to 0
+    set seenTitleIdentities to {}
     repeat with candidate in entire contents of front window
       try
+        set candidateRole to role of candidate as text
         set candidateName to name of candidate as text
-        if candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)} then
-          set titleItem to candidate
-          exit repeat
+        set candidateIdentity to ""
+        try
+          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+          if candidateSourceIdentity is not "" then set candidateIdentity to "source:" & candidateSourceIdentity
+        end try
+        if candidateIdentity is "" then
+          set candidateIdentity to (candidateRole as text) & "|" & (candidateName as text) & "|" & ((position of candidate) as text) & "|" & ((size of candidate) as text)
+        end if
+        if (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}) and seenTitleIdentities does not contain candidateIdentity then
+          set end of seenTitleIdentities to candidateIdentity
+          if candidateName is ${appleScriptString(assetName)} then
+            set exactMatchCount to exactMatchCount + 1
+            set exactTitleItem to candidate
+          else
+            set containingMatchCount to containingMatchCount + 1
+            set containingTitleItem to candidate
+          end if
         end if
       end try
     end repeat
+    set titleItem to missing value
+    if exactMatchCount is 1 then
+      set titleItem to exactTitleItem
+    else if exactMatchCount is greater than 1 then
+      error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple exact title matches were visible in the Titles browser"
+    else if containingMatchCount is 1 then
+      set titleItem to containingTitleItem
+    else if containingMatchCount is greater than 1 then
+      error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple title matches were visible in the Titles browser"
+    end if
     if titleItem is missing value then error "FINAL_CUT_NATIVE_TITLE_ASSET_NOT_FOUND: installed title was not visible in the Titles browser"
     try
       perform action "AXPress" of titleItem
@@ -2558,6 +2595,13 @@ function compareRational(left: RationalTime, right: RationalTime): number {
   const [rightValue, rightScale] = rationalParts(right);
   const difference = leftValue * rightScale - rightValue * leftScale;
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function isFrameAligned(value: RationalTime, origin: RationalTime, frameDuration: RationalTime): boolean {
+  const relative = subtractRational(value, origin);
+  const [valueNumerator, valueDenominator] = rationalParts(relative);
+  const [frameNumerator, frameDenominator] = rationalParts(frameDuration);
+  return (valueNumerator * frameDenominator) % (valueDenominator * frameNumerator) === 0n;
 }
 
 function divideRationalFloor(value: RationalTime, divisor: RationalTime): bigint {

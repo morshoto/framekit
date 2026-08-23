@@ -215,6 +215,7 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
   assert.equal(scripts.some((script) => script.includes('keystroke "i"')), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "o"')), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "q"')), true);
+  assert.equal(scripts.some((script) => script.includes("FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS")), true);
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
@@ -287,6 +288,14 @@ test("native title previews bind explicit selected ranges and reject incompatibl
   );
   await assert.rejects(
     adapter.previewTitleAdd({ asset: title, text: "Zero duration", duration: { value: "0", timescale: "1" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Sub-frame", duration: { value: "1", timescale: "1000" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Misaligned start", start: { value: "1", timescale: "1000" }, duration: { value: "1", timescale: "24" } }),
     /INVALID_OPERATION/,
   );
 });
