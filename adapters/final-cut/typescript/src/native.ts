@@ -201,6 +201,7 @@ export interface NativeFinalCutCapabilities {
   mediaLibrarySearch: boolean;
   mediaImport: boolean;
   mediaSelection: boolean;
+  mediaAppendSelected: boolean;
   timelineOccurrenceLocate: boolean;
   bladeAtPlayhead: boolean;
   deleteRange: boolean;
@@ -290,6 +291,8 @@ export interface NativeFinalCutEditor {
   executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult>;
   previewAppendMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
   executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
+  previewAppendSelectedMedia(): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
 }
@@ -326,6 +329,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaInsertionPreviews = new Map<string, {
     operation: NativeFinalCutMediaInsertionOperation;
     mediaHandle: string;
+    selectionMode: "handle" | "selected";
     beforeDuration: RationalTime;
     insertionTime: RationalTime;
     sequenceId?: string;
@@ -353,6 +357,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaLibrarySearch: this.enabled,
       mediaImport: this.enabled,
       mediaSelection: this.enabled,
+      mediaAppendSelected: this.enabled,
       timelineOccurrenceLocate: this.enabled,
       bladeAtPlayhead: this.enabled,
       deleteRange: this.enabled,
@@ -605,6 +610,36 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
+  public async previewAppendSelectedMedia(): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewSelectedMediaInsertionNative());
+  }
+
+  private async previewSelectedMediaInsertionNative(): Promise<NativeFinalCutMediaInsertionPreview> {
+    this.assertEnabled();
+    const media = await this.readSelectedMediaNative();
+    const mediaHandle = this.stableMediaHandle(media.sourceIdentity!);
+    const stableMedia = { ...media, handle: mediaHandle };
+    this.stableMediaHandles.set(media.sourceIdentity!, mediaHandle);
+    this.mediaHandles.set(mediaHandle, stableMedia);
+    this.selectedMediaHandle = mediaHandle;
+    return this.previewMediaInsertionNative("append", mediaHandle, "selected");
+  }
+
+  private async readSelectedMediaNative(): Promise<NativeFinalCutMediaMatch> {
+    const context = await this.requireAvailableContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    try {
+      const matches = parseMediaMatches(await this.executor(selectedBrowserMediaScript()));
+      if (matches.length === 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: no selected Browser media was exposed by Accessibility");
+      if (matches.length > 1) throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed");
+      const media = matches[0]!;
+      if (!media.sourceIdentity) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier");
+      return media;
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
   public async selectMedia(handle: string): Promise<NativeFinalCutContext> {
     return this.withNativeUi(() => this.selectMediaNative(handle));
   }
@@ -824,7 +859,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
-    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append"));
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "handle"));
+  }
+
+  public async executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "selected"));
   }
 
   public async previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview> {
@@ -838,6 +877,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async previewMediaInsertionNative(
     operation: NativeFinalCutMediaInsertionOperation,
     mediaHandle: string,
+    selectionMode: "handle" | "selected" = "handle",
   ): Promise<NativeFinalCutMediaInsertionPreview> {
     this.assertEnabled();
     const media = this.mediaHandles.get(mediaHandle);
@@ -860,6 +900,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.mediaInsertionPreviews.set(previewToken, {
       operation,
       mediaHandle,
+      selectionMode,
       beforeDuration,
       insertionTime,
       sequenceId: live.sequence?.id,
@@ -882,6 +923,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async executeMediaInsertionNative(
     previewToken: string,
     expectedOperation?: NativeFinalCutMediaInsertionOperation,
+    expectedSelectionMode?: "handle" | "selected",
   ): Promise<NativeFinalCutMediaInsertionResult> {
     this.assertEnabled();
     const preview = this.mediaInsertionPreviews.get(previewToken);
@@ -889,25 +931,28 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.mediaInsertionPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media insertion preview has expired");
     if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
+    if (expectedSelectionMode && preview.selectionMode !== expectedSelectionMode) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview selection mode does not match execute operation");
     const media = this.mediaHandles.get(preview.mediaHandle);
     if (!media) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${preview.mediaHandle}`);
-    if (this.selectedMediaHandle !== preview.mediaHandle) {
+    if (preview.selectionMode === "handle" && this.selectedMediaHandle !== preview.mediaHandle) {
       throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before insertion");
     }
     const before = await this.requireTimelineContext();
     const beforeLive = await this.requireLiveState();
     this.validateMediaInsertionBinding(preview, beforeLive);
+    if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
     try {
       // Re-select by the stable Browser identity immediately before the edit. The
       // cached handle only proves what this process selected, not what Final Cut
       // currently has selected after another UI interaction.
-      await this.selectMediaNative(preview.mediaHandle);
+      if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
       await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
         this.assertRetryContext(before, recovered, preview.operation === "insert");
-        await this.selectMediaNative(preview.mediaHandle);
+        if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
         const refocused = await this.prepareNativeRetry();
         this.assertRetryContext(before, refocused, preview.operation === "insert");
         this.validateMediaInsertionBinding(preview, await this.requireLiveState());
+        if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
       });
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
@@ -979,6 +1024,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
+  }
+
+  private async validateSelectedMediaBinding(media: NativeFinalCutMediaMatch): Promise<void> {
+    const selected = await this.readSelectedMediaNative();
+    if (selected.sourceIdentity !== media.sourceIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED: selected Browser media changed before insertion");
+    }
   }
 
   private async previewRangeNative(operation: NativeFinalCutRangeOperation, range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
@@ -1813,7 +1865,7 @@ function searchMediaScript(query: string): string {
             -- include it without accepting arbitrary timeline elements.
             set browserRole to true
           end if
-          if candidateName is not "" and browserRegion then
+          if candidateName is not "" and browserRole and browserRegion then
             set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
             if candidateName contains searchQuery and seenIdentities does not contain candidateIdentity then
               set end of seenIdentities to candidateIdentity
@@ -1827,6 +1879,68 @@ function searchMediaScript(query: string): string {
     on error
       error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible"
     end try
+    return output
+  end tell
+end tell`;
+}
+
+function selectedBrowserMediaScript(): string {
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set output to ""
+    set selectedCandidateCount to 0
+    set selectedIdentityCount to 0
+    set missingSourceIdentity to false
+    set seenSourceIdentities to {}
+    try
+      repeat with candidate in entire contents of mainWindow
+        try
+          if (selected of candidate) is true then
+            set candidateName to ""
+            try
+              set candidateName to value of candidate as text
+            end try
+            if candidateName is "" then
+              try
+                set candidateName to name of candidate as text
+              end try
+            end if
+            set candidatePosition to position of candidate
+            set candidateY to item 2 of candidatePosition
+            set browserRegion to candidateY < ((item 2 of origin) + 500)
+            if candidateName is not "" and browserRegion then
+              set selectedCandidateCount to selectedCandidateCount + 1
+              set candidateSourceIdentity to ""
+              try
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              if candidateSourceIdentity is "" then
+                set missingSourceIdentity to true
+              else if seenSourceIdentities does not contain candidateSourceIdentity then
+                set end of seenSourceIdentities to candidateSourceIdentity
+                set selectedIdentityCount to selectedIdentityCount + 1
+                set candidateRole to role of candidate as text
+                set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & ((candidatePosition as text) & "|" & ((size of candidate) as text)) & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+              end if
+            end if
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue looking for the selection.
+        end try
+      end repeat
+    on error
+      error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: selected Browser media was not accessible"
+    end try
+    if selectedIdentityCount is 0 then
+      if selectedCandidateCount is 0 then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: no selected Browser media was exposed by Accessibility"
+      if missingSourceIdentity then error "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier"
+    end if
+    if selectedIdentityCount > 1 then error "FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed"
     return output
   end tell
 end tell`;

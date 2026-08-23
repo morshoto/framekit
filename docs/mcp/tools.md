@@ -16,6 +16,8 @@
 | `editor.native.media.select` | Select a Browser result by handle | Fails if the result or selection cannot be verified |
 | `editor.native.media.append.preview` | Preview appending selected Browser media to the timeline | Requires selected media, live duration, and timeline focus |
 | `editor.native.media.append.execute` | Append a previously previewed Browser media result | Requires unchanged sequence revision/duration; verifies duration and revision |
+| `editor.native.media.append.selected.preview` | Preview appending the currently selected Browser media to the timeline | Requires one selected Browser item with a stable AXIdentifier, live duration, and timeline focus |
+| `editor.native.media.append.selected.execute` | Append the previously previewed currently selected Browser media | Revalidates the selected AXIdentifier, then verifies duration and revision |
 | `editor.native.media.insert.preview` | Preview inserting selected Browser media at the playhead | Requires selected media, live playhead, and timeline focus |
 | `editor.native.media.insert.execute` | Insert a previously previewed Browser media result at the playhead | Requires unchanged sequence revision/duration/playhead; verifies duration and revision |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |

@@ -192,6 +192,13 @@ same preview/execute safety boundary:
    should be rolled back. Undo verifies restoration of the prior duration and
    a new live revision.
 
+When Browser search cannot expose the selected item through its usual media
+role, use `editor.native.media.append.selected.preview` and
+`editor.native.media.append.selected.execute`. This path requires Final Cut
+to expose exactly one selected Browser item with a stable `AXIdentifier`; it
+does not fall back to screenshot text or coordinate-only identity. The
+selected identity is revalidated immediately before the Append command.
+
 Insertion previews expire and fail closed when the selected media handle,
 sequence, revision, duration, or insert playhead changes. The live Workflow
 Extension remains a read-only state source; the guarded Node-side native

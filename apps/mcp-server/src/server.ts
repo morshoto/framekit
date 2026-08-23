@@ -276,6 +276,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken));
   });
 
+  server.registerTool("editor.native.media.append.selected.preview", {
+    description: "Preview appending the currently selected Final Cut Browser media to the end of the active timeline.",
+    inputSchema: {},
+  }, async () => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
+    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia());
+  });
+
+  server.registerTool("editor.native.media.append.selected.execute", {
+    description: "Execute a previously previewed append of the currently selected Final Cut Browser media.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
+    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken));
+  });
+
   server.registerTool("editor.native.media.insert.preview", {
     description: "Preview inserting the selected Final Cut Browser media at the current playhead.",
     inputSchema: { mediaHandle: z.string().min(1) },
