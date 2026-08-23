@@ -342,7 +342,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 5_000;
+    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 15_000;
     this.mediaImportPollMs = options.mediaImportPollMs ?? 100;
   }
 
@@ -1762,16 +1762,9 @@ function searchMediaScript(query: string): string {
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
-    set searchX to (item 1 of origin) + 240
-    set searchY to (item 2 of origin) + 83
+    ${browserSearchFieldScript()}
     set searchQuery to ${appleScriptString(query)}
-    set searchField to click at {searchX, searchY}
-    if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
     set value of searchField to searchQuery
-    try
-      set value of attribute "AXFocused" of searchField to true
-    end try
     delay 0.5
     set output to ""
     set seenIdentities to {}
@@ -1819,6 +1812,59 @@ function searchMediaScript(query: string): string {
 end tell`;
 }
 
+function browserSearchFieldScript(): string {
+  return `
+    set searchFieldFound to false
+    set searchField to missing value
+    try
+      repeat with candidate in entire contents of mainWindow
+        try
+          set candidateRole to role of candidate as text
+          set candidateName to ""
+          try
+            set candidateName to name of candidate as text
+          end try
+          set candidateDescription to ""
+          try
+            set candidateDescription to description of candidate as text
+          end try
+          set candidateHelp to ""
+          try
+            set candidateHelp to help of candidate as text
+          end try
+          set searchCandidate to candidateRole is "AXSearchField"
+          if candidateRole is "AXTextField" and (candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" or candidateHelp contains "search" or candidateHelp contains "Search") then set searchCandidate to true
+          if searchCandidate then
+            set searchField to candidate
+            set searchFieldFound to true
+            exit repeat
+          end if
+        end try
+      end repeat
+    end try
+    if not searchFieldFound then
+      set origin to position of mainWindow
+      set searchX to (item 1 of origin) + 240
+      set searchY to (item 2 of origin) + 83
+      click at {searchX, searchY}
+      delay 0.1
+      try
+        set searchField to value of attribute "AXFocusedUIElement"
+        set searchFieldFound to true
+      end try
+    end if
+    if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not found through Accessibility or coordinate fallback"
+    set searchRole to role of searchField as text
+    if searchRole is not "AXTextField" and searchRole is not "AXSearchField" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
+    try
+      perform action "AXPress" of searchField
+    end try
+    try
+      set value of attribute "AXFocused" of searchField to true
+    end try
+    delay 0.2`;
+}
+
 function importMediaScript(sourcePath: string): string {
   return `
   tell application "System Events"
@@ -1841,18 +1887,13 @@ function importMediaScript(sourcePath: string): string {
 
 function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
-tell application "System Events"
+  tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
-    set searchField to click at {(item 1 of origin) + 240, (item 2 of origin) + 83}
-    if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
+    ${browserSearchFieldScript()}
     set value of searchField to ${appleScriptString(match.name)}
-    try
-      set value of attribute "AXFocused" of searchField to true
-    end try
     delay 0.5
     set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
