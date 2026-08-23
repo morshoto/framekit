@@ -844,7 +844,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
   assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
-  assert.match(searchScript, /focusedDescription to ""/);
+  assert.match(searchScript, /focusedDescription to ""\s+try\s+set focusedDescription to description of focusedCandidate as text/);
   assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
@@ -859,6 +859,30 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(result.resultingSegments.length, 2);
   assert.equal(scripts.some((script) => script.includes("Blade")), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
+});
+
+test("native Final Cut literal Browser search does not fall back to arbitrary audio", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes('set searchQuery to "Hang Tight Bass 03"')) {
+        return `Hang Tight Bass 03${separator}AXBrowserMedia${separator}browser-3${separator}media-source-3${recordSeparator}`;
+      }
+      if (script.includes('set searchQuery to "music"')) return "";
+      return "";
+    },
+  });
+
+  const imported = await adapter.searchMedia("Hang Tight Bass 03");
+  assert.equal(imported.length, 1);
+  assert.match(imported[0].handle, /^media-/);
+  assert.equal(imported[0].sourceIdentity, "media-source-3");
+
+  const nonmatching = await adapter.searchMedia("music");
+  assert.deepEqual(nonmatching, []);
 });
 
 test("native Final Cut search includes selected Browser media with an alternate AX role", async () => {
