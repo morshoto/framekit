@@ -174,7 +174,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         editor: {
           ...inspected.capabilities.editor,
           timelinePublishNewProject: Boolean(options.projectPublisher),
-          videoExport: Boolean(options.videoExporter),
+          videoExport: Boolean(options.videoExporter?.isAvailable()),
         },
       },
       ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
@@ -355,7 +355,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       expected: exportExpectationSchema,
     },
   }, async ({ outputPath, preset, overwrite, expected }) => {
-    if (!options.videoExporter) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is not configured");
+    if (!options.videoExporter?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is not configured");
     return jsonResult(await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected }));
   });
 

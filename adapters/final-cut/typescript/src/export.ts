@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, constants, stat, unlink } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { access, constants, rename, stat, unlink } from "node:fs/promises";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { NativeFinalCutContext } from "./native.js";
+import type { NativeOperationLease } from "./native-operation.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -58,12 +60,25 @@ export interface FinalCutVideoExporterOptions {
   executor?: (script: string) => Promise<string>;
   preflight?: () => Promise<NativeFinalCutContext>;
   probe?: (outputPath: string) => Promise<FinalCutVideoProbeResult>;
+  probeAvailability?: () => Promise<boolean>;
+  probeAvailable?: boolean;
   waitMs?: number;
   pollMs?: number;
+  stablePolls?: number;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
+  nativeOperationLease?: NativeOperationLease;
   suspendLiveConnection?: () => void;
   resumeLiveConnection?: () => void;
+}
+
+export async function isFinalCutVideoProbeAvailable(): Promise<boolean> {
+  try {
+    await execFile("ffprobe", ["-version"], { maxBuffer: 1_000_000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Exports the active Final Cut timeline and verifies the resulting media file. */
@@ -72,10 +87,14 @@ export class FinalCutVideoExporter {
   private readonly executor: (script: string) => Promise<string>;
   private readonly preflight?: () => Promise<NativeFinalCutContext>;
   private readonly probe: (outputPath: string) => Promise<FinalCutVideoProbeResult>;
+  private readonly probeAvailability?: () => Promise<boolean>;
+  private readonly probeAvailable: boolean;
   private readonly waitMs: number;
   private readonly pollMs: number;
+  private readonly stablePolls: number;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly nativeOperationLease?: NativeOperationLease;
   private readonly suspendLiveConnection?: () => void;
   private readonly resumeLiveConnection?: () => void;
 
@@ -84,50 +103,66 @@ export class FinalCutVideoExporter {
     this.executor = options.executor ?? runAppleScript;
     this.preflight = options.preflight;
     this.probe = options.probe ?? probeWithFfprobe;
+    this.probeAvailability = options.probeAvailability ?? (options.probe ? undefined : isFinalCutVideoProbeAvailable);
+    this.probeAvailable = options.probeAvailable ?? true;
     this.waitMs = options.waitMs ?? 120_000;
     this.pollMs = options.pollMs ?? 250;
+    this.stablePolls = Math.max(1, Math.floor(options.stablePolls ?? 2));
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)));
+    this.nativeOperationLease = options.nativeOperationLease;
     this.suspendLiveConnection = options.suspendLiveConnection;
     this.resumeLiveConnection = options.resumeLiveConnection;
+  }
+
+  public isAvailable(): boolean {
+    return this.enabled && this.probeAvailable;
   }
 
   public async exportVideo(request: FinalCutVideoExportRequest): Promise<FinalCutVideoExportResult> {
     if (!this.enabled) {
       throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
-    const outputPath = resolve(request.outputPath.trim());
     if (!request.outputPath.trim()) throw new Error("INVALID_EXPORT: outputPath is required");
+    if (!this.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export metadata probing is unavailable");
+    const outputPath = resolve(request.outputPath.trim());
     const preset = FINAL_CUT_EXPORT_PRESETS[request.preset];
     if (!preset) throw new Error(`INVALID_EXPORT_PRESET: unsupported Final Cut export preset ${String(request.preset)}`);
-    await assertOutputDirectory(outputPath);
-    await prepareOutput(outputPath, request.overwrite ?? false);
     validateExpectation(request.expected);
+    if (this.probeAvailability && !(await this.probeAvailability())) {
+      throw new Error("FINAL_CUT_EXPORT_METADATA_UNAVAILABLE: ffprobe is required to verify exported video metadata");
+    }
+    await assertOutputDirectory(outputPath);
+    await assertOutputCanBeReplaced(outputPath, request.overwrite ?? false);
+    const stagingPath = createStagingPath(outputPath);
+    let committed = false;
 
-    return this.withNativeUi(async () => {
-      await this.assertPreflight();
-      await this.executor(exportScript(outputPath, preset.menuItem));
-      const output = await this.waitForOutput(outputPath);
-      let probed: FinalCutVideoProbeResult;
-      try {
-        probed = await this.probe(outputPath);
-      } catch (error) {
-        throw new Error(`FINAL_CUT_EXPORT_METADATA_FAILED: could not inspect ${outputPath} (${String(error)})`);
-      }
-      const metadata: FinalCutVideoMetadata = {
-        outputPath,
-        sizeBytes: output.size,
-        ...probed,
-      };
-      verifyMetadata(metadata, request.expected);
-      return {
-        outputPath,
-        preset: request.preset,
-        completed: true,
-        verified: true,
-        metadata,
-      };
-    });
+    try {
+      const result = await this.withNativeUi(async () => {
+        await this.assertPreflight();
+        await this.executor(exportScript(stagingPath, preset.menuItem));
+        const output = await this.waitForOutput(stagingPath);
+        const probed = await this.probeUntilReady(stagingPath, output.deadline);
+        const metadata: FinalCutVideoMetadata = {
+          outputPath,
+          sizeBytes: output.size,
+          ...probed,
+        };
+        verifyMetadata(metadata, request.expected);
+        await commitOutput(stagingPath, outputPath, request.overwrite ?? false);
+        committed = true;
+        return {
+          outputPath,
+          preset: request.preset,
+          completed: true as const,
+          verified: true as const,
+          metadata,
+        };
+      });
+      return result;
+    } finally {
+      if (!committed) await removeIfPresent(stagingPath);
+    }
   }
 
   private async assertPreflight(): Promise<void> {
@@ -147,14 +182,30 @@ export class FinalCutVideoExporter {
     }
   }
 
-  private async waitForOutput(outputPath: string): Promise<{ size: number }> {
+  private async waitForOutput(outputPath: string): Promise<{ size: number; deadline: number }> {
     const deadline = this.now() + this.waitMs;
+    let previous: { size: number; mtimeMs: number } | undefined;
+    let stableObservations = 0;
     while (true) {
       try {
         const details = await stat(outputPath);
-        if (details.isFile() && details.size > 0) return { size: details.size };
+        if (details.isFile() && details.size > 0) {
+          const current = { size: details.size, mtimeMs: details.mtimeMs };
+          stableObservations = previous
+            && previous.size === current.size
+            && previous.mtimeMs === current.mtimeMs
+            ? stableObservations + 1
+            : 1;
+          previous = current;
+          if (stableObservations >= this.stablePolls) return { ...current, deadline };
+        } else {
+          previous = undefined;
+          stableObservations = 0;
+        }
       } catch {
         // The export may still be rendering or writing its output.
+        previous = undefined;
+        stableObservations = 0;
       }
       if (this.now() >= deadline) break;
       await this.sleep(Math.min(this.pollMs, Math.max(0, deadline - this.now())));
@@ -162,12 +213,27 @@ export class FinalCutVideoExporter {
     throw new Error(`FINAL_CUT_EXPORT_COMPLETION_TIMEOUT: Final Cut did not produce a non-empty file at ${outputPath}`);
   }
 
+  private async probeUntilReady(outputPath: string, deadline: number): Promise<FinalCutVideoProbeResult> {
+    while (true) {
+      try {
+        return await this.probe(outputPath);
+      } catch (error) {
+        if (this.now() >= deadline) {
+          throw new Error(`FINAL_CUT_EXPORT_METADATA_FAILED: could not inspect ${outputPath} (${String(error)})`);
+        }
+        await this.sleep(Math.min(this.pollMs, Math.max(0, deadline - this.now())));
+      }
+    }
+  }
+
   private async withNativeUi<T>(operation: () => Promise<T>): Promise<T> {
-    this.suspendLiveConnection?.();
+    if (this.nativeOperationLease) this.nativeOperationLease.acquire();
+    else this.suspendLiveConnection?.();
     try {
       return await operation();
     } finally {
-      this.resumeLiveConnection?.();
+      if (this.nativeOperationLease) this.nativeOperationLease.release();
+      else this.resumeLiveConnection?.();
     }
   }
 }
@@ -182,7 +248,7 @@ async function assertOutputDirectory(outputPath: string): Promise<void> {
   }
 }
 
-async function prepareOutput(outputPath: string, overwrite: boolean): Promise<void> {
+async function assertOutputCanBeReplaced(outputPath: string, overwrite: boolean): Promise<void> {
   try {
     const details = await stat(outputPath);
     if (!details.isFile()) {
@@ -191,11 +257,40 @@ async function prepareOutput(outputPath: string, overwrite: boolean): Promise<vo
     if (!overwrite) {
       throw new Error(`FINAL_CUT_EXPORT_OUTPUT_EXISTS: refusing to replace existing output ${outputPath}; set overwrite=true to confirm`);
     }
-    await unlink(outputPath);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") return;
     if (error instanceof Error && error.message.startsWith("FINAL_CUT_EXPORT_OUTPUT_EXISTS:")) throw error;
     throw new Error(`FINAL_CUT_EXPORT_PATH_UNAVAILABLE: could not prepare output path (${String(error)})`);
+  }
+}
+
+function createStagingPath(outputPath: string): string {
+  const extension = extname(outputPath);
+  const stem = basename(outputPath, extension);
+  return join(dirname(outputPath), `.${stem}.framekit-${randomUUID()}${extension}`);
+}
+
+async function commitOutput(stagingPath: string, outputPath: string, overwrite: boolean): Promise<void> {
+  if (!overwrite) {
+    try {
+      await stat(outputPath);
+      throw new Error(`FINAL_CUT_EXPORT_OUTPUT_EXISTS: output appeared while export was running ${outputPath}`);
+    } catch (error) {
+      if (!(isNodeError(error) && error.code === "ENOENT")) throw error;
+    }
+  }
+  try {
+    await rename(stagingPath, outputPath);
+  } catch (error) {
+    throw new Error(`FINAL_CUT_EXPORT_COMMIT_FAILED: could not replace ${outputPath} (${String(error)})`);
+  }
+}
+
+async function removeIfPresent(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if (!(isNodeError(error) && error.code === "ENOENT")) throw error;
   }
 }
 
