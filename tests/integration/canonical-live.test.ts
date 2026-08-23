@@ -14,7 +14,7 @@ import {
   type FinalCutLiveRequest,
   type FinalCutLiveResponse,
 } from "@framekit/final-cut";
-import type { EditOperation, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
+import type { EditOperation, ProjectCatalog, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const execFile = promisify(execFileCallback);
@@ -284,6 +284,43 @@ test("live project catalogs fail closed on duplicate project identities", async 
   });
 
   await assert.rejects(adapter.listProjects(), /FINAL_CUT_LIVE_PROTOCOL: duplicate project id duplicate-project/);
+});
+
+test("live project catalogs reject non-object project and sequence entries", async () => {
+  const malformedProjectAdapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: { projects: [null] } as unknown as ProjectCatalog,
+      },
+    }),
+  });
+
+  await assert.rejects(malformedProjectAdapter.listProjects(), /FINAL_CUT_LIVE_PROTOCOL: project must be an object/);
+
+  const malformedSequenceAdapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [{ id: "project-1", name: "Project", sequences: [null] }],
+        } as unknown as ProjectCatalog,
+      },
+    }),
+  });
+
+  await assert.rejects(
+    malformedSequenceAdapter.listProjects(),
+    /FINAL_CUT_LIVE_PROTOCOL: sequence in project project-1 must be an object/,
+  );
 });
 
 const canonicalWriteCapabilities: RuntimeCapabilities = {

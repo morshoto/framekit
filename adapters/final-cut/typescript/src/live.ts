@@ -292,6 +292,7 @@ function validateProjectCatalog(catalog: ProjectCatalog): void {
   if (!Array.isArray(catalog.projects)) protocolError("project catalog projects must be an array");
   const projectIds = new Set<string>();
   for (const project of catalog.projects) {
+    requireRecord(project, "project");
     requireNonEmpty(project.id, "project id");
     requireNonEmpty(project.name, `project ${project.id} name`);
     if (projectIds.has(project.id)) protocolError(`duplicate project id ${project.id}`);
@@ -299,6 +300,7 @@ function validateProjectCatalog(catalog: ProjectCatalog): void {
     if (!Array.isArray(project.sequences)) protocolError(`project ${project.id} sequences must be an array`);
     const sequenceIds = new Set<string>();
     for (const sequence of project.sequences) {
+      requireRecord(sequence, `sequence in project ${project.id}`);
       requireNonEmpty(sequence.id, `sequence in project ${project.id} id`);
       requireNonEmpty(sequence.name, `sequence ${sequence.id} name`);
       if (sequenceIds.has(sequence.id)) protocolError(`duplicate sequence id ${sequence.id} in project ${project.id}`);
@@ -356,6 +358,12 @@ function uniqueIds<T>(values: T[], identify: (value: T) => string, kind: string)
 
 function requireArray(value: unknown, field: string): asserts value is unknown[] {
   if (!Array.isArray(value)) protocolError(`${field} must be an array`);
+}
+
+function requireRecord(value: unknown, field: string): asserts value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    protocolError(`${field} must be an object`);
+  }
 }
 
 function requireNonEmpty(value: unknown, field: string): asserts value is string {
