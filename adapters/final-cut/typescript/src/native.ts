@@ -1827,13 +1827,15 @@ function browserSearchFieldScript(): string {
     set searchField to missing value
     set searchButton to missing value
     try
-      set directSearchButton to UI element 3 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
-      set directSearchDescription to description of directSearchButton as text
-      if directSearchDescription contains "search" or directSearchDescription contains "Search" then
-        set searchButton to directSearchButton
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      set focusedRole to role of focusedCandidate as text
+      set focusedDescription to description of focusedCandidate as text
+      if focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search")) then
+        set searchField to focusedCandidate
+        set searchFieldFound to true
       end if
     end try
-    if searchButton is missing value then
+    if not searchFieldFound then
       try
         set searchControl to my findBrowserSearchControl(mainWindow)
         if searchControl is not missing value then
@@ -1844,6 +1846,15 @@ function browserSearchFieldScript(): string {
           else if searchRole is "AXButton" then
             set searchButton to searchControl
           end if
+        end if
+      end try
+    end if
+    if not searchFieldFound and searchButton is missing value then
+      try
+        set directSearchButton to UI element 3 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+        set directSearchDescription to description of directSearchButton as text
+        if directSearchDescription contains "search" or directSearchDescription contains "Search" then
+          set searchButton to directSearchButton
         end if
       end try
     end if
@@ -1984,7 +1995,32 @@ function importMediaScript(sourceDirectory: string, fileName: string): string {
       delay 0.1
     end repeat
     if importButton is missing value or (enabled of importButton) is false then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: no enabled import button"
-    perform action "AXPress" of importButton
+    click importButton
+    repeat 20 times
+      if exists window "Processing Files" then exit repeat
+      if not (exists window "Media Import") then exit repeat
+      delay 0.1
+    end repeat
+    repeat 100 times
+      if not (exists window "Processing Files") then exit repeat
+      delay 0.1
+    end repeat
+    if exists window "Processing Files" then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Final Cut is still processing the import"
+    if exists window "Media Import" then
+      repeat with candidate in buttons of mediaImportWindow
+        try
+          if (description of candidate as text) is "close button" then
+            click candidate
+            exit repeat
+          end if
+        end try
+      end repeat
+      repeat 20 times
+        if not (exists window "Media Import") then exit repeat
+        delay 0.1
+      end repeat
+      if exists window "Media Import" then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Media Import window did not close"
+    end if
     return "import-requested"
   end tell
   end tell`;

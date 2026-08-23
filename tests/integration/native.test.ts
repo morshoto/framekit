@@ -1314,6 +1314,9 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   assert.match(importScript, /text field 1 of goSheet/);
   assert.match(importScript, /keystroke "interview\.mov"/);
   assert.match(importScript, /click at \{\(item 1 of importWindowPosition\) \+ 400/);
+  assert.match(importScript, /click importButton/);
+  assert.match(importScript, /window "Processing Files"/);
+  assert.match(importScript, /description of candidate as text/);
   assert.match(importScript, /button "Import All"/);
 
   const searched = await adapter.searchMedia("interview.mov");
