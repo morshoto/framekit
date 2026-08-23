@@ -1825,6 +1825,7 @@ function searchMediaScript(query: string): string {
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
     ${browserSearchFieldScript()}
     set searchQuery to ${appleScriptString(query)}
     set value of searchField to searchQuery

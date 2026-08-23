@@ -829,8 +829,9 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {561, 531, 501}")), true);
   assert.equal(scripts.some((script) => script.includes('set searchFieldFound to false') && script.includes('candidateRole is "AXSearchField"')), true);
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
-  const searchScript = scripts.find((script) => script.includes("set searchFieldFound to false"));
+  const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
   assert.ok(searchScript);
+  assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
   assert.equal(scripts.some((script) => script.includes('keystroke "f" using {command down}')), false);
