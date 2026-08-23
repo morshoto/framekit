@@ -307,6 +307,7 @@ test("video exporter fails closed when native timeline preflight is unavailable"
   let called = false;
   const exporter = new FinalCutVideoExporter({
     enabled: true,
+    probeAvailability: async () => true,
     preflight: async () => ({
       available: false,
       error: {
