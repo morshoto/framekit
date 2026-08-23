@@ -1782,6 +1782,14 @@ function searchMediaScript(query: string): string {
               set candidateName to name of candidate as text
             end try
           end if
+          set candidateSelected to false
+          try
+            set candidateSelected to (selected of candidate) is true
+          end try
+          set candidateSourceIdentity to ""
+          try
+            set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+          end try
           set browserRole to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton"
           if not browserRole then
             set candidateDescription to ""
@@ -1790,19 +1798,23 @@ function searchMediaScript(query: string): string {
             end try
             set browserRole to candidateDescription contains "Browser" or candidateDescription contains "browser"
           end if
-          if candidateName is not "" and browserRole then
-            set candidatePosition to position of candidate
-            set candidateY to item 2 of candidatePosition
-            set browserRegion to candidateY < ((item 2 of origin) + 500)
-          else
-            set browserRegion to false
+          set browserRegion to false
+          if candidateName is not "" then
+            try
+              set candidatePosition to position of candidate
+              set candidateY to item 2 of candidatePosition
+              set browserRegion to candidateY < ((item 2 of origin) + 500)
+            end try
+          end if
+          if not browserRole and candidateSelected and candidateSourceIdentity is not "" and browserRegion then
+            -- Final Cut can expose a selected Browser result through a role
+            -- that does not identify itself as Browser media. Its stable AX
+            -- identifier plus the Browser-region position is sufficient to
+            -- include it without accepting arbitrary timeline elements.
+            set browserRole to true
           end if
           if candidateName is not "" and browserRegion then
             set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
-            set candidateSourceIdentity to ""
-            try
-              set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-            end try
             if candidateName contains searchQuery and seenIdentities does not contain candidateIdentity then
               set end of seenIdentities to candidateIdentity
               set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)

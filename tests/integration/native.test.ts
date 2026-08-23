@@ -845,6 +845,29 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
 });
 
+test("native Final Cut search includes selected Browser media with an alternate AX role", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes("set candidateSelected to false")) {
+        return `Hang Tight Bass 03${separator}AXStaticText${separator}(561, 210), (120, 80)${separator}media-source-3${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const [match] = await adapter.searchMedia("Hang Tight Bass 03");
+  assert.equal(match?.name, "Hang Tight Bass 03");
+  assert.equal(match?.sourceIdentity, "media-source-3");
+  assert.equal(scripts.some((script) => script.includes("(selected of candidate) is true")), true);
+  assert.equal(scripts.some((script) => script.includes("candidateSelected and candidateSourceIdentity is not \"\"")), true);
+});
+
 test("native Final Cut adapter previews, appends selected media, verifies duration and revision, and undoes", async () => {
   let revision = 1;
   let duration = "10";
