@@ -844,6 +844,9 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
   assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
+  assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, seenIdentities\)/);
+  assert.match(searchScript, /repeat with candidate in UI elements of containerItem/);
+  assert.match(searchScript, /if depth > 12 then return ""/);
   assert.match(searchScript, /focusedDescription to ""\s+try\s+set focusedDescription to description of focusedCandidate as text/);
   assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
@@ -1316,11 +1319,12 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.equal(target.selected, true);
   assert.equal(target.playheadTime, "1/1");
   assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
-  assert.equal(scripts.some((script) => script.includes("set browserRegion to") && script.includes("AXRow")), true);
+  assert.equal(scripts.some((script) => script.includes("on browserRegion(candidatePosition, origin, browserContainer)") && script.includes("AXRow")), true);
   const occurrenceScript = scripts.find((script) => script.includes("xOffset"));
   assert.ok(occurrenceScript);
   assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
   assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
+  assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, targetSourceIdentity, targetIdentity)")), true);
 });
 
 test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {
@@ -1492,7 +1496,8 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
       if (script.includes("set targetIdentity to")) {
         const selectsBySourceIdentity = script.includes('set targetSourceIdentity to "file:///imported/interview.mov"')
-          && script.includes("if candidateSourceIdentity is targetSourceIdentity then");
+          && script.includes("candidateSourceIdentity is targetSourceIdentity")
+          && script.includes("pressBrowserMedia");
         if (!selectsBySourceIdentity) {
           throw new Error("selection used stale Browser geometry");
         }

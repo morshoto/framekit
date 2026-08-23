@@ -1830,6 +1830,7 @@ end tell`;
 function searchMediaScript(query: string): string {
   return `
   ${browserSearchControlFinderScript()}
+  ${browserMediaTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}
@@ -1840,66 +1841,7 @@ function searchMediaScript(query: string): string {
     set searchQuery to ${appleScriptString(query)}
     set value of searchField to searchQuery
     delay 0.5
-    set output to ""
-    set seenIdentities to {}
-    try
-      repeat with candidate in entire contents of mainWindow
-        try
-          set candidateRole to role of candidate as text
-          set candidateName to ""
-          try
-            set candidateName to value of candidate as text
-          end try
-          if candidateName is "" then
-            try
-              set candidateName to name of candidate as text
-            end try
-          end if
-          set candidateSelected to false
-          try
-            set candidateSelected to (selected of candidate) is true
-          end try
-          set candidateSourceIdentity to ""
-          try
-            set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-          end try
-          set browserRole to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton"
-          if not browserRole then
-            set candidateDescription to ""
-            try
-              set candidateDescription to description of candidate as text
-            end try
-            set browserRole to candidateDescription contains "Browser" or candidateDescription contains "browser"
-          end if
-          set browserRegion to false
-          if candidateName is not "" then
-            try
-              set candidatePosition to position of candidate
-              set candidateY to item 2 of candidatePosition
-              set browserRegion to candidateY < ((item 2 of origin) + 500)
-            end try
-          end if
-          if not browserRole and candidateSelected and candidateSourceIdentity is not "" and browserRegion then
-            -- Final Cut can expose a selected Browser result through a role
-            -- that does not identify itself as Browser media. Its stable AX
-            -- identifier plus the Browser-region position is sufficient to
-            -- include it without accepting arbitrary timeline elements.
-            set browserRole to true
-          end if
-          if candidateName is not "" and browserRole and browserRegion then
-            set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
-            if candidateName contains searchQuery and seenIdentities does not contain candidateIdentity then
-              set end of seenIdentities to candidateIdentity
-              set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
-            end if
-          end if
-        on error
-          -- Ignore inaccessible descendants and continue enumerating Browser results.
-        end try
-      end repeat
-    on error
-      error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible"
-    end try
+    set output to my collectBrowserMedia(mainWindow, 0, searchQuery, origin, {})
     return output
   end tell
 end tell`;
@@ -2111,6 +2053,130 @@ function browserSearchControlFinderScript(): string {
       end repeat
       return missing value
     end findBrowserSearchControl
+
+  end using terms from`;
+}
+
+function browserMediaTraversalScript(): string {
+  return `
+  using terms from application "System Events"
+    on browserMediaRole(candidateRole, browserContainer)
+      if candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton" then return true
+      return browserContainer and (candidateRole is "AXImage" or candidateRole is "AXStaticText")
+    end browserMediaRole
+
+    on browserRegion(candidatePosition, origin, browserContainer)
+      if browserContainer then return true
+      set candidateX to item 1 of candidatePosition
+      set candidateY to item 2 of candidatePosition
+      set originX to item 1 of origin
+      set originY to item 2 of origin
+      return candidateX > (originX + 100) and candidateX < (originX + 450) and candidateY < (originY + 500)
+    end browserRegion
+
+    on collectBrowserMedia(containerItem, depth, searchQuery, origin, seenIdentities)
+      if depth > 12 then return ""
+      set output to ""
+      set browserContainer to false
+      try
+        set containerDescription to description of containerItem as text
+        set browserContainer to containerDescription contains "Browser" or containerDescription contains "browser"
+      end try
+      tell application "System Events"
+        try
+          repeat with candidate in UI elements of containerItem
+            try
+              set candidateRole to role of candidate as text
+              set candidateName to ""
+              try
+                set candidateName to value of candidate as text
+              end try
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              set candidateSelected to false
+              try
+                set candidateSelected to (selected of candidate) is true
+              end try
+              set candidateSourceIdentity to ""
+              try
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set candidatePosition to position of candidate
+              set candidateBrowserContainer to browserContainer
+              set candidateDescription to ""
+              try
+                set candidateDescription to description of candidate as text
+                if candidateDescription contains "Browser" or candidateDescription contains "browser" then set candidateBrowserContainer to true
+              end try
+              set isBrowserMedia to my browserMediaRole(candidateRole, candidateBrowserContainer)
+              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateBrowserContainer)
+              if not isBrowserMedia and candidateSelected and candidateSourceIdentity is not "" and inBrowserRegion then
+                -- Final Cut can expose a selected Browser result through a
+                -- generic role. Its stable AX identifier plus Browser-region
+                -- position is sufficient to include it.
+                set isBrowserMedia to true
+              end if
+              if candidateName is not "" and isBrowserMedia and inBrowserRegion and candidateName contains searchQuery then
+                set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
+                if seenIdentities does not contain candidateIdentity then
+                  set end of seenIdentities to candidateIdentity
+                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+                end if
+              end if
+              set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, seenIdentities)
+            on error
+              -- Ignore inaccessible descendants and continue enumerating Browser results.
+            end try
+          end repeat
+        on error
+          error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible"
+        end try
+      end tell
+      return output
+    end collectBrowserMedia
+
+    on pressBrowserMedia(containerItem, depth, origin, targetSourceIdentity, targetIdentity)
+      if depth > 12 then return false
+      set browserContainer to false
+      try
+        set containerDescription to description of containerItem as text
+        set browserContainer to containerDescription contains "Browser" or containerDescription contains "browser"
+      end try
+      tell application "System Events"
+        try
+          repeat with candidate in UI elements of containerItem
+            try
+              set candidateRole to role of candidate as text
+              set candidatePosition to position of candidate
+              set candidateBrowserContainer to browserContainer
+              set candidateDescription to ""
+              try
+                set candidateDescription to description of candidate as text
+                if candidateDescription contains "Browser" or candidateDescription contains "browser" then set candidateBrowserContainer to true
+              end try
+              if my browserMediaRole(candidateRole, candidateBrowserContainer) and my browserRegion(candidatePosition, origin, candidateBrowserContainer) then
+                set candidateSourceIdentity to ""
+                try
+                  set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+                end try
+                set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
+                if (targetSourceIdentity is not "" and candidateSourceIdentity is targetSourceIdentity) or (targetSourceIdentity is "" and candidateIdentity is targetIdentity) then
+                  perform action "AXPress" of candidate
+                  return true
+                end if
+              end if
+              if my pressBrowserMedia(candidate, depth + 1, origin, targetSourceIdentity, targetIdentity) then return true
+            on error
+              -- Ignore inaccessible descendants and continue looking for the target.
+            end try
+          end repeat
+        end try
+      end tell
+      return false
+    end pressBrowserMedia
   end using terms from`;
 }
 
@@ -2197,6 +2263,7 @@ function importMediaScript(sourceDirectory: string, fileName: string): string {
 function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
   ${browserSearchControlFinderScript()}
+  ${browserMediaTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}
@@ -2205,28 +2272,11 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
     ${browserSearchFieldScript()}
     set value of searchField to ${appleScriptString(match.name)}
     delay 0.5
+    set origin to position of mainWindow
     set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
     if targetSourceIdentity is "" and targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
-    repeat with candidate in entire contents of mainWindow
-      try
-        if targetSourceIdentity is not "" then
-          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-          if candidateSourceIdentity is targetSourceIdentity then
-            perform action "AXPress" of candidate
-            return "selected"
-          end if
-        else
-          set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-          if candidateIdentity is targetIdentity then
-            perform action "AXPress" of candidate
-            return "selected"
-          end if
-        end if
-      on error
-        -- Ignore inaccessible descendants and continue looking for the target.
-      end try
-    end repeat
+    if my pressBrowserMedia(mainWindow, 0, origin, targetSourceIdentity, targetIdentity) then return "selected"
     error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result could not be selected"
   end tell
 end tell`;
