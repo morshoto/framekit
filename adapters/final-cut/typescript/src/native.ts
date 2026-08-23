@@ -1469,6 +1469,7 @@ async function runAppleScript(script: string, options: NativeFinalCutExecutorOpt
 
 function activateFinalCutWindowAppleScript(): string {
   return `
+    tell application "Final Cut Pro" to activate
     set frontmost to true
     delay 0.1`;
 }
@@ -1831,6 +1832,7 @@ function searchMediaScript(query: string): string {
   ${browserSearchControlFinderScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
@@ -1988,7 +1990,10 @@ function browserSearchFieldScript(): string {
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
       set focusedRole to role of focusedCandidate as text
-      set focusedDescription to description of focusedCandidate as text
+      set focusedDescription to ""
+      try
+        set focusedDescription to description of focusedCandidate as text
+      end try
       if focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search")) then
         set searchField to focusedCandidate
         set searchFieldFound to true
@@ -1996,7 +2001,7 @@ function browserSearchFieldScript(): string {
     end try
     if not searchFieldFound then
       try
-        set searchControl to my findBrowserSearchControl(mainWindow)
+        set searchControl to my findBrowserSearchControl(mainWindow, 0)
         if searchControl is not missing value then
           set searchRole to role of searchControl as text
           if searchRole is "AXSearchField" or searchRole is "AXTextField" then
@@ -2024,7 +2029,10 @@ function browserSearchFieldScript(): string {
           delay 0.2
           set focusedCandidate to value of attribute "AXFocusedUIElement"
           set focusedRole to role of focusedCandidate as text
-          set focusedDescription to description of focusedCandidate as text
+          set focusedDescription to ""
+          try
+            set focusedDescription to description of focusedCandidate as text
+          end try
           if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
             set searchField to focusedCandidate
             set searchFieldFound to true
@@ -2066,7 +2074,8 @@ function browserSearchFieldScript(): string {
 function browserSearchControlFinderScript(): string {
   return `
   using terms from application "System Events"
-    on findBrowserSearchControl(containerItem)
+    on findBrowserSearchControl(containerItem, depth)
+      if depth > 12 then return missing value
       repeat with candidate in UI elements of containerItem
         try
           set candidateRole to role of candidate as text
@@ -2094,7 +2103,7 @@ function browserSearchControlFinderScript(): string {
           end if
         end try
         try
-          set nestedCandidate to my findBrowserSearchControl(candidate)
+          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1)
           if nestedCandidate is not missing value then
             return nestedCandidate
           end if

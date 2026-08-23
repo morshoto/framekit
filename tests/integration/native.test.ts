@@ -809,6 +809,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
     now: () => 1_000,
     executor: async (script) => {
       scripts.push(script);
+      if (script.includes("set value of searchField to searchQuery")
+        && !script.includes('tell application "Final Cut Pro" to activate')) {
+        throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut Pro is not frontmost (-1719)");
+      }
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
       if (script.includes('set output to ""') && script.includes("xOffset")) {
@@ -824,6 +828,8 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const matches = await adapter.searchMedia("Interview");
   assert.equal(matches.length, 1);
   assert.equal(matches[0].name, "Interview");
+  assert.match(matches[0].handle, /^media-/);
+  assert.equal(matches[0].sourceIdentity, "media-source-1");
   assert.equal(scripts.some((script) => script.includes('candidateDescription contains "search"') && script.includes('perform action "AXPress" of searchButton')), true);
   assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
   assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {561, 531, 501}")), true);
@@ -831,6 +837,14 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
   const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
   assert.ok(searchScript);
+  const activationIndex = searchScript.indexOf('tell application "Final Cut Pro" to activate');
+  const frontmostGuardIndex = searchScript.indexOf("if not frontmost then error number -1719");
+  assert.ok(activationIndex >= 0);
+  assert.ok(frontmostGuardIndex > activationIndex);
+  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
+  assert.match(searchScript, /if depth > 12 then return missing value/);
+  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
+  assert.match(searchScript, /focusedDescription to ""/);
   assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
