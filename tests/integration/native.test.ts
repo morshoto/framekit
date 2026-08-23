@@ -1388,7 +1388,7 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.ok(occurrenceScript);
   assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
   assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
-  assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, targetSourceIdentity, targetIdentity)")), true);
+  assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity)")), true);
 });
 
 test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {

@@ -2213,9 +2213,9 @@ function browserMediaTraversalScript(): string {
       return output
     end collectSelectedBrowserMedia
 
-    on pressBrowserMedia(containerItem, depth, origin, targetSourceIdentity, targetIdentity)
+    on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity)
       if depth > 12 then return false
-      set mediaContext to my mediaContainer(containerItem, false)
+      set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
         try
           repeat with candidate in UI elements of containerItem
@@ -2238,7 +2238,7 @@ function browserMediaTraversalScript(): string {
                   return true
                 end if
               end if
-              if my pressBrowserMedia(candidate, depth + 1, origin, targetSourceIdentity, targetIdentity) then return true
+              if my pressBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, targetSourceIdentity, targetIdentity) then return true
             on error
               -- Ignore inaccessible descendants and continue looking for the target.
             end try
@@ -2412,7 +2412,7 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
     set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
     if targetSourceIdentity is "" and targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
-    if my pressBrowserMedia(mainWindow, 0, origin, targetSourceIdentity, targetIdentity) then return "selected"
+    if my pressBrowserMedia(mainWindow, 0, origin, false, targetSourceIdentity, targetIdentity) then return "selected"
     error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result could not be selected"
   end tell
 end tell`;
