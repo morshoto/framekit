@@ -989,11 +989,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       // cached handle only proves what this process selected, not what Final Cut
       // currently has selected after another UI interaction.
       if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
+      await this.focusTimelineForMediaInsertion();
       await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
         this.assertRetryContext(before, recovered, preview.operation === "insert");
         if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
         const refocused = await this.prepareNativeRetry();
         this.assertRetryContext(before, refocused, preview.operation === "insert");
+        await this.focusTimelineForMediaInsertion();
         this.validateMediaInsertionBinding(preview, await this.requireLiveState());
         if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
       });
@@ -1067,6 +1069,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
+  }
+
+  private async focusTimelineForMediaInsertion(): Promise<void> {
+    if (!this.canDriveNativeMouse) return;
+    const coordinates = (await this.executor(timelineInsertionCoordinatesScript())).split("|").map(Number);
+    const [originX, originY, width, height] = coordinates;
+    if (![originX, originY, width, height].every(Number.isFinite)) {
+      throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut timeline coordinates");
+    }
+    const x = Math.round(originX + width * 0.5);
+    const y = Math.round(originY + height * 0.82);
+    try {
+      await execFile("swift", ["-e", nativeMouseFocusSource(x, y)]);
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline focus failed: ${String(error)}`);
+    }
   }
 
   private async validateSelectedMediaBinding(media: NativeFinalCutMediaMatch): Promise<void> {
@@ -1856,7 +1874,7 @@ function searchMediaScript(query: string): string {
     set searchQuery to ${appleScriptString(query)}
     set value of searchField to searchQuery
     delay 0.5
-    set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, false, {})
+    set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, false, {}, "root")
     return output
   end tell
 end tell`;
@@ -1883,7 +1901,7 @@ function selectedBrowserMediaScript(): string {
       if browserSearchResult is not missing value then set browserRoot to item 2 of browserSearchResult
     end try
     try
-      set output to my collectSelectedBrowserMedia(browserRoot, 0, origin, false, {})
+      set output to my collectSelectedBrowserMedia(browserRoot, 0, origin, false, {}, "root")
       if output is not "" then
         repeat with recordItem in my splitText(output, ASCII character 30)
           if recordItem is not "" then
@@ -1934,6 +1952,40 @@ function browserSearchFieldScript(): string {
     set searchButton to missing value
     set browserRoot to mainWindow
     try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      set focusedRole to role of focusedCandidate as text
+      set focusedDescription to ""
+      try
+        set focusedDescription to description of focusedCandidate as text
+      end try
+      if focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search")) then
+        set searchField to focusedCandidate
+        set searchFieldFound to true
+      end if
+    end try
+    if not searchFieldFound then
+      repeat with searchOffset in {368, 400, 340, 561, 531, 501}
+        repeat with searchY in {52, 38}
+          try
+            click at {(item 1 of origin) + (searchOffset as integer), (item 2 of origin) + (searchY as integer)}
+            delay 0.15
+            set focusedCandidate to value of attribute "AXFocusedUIElement"
+            set focusedRole to role of focusedCandidate as text
+            set focusedDescription to ""
+            try
+              set focusedDescription to description of focusedCandidate as text
+            end try
+            if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
+              set searchField to focusedCandidate
+              set searchFieldFound to true
+              exit repeat
+            end if
+          end try
+        end repeat
+        if searchFieldFound then exit repeat
+      end repeat
+    end if
+    try
       if my revealBrowser(mainWindow, 0) then delay 0.5
     end try
     try
@@ -1948,18 +2000,6 @@ function browserSearchFieldScript(): string {
         else if searchRole is "AXButton" then
           set searchButton to searchControl
         end if
-      end if
-    end try
-    try
-      set focusedCandidate to value of attribute "AXFocusedUIElement"
-      set focusedRole to role of focusedCandidate as text
-      set focusedDescription to ""
-      try
-        set focusedDescription to description of focusedCandidate as text
-      end try
-      if focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search")) then
-        set searchField to focusedCandidate
-        set searchFieldFound to true
       end if
     end try
     if not searchFieldFound then
@@ -2004,25 +2044,6 @@ function browserSearchFieldScript(): string {
           end if
         end try
       end if
-    end if
-    if not searchFieldFound then
-      repeat with searchOffset in {561, 531, 501}
-        try
-          click at {(item 1 of origin) + (searchOffset as integer), (item 2 of origin) + 38}
-          delay 0.15
-          set focusedCandidate to value of attribute "AXFocusedUIElement"
-          set focusedRole to role of focusedCandidate as text
-          set focusedDescription to ""
-          try
-            set focusedDescription to description of focusedCandidate as text
-          end try
-          if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
-            set searchField to focusedCandidate
-            set searchFieldFound to true
-            exit repeat
-          end if
-        end try
-      end repeat
     end if
     if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not found through Accessibility or coordinate fallback"
     set searchRole to role of searchField as text
@@ -2112,28 +2133,9 @@ function browserSearchControlFinderScript(): string {
 
     on orderedChildIndices(containerItem)
       set childCount to count of UI elements of containerItem
-      set usedIndices to {}
       set orderedIndices to {}
-      repeat while (count of usedIndices) < childCount
-        set bestIndex to 0
-        set bestY to 999999
-        repeat with candidateIndex from 1 to childCount
-          try
-            set currentIndex to contents of candidateIndex
-            if usedIndices does not contain currentIndex then
-              set candidateY to item 2 of (position of (UI element currentIndex of containerItem))
-            else
-              set candidateY to 999999
-            end if
-            if candidateY < bestY then
-              set bestY to candidateY
-              set bestIndex to currentIndex
-            end if
-          end try
-        end repeat
-        if bestIndex is 0 then exit repeat
-        set end of usedIndices to bestIndex
-        set end of orderedIndices to bestIndex
+      repeat with candidateIndex from 1 to childCount
+        set end of orderedIndices to contents of candidateIndex
       end repeat
       return orderedIndices
     end orderedChildIndices
@@ -2162,9 +2164,22 @@ function browserMediaTraversalScript(): string {
           set containerText to name of containerItem as text
         end try
       end if
+      if containerText is "" then
+        try
+          set containerText to value of containerItem as text
+        end try
+      end if
       if containerText contains "Browser" or containerText contains "browser" or containerText contains "Events" or containerText contains "events" or containerText contains "Event" or containerText contains "event" then return true
       return inheritedContext
     end mediaContainer
+
+    on accessibilityMediaIdentity(candidate, candidateName, candidateRole, mediaContext, browserPath)
+      if not mediaContext or candidateName is "" then return ""
+      if candidateRole is not "AXGroup" and candidateRole is not "AXBrowserMedia" and candidateRole is not "AXRow" and candidateRole is not "AXCell" then
+        return ""
+      end if
+      return "fcp-ax://browser/" & browserPath & "|" & candidateRole & "|" & candidateName
+    end accessibilityMediaIdentity
 
     on browserMediaRole(candidateRole, mediaContext, candidateSelected, candidateSourceIdentity)
       if candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" then return true
@@ -2182,24 +2197,35 @@ function browserMediaTraversalScript(): string {
       return candidateX >= originX and candidateX < (originX + 900) and candidateY >= (originY + 60) and candidateY < (originY + 650)
     end browserRegion
 
-    on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities)
+    on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath)
       if depth > 12 then return ""
       set output to ""
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
         try
-          repeat with candidate in UI elements of containerItem
+          set candidateItems to UI elements of containerItem
+          repeat with candidateIndex from 1 to (count of candidateItems)
             try
+              set candidate to contents of item candidateIndex of candidateItems
+              set candidatePath to browserPath & "/" & (candidateIndex as text)
               set candidateRole to role of candidate as text
               set candidateName to ""
               try
                 set candidateName to value of candidate as text
               end try
+              if candidateName is "missing value" then set candidateName to ""
               if candidateName is "" then
                 try
                   set candidateName to name of candidate as text
                 end try
               end if
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to description of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
               set candidateSelected to false
               try
                 set candidateSelected to (selected of candidate) is true
@@ -2212,13 +2238,14 @@ function browserMediaTraversalScript(): string {
               set candidateMediaContext to my mediaContainer(candidate, mediaContext)
               set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
               set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+              if candidateSourceIdentity is "" and isBrowserMedia then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
               if candidateName is not "" and candidateSourceIdentity is not "" and isBrowserMedia and inBrowserRegion and candidateName contains searchQuery then
                 if seenIdentities does not contain candidateSourceIdentity then
                   set end of seenIdentities to candidateSourceIdentity
                   set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
                 end if
               end if
-              set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities)
+              set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities, candidatePath)
             on error
               -- Ignore inaccessible descendants and continue enumerating Browser results.
             end try
@@ -2230,14 +2257,17 @@ function browserMediaTraversalScript(): string {
       return output
     end collectBrowserMedia
 
-    on collectSelectedBrowserMedia(containerItem, depth, origin, inheritedContext, seenIdentities)
+    on collectSelectedBrowserMedia(containerItem, depth, origin, inheritedContext, seenIdentities, browserPath)
       if depth > 12 then return ""
       set output to ""
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
         try
-          repeat with candidate in UI elements of containerItem
+          set candidateItems to UI elements of containerItem
+          repeat with candidateIndex from 1 to (count of candidateItems)
             try
+              set candidate to contents of item candidateIndex of candidateItems
+              set candidatePath to browserPath & "/" & (candidateIndex as text)
               set candidateSelected to false
               try
                 set candidateSelected to (selected of candidate) is true
@@ -2246,11 +2276,19 @@ function browserMediaTraversalScript(): string {
               try
                 set candidateName to value of candidate as text
               end try
+              if candidateName is "missing value" then set candidateName to ""
               if candidateName is "" then
                 try
                   set candidateName to name of candidate as text
                 end try
               end if
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to description of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
               set candidateRole to role of candidate as text
               set candidatePosition to position of candidate
               set candidateSourceIdentity to ""
@@ -2260,13 +2298,14 @@ function browserMediaTraversalScript(): string {
               set candidateMediaContext to my mediaContainer(candidate, mediaContext)
               set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
               set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+              if candidateSourceIdentity is "" and isBrowserMedia then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
               if candidateSelected and candidateName is not "" and isBrowserMedia and inBrowserRegion then
                 if candidateSourceIdentity is "" or seenIdentities does not contain candidateSourceIdentity then
                   if candidateSourceIdentity is not "" then set end of seenIdentities to candidateSourceIdentity
                   set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
                 end if
               end if
-              set output to output & my collectSelectedBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, seenIdentities)
+              set output to output & my collectSelectedBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, seenIdentities, candidatePath)
             on error
               -- Ignore inaccessible descendants and continue looking for the selection.
             end try
@@ -2278,14 +2317,34 @@ function browserMediaTraversalScript(): string {
       return output
     end collectSelectedBrowserMedia
 
-    on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity)
+    on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity, browserPath)
       if depth > 12 then return false
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
         try
-          repeat with candidate in UI elements of containerItem
+          set candidateItems to UI elements of containerItem
+          repeat with candidateIndex from 1 to (count of candidateItems)
             try
+              set candidate to contents of item candidateIndex of candidateItems
+              set candidatePath to browserPath & "/" & (candidateIndex as text)
               set candidateRole to role of candidate as text
+              set candidateName to ""
+              try
+                set candidateName to value of candidate as text
+              end try
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to description of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
               set candidatePosition to position of candidate
               set candidateSourceIdentity to ""
               try
@@ -2296,14 +2355,33 @@ function browserMediaTraversalScript(): string {
               try
                 set candidateSelected to (selected of candidate) is true
               end try
+              if candidateSourceIdentity is "" and my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity) then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
               if my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity) and my browserRegion(candidatePosition, origin, candidateMediaContext) then
                 set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
                 if (targetSourceIdentity is not "" and candidateSourceIdentity is targetSourceIdentity) or (targetSourceIdentity is "" and candidateIdentity is targetIdentity) then
-                  perform action "AXPress" of candidate
+                  if candidateRole is "AXGroup" and targetSourceIdentity starts with "fcp-ax://browser/" then
+                    set thumbnailClicked to false
+                    try
+                      set candidateChildren to UI elements of candidate
+                      repeat with thumbnailIndex from 1 to (count of candidateChildren)
+                        set thumbnailCandidate to contents of item thumbnailIndex of candidateChildren
+                        if (role of thumbnailCandidate as text) is "AXImage" then
+                          set thumbnailPosition to position of thumbnailCandidate
+                          set thumbnailSize to size of thumbnailCandidate
+                          click at {(item 1 of thumbnailPosition) + ((item 1 of thumbnailSize) / 2), (item 2 of thumbnailPosition) + ((item 2 of thumbnailSize) / 2)}
+                          set thumbnailClicked to true
+                          exit repeat
+                        end if
+                      end repeat
+                    end try
+                    if not thumbnailClicked then perform action "AXPress" of candidate
+                  else
+                    perform action "AXPress" of candidate
+                  end if
                   return true
                 end if
               end if
-              if my pressBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, targetSourceIdentity, targetIdentity) then return true
+              if my pressBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, targetSourceIdentity, targetIdentity, candidatePath) then return true
             on error
               -- Ignore inaccessible descendants and continue looking for the target.
             end try
@@ -2476,7 +2554,7 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
     set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
     if targetSourceIdentity is "" and targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
-    if my pressBrowserMedia(mainWindow, 0, origin, false, targetSourceIdentity, targetIdentity) then return "selected"
+    if my pressBrowserMedia(mainWindow, 0, origin, false, targetSourceIdentity, targetIdentity, "root") then return "selected"
     error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result could not be selected"
   end tell
 end tell`;
@@ -2564,6 +2642,35 @@ tell application "System Events"
 end tell`;
 }
 
+function timelineInsertionCoordinatesScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set windowSize to size of mainWindow
+    return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text) & "|" & ((item 1 of windowSize) as text) & "|" & ((item 2 of windowSize) as text)
+  end tell
+end tell`;
+}
+
+function nativeMouseFocusSource(x: number, y: number): string {
+  return `
+import CoreGraphics
+import Foundation
+
+let point = CGPoint(x: ${x}, y: ${y})
+func postMouse(_ type: CGEventType) {
+  CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+}
+postMouse(.leftMouseDown)
+usleep(80_000)
+postMouse(.leftMouseUp)
+usleep(100_000)
+`;
+}
+
 function nativeMouseSelectionSource(x: number, y: number): string {
   return `
 import CoreGraphics
@@ -2607,7 +2714,27 @@ function mediaInsertionScript(operation: NativeFinalCutMediaInsertionOperation):
 tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set timelinePosition to position of mainWindow
+    set timelineSize to size of mainWindow
+    -- Selecting the Browser item leaves focus in the Browser search field.
+    -- Final Cut interprets E/W there as Browser input, so explicitly return
+    -- focus to the timeline before issuing the native insertion shortcut.
+    click at {(item 1 of timelinePosition) + ((item 1 of timelineSize) * 0.50), (item 2 of timelinePosition) + ((item 2 of timelineSize) * 0.82)}
+    delay 0.1
     keystroke "${shortcut}"
+    -- When the first media item establishes an empty project's settings,
+    -- Final Cut presents a modal properties sheet. Accept only that sheet;
+    -- never send an unconditional Return to the timeline.
+    repeat 30 times
+      try
+        if exists sheet 1 of mainWindow and exists button "OK" of sheet 1 of mainWindow then
+          click button "OK" of sheet 1 of mainWindow
+          exit repeat
+        end if
+      end try
+      delay 0.1
+    end repeat
     delay 0.5
   end tell
 end tell`;

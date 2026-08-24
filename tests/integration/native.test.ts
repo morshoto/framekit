@@ -837,7 +837,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(matches[0].sourceIdentity, "media-source-1");
   assert.equal(scripts.some((script) => script.includes('candidateDescription contains "search"') && script.includes('perform action "AXPress" of searchButton')), true);
   assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
-  assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {561, 531, 501}")), true);
+  assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {368, 400, 340, 561, 531, 501}")), true);
   assert.equal(scripts.some((script) => script.includes('set searchFieldFound to false') && script.includes('candidateRole is "AXSearchField"')), true);
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
   const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
@@ -852,11 +852,15 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /candidateDescription contains "Browser"/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
   assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
-  assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities\)/);
-  assert.match(searchScript, /on collectSelectedBrowserMedia\(containerItem, depth, origin, inheritedContext, seenIdentities\)/);
+  assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath\)/);
+  assert.match(searchScript, /on collectSelectedBrowserMedia\(containerItem, depth, origin, inheritedContext, seenIdentities, browserPath\)/);
   assert.match(searchScript, /containerText contains "Events"/);
+  assert.match(searchScript, /set containerText to value of containerItem as text/);
+  assert.match(searchScript, /on accessibilityMediaIdentity\(candidate, candidateName, candidateRole, mediaContext, browserPath\)/);
+  assert.match(searchScript, /fcp-ax:\/\/browser\//);
   assert.match(searchScript, /candidateRole is "AXGroup"/);
-  assert.match(searchScript, /repeat with candidate in UI elements of containerItem/);
+  assert.match(searchScript, /set candidateItems to UI elements of containerItem/);
+  assert.match(searchScript, /set candidatePath to browserPath & "\/" & \(candidateIndex as text\)/);
   assert.match(searchScript, /if depth > 12 then return ""/);
   assert.match(searchScript, /focusedDescription to ""\s+try\s+set focusedDescription to description of focusedCandidate as text/);
   assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
@@ -1115,6 +1119,11 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(result.undoCommand, "Undo Append");
   assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length >= 2, true);
+  const appendScript = scripts.find((script) => script.includes('keystroke "e"'));
+  assert.ok(appendScript);
+  assert.ok(appendScript.indexOf("click at") < appendScript.indexOf('keystroke "e"'));
+  assert.ok(appendScript.includes('exists sheet 1 of mainWindow'));
+  assert.ok(appendScript.includes('click button "OK" of sheet 1 of mainWindow'));
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
@@ -1390,7 +1399,7 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.ok(occurrenceScript);
   assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
   assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
-  assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity)")), true);
+  assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity, browserPath)")), true);
 });
 
 test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {
