@@ -426,9 +426,9 @@ async function defaultRestartFinalCut(
 
 async function defaultActivateFinalCut(options: FinalCutActivationOptions = {}): Promise<void> {
   const script = [
-    'tell application "Final Cut Pro" to activate',
     'tell application "System Events"',
     'tell process "Final Cut Pro"',
+    'set frontmost to true',
     'click menu item "Framekit" of menu 1 of menu item "Extensions" of menu 1 of menu bar item "Window" of menu bar 1',
     "end tell",
     "end tell",

@@ -611,7 +611,8 @@ test("native timeline preflight retries a focus race before editing", async () =
   const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
   assert.equal(result.verification.verified, true);
   assert.equal(preflightCalls >= 3, true);
-  assert.equal(scripts.some((script) => script.includes("tell application \"Final Cut Pro\" to activate")), true);
+  assert.equal(scripts.some((script) => script.includes("tell application \"Final Cut Pro\" to activate")), false);
+  assert.equal(scripts.some((script) => script.includes("set frontmost to true")), true);
 });
 
 test("native Final Cut recovers when frontmost is lost after preflight", async () => {
@@ -817,10 +818,6 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
     now: () => 1_000,
     executor: async (script) => {
       scripts.push(script);
-      if (script.includes("set value of searchField to searchQuery")
-        && !script.includes('tell application "Final Cut Pro" to activate')) {
-        throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut Pro is not frontmost (-1719)");
-      }
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
       if (script.includes('set output to ""') && script.includes("xOffset")) {
@@ -845,11 +842,14 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
   const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
   assert.ok(searchScript);
-  const activationIndex = searchScript.indexOf('tell application "Final Cut Pro" to activate');
+  const activationIndex = searchScript.indexOf('set frontmost to true');
   const frontmostGuardIndex = searchScript.indexOf("if not frontmost then error number -1719");
   assert.ok(activationIndex >= 0);
   assert.ok(frontmostGuardIndex > activationIndex);
+  assert.equal(searchScript.includes('tell application "Final Cut Pro" to activate'), false);
   assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
+  assert.match(searchScript, /on revealBrowser\(containerItem, depth\)/);
+  assert.match(searchScript, /candidateDescription contains "Browser"/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
   assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
   assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities\)/);
@@ -1729,6 +1729,7 @@ test("native Final Cut bounds a blocking timeline preflight AppleEvent", async (
   const started = Date.now();
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    nativePreflightTimeoutMs: 2_000,
     executor: async (_script, options) => {
       return new Promise<never>((_, reject) => {
         options?.signal?.addEventListener("abort", () => {

@@ -259,6 +259,7 @@ export interface NativeFinalCutAutomationOptions {
   resumeLiveConnection?: () => void;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
+  nativePreflightTimeoutMs?: number;
   mediaImportTimeoutMs?: number;
   mediaImportDiscoveryTimeoutMs?: number;
   mediaImportPollMs?: number;
@@ -307,6 +308,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly resumeLiveConnection?: () => void;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly nativePreflightTimeoutMs: number;
   private readonly mediaImportTimeoutMs: number;
   private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
@@ -348,6 +350,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.nativePreflightTimeoutMs = options.nativePreflightTimeoutMs ?? 10_000;
     this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 30_000;
     this.mediaImportDiscoveryTimeoutMs = options.mediaImportDiscoveryTimeoutMs ?? 30_000;
     this.mediaImportPollMs = options.mediaImportPollMs ?? 100;
@@ -1388,7 +1391,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async ensureTimelineReady(): Promise<NativeFinalCutContext> {
-    const deadline = this.now() + 2_000;
+    const deadline = this.now() + this.nativePreflightTimeoutMs;
     let lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
     let lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
     let lastContext: NativeFinalCutContext | undefined;
@@ -1510,7 +1513,6 @@ async function runAppleScript(script: string, options: NativeFinalCutExecutorOpt
 
 function activateFinalCutWindowAppleScript(): string {
   return `
-    tell application "Final Cut Pro" to activate
     set frontmost to true
     delay 0.1`;
 }
@@ -1522,7 +1524,12 @@ function requireFrontmostAppleScript(): string {
 
 function timelinePreflightScript(): string {
   return `
-tell application "Final Cut Pro" to activate
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set frontmost to true
+  end tell
+end tell
+delay 0.1
 on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, selectedIdentity)
   set undoEnabled to false
   set undoCommand to ""
@@ -1660,7 +1667,6 @@ tell application "System Events"
       set focusedDescription to item 5 of snapshot
       return my preflightResult(processFrontmost, frontWindowName, 0, "", "", focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, "")
     end if
-    tell application "Final Cut Pro" to activate
     try
       set frontmost to true
       delay 0.1
@@ -1674,7 +1680,7 @@ tell application "System Events"
     try
       perform action "AXRaise" of frontWindow
     end try
-    tell application "Final Cut Pro" to activate
+    set frontmost to true
     delay 0.1
     set snapshot to my focusSnapshot()
     set processFrontmost to item 1 of snapshot
@@ -1953,6 +1959,9 @@ function browserSearchFieldScript(): string {
     set searchField to missing value
     set searchButton to missing value
     try
+      if my revealBrowser(mainWindow, 0) then delay 0.5
+    end try
+    try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
       set focusedRole to role of focusedCandidate as text
       set focusedDescription to ""
@@ -2076,6 +2085,35 @@ function browserSearchControlFinderScript(): string {
       end repeat
       return missing value
     end findBrowserSearchControl
+
+    on revealBrowser(containerItem, depth)
+      if depth > 8 then return false
+      repeat with candidate in UI elements of containerItem
+        try
+          set candidateRole to role of candidate as text
+          set candidateName to ""
+          set candidateDescription to ""
+          try
+            set candidateName to name of candidate as text
+          end try
+          try
+            set candidateDescription to description of candidate as text
+          end try
+          if candidateRole is "AXCheckBox" and (candidateName contains "Browser" or candidateDescription contains "Browser" or candidateDescription contains "browser") then
+            set browserVisible to false
+            try
+              set browserVisible to (value of candidate as boolean)
+            end try
+            if not browserVisible then perform action "AXPress" of candidate
+            return true
+          end if
+        end try
+        try
+          if my revealBrowser(candidate, depth + 1) then return true
+        end try
+      end repeat
+      return false
+    end revealBrowser
 
   end using terms from`;
 }
@@ -2322,7 +2360,6 @@ function browserMediaDiagnosticScript(query: string): string {
 
 function importMediaScript(sourceDirectory: string, fileName: string): string {
   return `
-  tell application "Final Cut Pro" to activate
   tell application "System Events"
   tell process "Final Cut Pro"
     -- FRAMEKIT_IMPORT_MEDIA
