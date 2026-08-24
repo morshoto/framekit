@@ -2554,7 +2554,7 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
     set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
     if targetSourceIdentity is "" and targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
-    if my pressBrowserMedia(mainWindow, 0, origin, false, targetSourceIdentity, targetIdentity, "root") then return "selected"
+    if my pressBrowserMedia(browserRoot, 0, origin, false, targetSourceIdentity, targetIdentity, "root") then return "selected"
     error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result could not be selected"
   end tell
 end tell`;

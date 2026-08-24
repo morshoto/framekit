@@ -1572,7 +1572,7 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
       if (script.includes("set targetIdentity to")) {
         const selectsBySourceIdentity = script.includes('set targetSourceIdentity to "file:///imported/interview.mov"')
           && script.includes("candidateSourceIdentity is targetSourceIdentity")
-          && script.includes("pressBrowserMedia");
+          && script.includes("pressBrowserMedia(browserRoot");
         if (!selectsBySourceIdentity) {
           throw new Error("selection used stale Browser geometry");
         }
