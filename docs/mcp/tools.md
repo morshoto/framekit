@@ -30,13 +30,13 @@
 | `editor.native.trim-to-duration.execute` | Execute a previewed trim-to-duration operation | Requires unchanged sequence revision and duration |
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
-| `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed Final Cut session |
-| `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture and FCPXML-backed session; live-only Final Cut is unavailable |
-| `project.select` | Select a project and explicit sequence when needed | Deterministic fixture and FCPXML-backed session; ambiguous targets fail closed |
-| `timeline.inspect` | Canonical timeline snapshot | FCPXML-backed Final Cut session; not live-only |
+| `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
+| `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge |
+| `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
+| `timeline.inspect` | Canonical timeline snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
-| `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed Final Cut session |
-| `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path |
+| `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
+| `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path or a canonical-capable live Final Cut bridge |
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
@@ -50,9 +50,9 @@
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, and visual understanding | Configured providers required for Final Cut |
 | `editor.assets` | Search native editor assets by text, kind, or vendor | Fixture or Motion-template registry |
-| `edit.diff` | Transaction diff | Fixture/FCPXML transaction path |
-| `edit.verify` | Verification results | Fixture/FCPXML transaction path |
-| `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path |
+| `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
+| `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
+| `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 
 ## Live Final Cut tools
 
@@ -61,19 +61,27 @@
 | `editor.live.inspect` | none | Active project, sequence, playhead, range, and revision |
 | `editor.live.changes` | `sequence`, optional `waitMs` | Events after the requested revision |
 
-Live Final Cut state is not presented as a complete canonical timeline. When
-`FRAMEKIT_FCPXML_PATH` is configured, canonical tools use that artifact while
-`editor.live.*` continues to report the actual open Final Cut state.
+The bundled Workflow Extension is metadata-only, so its `editor.live.*` state is
+not presented as a complete canonical timeline. A separate bridge may expose
+canonical tools only after it advertises `canonical-read` or `canonical-write`
+and passes the adapter’s snapshot, identity, target, and revision validation.
+When `FRAMEKIT_FCPXML_PATH` is configured, canonical tools use that artifact
+while `editor.live.*` continues to report the actual open Final Cut state; the
+artifact provider does not inherit canonical-write capability from the live
+state provider.
 
 `project.list` and `project.select` use stable IDs supplied by the selected
 backend. The current Workflow Extension exposes only the active project and
 sequence metadata, not a project browser or project-selection API, so a
-live-only session rejects these tools with `CAPABILITY_UNAVAILABLE`. An
-FCPXML-backed session can inspect and select its single managed project;
-selection never silently changes the open Final Cut project. Its project and
-sequence nodes must both provide non-empty `uid` attributes; otherwise project
-inspection and catalog operations fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE`
-or `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
+metadata-only live session rejects these tools with
+`CAPABILITY_UNAVAILABLE`. A canonical-capable live bridge must return unique
+project and sequence IDs and prove that an explicit selection became active;
+ambiguous or mismatched responses fail closed. An FCPXML-backed session can
+inspect and select its single managed project; selection never silently changes
+the open Final Cut project. Its project and sequence nodes must both provide
+non-empty `uid` attributes; otherwise project inspection and catalog operations
+fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
+`FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
 
 `media.search` remains canonical snapshot search. Live Browser import and search
