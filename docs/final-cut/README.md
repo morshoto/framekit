@@ -14,6 +14,7 @@ Framekit uses two distinct Final Cut backends:
 - [IPC](./ipc.md)
 - [Installation](./installation.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Native media insertion breakthrough](./native-media-insertion-breakthrough.md)
 
 The live bridge is deliberately narrower than the FCPXML adapter. It provides
 live state and change events; canonical reads, artifact edits, verification,
