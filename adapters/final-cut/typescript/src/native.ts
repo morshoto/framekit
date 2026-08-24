@@ -1696,28 +1696,9 @@ tell application "System Events"
     set windowWidth to item 1 of windowSize
     set windowHeight to item 2 of windowSize
     set semanticPoints to {}
-    try
-      repeat with candidate in entire contents of frontWindow
-        try
-          set candidateRole to role of candidate as text
-          set candidateDescription to description of candidate as text
-          set candidateName to name of candidate as text
-          set candidatePosition to position of candidate
-          set candidateSize to size of candidate
-          set candidateX to item 1 of candidatePosition
-          set candidateY to item 2 of candidatePosition
-          set candidateWidth to item 1 of candidateSize
-          set candidateHeight to item 2 of candidateSize
-          set semanticMatch to false
-          if candidateRole is "AXGroup" or candidateRole is "AXScrollArea" or candidateRole is "AXLayoutArea" or candidateRole is "AXCanvas" then
-            if candidateDescription contains "timeline" or candidateDescription contains "Timeline" or candidateDescription contains "storyline" or candidateDescription contains "Storyline" or candidateDescription contains "canvas" or candidateDescription contains "Canvas" or candidateName contains "timeline" or candidateName contains "Timeline" or candidateName contains "storyline" or candidateName contains "Storyline" then set semanticMatch to true
-          end if
-          if semanticMatch and (count of semanticPoints) < 8 and candidateY > originY + (windowHeight * 0.4) and candidateWidth > (windowWidth * 0.25) and candidateHeight > 20 then
-            set end of semanticPoints to {candidateX + (candidateWidth / 2), candidateY + (candidateHeight / 2)}
-          end if
-        end try
-      end repeat
-    end try
+    -- Full AX-tree traversal can block Final Cut for tens of seconds while
+    -- the Browser or Framekit extension window is hosted. Keep semanticPoints
+    -- available for diagnostics, but use bounded timeline fallback points.
 
     set fallbackPoints to {{originX + (windowWidth * 0.50), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.75), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.25), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.50), originY + (windowHeight * 0.90)}}
     set timelineFocused to false
@@ -1788,22 +1769,9 @@ tell application "System Events"
     set selectedRole to ""
     set selectedIdentity to ""
     set selectedCount to 0
-    try
-      repeat with candidate in entire contents of frontWindow
-        try
-          if (selected of candidate) is true then
-            set selectedCount to selectedCount + 1
-            if selectedCount is 1 then
-              set selectedName to name of candidate as text
-              set selectedRole to role of candidate as text
-              try
-                set selectedIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-              end try
-            end if
-          end if
-        end try
-      end repeat
-    end try
+    -- Do not walk the full AX tree here. Final Cut can block that traversal
+    -- while the Browser or Framekit extension window is hosted; selected
+    -- Browser media is discovered through its dedicated bounded path.
     return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, selectedIdentity)
   end tell
 end tell`;
@@ -1888,7 +1856,7 @@ function searchMediaScript(query: string): string {
     set searchQuery to ${appleScriptString(query)}
     set value of searchField to searchQuery
     delay 0.5
-    set output to my collectBrowserMedia(mainWindow, 0, searchQuery, origin, false, {})
+    set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, false, {})
     return output
   end tell
 end tell`;
@@ -1896,6 +1864,7 @@ end tell`;
 
 function selectedBrowserMediaScript(): string {
   return `
+  ${browserSearchControlFinderScript()}
   ${browserMediaTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
@@ -1908,8 +1877,13 @@ function selectedBrowserMediaScript(): string {
     set selectedIdentityCount to 0
     set missingSourceIdentity to false
     set seenSourceIdentities to {}
+    set browserRoot to mainWindow
     try
-      set output to my collectSelectedBrowserMedia(mainWindow, 0, origin, false, {})
+      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0)
+      if browserSearchResult is not missing value then set browserRoot to item 2 of browserSearchResult
+    end try
+    try
+      set output to my collectSelectedBrowserMedia(browserRoot, 0, origin, false, {})
       if output is not "" then
         repeat with recordItem in my splitText(output, ASCII character 30)
           if recordItem is not "" then
@@ -1958,8 +1932,23 @@ function browserSearchFieldScript(): string {
     set searchFieldFound to false
     set searchField to missing value
     set searchButton to missing value
+    set browserRoot to mainWindow
     try
       if my revealBrowser(mainWindow, 0) then delay 0.5
+    end try
+    try
+      set searchControlResult to my findBrowserSearchControl(mainWindow, 0)
+      if searchControlResult is not missing value then
+        set searchControl to item 1 of searchControlResult
+        set browserRoot to item 2 of searchControlResult
+        set searchRole to role of searchControl as text
+        if searchRole is "AXSearchField" or searchRole is "AXTextField" then
+          set searchField to searchControl
+          set searchFieldFound to true
+        else if searchRole is "AXButton" then
+          set searchButton to searchControl
+        end if
+      end if
     end try
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
@@ -1975,8 +1964,10 @@ function browserSearchFieldScript(): string {
     end try
     if not searchFieldFound then
       try
-        set searchControl to my findBrowserSearchControl(mainWindow, 0)
-        if searchControl is not missing value then
+        set searchControlResult to my findBrowserSearchControl(mainWindow, 0)
+        if searchControlResult is not missing value then
+          set searchControl to item 1 of searchControlResult
+          set browserRoot to item 2 of searchControlResult
           set searchRole to role of searchControl as text
           if searchRole is "AXSearchField" or searchRole is "AXTextField" then
             set searchField to searchControl
@@ -2050,11 +2041,11 @@ function browserSearchControlFinderScript(): string {
   using terms from application "System Events"
     on findBrowserSearchControl(containerItem, depth)
       if depth > 12 then return missing value
-      repeat with candidate in UI elements of containerItem
+      repeat with candidate in my orderedChildren(containerItem)
         try
           set candidateRole to role of candidate as text
           if candidateRole is "AXSearchField" then
-            return candidate
+            return {candidate, containerItem}
           end if
           if candidateRole is "AXTextField" then
             set candidateName to ""
@@ -2066,13 +2057,13 @@ function browserSearchControlFinderScript(): string {
               set candidateDescription to description of candidate as text
             end try
             if candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" then
-              return candidate
+              return {candidate, containerItem}
             end if
           end if
           if candidateRole is "AXButton" then
             set candidateDescription to description of candidate as text
             if candidateDescription contains "search" or candidateDescription contains "Search" then
-              return candidate
+              return {candidate, containerItem}
             end if
           end if
         end try
@@ -2088,7 +2079,7 @@ function browserSearchControlFinderScript(): string {
 
     on revealBrowser(containerItem, depth)
       if depth > 8 then return false
-      repeat with candidate in UI elements of containerItem
+      repeat with candidate in my orderedChildren(containerItem)
         try
           set candidateRole to role of candidate as text
           set candidateName to ""
@@ -2114,6 +2105,35 @@ function browserSearchControlFinderScript(): string {
       end repeat
       return false
     end revealBrowser
+
+    on orderedChildren(containerItem)
+      set remaining to UI elements of containerItem
+      set ordered to {}
+      repeat while (count of remaining) > 0
+        set bestIndex to 1
+        set bestY to 999999
+        repeat with candidateIndex from 1 to (count of remaining)
+          try
+            set candidateY to item 2 of (position of (item candidateIndex of remaining))
+            if candidateY < bestY then
+              set bestY to candidateY
+              set bestIndex to candidateIndex
+            end if
+          end try
+        end repeat
+        set end of ordered to item bestIndex of remaining
+        if (count of remaining) is 1 then
+          set remaining to {}
+        else if bestIndex is 1 then
+          set remaining to items 2 thru (count of remaining) of remaining
+        else if bestIndex is (count of remaining) then
+          set remaining to items 1 thru (count of remaining - 1) of remaining
+        else
+          set remaining to (items 1 thru (bestIndex - 1) of remaining) & (items (bestIndex + 1) thru (count of remaining) of remaining)
+        end if
+      end repeat
+      return ordered
+    end orderedChildren
 
   end using terms from`;
 }

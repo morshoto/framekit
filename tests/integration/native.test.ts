@@ -948,6 +948,8 @@ test("native Final Cut Browser discovery accepts generic Events media and reuses
   assert.equal(scripts.some((script) => script.includes("entire contents of mainWindow")), false);
   assert.equal(scripts.some((script) => script.includes("UI elements of containerItem")), true);
   assert.equal(scripts.some((script) => script.includes("AXIdentifier")), true);
+  assert.equal(scripts.some((script) => script.includes("collectBrowserMedia(browserRoot")), true);
+  assert.equal(scripts.some((script) => script.includes("on orderedChildren(containerItem)")), true);
 });
 
 test("native Final Cut selected-media traversal returns the stable generic Browser identity", async () => {
