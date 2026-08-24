@@ -4,6 +4,7 @@ import type {
   VerificationEngine,
   VerificationPolicy,
   VerificationReport,
+  WorkflowOperation,
 } from "../domain/types.js";
 
 export class DefaultVerificationEngine implements VerificationEngine {
@@ -15,6 +16,11 @@ export class DefaultVerificationEngine implements VerificationEngine {
           && transaction.after.timeline.clips.every((clip) => !clip.mediaId
             || transaction.after.media.some((media) => media.mediaId === clip.mediaId)),
         detail: "clip durations are valid and media references resolve",
+      },
+      {
+        name: "audio-state",
+        passed: audioStateIsValid(transaction),
+        detail: audioStateDetail(transaction),
       },
       {
         name: "read-after-write",
@@ -82,4 +88,41 @@ export class DefaultVerificationEngine implements VerificationEngine {
 
     return { passed: checks.every((check) => check.passed), checks };
   }
+}
+
+function audioStateIsValid(transaction: EditTransaction): boolean {
+  if (transaction.after.timeline.clips.some((clip) => {
+    const fadeIn = clip.fadeIn ?? 0;
+    const fadeOut = clip.fadeOut ?? 0;
+    return (clip.gainDb !== undefined && !Number.isFinite(clip.gainDb))
+      || !Number.isFinite(fadeIn)
+      || !Number.isFinite(fadeOut)
+      || fadeIn < 0
+      || fadeOut < 0
+      || fadeIn + fadeOut > clip.duration;
+  })) return false;
+
+  return transaction.planned.every((operation) => {
+    if (operation.type === "set-gain") {
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.clipId);
+      return clip?.gainDb === operation.gainDb;
+    }
+    if (operation.type === "timeline.audio.fades") {
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.clipId);
+      return clip?.fadeIn === operation.fadeIn && clip.fadeOut === operation.fadeOut;
+    }
+    if (operation.type === "timeline.media.add" && operation.role === "music") {
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
+      return clip?.start === operation.start
+        && clip.duration === operation.duration
+        && clip.track === operation.targetLane;
+    }
+    return true;
+  });
+}
+
+function audioStateDetail(transaction: EditTransaction): string {
+  return audioStateIsValid(transaction)
+    ? "music placement, duration, gain, and fades match the planned audio state"
+    : "music placement, duration, gain, or fades do not match the planned audio state";
 }

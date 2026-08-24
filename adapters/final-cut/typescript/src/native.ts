@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ContextRevision, EditorAsset, EditorLiveState, RationalTime } from "@framekit/runtime";
 
@@ -244,6 +244,7 @@ export interface NativeFinalCutCapabilities {
   mediaLibrarySearch: boolean;
   mediaImport: boolean;
   mediaSelection: boolean;
+  mediaAppendSelected: boolean;
   timelineOccurrenceLocate: boolean;
   bladeAtPlayhead: boolean;
   deleteRange: boolean;
@@ -302,7 +303,9 @@ export interface NativeFinalCutAutomationOptions {
   resumeLiveConnection?: () => void;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
+  nativePreflightTimeoutMs?: number;
   mediaImportTimeoutMs?: number;
+  mediaImportDiscoveryTimeoutMs?: number;
   mediaImportPollMs?: number;
 }
 
@@ -334,6 +337,8 @@ export interface NativeFinalCutEditor {
   executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult>;
   previewAppendMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
   executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
+  previewAppendSelectedMedia(): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
@@ -349,7 +354,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly resumeLiveConnection?: () => void;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly nativePreflightTimeoutMs: number;
   private readonly mediaImportTimeoutMs: number;
+  private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
@@ -372,6 +379,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaInsertionPreviews = new Map<string, {
     operation: NativeFinalCutMediaInsertionOperation;
     mediaHandle: string;
+    selectionMode: "handle" | "selected";
     beforeDuration: RationalTime;
     insertionTime: RationalTime;
     sequenceId?: string;
@@ -399,7 +407,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.resumeLiveConnection = options.resumeLiveConnection;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 5_000;
+    this.nativePreflightTimeoutMs = options.nativePreflightTimeoutMs ?? 10_000;
+    this.mediaImportTimeoutMs = options.mediaImportTimeoutMs ?? 30_000;
+    this.mediaImportDiscoveryTimeoutMs = options.mediaImportDiscoveryTimeoutMs ?? 30_000;
     this.mediaImportPollMs = options.mediaImportPollMs ?? 100;
   }
 
@@ -410,6 +420,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaLibrarySearch: this.enabled,
       mediaImport: this.enabled,
       mediaSelection: this.enabled,
+      mediaAppendSelected: this.enabled,
       timelineOccurrenceLocate: this.enabled,
       bladeAtPlayhead: this.enabled,
       deleteRange: this.enabled,
@@ -570,10 +581,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE: ${normalizedPath} is not a readable local media file (${String(error)})`);
     }
 
-    const deadline = this.now() + this.mediaImportTimeoutMs;
-    const context = await this.requireAvailableContext(deadline);
-    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
-    const beforeMatches = await this.searchMediaNative(name, deadline);
+    const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
+    await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+    const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
     const beforeIdentities = new Set(
       beforeMatches
         .filter((match) => match.name.toLowerCase() === name.toLowerCase())
@@ -587,14 +597,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`);
     }
     try {
-      await this.executeNativeScript(importMediaScript(normalizedPath), deadline);
+      await this.executeNativeScript(importMediaScript(dirname(normalizedPath), name), this.now() + this.mediaImportTimeoutMs);
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
 
+    const discoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
     let sawPreExistingMatch = false;
-    while (this.now() <= deadline) {
-      const matches = await this.searchMediaNative(name, deadline);
+    while (this.now() <= discoveryDeadline) {
+      let matches: NativeFinalCutMediaMatch[];
+      try {
+        matches = await this.searchMediaNative(name, discoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+      } catch (error) {
+        if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT") {
+          throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity before the ${this.mediaImportDiscoveryTimeoutMs}ms discovery deadline`);
+        }
+        throw error;
+      }
       const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
       if (exactMatches.some((match) => !browserMediaIdentity(match))) {
         throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
@@ -626,30 +645,47 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
           kind: mediaKind(normalizedPath),
         };
       }
-      if (this.now() >= deadline) break;
-      await this.sleep(Math.min(this.mediaImportPollMs, deadline - this.now()));
+      if (this.now() >= discoveryDeadline) break;
+      await this.sleep(Math.min(this.mediaImportPollMs, discoveryDeadline - this.now()));
     }
     if (sawPreExistingMatch) {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING: Final Cut exposed only pre-existing Browser results for ${name}`);
     }
-    throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: Final Cut did not expose ${name} in the Browser within ${this.mediaImportTimeoutMs}ms`);
+    const diagnostics = await this.readBrowserMediaDiagnostics(name);
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
   }
 
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
     return this.withNativeUi(() => this.searchMediaNative(query));
   }
 
-  private async searchMediaNative(query: string, deadline?: number): Promise<NativeFinalCutMediaMatch[]> {
+  private async searchMediaNative(query: string, deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT"): Promise<NativeFinalCutMediaMatch[]> {
     this.assertEnabled();
     if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
-    const context = await this.requireAvailableContext(deadline);
+    const context = await this.ensureBrowserReady(deadline, timeoutCode);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const matches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline)).map((match) => {
+      const rawMatches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode));
+      const normalizedQuery = query.toLocaleLowerCase();
+      if (rawMatches.some((match) => !browserMediaIdentity(match) && match.name.toLocaleLowerCase().includes(normalizedQuery))) {
+        const diagnostics = await this.readBrowserMediaDiagnostics(query);
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: matching Browser media has no AXIdentifier${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
+      }
+      const seenSourceIdentities = new Set<string>();
+      const matches = rawMatches
+        .filter((match) => {
+          const identity = browserMediaIdentity(match);
+          if (!identity || seenSourceIdentities.has(identity)) return false;
+          seenSourceIdentities.add(identity);
+          return true;
+        })
+        .map((match) => {
         const identity = browserMediaIdentity(match);
-        const stableHandle = identity ? this.stableMediaHandles.get(identity) : undefined;
-        return stableHandle ? { ...match, handle: stableHandle } : match;
-      });
+        if (!identity) return match;
+        const stableHandle = this.stableMediaHandles.get(identity) ?? this.stableMediaHandle(identity);
+        this.stableMediaHandles.set(identity, stableHandle);
+        return { ...match, handle: stableHandle };
+        });
       const stableHandles = new Set(this.stableMediaHandles.values());
       for (const handle of this.mediaHandles.keys()) {
         if (!stableHandles.has(handle)) this.mediaHandles.delete(handle);
@@ -658,7 +694,49 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
     } catch (error) {
-      if (deadline !== undefined && nativeErrorCode(error) === "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT") throw error;
+      if (deadline !== undefined && nativeErrorCode(error) === timeoutCode) throw error;
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
+  private async readBrowserMediaDiagnostics(query: string): Promise<string> {
+    try {
+      const output = await this.executeNativeScript(browserMediaDiagnosticScript(query), this.now() + 2_000, "FINAL_CUT_NATIVE_MEDIA_DIAGNOSTIC_TIMEOUT");
+      return output.trim().slice(0, 8_000);
+    } catch {
+      return "";
+    }
+  }
+
+  public async previewAppendSelectedMedia(): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewSelectedMediaInsertionNative());
+  }
+
+  private async previewSelectedMediaInsertionNative(): Promise<NativeFinalCutMediaInsertionPreview> {
+    this.assertEnabled();
+    const media = await this.readSelectedMediaNative();
+    const mediaHandle = this.stableMediaHandle(media.sourceIdentity!);
+    const stableMedia = { ...media, handle: mediaHandle };
+    this.stableMediaHandles.set(media.sourceIdentity!, mediaHandle);
+    this.mediaHandles.set(mediaHandle, stableMedia);
+    this.selectedMediaHandle = mediaHandle;
+    return this.previewMediaInsertionNative("append", mediaHandle, "selected");
+  }
+
+  private async readSelectedMediaNative(): Promise<NativeFinalCutMediaMatch> {
+    const context = await this.ensureBrowserReady();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
+    try {
+      const matches = parseMediaMatches(await this.executor(selectedBrowserMediaScript()));
+      if (matches.length === 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: no selected Browser media was exposed by Accessibility");
+      if (matches.length > 1) throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed");
+      const media = matches[0]!;
+      if (!media.sourceIdentity) {
+        const diagnostics = await this.readBrowserMediaDiagnostics(media.name);
+        throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
+      }
+      return media;
+    } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
   }
@@ -671,7 +749,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertEnabled();
     const match = this.mediaHandles.get(handle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${handle}`);
-    const before = await this.requireAvailableContext();
+    const before = await this.ensureBrowserReady();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       await this.executor(selectMediaScript(match));
@@ -882,7 +960,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
-    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append"));
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "handle"));
+  }
+
+  public async executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "selected"));
   }
 
   public async previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview> {
@@ -1042,6 +1124,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async previewMediaInsertionNative(
     operation: NativeFinalCutMediaInsertionOperation,
     mediaHandle: string,
+    selectionMode: "handle" | "selected" = "handle",
   ): Promise<NativeFinalCutMediaInsertionPreview> {
     this.assertEnabled();
     const media = this.mediaHandles.get(mediaHandle);
@@ -1064,6 +1147,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.mediaInsertionPreviews.set(previewToken, {
       operation,
       mediaHandle,
+      selectionMode,
       beforeDuration,
       insertionTime,
       sequenceId: live.sequence?.id,
@@ -1086,6 +1170,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async executeMediaInsertionNative(
     previewToken: string,
     expectedOperation?: NativeFinalCutMediaInsertionOperation,
+    expectedSelectionMode?: "handle" | "selected",
   ): Promise<NativeFinalCutMediaInsertionResult> {
     this.assertEnabled();
     const preview = this.mediaInsertionPreviews.get(previewToken);
@@ -1093,25 +1178,30 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.mediaInsertionPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media insertion preview has expired");
     if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
+    if (expectedSelectionMode && preview.selectionMode !== expectedSelectionMode) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview selection mode does not match execute operation");
     const media = this.mediaHandles.get(preview.mediaHandle);
     if (!media) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${preview.mediaHandle}`);
-    if (this.selectedMediaHandle !== preview.mediaHandle) {
+    if (preview.selectionMode === "handle" && this.selectedMediaHandle !== preview.mediaHandle) {
       throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before insertion");
     }
     const before = await this.requireTimelineContext();
     const beforeLive = await this.requireLiveState();
     this.validateMediaInsertionBinding(preview, beforeLive);
+    if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
     try {
       // Re-select by the stable Browser identity immediately before the edit. The
       // cached handle only proves what this process selected, not what Final Cut
       // currently has selected after another UI interaction.
-      await this.selectMediaNative(preview.mediaHandle);
+      if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
+      await this.focusTimelineForMediaInsertion();
       await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
         this.assertRetryContext(before, recovered, preview.operation === "insert");
-        await this.selectMediaNative(preview.mediaHandle);
+        if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
         const refocused = await this.prepareNativeRetry();
         this.assertRetryContext(before, refocused, preview.operation === "insert");
+        await this.focusTimelineForMediaInsertion();
         this.validateMediaInsertionBinding(preview, await this.requireLiveState());
+        if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
       });
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
@@ -1183,6 +1273,29 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
+  }
+
+  private async focusTimelineForMediaInsertion(): Promise<void> {
+    if (!this.canDriveNativeMouse) return;
+    const coordinates = (await this.executor(timelineInsertionCoordinatesScript())).split("|").map(Number);
+    const [originX, originY, width, height] = coordinates;
+    if (![originX, originY, width, height].every(Number.isFinite)) {
+      throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut timeline coordinates");
+    }
+    const x = Math.round(originX + width * 0.5);
+    const y = Math.round(originY + height * 0.82);
+    try {
+      await execFile("swift", ["-e", nativeMouseFocusSource(x, y)]);
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline focus failed: ${String(error)}`);
+    }
+  }
+
+  private async validateSelectedMediaBinding(media: NativeFinalCutMediaMatch): Promise<void> {
+    const selected = await this.readSelectedMediaNative();
+    if (selected.sourceIdentity !== media.sourceIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED: selected Browser media changed before insertion");
+    }
   }
 
   private async previewRangeNative(operation: NativeFinalCutRangeOperation, range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
@@ -1522,14 +1635,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async ensureTimelineReady(): Promise<NativeFinalCutContext> {
-    const deadline = this.now() + 2_000;
+    const deadline = this.now() + this.nativePreflightTimeoutMs;
     let lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
     let lastMessage = "Final Cut has no accessible timeline window; open a project timeline and retry";
     let lastContext: NativeFinalCutContext | undefined;
 
-    while (this.now() <= deadline) {
+    while (this.now() < deadline) {
       try {
-        const context = parseContext(await this.executor(timelinePreflightScript()));
+        const context = parseContext(await this.executeNativeScript(
+          timelinePreflightScript(),
+          deadline,
+          "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT",
+        ));
         lastContext = context;
         if (!context.timelineWindowAvailable) {
           lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
@@ -1564,20 +1681,35 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
+  private async ensureBrowserReady(deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT"): Promise<NativeFinalCutContext> {
+    try {
+      await this.executeNativeScript(browserFocusScript(), deadline, timeoutCode);
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    const context = await this.requireAvailableContext(deadline);
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut could not be brought to the front for Browser automation");
+    return context;
+  }
+
   private stableMediaHandle(identity: string): string {
     return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
   }
 
-  private async executeNativeScript(script: string, deadline?: number): Promise<string> {
+  private async executeNativeScript(
+    script: string,
+    deadline?: number,
+    timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT",
+  ): Promise<string> {
     if (deadline === undefined) return this.executor(script);
     const remaining = deadline - this.now();
-    if (remaining <= 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: native automation deadline expired");
+    if (remaining <= 0) throw new Error(`${timeoutCode}: native automation deadline expired`);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         controller.abort();
-        reject(new Error("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT: native automation deadline expired"));
+        reject(new Error(`${timeoutCode}: native automation deadline expired`));
       }, remaining);
     });
     try {
@@ -1677,7 +1809,12 @@ function requireFrontmostAppleScript(): string {
 
 function timelinePreflightScript(): string {
   return `
-tell application "Final Cut Pro" to activate
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set frontmost to true
+  end tell
+end tell
+delay 0.1
 on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, selectedIdentity)
   set undoEnabled to false
   set undoCommand to ""
@@ -1815,7 +1952,6 @@ tell application "System Events"
       set focusedDescription to item 5 of snapshot
       return my preflightResult(processFrontmost, frontWindowName, 0, "", "", focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, false, "unknown", focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, "")
     end if
-    tell application "Final Cut Pro" to activate
     try
       set frontmost to true
       delay 0.1
@@ -1829,7 +1965,7 @@ tell application "System Events"
     try
       perform action "AXRaise" of frontWindow
     end try
-    tell application "Final Cut Pro" to activate
+    set frontmost to true
     delay 0.1
     set snapshot to my focusSnapshot()
     set processFrontmost to item 1 of snapshot
@@ -1845,28 +1981,9 @@ tell application "System Events"
     set windowWidth to item 1 of windowSize
     set windowHeight to item 2 of windowSize
     set semanticPoints to {}
-    try
-      repeat with candidate in entire contents of frontWindow
-        try
-          set candidateRole to role of candidate as text
-          set candidateDescription to description of candidate as text
-          set candidateName to name of candidate as text
-          set candidatePosition to position of candidate
-          set candidateSize to size of candidate
-          set candidateX to item 1 of candidatePosition
-          set candidateY to item 2 of candidatePosition
-          set candidateWidth to item 1 of candidateSize
-          set candidateHeight to item 2 of candidateSize
-          set semanticMatch to false
-          if candidateRole is "AXGroup" or candidateRole is "AXScrollArea" or candidateRole is "AXLayoutArea" or candidateRole is "AXCanvas" then
-            if candidateDescription contains "timeline" or candidateDescription contains "Timeline" or candidateDescription contains "storyline" or candidateDescription contains "Storyline" or candidateDescription contains "canvas" or candidateDescription contains "Canvas" or candidateName contains "timeline" or candidateName contains "Timeline" or candidateName contains "storyline" or candidateName contains "Storyline" then set semanticMatch to true
-          end if
-          if semanticMatch and (count of semanticPoints) < 8 and candidateY > originY + (windowHeight * 0.4) and candidateWidth > (windowWidth * 0.25) and candidateHeight > 20 then
-            set end of semanticPoints to {candidateX + (candidateWidth / 2), candidateY + (candidateHeight / 2)}
-          end if
-        end try
-      end repeat
-    end try
+    -- Full AX-tree traversal can block Final Cut for tens of seconds while
+    -- the Browser or Framekit extension window is hosted. Keep semanticPoints
+    -- available for diagnostics, but use bounded timeline fallback points.
 
     set fallbackPoints to {{originX + (windowWidth * 0.50), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.75), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.25), originY + (windowHeight * 0.82)}, {originX + (windowWidth * 0.50), originY + (windowHeight * 0.90)}}
     set timelineFocused to false
@@ -1937,22 +2054,9 @@ tell application "System Events"
     set selectedRole to ""
     set selectedIdentity to ""
     set selectedCount to 0
-    try
-      repeat with candidate in entire contents of frontWindow
-        try
-          if (selected of candidate) is true then
-            set selectedCount to selectedCount + 1
-            if selectedCount is 1 then
-              set selectedName to name of candidate as text
-              set selectedRole to role of candidate as text
-              try
-                set selectedIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-              end try
-            end if
-          end if
-        end try
-      end repeat
-    end try
+    -- Do not walk the full AX tree here. Final Cut can block that traversal
+    -- while the Browser or Framekit extension window is hosted; selected
+    -- Browser media is discovered through its dedicated bounded path.
     return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, selectedIdentity)
   end tell
 end tell`;
@@ -2025,82 +2129,677 @@ end tell`;
 
 function searchMediaScript(query: string): string {
   return `
+  ${browserSearchControlFinderScript()}
+  ${browserMediaTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
-    set searchX to (item 1 of origin) + 240
-    set searchY to (item 2 of origin) + 83
+    ${browserSearchFieldScript()}
     set searchQuery to ${appleScriptString(query)}
-    set searchField to click at {searchX, searchY}
-    if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
     set value of searchField to searchQuery
-    try
-      set value of attribute "AXFocused" of searchField to true
-    end try
     delay 0.5
-    set output to ""
-    set seenIdentities to {}
-    try
-      repeat with candidate in entire contents of mainWindow
-        try
-          set candidateRole to role of candidate as text
-          set candidateName to ""
-          try
-            set candidateName to value of candidate as text
-          end try
-          if candidateName is "" then
-            try
-              set candidateName to name of candidate as text
-            end try
-          end if
-          set candidateDescription to ""
-          try
-            set candidateDescription to description of candidate as text
-          end try
-          set candidatePosition to position of candidate
-          set candidateY to item 2 of candidatePosition
-          set browserRegion to candidateY < ((item 2 of origin) + 500)
-          set browserRole to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton"
-          if candidateName is not "" and browserRegion and (browserRole or candidateDescription contains "Browser" or candidateDescription contains "browser") then
-            set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
-            set candidateSourceIdentity to ""
-            try
-              set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-            end try
-            if candidateName contains searchQuery and seenIdentities does not contain candidateIdentity then
-              set end of seenIdentities to candidateIdentity
-              set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
-            end if
-          end if
-        on error
-          -- Ignore inaccessible descendants and continue enumerating Browser results.
-        end try
-      end repeat
-    on error
-      error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible"
-    end try
+    set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, false, {}, "root")
     return output
   end tell
 end tell`;
 }
 
-function importMediaScript(sourcePath: string): string {
+function selectedBrowserMediaScript(): string {
+  return `
+  ${browserSearchControlFinderScript()}
+  ${browserMediaTraversalScript()}
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set output to ""
+    set selectedCandidateCount to 0
+    set selectedIdentityCount to 0
+    set missingSourceIdentity to false
+    set seenSourceIdentities to {}
+    set browserRoot to mainWindow
+    try
+      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0)
+      if browserSearchResult is not missing value then set browserRoot to item 2 of browserSearchResult
+    end try
+    try
+      set output to my collectSelectedBrowserMedia(browserRoot, 0, origin, false, {}, "root")
+      if output is not "" then
+        repeat with recordItem in my splitText(output, ASCII character 30)
+          if recordItem is not "" then
+            set selectedCandidateCount to selectedCandidateCount + 1
+            set recordParts to my splitText(recordItem, ASCII character 31)
+            set candidateSourceIdentity to item 4 of recordParts
+            if candidateSourceIdentity is "" then
+              set missingSourceIdentity to true
+            else if seenSourceIdentities does not contain candidateSourceIdentity then
+              set end of seenSourceIdentities to candidateSourceIdentity
+              set selectedIdentityCount to selectedIdentityCount + 1
+            end if
+          end if
+        end repeat
+      end if
+    on error
+      error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: selected Browser media was not accessible"
+    end try
+    if selectedIdentityCount is 0 then
+      if selectedCandidateCount is 0 then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: no selected Browser media was exposed by Accessibility"
+      if missingSourceIdentity then error "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier"
+    end if
+    if selectedIdentityCount > 1 then error "FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed"
+    return output
+  end tell
+end tell`;
+}
+
+function browserFocusScript(): string {
+  return `
+  ${browserSearchControlFinderScript()}
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    ${browserSearchFieldScript()}
+    return "browser-focused"
+  end tell
+end tell`;
+}
+
+function browserSearchFieldScript(): string {
+  return `
+    set origin to position of mainWindow
+    set searchFieldFound to false
+    set searchField to missing value
+    set searchButton to missing value
+    set browserRoot to mainWindow
+    try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      set focusedRole to role of focusedCandidate as text
+      set focusedDescription to ""
+      try
+        set focusedDescription to description of focusedCandidate as text
+      end try
+      if focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search")) then
+        set searchField to focusedCandidate
+        set searchFieldFound to true
+      end if
+    end try
+    if not searchFieldFound then
+      repeat with searchOffset in {368, 400, 340, 561, 531, 501}
+        repeat with searchY in {52, 38}
+          try
+            click at {(item 1 of origin) + (searchOffset as integer), (item 2 of origin) + (searchY as integer)}
+            delay 0.15
+            set focusedCandidate to value of attribute "AXFocusedUIElement"
+            set focusedRole to role of focusedCandidate as text
+            set focusedDescription to ""
+            try
+              set focusedDescription to description of focusedCandidate as text
+            end try
+            if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
+              set searchField to focusedCandidate
+              set searchFieldFound to true
+              exit repeat
+            end if
+          end try
+        end repeat
+        if searchFieldFound then exit repeat
+      end repeat
+    end if
+    try
+      if my revealBrowser(mainWindow, 0) then delay 0.5
+    end try
+    try
+      set searchControlResult to my findBrowserSearchControl(mainWindow, 0)
+      if searchControlResult is not missing value then
+        set searchControl to item 1 of searchControlResult
+        set browserRoot to item 2 of searchControlResult
+        set searchRole to role of searchControl as text
+        if searchRole is "AXSearchField" or searchRole is "AXTextField" then
+          set searchField to searchControl
+          set searchFieldFound to true
+        else if searchRole is "AXButton" then
+          set searchButton to searchControl
+        end if
+      end if
+    end try
+    if not searchFieldFound then
+      try
+        set searchControlResult to my findBrowserSearchControl(mainWindow, 0)
+        if searchControlResult is not missing value then
+          set searchControl to item 1 of searchControlResult
+          set browserRoot to item 2 of searchControlResult
+          set searchRole to role of searchControl as text
+          if searchRole is "AXSearchField" or searchRole is "AXTextField" then
+            set searchField to searchControl
+            set searchFieldFound to true
+          else if searchRole is "AXButton" then
+            set searchButton to searchControl
+          end if
+        end if
+      end try
+    end if
+    if not searchFieldFound and searchButton is missing value then
+      try
+        set directSearchButton to UI element 3 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+        set directSearchDescription to description of directSearchButton as text
+        if directSearchDescription contains "search" or directSearchDescription contains "Search" then
+          set searchButton to directSearchButton
+        end if
+      end try
+    end if
+    if not searchFieldFound then
+      if searchButton is not missing value then
+        try
+          perform action "AXPress" of searchButton
+          delay 0.2
+          set focusedCandidate to value of attribute "AXFocusedUIElement"
+          set focusedRole to role of focusedCandidate as text
+          set focusedDescription to ""
+          try
+            set focusedDescription to description of focusedCandidate as text
+          end try
+          if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
+            set searchField to focusedCandidate
+            set searchFieldFound to true
+          end if
+        end try
+      end if
+    end if
+    if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not found through Accessibility or coordinate fallback"
+    set searchRole to role of searchField as text
+    if searchRole is not "AXTextField" and searchRole is not "AXSearchField" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
+    try
+      perform action "AXPress" of searchField
+    end try
+    try
+      set value of attribute "AXFocused" of searchField to true
+    end try
+    delay 0.2`;
+}
+
+function browserSearchControlFinderScript(): string {
+  return `
+  using terms from application "System Events"
+    on findBrowserSearchControl(containerItem, depth)
+      if depth > 12 then return missing value
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my orderedChildIndices(containerItem)
+        try
+          set candidate to item (contents of candidateIndex) of candidateItems
+          set candidateRole to role of candidate as text
+          if candidateRole is "AXSearchField" then
+            return {candidate, containerItem}
+          end if
+          if candidateRole is "AXTextField" then
+            set candidateName to ""
+            set candidateDescription to ""
+            try
+              set candidateName to name of candidate as text
+            end try
+            try
+              set candidateDescription to description of candidate as text
+            end try
+            if candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" then
+              return {candidate, containerItem}
+            end if
+          end if
+          if candidateRole is "AXButton" then
+            set candidateDescription to description of candidate as text
+            if candidateDescription contains "search" or candidateDescription contains "Search" then
+              return {candidate, containerItem}
+            end if
+          end if
+        end try
+        try
+          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1)
+          if nestedCandidate is not missing value then
+            return nestedCandidate
+          end if
+        end try
+      end repeat
+      return missing value
+    end findBrowserSearchControl
+
+    on revealBrowser(containerItem, depth)
+      if depth > 8 then return false
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my orderedChildIndices(containerItem)
+        try
+          set candidate to item (contents of candidateIndex) of candidateItems
+          set candidateRole to role of candidate as text
+          set candidateName to ""
+          set candidateDescription to ""
+          try
+            set candidateName to name of candidate as text
+          end try
+          try
+            set candidateDescription to description of candidate as text
+          end try
+          if candidateRole is "AXCheckBox" and (candidateName contains "Browser" or candidateDescription contains "Browser" or candidateDescription contains "browser") then
+            set browserVisible to false
+            try
+              set browserVisible to (value of candidate as boolean)
+            end try
+            if not browserVisible then perform action "AXPress" of candidate
+            return true
+          end if
+        end try
+        try
+          if my revealBrowser(candidate, depth + 1) then return true
+        end try
+      end repeat
+      return false
+    end revealBrowser
+
+    on orderedChildIndices(containerItem)
+      set childCount to count of UI elements of containerItem
+      set orderedIndices to {}
+      repeat with candidateIndex from 1 to childCount
+        set end of orderedIndices to contents of candidateIndex
+      end repeat
+      return orderedIndices
+    end orderedChildIndices
+
+  end using terms from`;
+}
+
+function browserMediaTraversalScript(): string {
+  return `
+  using terms from application "System Events"
+    on splitText(valueText, delimiter)
+      set oldDelimiters to AppleScript's text item delimiters
+      set AppleScript's text item delimiters to delimiter
+      set parts to text items of valueText
+      set AppleScript's text item delimiters to oldDelimiters
+      return parts
+    end splitText
+
+    on mediaContainer(containerItem, inheritedContext)
+      set containerText to ""
+      try
+        set containerText to description of containerItem as text
+      end try
+      if containerText is "" then
+        try
+          set containerText to name of containerItem as text
+        end try
+      end if
+      if containerText is "" then
+        try
+          set containerText to value of containerItem as text
+        end try
+      end if
+      if containerText contains "Browser" or containerText contains "browser" or containerText contains "Events" or containerText contains "events" or containerText contains "Event" or containerText contains "event" then return true
+      return inheritedContext
+    end mediaContainer
+
+    on accessibilityMediaIdentity(candidate, candidateName, candidateRole, mediaContext, browserPath)
+      if not mediaContext or candidateName is "" then return ""
+      if candidateRole is not "AXGroup" and candidateRole is not "AXBrowserMedia" and candidateRole is not "AXRow" and candidateRole is not "AXCell" then
+        return ""
+      end if
+      return "fcp-ax://browser/" & browserPath & "|" & candidateRole & "|" & candidateName
+    end accessibilityMediaIdentity
+
+    on browserMediaRole(candidateRole, mediaContext, candidateSelected, candidateSourceIdentity)
+      if candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" then return true
+      if candidateRole is "AXButton" then return mediaContext and candidateSourceIdentity is not ""
+      if candidateRole is "AXGroup" or candidateRole is "AXStaticText" or candidateRole is "AXImage" then return mediaContext or (candidateSelected and candidateSourceIdentity is not "")
+      return false
+    end browserMediaRole
+
+    on browserRegion(candidatePosition, origin, mediaContext)
+      if mediaContext then return true
+      set candidateX to item 1 of candidatePosition
+      set candidateY to item 2 of candidatePosition
+      set originX to item 1 of origin
+      set originY to item 2 of origin
+      return candidateX >= originX and candidateX < (originX + 900) and candidateY >= (originY + 60) and candidateY < (originY + 650)
+    end browserRegion
+
+    on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath)
+      if depth > 12 then return ""
+      set output to ""
+      set mediaContext to my mediaContainer(containerItem, inheritedContext)
+      tell application "System Events"
+        try
+          set candidateItems to UI elements of containerItem
+          repeat with candidateIndex from 1 to (count of candidateItems)
+            try
+              set candidate to contents of item candidateIndex of candidateItems
+              set candidatePath to browserPath & "/" & (candidateIndex as text)
+              set candidateRole to role of candidate as text
+              set candidateName to ""
+              try
+                set candidateName to value of candidate as text
+              end try
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to description of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              set candidateSelected to false
+              try
+                set candidateSelected to (selected of candidate) is true
+              end try
+              set candidateSourceIdentity to ""
+              try
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set candidatePosition to position of candidate
+              set candidateMediaContext to my mediaContainer(candidate, mediaContext)
+              set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
+              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+              if candidateSourceIdentity is "" and isBrowserMedia then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
+              if candidateName is not "" and candidateSourceIdentity is not "" and isBrowserMedia and inBrowserRegion and candidateName contains searchQuery then
+                if seenIdentities does not contain candidateSourceIdentity then
+                  set end of seenIdentities to candidateSourceIdentity
+                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+                end if
+              end if
+              set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities, candidatePath)
+            on error
+              -- Ignore inaccessible descendants and continue enumerating Browser results.
+            end try
+          end repeat
+        on error
+          error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible"
+        end try
+      end tell
+      return output
+    end collectBrowserMedia
+
+    on collectSelectedBrowserMedia(containerItem, depth, origin, inheritedContext, seenIdentities, browserPath)
+      if depth > 12 then return ""
+      set output to ""
+      set mediaContext to my mediaContainer(containerItem, inheritedContext)
+      tell application "System Events"
+        try
+          set candidateItems to UI elements of containerItem
+          repeat with candidateIndex from 1 to (count of candidateItems)
+            try
+              set candidate to contents of item candidateIndex of candidateItems
+              set candidatePath to browserPath & "/" & (candidateIndex as text)
+              set candidateSelected to false
+              try
+                set candidateSelected to (selected of candidate) is true
+              end try
+              set candidateName to ""
+              try
+                set candidateName to value of candidate as text
+              end try
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to description of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              set candidateRole to role of candidate as text
+              set candidatePosition to position of candidate
+              set candidateSourceIdentity to ""
+              try
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set candidateMediaContext to my mediaContainer(candidate, mediaContext)
+              set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
+              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+              if candidateSourceIdentity is "" and isBrowserMedia then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
+              if candidateSelected and candidateName is not "" and isBrowserMedia and inBrowserRegion then
+                if candidateSourceIdentity is "" or seenIdentities does not contain candidateSourceIdentity then
+                  if candidateSourceIdentity is not "" then set end of seenIdentities to candidateSourceIdentity
+                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+                end if
+              end if
+              set output to output & my collectSelectedBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, seenIdentities, candidatePath)
+            on error
+              -- Ignore inaccessible descendants and continue looking for the selection.
+            end try
+          end repeat
+        on error
+          error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: selected Browser media was not accessible"
+        end try
+      end tell
+      return output
+    end collectSelectedBrowserMedia
+
+    on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity, browserPath)
+      if depth > 12 then return false
+      set mediaContext to my mediaContainer(containerItem, inheritedContext)
+      tell application "System Events"
+        try
+          set candidateItems to UI elements of containerItem
+          repeat with candidateIndex from 1 to (count of candidateItems)
+            try
+              set candidate to contents of item candidateIndex of candidateItems
+              set candidatePath to browserPath & "/" & (candidateIndex as text)
+              set candidateRole to role of candidate as text
+              set candidateName to ""
+              try
+                set candidateName to value of candidate as text
+              end try
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              if candidateName is "" then
+                try
+                  set candidateName to description of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              set candidatePosition to position of candidate
+              set candidateSourceIdentity to ""
+              try
+                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set candidateMediaContext to my mediaContainer(candidate, mediaContext)
+              set candidateSelected to false
+              try
+                set candidateSelected to (selected of candidate) is true
+              end try
+              if candidateSourceIdentity is "" and my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity) then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
+              if my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity) and my browserRegion(candidatePosition, origin, candidateMediaContext) then
+                set candidateIdentity to (candidatePosition as text) & "|" & ((size of candidate) as text)
+                if (targetSourceIdentity is not "" and candidateSourceIdentity is targetSourceIdentity) or (targetSourceIdentity is "" and candidateIdentity is targetIdentity) then
+                  if candidateRole is "AXGroup" and targetSourceIdentity starts with "fcp-ax://browser/" then
+                    set thumbnailClicked to false
+                    try
+                      set candidateChildren to UI elements of candidate
+                      repeat with thumbnailIndex from 1 to (count of candidateChildren)
+                        set thumbnailCandidate to contents of item thumbnailIndex of candidateChildren
+                        if (role of thumbnailCandidate as text) is "AXImage" then
+                          set thumbnailPosition to position of thumbnailCandidate
+                          set thumbnailSize to size of thumbnailCandidate
+                          click at {(item 1 of thumbnailPosition) + ((item 1 of thumbnailSize) / 2), (item 2 of thumbnailPosition) + ((item 2 of thumbnailSize) / 2)}
+                          set thumbnailClicked to true
+                          exit repeat
+                        end if
+                      end repeat
+                    end try
+                    if not thumbnailClicked then perform action "AXPress" of candidate
+                  else
+                    perform action "AXPress" of candidate
+                  end if
+                  return true
+                end if
+              end if
+              if my pressBrowserMedia(candidate, depth + 1, origin, candidateMediaContext, targetSourceIdentity, targetIdentity, candidatePath) then return true
+            on error
+              -- Ignore inaccessible descendants and continue looking for the target.
+            end try
+          end repeat
+        end try
+      end tell
+      return false
+    end pressBrowserMedia
+  end using terms from`;
+}
+
+function browserMediaDiagnosticScript(query: string): string {
+  return `
+  using terms from application "System Events"
+    on collectBrowserMediaDiagnostics(containerItem, depth, searchQuery, ancestors)
+      if depth > 12 then return ""
+      set output to ""
+      set nextAncestors to ancestors
+      try
+        set containerDescription to description of containerItem as text
+        if containerDescription is not "" then set nextAncestors to ancestors & containerDescription & " > "
+      end try
+      tell application "System Events"
+        try
+          repeat with candidate in UI elements of containerItem
+            try
+              set candidateValue to ""
+              try
+                set candidateValue to value of candidate as text
+              end try
+              set candidateName to candidateValue
+              if candidateName is "" then
+                try
+                  set candidateName to name of candidate as text
+                end try
+              end if
+              if candidateName contains searchQuery and (length of output) < 8000 then
+                set candidateRole to role of candidate as text
+                set candidateDescription to ""
+                try
+                  set candidateDescription to description of candidate as text
+                end try
+                set candidateSelected to "false"
+                try
+                  set candidateSelected to (selected of candidate) as text
+                end try
+                set candidateSourceIdentity to ""
+                try
+                  set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+                end try
+                set candidateBounds to ""
+                try
+                  set candidateBounds to ((position of candidate) as text) & "|" & ((size of candidate) as text)
+                end try
+                set output to output & candidateRole & (ASCII character 31) & candidateValue & (ASCII character 31) & candidateDescription & (ASCII character 31) & candidateSelected & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateBounds & (ASCII character 31) & nextAncestors & candidateDescription & (ASCII character 30)
+              end if
+              set output to output & my collectBrowserMediaDiagnostics(candidate, depth + 1, searchQuery, nextAncestors)
+            on error
+              -- Ignore inaccessible descendants and continue collecting diagnostics.
+            end try
+          end repeat
+        end try
+      end tell
+      return output
+    end collectBrowserMediaDiagnostics
+  end using terms from
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${activateFinalCutWindowAppleScript()}
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set output to my collectBrowserMediaDiagnostics(mainWindow, 0, ${appleScriptString(query)}, "")
+    return output
+  end tell
+  end tell`;
+}
+
+function importMediaScript(sourceDirectory: string, fileName: string): string {
   return `
   tell application "System Events"
   tell process "Final Cut Pro"
     -- FRAMEKIT_IMPORT_MEDIA
     set frontmost to true
-    keystroke "i" using {command down}
-    delay 0.5
+    if not (exists window "Media Import") then keystroke "i" using {command down}
+    set mediaImportWindow to missing value
+    repeat 40 times
+      if exists window "Media Import" then
+        set mediaImportWindow to window "Media Import"
+        exit repeat
+      end if
+      delay 0.1
+    end repeat
+    if mediaImportWindow is missing value then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Media Import window did not open"
     keystroke "g" using {command down, shift down}
+    set goSheet to missing value
+    repeat 30 times
+      if exists sheet 1 of mediaImportWindow then
+        set goSheet to sheet 1 of mediaImportWindow
+        exit repeat
+      end if
+      delay 0.1
+    end repeat
+    if goSheet is missing value then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Go to folder sheet did not open"
+    set value of text field 1 of goSheet to ${appleScriptString(sourceDirectory)}
+    click button "Go" of goSheet
+    repeat 30 times
+      if not (exists sheet 1 of mediaImportWindow) then exit repeat
+      delay 0.1
+    end repeat
+    if exists sheet 1 of mediaImportWindow then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Go to folder sheet did not close"
+    set importWindowPosition to position of mediaImportWindow
+    set importWindowSize to size of mediaImportWindow
+    click at {(item 1 of importWindowPosition) + 400, (item 2 of importWindowPosition) + (item 2 of importWindowSize) - 140}
+    keystroke ${appleScriptString(fileName)}
     delay 0.2
-    keystroke ${appleScriptString(sourcePath)}
-    key code 36
-    delay 0.3
-    key code 36
-    delay 0.5
+    set importButton to missing value
+    repeat 40 times
+      try
+        if exists button "Import All" of mediaImportWindow then set importButton to button "Import All" of mediaImportWindow
+        if importButton is missing value and exists button "Import Selected" of mediaImportWindow then set importButton to button "Import Selected" of mediaImportWindow
+        if importButton is not missing value and enabled of importButton then exit repeat
+      end try
+      delay 0.1
+    end repeat
+    if importButton is missing value or (enabled of importButton) is false then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: no enabled import button"
+    click importButton
+    repeat 20 times
+      if exists window "Processing Files" then exit repeat
+      if not (exists window "Media Import") then exit repeat
+      delay 0.1
+    end repeat
+    repeat 100 times
+      if not (exists window "Processing Files") then exit repeat
+      delay 0.1
+    end repeat
+    if exists window "Processing Files" then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Final Cut is still processing the import"
+    if exists window "Media Import" then
+      repeat with candidate in buttons of mediaImportWindow
+        try
+          if (description of candidate as text) is "close button" then
+            click candidate
+            exit repeat
+          end if
+        end try
+      end repeat
+      repeat 20 times
+        if not (exists window "Media Import") then exit repeat
+        delay 0.1
+      end repeat
+      if exists window "Media Import" then error "FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE: Media Import window did not close"
+    end if
     return "import-requested"
   end tell
   end tell`;
@@ -2108,41 +2807,21 @@ function importMediaScript(sourcePath: string): string {
 
 function selectMediaScript(match: NativeFinalCutMediaMatch): string {
   return `
-tell application "System Events"
+  ${browserSearchControlFinderScript()}
+  ${browserMediaTraversalScript()}
+  tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}
     if not frontmost then error number -1719
     set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
-    set searchField to click at {(item 1 of origin) + 240, (item 2 of origin) + 83}
-    if (role of searchField as text) is not "AXTextField" or (description of searchField as text) is not "text search" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
+    ${browserSearchFieldScript()}
     set value of searchField to ${appleScriptString(match.name)}
-    try
-      set value of attribute "AXFocused" of searchField to true
-    end try
     delay 0.5
+    set origin to position of mainWindow
     set targetSourceIdentity to ${appleScriptString(match.sourceIdentity ?? "")}
     set targetIdentity to ${appleScriptString(match.identity ?? "")}
     if targetSourceIdentity is "" and targetIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result has no stable identity"
-    repeat with candidate in entire contents of mainWindow
-      try
-        if targetSourceIdentity is not "" then
-          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-          if candidateSourceIdentity is targetSourceIdentity then
-            perform action "AXPress" of candidate
-            return "selected"
-          end if
-        else
-          set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-          if candidateIdentity is targetIdentity then
-            perform action "AXPress" of candidate
-            return "selected"
-          end if
-        end if
-      on error
-        -- Ignore inaccessible descendants and continue looking for the target.
-      end try
-    end repeat
+    if my pressBrowserMedia(browserRoot, 0, origin, false, targetSourceIdentity, targetIdentity, "root") then return "selected"
     error "FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: Browser result could not be selected"
   end tell
 end tell`;
@@ -2230,6 +2909,35 @@ tell application "System Events"
 end tell`;
 }
 
+function timelineInsertionCoordinatesScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    set windowSize to size of mainWindow
+    return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text) & "|" & ((item 1 of windowSize) as text) & "|" & ((item 2 of windowSize) as text)
+  end tell
+end tell`;
+}
+
+function nativeMouseFocusSource(x: number, y: number): string {
+  return `
+import CoreGraphics
+import Foundation
+
+let point = CGPoint(x: ${x}, y: ${y})
+func postMouse(_ type: CGEventType) {
+  CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+}
+postMouse(.leftMouseDown)
+usleep(80_000)
+postMouse(.leftMouseUp)
+usleep(100_000)
+`;
+}
+
 function nativeMouseSelectionSource(x: number, y: number): string {
   return `
 import CoreGraphics
@@ -2273,7 +2981,27 @@ function mediaInsertionScript(operation: NativeFinalCutMediaInsertionOperation):
 tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set timelinePosition to position of mainWindow
+    set timelineSize to size of mainWindow
+    -- Selecting the Browser item leaves focus in the Browser search field.
+    -- Final Cut interprets E/W there as Browser input, so explicitly return
+    -- focus to the timeline before issuing the native insertion shortcut.
+    click at {(item 1 of timelinePosition) + ((item 1 of timelineSize) * 0.50), (item 2 of timelinePosition) + ((item 2 of timelineSize) * 0.82)}
+    delay 0.1
     keystroke "${shortcut}"
+    -- When the first media item establishes an empty project's settings,
+    -- Final Cut presents a modal properties sheet. Accept only that sheet;
+    -- never send an unconditional Return to the timeline.
+    repeat 30 times
+      try
+        if exists sheet 1 of mainWindow and exists button "OK" of sheet 1 of mainWindow then
+          click button "OK" of sheet 1 of mainWindow
+          exit repeat
+        end if
+      end try
+      delay 0.1
+    end repeat
     delay 0.5
   end tell
 end tell`;
@@ -2720,6 +3448,7 @@ function appleScriptString(value: string): string {
 
 function nativeErrorCode(error: unknown): string {
   const message = String(error);
+  if (message.includes("-1712") || /AppleEvent.*timed out/i.test(message)) return "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT";
   const explicitCodes = [...message.matchAll(/FINAL_CUT_NATIVE_[A-Z_]+/g)].map((match) => match[0]);
   if (explicitCodes.length > 0) return explicitCodes[explicitCodes.length - 1];
   if (message.includes("PERMISSION_REQUIRED") || message.includes("not authorized") || message.includes("-1743") || message.includes("-25211")) return "FINAL_CUT_NATIVE_PERMISSION_REQUIRED";
@@ -2733,6 +3462,7 @@ function nativeErrorCode(error: unknown): string {
 function nativeErrorMessage(error: unknown): string {
   const message = String(error);
   if (message.includes("FINAL_CUT_NATIVE_OVERLAY_BLOCKED")) return "The Framekit window could not be minimized; close or minimize the overlay and retry";
+  if (message.includes("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") || message.includes("-1712") || /AppleEvent.*timed out/i.test(message)) return "Final Cut did not respond to an AppleEvent; reopen or bring Final Cut Pro to the front and retry";
   if (message.includes("FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW")) return "Final Cut has no accessible timeline window; open a project timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED")) return "Final Cut's timeline pane could not be focused; click the timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_NOT_FRONTMOST")) return "Final Cut is running but is not the frontmost application";

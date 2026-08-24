@@ -219,10 +219,25 @@ const scenarios: EvaluationScenario[] = [
   {
     id: "music-edit-capability",
     category: "workflow-assets",
-    support: "unavailable",
-    intent: "Apply a music bed to the timeline",
+    support: "supported",
+    intent: "Preview a music bed with placement and mix settings",
     expectedTool: "music.add",
-    steps: [{ tool: "music.add", expect: { toolAvailable: false } }],
+    steps: [{
+      tool: "music.add",
+      arguments: {
+        baseRevision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+        occurrenceId: "clip-music-preview",
+        mediaId: "media-music",
+        placement: "insert",
+        start: 0,
+        duration: 4,
+        targetLane: -1,
+        gainDb: -12,
+        fadeIn: 0.25,
+        fadeOut: 0.5,
+      },
+      expect: { json: { path: "previewToken", includes: "preview-" } },
+    }],
   },
   {
     id: "title-edit-capability",
