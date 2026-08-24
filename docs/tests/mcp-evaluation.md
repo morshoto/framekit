@@ -19,13 +19,12 @@ pnpm run test
 ## Scenarios and metrics
 
 The fixture covers active-project selection, media targeting, music-media
-targeting, rename/trim/gain/ripple-delete/marker editing, transition and title
-asset discovery, export capability behavior, invalid requests, and verified
-Undo. Media import, music application, title application, and transition
-application are intentionally measured as unavailable because those MCP tools
-are not part of the current contract; the evaluator treats a missing tool as a
-passing fail-closed capability result rather than pretending the workflow is
-supported.
+targeting, rename/trim/gain/ripple-delete/marker editing, guarded music preview
+with placement and fades, transition and title asset discovery, export
+capability behavior, invalid requests, and verified Undo. Music preview is
+supported by the deterministic composite fixture; title application,
+transition application, and other missing workflow surfaces remain explicitly
+unavailable rather than being treated as supported.
 
 Each scenario checks its postcondition (or expected error). The report
 separates scenario correctness from capability coverage: an unavailable

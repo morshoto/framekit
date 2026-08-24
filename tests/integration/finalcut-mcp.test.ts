@@ -223,6 +223,7 @@ test("Final Cut live MCP exposes native range contracts and capabilities", async
     assert.equal(editor.native.deleteRange, !commitValidation);
     assert.equal(editor.native.trimToDuration, !commitValidation);
     assert.equal(editor.native.mediaAppend, !commitValidation);
+    assert.equal(editor.native.mediaAppendSelected, !commitValidation);
     assert.equal(editor.native.mediaInsert, !commitValidation);
     assert.equal(editor.native.timelineFocus, !commitValidation);
 
@@ -391,6 +392,8 @@ test("Final Cut MCP exposes deterministic append and insert media workflows", as
     focusTimeline: async () => nativeContext,
     previewAppendMedia: async () => preview,
     executeAppendMedia: async () => result,
+    previewAppendSelectedMedia: async () => preview,
+    executeAppendSelectedMedia: async () => result,
     previewInsertMedia: async () => ({ ...preview, operation: "insert" as const, command: "Insert selected media at playhead" as const }),
     executeInsertMedia: async () => ({ ...result, operation: "insert" as const }),
     undo: async () => ({ operationId: result.operationId, undone: true, context: nativeContext, verification: { verified: true, detail: "restored" } }),
@@ -414,6 +417,8 @@ test("Final Cut MCP exposes deterministic append and insert media workflows", as
     for (const name of [
       "editor.native.media.append.preview",
       "editor.native.media.append.execute",
+      "editor.native.media.append.selected.preview",
+      "editor.native.media.append.selected.execute",
       "editor.native.media.insert.preview",
       "editor.native.media.insert.execute",
     ]) assert.ok(tools.tools.find((tool) => tool.name === name));
@@ -429,6 +434,17 @@ test("Final Cut MCP exposes deterministic append and insert media workflows", as
     })));
     assert.equal(appendResult.verification.verified, true);
     assert.equal(appendResult.afterRevision.id, "rev-2");
+
+    const selectedPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.selected.preview",
+      arguments: {},
+    })));
+    assert.equal(selectedPreview.operation, "append");
+    const selectedResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.selected.execute",
+      arguments: { previewToken: selectedPreview.previewToken },
+    })));
+    assert.equal(selectedResult.verification.verified, true);
 
     const insertPreview = JSON.parse(textFrom(await client.callTool({
       name: "editor.native.media.insert.preview",

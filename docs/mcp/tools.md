@@ -11,11 +11,13 @@
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
-| `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Validates the path, waits for Browser availability, and returns a stable session media handle |
-| `editor.native.media.search` | Search the active Final Cut Browser | Returns short-lived media handles; native writes required |
+| `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle |
+| `editor.native.media.search` | Search the active Final Cut Browser | Automatically focuses the Browser and returns short-lived media handles; native writes required |
 | `editor.native.media.select` | Select a Browser result by handle | Fails if the result or selection cannot be verified |
 | `editor.native.media.append.preview` | Preview appending selected Browser media to the timeline | Requires selected media, live duration, and timeline focus |
 | `editor.native.media.append.execute` | Append a previously previewed Browser media result | Requires unchanged sequence revision/duration; verifies duration and revision |
+| `editor.native.media.append.selected.preview` | Preview appending the currently selected Browser media to the timeline | Requires one selected Browser item with a stable AXIdentifier, live duration, and timeline focus |
+| `editor.native.media.append.selected.execute` | Append the previously previewed currently selected Browser media | Revalidates the selected AXIdentifier, then verifies duration and revision |
 | `editor.native.media.insert.preview` | Preview inserting selected Browser media at the playhead | Requires selected media, live playhead, and timeline focus |
 | `editor.native.media.insert.execute` | Insert a previously previewed Browser media result at the playhead | Requires unchanged sequence revision/duration/playhead; verifies duration and revision |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
@@ -35,6 +37,9 @@
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path or a canonical-capable live Final Cut bridge |
+| `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
+| `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
+| `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
 | `timeline.edit.preview` | Validate an ordered Basic Editing MVP workflow and return a short-lived token plus expected diff | Deterministic fixture; non-mutating and capability-gated |
 | `timeline.edit.execute` | Execute one composite preview exactly once, verify it, and return the transaction | Deterministic fixture; stale, expired, reused, or unsupported previews fail before mutation |
 | `timeline.publish.new-project` | Import a verified FCPXML artifact as a new project | Requires verified `transactionId`, FCPXML path, and native writes; never replaces the active project |
@@ -85,13 +90,40 @@ timeline occurrence identity are different. Imported media handles are stable
 for the current native session; timeline occurrence handles remain short-lived
 and bound to the active sequence/playhead state.
 
+## Music mixing workflow
+
+`music.add` is the high-level guarded entry point for the issue-11 music
+workflow. It accepts either an existing canonical `mediaId` (normally found
+with `media.search`) or an inline `import` source containing a stable media ID,
+source path, duration, and source digest. `placement: "append"` resolves the
+start to the current timeline duration; `placement: "insert"` requires an
+explicit non-negative `start`. Music always targets an explicit non-primary
+numeric `targetLane`.
+
+The preview is non-mutating and returns the same short-lived token contract as
+`timeline.edit.preview`. Optional `gainDb`, `fadeIn`, and `fadeOut` values are
+included in the planned workflow and checked after execution. Execute with
+`music.add.execute`, inspect the returned verification and diff, and undo with
+`edit.undo` using the returned transaction ID.
+
+Dialogue ducking is not implemented by the deterministic adapter. A request
+with `ducking.enabled: true` returns
+`CAPABILITY_UNAVAILABLE: dialogue ducking` before preview or mutation.
+
+The canonical `music.add` workflow currently requires a composite transaction
+provider. Live Final Cut Browser search/import/append/insert and selection gain
+remain the separate `editor.native.*` tools; a live-only backend must not be
+treated as a canonical snapshot or composite music provider without advertising
+those capabilities.
+
 ## Composite editing transactions
 
 `timeline.edit.preview` accepts the canonical `baseRevision` and a non-empty,
 ordered `operations` array. The workflow operation discriminants are
-`media.import`, `timeline.media.add`, the existing edit operation names such as
-`trim-clip`, and `timeline.title.add`. Video placement targets `primary`; music
-and titles require explicit non-primary numeric lanes. Preview validates the
+`media.import`, `timeline.media.add`, `timeline.audio.fades`, the existing edit
+operation names such as `trim-clip`, and `timeline.title.add`. Video placement
+targets `primary`; music and titles require explicit non-primary numeric lanes.
+Preview validates the
 entire sequence against a simulated snapshot and does not change the project,
 media registry, or revision.
 

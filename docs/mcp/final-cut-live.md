@@ -145,6 +145,8 @@ multiple newly appearing same-name results are found, it returns
 an immutable source identity is accepted even when a same-name result existed
 before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
+If Final Cut does not expose a ready Media Import window, folder sheet, or import
+button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
 
 ## Live Browser search and Blade
 
@@ -189,6 +191,17 @@ same preview/execute safety boundary:
 6. Use `editor.native.undo` with the returned `operationId` when the insertion
    should be rolled back. Undo verifies restoration of the prior duration and
    a new live revision.
+
+Native Browser import, search, selection, and selected-media append operations
+focus Final Cut's Browser automatically through Accessibility automation. A
+user does not need to click the Browser pane first.
+
+When Browser search cannot expose the selected item through its usual media
+role, use `editor.native.media.append.selected.preview` and
+`editor.native.media.append.selected.execute`. This path requires Final Cut
+to expose exactly one selected Browser item with a stable `AXIdentifier`; it
+does not fall back to screenshot text or coordinate-only identity. The
+selected identity is revalidated immediately before the Append command.
 
 Insertion previews expire and fail closed when the selected media handle,
 sequence, revision, duration, or insert playhead changes. The live Workflow
