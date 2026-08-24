@@ -2041,8 +2041,10 @@ function browserSearchControlFinderScript(): string {
   using terms from application "System Events"
     on findBrowserSearchControl(containerItem, depth)
       if depth > 12 then return missing value
-      repeat with candidate in my orderedChildren(containerItem)
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my orderedChildIndices(containerItem)
         try
+          set candidate to item (contents of candidateIndex) of candidateItems
           set candidateRole to role of candidate as text
           if candidateRole is "AXSearchField" then
             return {candidate, containerItem}
@@ -2079,8 +2081,10 @@ function browserSearchControlFinderScript(): string {
 
     on revealBrowser(containerItem, depth)
       if depth > 8 then return false
-      repeat with candidate in my orderedChildren(containerItem)
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my orderedChildIndices(containerItem)
         try
+          set candidate to item (contents of candidateIndex) of candidateItems
           set candidateRole to role of candidate as text
           set candidateName to ""
           set candidateDescription to ""
@@ -2106,34 +2110,33 @@ function browserSearchControlFinderScript(): string {
       return false
     end revealBrowser
 
-    on orderedChildren(containerItem)
-      set remaining to UI elements of containerItem
-      set ordered to {}
-      repeat while (count of remaining) > 0
-        set bestIndex to 1
+    on orderedChildIndices(containerItem)
+      set childCount to count of UI elements of containerItem
+      set usedIndices to {}
+      set orderedIndices to {}
+      repeat while (count of usedIndices) < childCount
+        set bestIndex to 0
         set bestY to 999999
-        repeat with candidateIndex from 1 to (count of remaining)
+        repeat with candidateIndex from 1 to childCount
           try
-            set candidateY to item 2 of (position of (item candidateIndex of remaining))
+            set currentIndex to contents of candidateIndex
+            if usedIndices does not contain currentIndex then
+              set candidateY to item 2 of (position of (UI element currentIndex of containerItem))
+            else
+              set candidateY to 999999
+            end if
             if candidateY < bestY then
               set bestY to candidateY
-              set bestIndex to candidateIndex
+              set bestIndex to currentIndex
             end if
           end try
         end repeat
-        set end of ordered to item bestIndex of remaining
-        if (count of remaining) is 1 then
-          set remaining to {}
-        else if bestIndex is 1 then
-          set remaining to items 2 thru (count of remaining) of remaining
-        else if bestIndex is (count of remaining) then
-          set remaining to items 1 thru (count of remaining - 1) of remaining
-        else
-          set remaining to (items 1 thru (bestIndex - 1) of remaining) & (items (bestIndex + 1) thru (count of remaining) of remaining)
-        end if
+        if bestIndex is 0 then exit repeat
+        set end of usedIndices to bestIndex
+        set end of orderedIndices to bestIndex
       end repeat
-      return ordered
-    end orderedChildren
+      return orderedIndices
+    end orderedChildIndices
 
   end using terms from`;
 }
