@@ -3116,8 +3116,25 @@ function titleTextEditScript(text: string): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
+    set mainWindow to window "Final Cut Pro"
+    set mainOrigin to position of mainWindow
+    set mainSize to size of mainWindow
+    -- Connecting a title leaves the Browser selection active on some Final
+    -- Cut builds. Select the connected title before opening its text controls.
+    -- The live insertion flow places the requested title at the sequence
+    -- start, which is the bounded leftmost connected-title slot here.
+    set titleX to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.11)
+    set titleY to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.74)
+    click at {titleX, titleY}
+    delay 0.1
+    click at {titleX, titleY}
+    delay 0.2
     keystroke "4" using {command down}
     delay 0.3
+    -- The Text inspector is a custom control in Final Cut 10.7 and is not
+    -- exposed as an Accessibility text field until this tab is selected.
+    click at {(item 1 of mainOrigin) + (item 1 of mainSize) - 385, (item 2 of mainOrigin) + 53}
+    delay 0.2
     set titleTextField to missing value
     repeat with candidate in text fields of front window
       try
@@ -3129,8 +3146,16 @@ tell application "System Events"
         end if
       end try
     end repeat
-    if titleTextField is missing value then error "FINAL_CUT_NATIVE_TITLE_TEXT_FIELD_UNAVAILABLE: title text control was not accessible"
-    set value of titleTextField to ${appleScriptString(text)}
+    if titleTextField is missing value then
+      -- Final Cut 10.7 keeps the editable title value in a custom control.
+      -- Focus its bounded Inspector position and use normal text editing.
+      click at {(item 1 of mainOrigin) + (item 1 of mainSize) - 215, (item 2 of mainOrigin) + 154}
+      keystroke "a" using {command down}
+      key code 51
+      keystroke ${appleScriptString(text)}
+    else
+      set value of titleTextField to ${appleScriptString(text)}
+    end if
     key code 36
   end tell
 end tell`;
