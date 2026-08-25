@@ -1058,6 +1058,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       await this.executeNativeSequence(async () => {
         await this.executor(titleAssetSelectionScript(preview.asset.name));
+        await this.focusTimelineForMediaInsertion();
         await this.executor(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
         await this.executor(markRangeStartScript());
