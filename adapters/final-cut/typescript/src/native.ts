@@ -3046,8 +3046,10 @@ tell application "System Events"
     end if
     delay 0.6
     if titleSearchField is missing value then
-      -- An exact search leaves one result in the first title-grid slot.
-      click at {(item 1 of mainOrigin) + 240, (item 2 of mainOrigin) + 145}
+      -- An exact search leaves one result in the first title-grid slot. In
+      -- the current Final Cut build the category list is collapsed, so the
+      -- result is near the left edge of the Browser.
+      click at {(item 1 of mainOrigin) + 61, (item 2 of mainOrigin) + 145}
     else
       set exactTitleItem to missing value
       set containingTitleItem to missing value
@@ -3156,7 +3158,6 @@ tell application "System Events"
     else
       set value of titleTextField to ${appleScriptString(text)}
     end if
-    key code 36
   end tell
 end tell`;
 }
@@ -3240,7 +3241,8 @@ function parseContext(output: string): NativeFinalCutContext {
     ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
     : selectedCount > 1
       ? { kind: "unknown" as const }
-      : focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title") && focusedName
+      : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")
+        || focusedRole === "AXTextArea" && focusedDescription === "text entry area") && focusedName
         ? { kind: "selected-clip" as const, name: focusedName, role: focusedRole }
       : { kind: "playhead" as const };
   return {
