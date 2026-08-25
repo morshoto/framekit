@@ -1058,7 +1058,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       await this.executeNativeSequence(async () => {
         await this.executor(titleAssetSelectionScript(preview.asset.name));
-        await this.focusTimelineForMediaInsertion();
+        await this.executor(titleTimelineFocusScript());
         await this.executor(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
         await this.executor(markRangeStartScript());
@@ -2919,6 +2919,20 @@ tell application "System Events"
     set origin to position of mainWindow
     set windowSize to size of mainWindow
     return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text) & "|" & ((item 1 of windowSize) as text) & "|" & ((item 2 of windowSize) as text)
+  end tell
+end tell`;
+}
+
+function titleTimelineFocusScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set timelinePosition to position of mainWindow
+    set timelineSize to size of mainWindow
+    click at {(item 1 of timelinePosition) + ((item 1 of timelineSize) * 0.50), (item 2 of timelinePosition) + ((item 2 of timelineSize) * 0.82)}
+    delay 0.1
   end tell
 end tell`;
 }
