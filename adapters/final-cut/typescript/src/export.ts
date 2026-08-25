@@ -412,7 +412,10 @@ tell application "Final Cut Pro" to activate
 tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
-    click menu item "${menuItem}" of menu 1 of menu item "Share" of menu "File" of menu bar 1
+    set shareMenu to menu 1 of menu item "Share" of menu "File" of menu bar 1
+    set matchingItems to every menu item of shareMenu whose name starts with "${menuItem}"
+    if (count of matchingItems) is 0 then error "FINAL_CUT_EXPORT_PRESET_UNAVAILABLE: ${menuItem}"
+    click item 1 of matchingItems
     delay 1
     try
       click button "Next" of front window

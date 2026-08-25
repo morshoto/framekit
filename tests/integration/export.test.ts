@@ -62,6 +62,7 @@ test("video exporter uses a supported preset and returns verified output metadat
   assert.equal(result.metadata.audioCodec, "aac");
   assert.match(scripts[0] ?? "", /Export File/);
   assert.match(scripts[0] ?? "", /menu 1 of menu item "Share" of menu "File"/);
+  assert.match(scripts[0] ?? "", /whose name starts with "Export File"/);
   assert.match(scripts[0] ?? "", /\.final\.framekit-[0-9a-f-]+\.mp4/);
 });
 
