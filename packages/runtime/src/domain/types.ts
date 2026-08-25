@@ -13,6 +13,8 @@ export interface Clip {
   duration: number;
   track: number;
   gainDb?: number;
+  fadeIn?: number;
+  fadeOut?: number;
   enabled?: boolean;
   /** Authoritative exact timeline coordinates; start/duration are convenience seconds. */
   startTime: RationalTime;
@@ -293,6 +295,39 @@ export interface AddMediaOperation {
   targetLane?: "primary" | number;
 }
 
+export interface SetAudioFadesOperation {
+  type: "timeline.audio.fades";
+  clipId: string;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+export interface MusicImportSource {
+  mediaId: string;
+  source: string;
+  duration: number;
+  sourceDigest: string;
+}
+
+export interface MusicAddRequest {
+  baseRevision: ContextRevision;
+  occurrenceId: string;
+  mediaId?: string;
+  import?: MusicImportSource;
+  placement: "append" | "insert";
+  start?: number;
+  duration?: number;
+  targetLane: number;
+  gainDb?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  ducking?: {
+    enabled: boolean;
+    dialogueClipIds?: string[];
+    reductionDb?: number;
+  };
+}
+
 export interface AddTitleOperation {
   type: "timeline.title.add";
   occurrenceId: string;
@@ -303,7 +338,7 @@ export interface AddTitleOperation {
   targetLane: number;
 }
 
-export type WorkflowOperation = EditOperation | ImportMediaOperation | AddMediaOperation | AddTitleOperation;
+export type WorkflowOperation = EditOperation | ImportMediaOperation | AddMediaOperation | SetAudioFadesOperation | AddTitleOperation;
 
 export interface CompositeEditRequest {
   baseRevision: ContextRevision;

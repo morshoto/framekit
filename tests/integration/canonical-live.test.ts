@@ -14,7 +14,7 @@ import {
   type FinalCutLiveRequest,
   type FinalCutLiveResponse,
 } from "@framekit/final-cut";
-import type { EditOperation, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
+import type { EditOperation, ProjectCatalog, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const execFile = promisify(execFileCallback);
@@ -229,6 +229,131 @@ test("canonical-read live sessions expose complete snapshots with explicit stabl
   assert.ok(requests.some(({ method }) => method === "snapshot"));
 });
 
+test("live project selection fails closed on ambiguous or mismatched targets", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [{
+            id: canonicalSnapshot.projectId,
+            name: canonicalSnapshot.projectName,
+            sequences: [
+              { id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name },
+              { id: "final-cut:sequence:social", name: "Social" },
+            ],
+          }],
+          activeProjectId: canonicalSnapshot.projectId,
+          activeSequenceId: canonicalSnapshot.timeline.id,
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.selectProject({ projectId: canonicalSnapshot.projectId }),
+    /AMBIGUOUS_PROJECT_TARGET: sequenceId is required/,
+  );
+  await assert.rejects(
+    adapter.selectProject({ projectId: canonicalSnapshot.projectId, sequenceId: "final-cut:sequence:social" }),
+    /TARGET_MISMATCH: live project selection did not activate requested target/,
+  );
+});
+
+test("live project catalogs fail closed on duplicate project identities", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [
+            { id: "duplicate-project", name: "One", sequences: [] },
+            { id: "duplicate-project", name: "Two", sequences: [] },
+          ],
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(adapter.listProjects(), /FINAL_CUT_LIVE_PROTOCOL: duplicate project id duplicate-project/);
+});
+
+test("live project catalogs reject non-object project and sequence entries", async () => {
+  const malformedProjectAdapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: { projects: [null] } as unknown as ProjectCatalog,
+      },
+    }),
+  });
+
+  await assert.rejects(malformedProjectAdapter.listProjects(), /FINAL_CUT_LIVE_PROTOCOL: project must be an object/);
+
+  const malformedSequenceAdapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [{ id: "project-1", name: "Project", sequences: [null] }],
+        } as unknown as ProjectCatalog,
+      },
+    }),
+  });
+
+  await assert.rejects(
+    malformedSequenceAdapter.listProjects(),
+    /FINAL_CUT_LIVE_PROTOCOL: sequence in project project-1 must be an object/,
+  );
+});
+
+test("live project catalogs fail closed on duplicate sequence identities", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [
+            {
+              id: "project-1",
+              name: "Project",
+              sequences: [
+                { id: "duplicate-sequence", name: "One" },
+                { id: "duplicate-sequence", name: "Two" },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.listProjects(),
+    /FINAL_CUT_LIVE_PROTOCOL: duplicate sequence id duplicate-sequence in project project-1/,
+  );
+});
+
 const canonicalWriteCapabilities: RuntimeCapabilities = {
   ...canonicalReadCapabilities,
   editor: {
@@ -238,6 +363,90 @@ const canonicalWriteCapabilities: RuntimeCapabilities = {
     rollback: true,
   },
 };
+
+test("live canonical apply rejects a non-advancing resulting revision", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalWriteCapabilities,
+        revision: canonicalSnapshot.revision,
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Invalid revision" },
+      canonicalSnapshot.revision,
+    ),
+    /FINAL_CUT_LIVE_PROTOCOL: apply response revision must advance expected revision/,
+  );
+});
+
+test("live canonical apply rejects an unchanged revision id even when sequence advances", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalWriteCapabilities,
+        revision: {
+          ...canonicalSnapshot.revision,
+          sequence: canonicalSnapshot.revision.sequence + 1,
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Reused revision id" },
+      canonicalSnapshot.revision,
+    ),
+    /FINAL_CUT_LIVE_PROTOCOL: apply response revision must advance expected revision/,
+  );
+});
+
+test("live adapter rejects invalid mutation and selection inputs before transport", async () => {
+  const requests: FinalCutLiveRequest[] = [];
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      requests.push(request);
+      return {
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+          capabilities: canonicalWriteCapabilities,
+        },
+      };
+    },
+  });
+
+  await assert.rejects(
+    adapter.apply(
+      { type: "rename-clip", clipId: "final-cut:occurrence:one", name: "Invalid input" },
+      { ...canonicalSnapshot.revision, timestamp: "" },
+    ),
+    /FINAL_CUT_LIVE_PROTOCOL: expected revision timestamp must be a non-empty string/,
+  );
+  await assert.rejects(
+    adapter.selectProject({ projectId: "" }),
+    /FINAL_CUT_LIVE_PROTOCOL: selected project id must be a non-empty string/,
+  );
+  await assert.rejects(
+    adapter.selectProject({ projectId: "project-1", sequenceId: " " }),
+    /FINAL_CUT_LIVE_PROTOCOL: selected sequence id must be a non-empty string/,
+  );
+  assert.deepEqual(requests, []);
+});
 
 class MutableCanonicalLiveTransport {
   public snapshot = structuredClone(canonicalSnapshot);

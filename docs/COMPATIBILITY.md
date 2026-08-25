@@ -9,7 +9,14 @@ authoritative at runtime; unsupported operations must fail with an explicit
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | unavailable until configured | Motion-template registry |
-| Final Cut live | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (bundled Workflow Extension) | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (canonical-capable bridge) | guarded live IPC provider contract | complete snapshot with explicit targets | yes, when canonical-write is advertised | yes | yes | provider-specific | provider-specific | provider-specific | provider-specific |
+
+The canonical-capable live row describes an optional provider contract, not a
+claim about the bundled Workflow Extension. The bundled bridge remains
+metadata-only until a real Final Cut bridge can enumerate and mutate the open
+timeline and pass the headed evidence gate documented in
+[`docs/tests/final-cut-live-e2e.md`](tests/final-cut-live-e2e.md).
 
 ## Verified local environment
 
