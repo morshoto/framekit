@@ -412,7 +412,7 @@ tell application "Final Cut Pro" to activate
 tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
-    click menu item "${menuItem}" of menu "Share" of menu "File" of menu bar 1
+    click menu item "${menuItem}" of menu 1 of menu item "Share" of menu "File" of menu bar 1
     delay 1
     try
       click button "Next" of front window
