@@ -479,6 +479,8 @@ export interface EditorCapabilities {
   projectSelection?: boolean;
   /** The backend can atomically preview and apply ordered workflow operations. */
   compositeTransactions?: boolean;
+  /** The backend can export the active timeline to a verified local video file. */
+  videoExport?: boolean;
   mediaImport?: boolean;
   mediaPlacement?: boolean;
   titlePlacement?: boolean;

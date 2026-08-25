@@ -8,7 +8,10 @@ import {
   FinalCutConnectionManager,
   FinalCutNativeAutomationAdapter,
   FinalCutProjectPublisher,
+  FinalCutVideoExporter,
   FinalCutSessionAdapter,
+  createNativeOperationLease,
+  isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
@@ -60,6 +63,12 @@ const connection = liveMode ? new FinalCutConnectionManager({ headless: headless
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();
 const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
+const nativeOperationLease = autoConnect
+  ? createNativeOperationLease(
+      () => connection?.stopAutoConnect(),
+      () => connection?.startAutoConnect(),
+    )
+  : undefined;
 
 const editor = liveMode
   ? new FinalCutSessionAdapter({
@@ -97,10 +106,7 @@ const nativeEditor = liveMode
   ? new FinalCutNativeAutomationAdapter({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       liveState: () => liveAdapter!.readLiveState(),
-      ...(autoConnect ? {
-        suspendLiveConnection: () => connection?.stopAutoConnect(),
-        resumeLiveConnection: () => connection?.startAutoConnect(),
-      } : {}),
+      nativeOperationLease,
     })
   : undefined;
 const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
@@ -110,10 +116,22 @@ const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.
       liveState: () => liveAdapter!.readLiveState(),
     })
   : undefined;
+const videoExportProbeAvailable = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+  ? await isFinalCutVideoProbeAvailable()
+  : false;
+const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1" && videoExportProbeAvailable
+  ? new FinalCutVideoExporter({
+      enabled: true,
+      probeAvailable: true,
+      preflight: () => nativeEditor!.inspect(),
+      nativeOperationLease,
+    })
+  : undefined;
 const server = createMcpServer(runtime, {
   connectionStatus: () => connection?.getStatus(),
   nativeEditor,
   projectPublisher,
+  videoExporter,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

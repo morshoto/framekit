@@ -113,6 +113,13 @@ FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
 framekit mcp --editor final-cut-live
 ```
 
+The same opt-in enables `timeline.export`, provided `ffprobe` is available on
+`PATH`. The tool accepts an output path, the `master` or `web` preset, and
+optional expected duration, resolution, frame rate, and audio-presence values.
+It does not report success until Final Cut has produced a non-empty file and
+`ffprobe` has verified its media metadata. Existing output files are protected
+unless the request includes `overwrite: true`.
+
 Framekit activates Final Cut and focuses the timeline before timeline-native
 operations using Accessibility hierarchy discovery with bounded coordinate
 fallbacks. If the visible Framekit extension window overlaps the editor,

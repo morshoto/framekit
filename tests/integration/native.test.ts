@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
+import { createNativeOperationLease, FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 
 const separator = String.fromCharCode(31);
@@ -1962,6 +1962,29 @@ test("native UI transactions pause and resume live connection supervision", asyn
   });
 
   await adapter.searchMedia("Interview");
+  assert.deepEqual(events, ["suspend", "resume"]);
+});
+
+test("shared native operation leases keep supervision paused across nested adapters", async () => {
+  const events: string[] = [];
+  const lease = createNativeOperationLease(
+    () => events.push("suspend"),
+    () => events.push("resume"),
+  );
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativeOperationLease: lease,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return "";
+    },
+  });
+
+  lease.acquire();
+  await adapter.searchMedia("Interview");
+  lease.release();
+
   assert.deepEqual(events, ["suspend", "resume"]);
 });
 
