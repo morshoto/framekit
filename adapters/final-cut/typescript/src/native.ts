@@ -3012,8 +3012,12 @@ function titleAssetSelectionScript(assetName: string): string {
 tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
-    -- Final Cut's Control-Command-1 shortcut opens the Titles and Generators browser.
-    keystroke "1" using {control down, command down}
+    set mainWindow to window "Final Cut Pro"
+    set mainOrigin to position of mainWindow
+    -- Final Cut 10.7 exposes the Titles tab as a custom Browser control. Its
+    -- Control-Command-1 shortcut is not stable across releases (on some
+    -- builds it opens Export), so use the bounded window-relative fallback.
+    click at {(item 1 of mainOrigin) + 104, (item 2 of mainOrigin) + 53}
     delay 0.3
     set titleSearchField to missing value
     repeat with candidate in entire contents of front window
@@ -3026,57 +3030,70 @@ tell application "System Events"
         end if
       end try
     end repeat
-    if titleSearchField is missing value then error "FINAL_CUT_NATIVE_TITLE_SEARCH_UNAVAILABLE: Titles browser search field was not accessible"
-    set value of titleSearchField to ${appleScriptString(assetName)}
-    try
-      set value of attribute "AXFocused" of titleSearchField to true
-    end try
-    delay 0.4
-    set exactTitleItem to missing value
-    set containingTitleItem to missing value
-    set exactMatchCount to 0
-    set containingMatchCount to 0
-    set seenTitleIdentities to {}
-    repeat with candidate in entire contents of front window
+    if titleSearchField is missing value then
+      -- The Browser search field is custom UI in some Final Cut builds and is
+      -- not present in the Accessibility tree. Focus its bounded position.
+      click at {(item 1 of mainOrigin) + 280, (item 2 of mainOrigin) + 83}
+      keystroke "a" using {command down}
+      key code 51
+      keystroke ${appleScriptString(assetName)}
+    else
+      set value of titleSearchField to ${appleScriptString(assetName)}
       try
-        set candidateRole to role of candidate as text
-        set candidateName to name of candidate as text
-        set candidateIdentity to ""
-        try
-          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-          if candidateSourceIdentity is not "" then set candidateIdentity to "source:" & candidateSourceIdentity
-        end try
-        if candidateIdentity is "" then
-          set candidateIdentity to (candidateRole as text) & "|" & (candidateName as text) & "|" & ((position of candidate) as text) & "|" & ((size of candidate) as text)
-        end if
-        if (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}) and seenTitleIdentities does not contain candidateIdentity then
-          set end of seenTitleIdentities to candidateIdentity
-          if candidateName is ${appleScriptString(assetName)} then
-            set exactMatchCount to exactMatchCount + 1
-            set exactTitleItem to candidate
-          else
-            set containingMatchCount to containingMatchCount + 1
-            set containingTitleItem to candidate
-          end if
-        end if
+        set value of attribute "AXFocused" of titleSearchField to true
       end try
-    end repeat
-    set titleItem to missing value
-    if exactMatchCount is 1 then
-      set titleItem to exactTitleItem
-    else if exactMatchCount is greater than 1 then
-      error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple exact title matches were visible in the Titles browser"
-    else if containingMatchCount is 1 then
-      set titleItem to containingTitleItem
-    else if containingMatchCount is greater than 1 then
-      error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple title matches were visible in the Titles browser"
     end if
-    if titleItem is missing value then error "FINAL_CUT_NATIVE_TITLE_ASSET_NOT_FOUND: installed title was not visible in the Titles browser"
-    try
-      perform action "AXPress" of titleItem
-    on error
-      click titleItem
-    end try
+    delay 0.6
+    if titleSearchField is missing value then
+      -- An exact search leaves one result in the first title-grid slot.
+      click at {(item 1 of mainOrigin) + 240, (item 2 of mainOrigin) + 145}
+    else
+      set exactTitleItem to missing value
+      set containingTitleItem to missing value
+      set exactMatchCount to 0
+      set containingMatchCount to 0
+      set seenTitleIdentities to {}
+      repeat with candidate in entire contents of front window
+        try
+          set candidateRole to role of candidate as text
+          set candidateName to name of candidate as text
+          set candidateIdentity to ""
+          try
+            set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+            if candidateSourceIdentity is not "" then set candidateIdentity to "source:" & candidateSourceIdentity
+          end try
+          if candidateIdentity is "" then
+            set candidateIdentity to (candidateRole as text) & "|" & (candidateName as text) & "|" & ((position of candidate) as text) & "|" & ((size of candidate) as text)
+          end if
+          if (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}) and seenTitleIdentities does not contain candidateIdentity then
+            set end of seenTitleIdentities to candidateIdentity
+            if candidateName is ${appleScriptString(assetName)} then
+              set exactMatchCount to exactMatchCount + 1
+              set exactTitleItem to candidate
+            else
+              set containingMatchCount to containingMatchCount + 1
+              set containingTitleItem to candidate
+            end if
+          end if
+        end try
+      end repeat
+      set titleItem to missing value
+      if exactMatchCount is 1 then
+        set titleItem to exactTitleItem
+      else if exactMatchCount is greater than 1 then
+        error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple exact title matches were visible in the Titles browser"
+      else if containingMatchCount is 1 then
+        set titleItem to containingTitleItem
+      else if containingMatchCount is greater than 1 then
+        error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple title matches were visible in the Titles browser"
+      end if
+      if titleItem is missing value then error "FINAL_CUT_NATIVE_TITLE_ASSET_NOT_FOUND: installed title was not visible in the Titles browser"
+      try
+        perform action "AXPress" of titleItem
+      on error
+        click titleItem
+      end try
+    end if
   end tell
 end tell`;
 }

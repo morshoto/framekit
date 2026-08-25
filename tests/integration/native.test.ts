@@ -216,7 +216,7 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
   assert.equal(result.verification.verified, true);
   assert.deepEqual(result.duration, { value: "3", timescale: "1" });
   assert.equal(result.afterRevision.id, "rev-2");
-  assert.equal(scripts.some((script) => script.includes('keystroke "1" using {control down, command down}')), true);
+  assert.equal(scripts.some((script) => script.includes("click at {(item 1 of mainOrigin) + 104, (item 2 of mainOrigin) + 53}")), true);
   assert.equal(scripts.some((script) => script.includes('set value of attribute "AXFocused" of titleSearchField to true')), true);
   assert.equal(scripts.some((script) => script.includes("Lower Third")), true);
   assert.equal(scripts.some((script) => script.includes("Framekit Native Title")), true);
