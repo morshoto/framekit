@@ -3125,6 +3125,8 @@ tell application "System Events"
     -- Cut builds. Select the connected title before opening its text controls.
     -- The live insertion flow places the requested title at the sequence
     -- start, which is the bounded leftmost connected-title slot here.
+    keystroke "a"
+    delay 0.1
     set titleX to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.11)
     set titleY to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.74)
     click at {titleX, titleY}
