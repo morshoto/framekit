@@ -43,6 +43,7 @@
 | `timeline.edit.preview` | Validate an ordered Basic Editing MVP workflow and return a short-lived token plus expected diff | Deterministic fixture; non-mutating and capability-gated |
 | `timeline.edit.execute` | Execute one composite preview exactly once, verify it, and return the transaction | Deterministic fixture; stale, expired, reused, or unsupported previews fail before mutation |
 | `timeline.publish.new-project` | Import a verified FCPXML artifact as a new project | Requires verified `transactionId`, FCPXML path, and native writes; never replaces the active project |
+| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, and audio presence | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |

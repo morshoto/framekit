@@ -63,6 +63,11 @@ When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `timelinePublishNewProject` allows a verified artifact to be imported as a new
 Final Cut project. The active project is never replaced automatically.
 
+With native writes enabled, the live server also exposes `timeline.export` for
+rendering the active Final Cut timeline to a local video file. This separate
+capability requires `ffprobe`; it verifies file completion and media metadata
+and does not make the FCPXML artifact or live timeline canonically writable.
+
 ## Phase 2 local runtime
 
 The deterministic fixture provides the Phase 2 context engine, including

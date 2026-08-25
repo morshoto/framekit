@@ -127,8 +127,10 @@ only after structural verification passes.
 `timeline.publish.new-project` is a different existing capability: it imports a
 verified FCPXML artifact as a new Final Cut project. It is not an export and
 does not mean that the currently open Final Cut timeline is directly writable.
-The current runtime does not yet implement `timeline.export`; that is a
-tracked contract gap for the MVP implementation.
+The current live MCP implementation exposes `timeline.export` with explicit
+`outputPath` and `preset` values, and verifies the rendered file with `ffprobe`.
+The richer transaction-bound export manifest described above remains a tracked
+MVP contract gap.
 
 ### 6. Verify the output
 
