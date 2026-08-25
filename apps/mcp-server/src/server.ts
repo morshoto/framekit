@@ -65,6 +65,12 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
   }),
   z.object({
+    type: z.literal("timeline.audio.fades"),
+    clipId: z.string().min(1),
+    fadeIn: z.number().nonnegative(),
+    fadeOut: z.number().nonnegative(),
+  }),
+  z.object({
     type: z.literal("timeline.title.add"),
     occurrenceId: z.string().min(1),
     assetId: z.string().min(1),
@@ -86,6 +92,31 @@ const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRe
     }
   });
 });
+const musicImportSchema = z.object({
+  mediaId: z.string().min(1),
+  source: z.string().min(1),
+  duration: z.number().positive(),
+  sourceDigest: z.string().min(1),
+});
+const musicDuckingSchema = z.object({
+  enabled: z.boolean(),
+  dialogueClipIds: z.array(z.string().min(1)).optional(),
+  reductionDb: z.number().finite().optional(),
+});
+const musicAddInputSchema = {
+  baseRevision: revisionValueSchema,
+  occurrenceId: z.string().min(1),
+  mediaId: z.string().min(1).optional(),
+  import: musicImportSchema.optional(),
+  placement: z.enum(["append", "insert"]),
+  start: z.number().nonnegative().optional(),
+  duration: z.number().positive().optional(),
+  targetLane: z.number().int().refine((lane) => lane !== 0, "music requires a non-primary lane"),
+  gainDb: z.number().finite().optional(),
+  fadeIn: z.number().nonnegative().optional(),
+  fadeOut: z.number().nonnegative().optional(),
+  ducking: musicDuckingSchema.optional(),
+};
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
   z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
@@ -266,6 +297,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
     return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken));
+  });
+
+  server.registerTool("editor.native.media.append.selected.preview", {
+    description: "Preview appending the currently selected Final Cut Browser media to the end of the active timeline.",
+    inputSchema: {},
+  }, async () => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
+    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia());
+  });
+
+  server.registerTool("editor.native.media.append.selected.execute", {
+    description: "Execute a previously previewed append of the currently selected Final Cut Browser media.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
+    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken));
   });
 
   server.registerTool("editor.native.media.insert.preview", {
@@ -452,6 +499,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Apply one supported edit and return read-after-write plus its diff.",
     inputSchema: editOperationSchema,
   }, async (operation) => jsonResult(await runtime.edit(operation)));
+
+  server.registerTool("music.add", {
+    description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
+    inputSchema: musicAddInputSchema,
+  }, async (request) => jsonResult(await runtime.previewMusic(request)));
+
+  server.registerTool("music.add.preview", {
+    description: "Preview adding a searched or imported music bed without mutating the timeline.",
+    inputSchema: musicAddInputSchema,
+  }, async (request) => jsonResult(await runtime.previewMusic(request)));
+
+  server.registerTool("music.add.execute", {
+    description: "Execute a previously previewed music add and return verified placement and audio state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
   server.registerTool("timeline.edit.preview", {
     description: "Validate and preview one ordered, atomic Basic Editing MVP workflow without mutating the project.",
