@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "2026-08-26",
+  "runtimeContract": "phase-0/1",
+  "scenarios": [
+    {
+      "id": "phase0.rename-clip",
+      "family": "rename-clip",
+      "description": "Rename one timeline occurrence without changing its identity or media reference."
+    },
+    {
+      "id": "phase0.trim-clip",
+      "family": "trim-clip",
+      "description": "Trim one timeline occurrence while retaining exact timeline time."
+    },
+    {
+      "id": "phase0.set-gain",
+      "family": "set-gain",
+      "description": "Change one clip gain without changing its placement or source identity."
+    },
+    {
+      "id": "phase1.ripple-delete",
+      "family": "ripple-delete",
+      "description": "Ripple-delete a range and preserve the supported timeline metadata around it."
+    },
+    {
+      "id": "phase1.add-marker",
+      "family": "add-marker",
+      "description": "Add a marker with deterministic placement and revision behavior."
+    },
+    {
+      "id": "phase1.media-title-workflow",
+      "family": "media-title-workflow",
+      "description": "Import media, place video and music, and add a title as one ordered transaction."
+    }
+  ]
+}
