@@ -7,6 +7,8 @@ Repository-local GitHub agent playbooks are documented in
 
 - [Getting started](./getting-started.md): development setup, MCP, and Final Cut connection.
 - [PRD](./PRD.md): product goals and roadmap.
+- [Phase 0 and Phase 1 checklist](./phase-0-1-checklist.md): delivery gates,
+  evidence, and current native Final Cut boundaries.
 - [SDD](./SDD.md): architecture and design contracts.
 - [Compatibility](./COMPATIBILITY.md): verified editor and toolchain support.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.

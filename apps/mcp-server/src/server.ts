@@ -41,6 +41,19 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const editToolInputSchema = z.object({
+  type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
+  clipId: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  duration: z.number().positive().optional(),
+  durationTime: rationalTimeSchema.optional(),
+  gainDb: z.number().finite().optional(),
+  timelineId: z.string().min(1).optional(),
+  range: rangeSchema.optional(),
+  reason: z.string().optional(),
+  marker: markerSchema.optional(),
+  baseRevision: revisionSchema,
+}).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
@@ -138,6 +151,18 @@ const exportExpectationSchema = z.object({
   frameRateTolerance: z.number().nonnegative().optional(),
   hasAudio: z.boolean().optional(),
 }).optional();
+const nativeEditToolInputSchema = z.object({
+  type: z.enum([
+    "rename-selected-clip",
+    "trim-selected-clip-to-playhead",
+    "set-selected-clip-gain",
+    "add-marker-at-playhead",
+  ]),
+  name: z.string().min(1).optional(),
+  edge: z.enum(["start", "end"]).optional(),
+  gainDb: z.number().finite().optional(),
+  duration: z.number().nonnegative().optional(),
+}).strict();
 
 function jsonResult(value: unknown) {
   return {
@@ -247,9 +272,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
-    inputSchema: nativeEditSchema,
-  }, async (operation) => {
+    inputSchema: nativeEditToolInputSchema,
+  }, async (input) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
+    const operation = nativeEditSchema.parse(input);
     return jsonResult(await options.nativeEditor.edit(operation));
   });
 
@@ -521,8 +547,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("timeline.edit", {
     description: "Apply one supported edit and return read-after-write plus its diff.",
-    inputSchema: editOperationSchema,
-  }, async (operation) => jsonResult(await runtime.edit(operation)));
+    inputSchema: editToolInputSchema,
+  }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input))));
 
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
