@@ -21,6 +21,8 @@ export interface GoldenExpected {
   diff: TimelineDiff;
   afterRevision: ContextRevision;
   undoRevision: ContextRevision;
+  rollbackRevision: ContextRevision;
+  staleErrorCode: string;
 }
 
 export interface GoldenCorpus {
@@ -42,8 +44,14 @@ export async function runGoldenScenario(scenario: GoldenScenario): Promise<void>
   assert.match(scenario.id, /^(phase0|phase1)\./, `invalid golden scenario id: ${scenario.id}`);
   assert.ok(scenario.family.length > 0, `golden scenario ${scenario.id} has no family`);
   assert.ok(scenario.description.length > 0, `golden scenario ${scenario.id} has no description`);
+  validateGoldenSnapshot(scenario.expected.before, scenario.id);
+  validateGoldenSnapshot(scenario.expected.after, scenario.id);
+  assert.deepEqual(scenario.expected.diff.from, scenario.expected.before.revision, `${scenario.id}: diff source revision mismatch`);
+  assert.deepEqual(scenario.expected.diff.to, scenario.expected.after.revision, `${scenario.id}: diff target revision mismatch`);
+
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter(scenario.fixture));
   const before = await runtime.inspectProject();
+  validateGoldenSnapshot(before, scenario.id);
   assert.deepEqual(before, scenario.expected.before, `${scenario.id}: before snapshot mismatch`);
 
   let transaction;
@@ -58,6 +66,7 @@ export async function runGoldenScenario(scenario: GoldenScenario): Promise<void>
   }
 
   assert.equal(transaction.status, "VERIFIED", `${scenario.id}: workflow was not verified`);
+  validateGoldenSnapshot(transaction.after, scenario.id);
   assert.deepEqual(transaction.after, scenario.expected.after, `${scenario.id}: after snapshot mismatch`);
   assert.deepEqual(transaction.diff, scenario.expected.diff, `${scenario.id}: diff mismatch`);
   assert.deepEqual(transaction.after.revision, scenario.expected.afterRevision, `${scenario.id}: after revision mismatch`);
@@ -65,6 +74,77 @@ export async function runGoldenScenario(scenario: GoldenScenario): Promise<void>
 
   const undone = await runtime.undo(transaction.id);
   assert.deepEqual(undone, { ...scenario.expected.before, revision: scenario.expected.undoRevision }, `${scenario.id}: undo snapshot mismatch`);
+
+  const rollbackRuntime = new AgentVideoRuntime(new InMemoryEditorAdapter(scenario.fixture), {
+    verificationEngine: {
+      verify: async () => ({
+        passed: false,
+        checks: [{ name: "golden-forced-failure", passed: false, detail: "exercise rollback gate" }],
+      }),
+    },
+  });
+  let rollbackTransaction;
+  const rollbackBefore = await rollbackRuntime.inspectProject();
+  if (scenario.mode === "single") {
+    assert.ok(scenario.operation, `${scenario.id}: single scenario has no operation for rollback`);
+    rollbackTransaction = await rollbackRuntime.edit(scenario.operation);
+  } else {
+    assert.ok(scenario.operations, `${scenario.id}: composite scenario has no operations for rollback`);
+    const rollbackPreview = await rollbackRuntime.previewEdit({
+      baseRevision: rollbackBefore.revision,
+      operations: scenario.operations,
+    });
+    rollbackTransaction = await rollbackRuntime.executeEdit(rollbackPreview.previewToken);
+  }
+  assert.equal(rollbackTransaction.status, "ROLLED_BACK", `${scenario.id}: failed verification did not roll back`);
+  const rollbackExpected = { ...scenario.expected.before, revision: scenario.expected.rollbackRevision };
+  assert.deepEqual(rollbackTransaction.after, rollbackExpected, `${scenario.id}: rollback snapshot mismatch`);
+  assert.deepEqual(await rollbackRuntime.inspectProject(), rollbackExpected, `${scenario.id}: rollback read mismatch`);
+
+  const staleRuntime = new AgentVideoRuntime(new InMemoryEditorAdapter(scenario.fixture));
+  const staleBase = await staleRuntime.inspectProject();
+  if (scenario.mode === "single") {
+    assert.ok(scenario.operation, `${scenario.id}: single scenario has no operation for stale-write check`);
+    await staleRuntime.edit(scenario.operation);
+    await assert.rejects(
+      staleRuntime.edit({ ...scenario.operation, baseRevision: staleBase.revision }),
+      new RegExp(scenario.expected.staleErrorCode),
+    );
+  } else {
+    assert.ok(scenario.operations, `${scenario.id}: composite scenario has no operations for stale-write check`);
+    const stalePreview = await staleRuntime.previewEdit({ baseRevision: staleBase.revision, operations: scenario.operations });
+    await staleRuntime.executeEdit(stalePreview.previewToken);
+    await assert.rejects(
+      staleRuntime.previewEdit({ baseRevision: staleBase.revision, operations: scenario.operations }),
+      new RegExp(scenario.expected.staleErrorCode),
+    );
+  }
+  assert.deepEqual(await staleRuntime.inspectProject(), scenario.expected.after, `${scenario.id}: stale write mutated state`);
+}
+
+export function validateGoldenSnapshot(snapshot: ProjectSnapshot, scenarioId: string): void {
+  const label = `${scenarioId}: snapshot`;
+  assert.equal(typeof snapshot.projectId, "string", `${label} project identity is required`);
+  assert.equal(typeof snapshot.timeline?.id, "string", `${label} timeline identity is required`);
+  assert.ok(Array.isArray(snapshot.timeline?.clips), `${label} clips are required`);
+  assert.ok(Array.isArray(snapshot.timeline?.storyElements), `${label} story elements are required`);
+  assert.ok(Array.isArray(snapshot.timeline?.markers), `${label} markers are required`);
+  assert.ok(Array.isArray(snapshot.timeline?.captions), `${label} captions are required`);
+  assert.ok(Array.isArray(snapshot.media), `${label} media registry is required`);
+  assert.equal(typeof snapshot.revision?.id, "string", `${label} revision identity is required`);
+  assert.equal(Number.isInteger(snapshot.revision?.sequence), true, `${label} revision sequence is required`);
+  assertUniqueIds(snapshot.timeline.clips, `${label} clip`);
+  assertUniqueIds(snapshot.timeline.storyElements, `${label} story element`);
+  assertUniqueIds(snapshot.timeline.markers, `${label} marker`);
+  assertUniqueIds(snapshot.timeline.captions, `${label} caption`);
+  assertUniqueIds(snapshot.media, `${label} media` , (media) => media.mediaId);
+  const mediaIds = new Set(snapshot.media.map((media) => media.mediaId));
+  for (const clip of snapshot.timeline.clips) {
+    if (clip.mediaId) assert.equal(mediaIds.has(clip.mediaId), true, `${label} media reference ${clip.mediaId} is unresolved`);
+  }
+  for (const element of snapshot.timeline.storyElements) {
+    if (element.mediaId) assert.equal(mediaIds.has(element.mediaId), true, `${label} media reference ${element.mediaId} is unresolved`);
+  }
 }
 
 function assertCorpus(value: unknown): asserts value is GoldenCorpus {
@@ -85,7 +165,17 @@ function assertCorpus(value: unknown): asserts value is GoldenCorpus {
     assert.ok(scenario.fixture && typeof scenario.fixture === "object", `golden scenario ${scenario.id} fixture is required`);
     assert.ok(scenario.operation || scenario.operations, `golden scenario ${scenario.id} operation is required`);
     assert.ok(scenario.expected && typeof scenario.expected === "object", `golden scenario ${scenario.id} expected evidence is required`);
+    assert.ok(scenario.expected.before && typeof scenario.expected.before === "object", `golden scenario ${scenario.id} before snapshot is required`);
+    assert.ok(scenario.expected.after && typeof scenario.expected.after === "object", `golden scenario ${scenario.id} after snapshot is required`);
+    assert.ok(scenario.expected.diff && typeof scenario.expected.diff === "object", `golden scenario ${scenario.id} diff is required`);
+    assert.ok(scenario.expected.rollbackRevision && typeof scenario.expected.rollbackRevision === "object", `golden scenario ${scenario.id} rollback revision is required`);
+    assert.equal(scenario.expected.staleErrorCode, "STALE_CONTEXT", `golden scenario ${scenario.id} stale diagnostic is required`);
     assert.equal(ids.has(scenario.id), false, `duplicate golden scenario id: ${scenario.id}`);
     ids.add(scenario.id);
   }
+}
+
+function assertUniqueIds<T>(items: T[], label: string, idOf: (item: T) => string = (item) => (item as { id: string }).id): void {
+  const ids = items.map(idOf);
+  assert.equal(new Set(ids).size, ids.length, `${label} identities must be unique`);
 }

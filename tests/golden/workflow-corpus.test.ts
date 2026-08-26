@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadGoldenCorpus, runGoldenScenario } from "./workflow-corpus-runner.js";
+import { loadGoldenCorpus, runGoldenScenario, validateGoldenSnapshot } from "./workflow-corpus-runner.js";
 
 const corpus = loadGoldenCorpus();
 
@@ -18,7 +18,20 @@ test("each golden scenario records fixture, operations, and expected evidence", 
     assert.ok((scenario.expected as { before?: unknown }).before, `golden scenario ${scenario.id} has no expected before snapshot`);
     assert.ok((scenario.expected as { after?: unknown }).after, `golden scenario ${scenario.id} has no expected after snapshot`);
     assert.ok((scenario.expected as { diff?: unknown }).diff, `golden scenario ${scenario.id} has no expected diff`);
+    assert.ok((scenario.expected as { rollbackRevision?: unknown }).rollbackRevision, `golden scenario ${scenario.id} has no rollback revision`);
+    assert.equal((scenario.expected as { staleErrorCode?: unknown }).staleErrorCode, "STALE_CONTEXT", `golden scenario ${scenario.id} has no stale-write diagnostic`);
   }
+});
+
+test("golden structural validation rejects unresolved media references", () => {
+  const scenario = corpus.scenarios.find((candidate) => candidate.mode === "single")!;
+  const invalid = structuredClone(scenario.expected.before);
+  invalid.timeline.clips[0]!.mediaId = "missing-media";
+
+  assert.throws(
+    () => validateGoldenSnapshot(invalid, scenario.id),
+    new RegExp(`${scenario.id}.*media reference`),
+  );
 });
 
 for (const scenario of corpus.scenarios) {

@@ -386,7 +386,13 @@
           "id": "rev-2",
           "sequence": 2,
           "timestamp": "1970-01-01T00:00:00.002Z"
-        }
+        },
+        "rollbackRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        },
+        "staleErrorCode": "STALE_CONTEXT"
       }
     },
     {
@@ -783,7 +789,13 @@
           "id": "rev-2",
           "sequence": 2,
           "timestamp": "1970-01-01T00:00:00.002Z"
-        }
+        },
+        "rollbackRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        },
+        "staleErrorCode": "STALE_CONTEXT"
       }
     },
     {
@@ -1126,7 +1138,13 @@
           "id": "rev-2",
           "sequence": 2,
           "timestamp": "1970-01-01T00:00:00.002Z"
-        }
+        },
+        "rollbackRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        },
+        "staleErrorCode": "STALE_CONTEXT"
       }
     },
     {
@@ -1993,7 +2011,13 @@
           "id": "rev-2",
           "sequence": 2,
           "timestamp": "1970-01-01T00:00:00.002Z"
-        }
+        },
+        "rollbackRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        },
+        "staleErrorCode": "STALE_CONTEXT"
       }
     },
     {
@@ -2322,7 +2346,13 @@
           "id": "rev-2",
           "sequence": 2,
           "timestamp": "1970-01-01T00:00:00.002Z"
-        }
+        },
+        "rollbackRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        },
+        "staleErrorCode": "STALE_CONTEXT"
       }
     },
     {
@@ -2844,7 +2874,13 @@
           "id": "rev-2",
           "sequence": 2,
           "timestamp": "1970-01-01T00:00:00.002Z"
-        }
+        },
+        "rollbackRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        },
+        "staleErrorCode": "STALE_CONTEXT"
       }
     }
   ]
