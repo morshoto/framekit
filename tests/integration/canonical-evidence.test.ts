@@ -140,6 +140,23 @@ test("canonical headed evidence requires an exact full Git commit", () => {
   );
 });
 
+test("canonical headed evidence rejects metadata-only capability claims", () => {
+  const metadataOnlyRun = structuredClone(rawRun);
+  metadataOnlyRun.capabilities.editor.canonicalTimelineMode = "metadata-only";
+
+  assert.throws(
+    () => sanitizeCanonicalEvidence(metadataOnlyRun, {
+      framekitVersion: "0.1.0",
+      gitCommit: "0123456789abcdef0123456789abcdef01234567",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: canonical-write capability is required/,
+  );
+});
+
 const baseRevision = (id: string, sequence: number, timestamp: string) => ({ id, sequence, timestamp });
 
 const rawRun = {

@@ -35,6 +35,7 @@ export function sanitizeCanonicalEvidence(run, environment) {
   assert(run.editStatus === "VERIFIED", "headed mutation was not verified");
   assert(run.editor, "editor identity is missing");
   assert(run.capabilities, "capability payload is missing");
+  assert(run.capabilities.editor?.canonicalTimelineMode === "canonical-write", "canonical-write capability is required");
   assert(run.project && run.target, "project or target identity is missing");
   assert(run.before && run.after && run.restored && run.diff, "canonical snapshots or diff are missing");
   assert(run.digests?.before && run.digests?.restored, "canonical digests are missing");
