@@ -35,11 +35,13 @@ let transactionId;
 try {
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
+  const toolResults = [{ name: "editor.inspect", status: "passed" }];
   if (editor.capabilities?.editor?.canonicalTimelineMode !== "canonical-write") {
     throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${editor.capabilities?.editor?.canonicalTimelineMode ?? "unknown"}; canonical-write is required`);
   }
 
   const before = await callJson("project.inspect");
+  toolResults.push({ name: "project.inspect", status: "passed" });
   if (before.projectName !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${before.projectName ?? "unknown"}`);
   }
@@ -53,12 +55,14 @@ try {
     name: `${target.name} [Framekit E2E]`,
     baseRevision: before.revision,
   });
+  toolResults.push({ name: "timeline.edit", status: transaction.status });
   transactionId = transaction.id;
   if (transaction.status !== "VERIFIED" || transaction.diff?.modified?.[0]?.itemId !== clipId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: live edit did not return the expected verified diff");
   }
 
   const restored = await callJson("edit.undo", { transactionId });
+  toolResults.push({ name: "edit.undo", status: "passed" });
   transactionId = undefined;
   const restoredDigest = canonicalDigest(restored);
   if (restoredDigest !== beforeDigest) {
@@ -72,6 +76,7 @@ try {
     capabilities: editor.capabilities,
     project: { id: before.projectId, name: before.projectName, sequenceId: before.timeline.id },
     target: { occurrenceId: target.id, mediaId: target.mediaId },
+    toolResults,
     editStatus: transaction.status,
     before,
     after: transaction.after,

@@ -23,6 +23,12 @@ const editorCapabilityKeys = [
 ];
 
 const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"];
+const requiredToolResults = [
+  ["editor.inspect", "passed"],
+  ["project.inspect", "passed"],
+  ["timeline.edit", "VERIFIED"],
+  ["edit.undo", "passed"],
+];
 
 export function sanitizeCanonicalEvidence(run, environment) {
   assert(run?.passed === true, "headed run did not pass");
@@ -61,6 +67,7 @@ export function sanitizeCanonicalEvidence(run, environment) {
       occurrenceId: requireString(run.target.occurrenceId, "occurrence id"),
       ...(isNonEmptyString(run.target.mediaId) ? { mediaId: run.target.mediaId } : {}),
     },
+    toolResults: sanitizeToolResults(run.toolResults),
     mutation: {
       operation: "rename-clip",
       status: run.editStatus,
@@ -92,9 +99,11 @@ export function sanitizeCanonicalEvidence(run, environment) {
 }
 
 function sanitizeEnvironment(environment) {
+  const gitCommit = requireString(environment?.gitCommit, "Git commit");
+  assert(/^[0-9a-f]{40}$/i.test(gitCommit), "Git commit must be a full SHA-1");
   return {
     framekitVersion: requireString(environment?.framekitVersion, "Framekit version"),
-    gitCommit: requireString(environment?.gitCommit, "Git commit"),
+    gitCommit,
     nodeVersion: requireString(environment?.nodeVersion, "Node version"),
     platform: requireString(environment?.platform, "platform"),
     architecture: requireString(environment?.architecture, "architecture"),
@@ -115,6 +124,18 @@ function sanitizeCapabilities(capabilities) {
     editor: pickKnown(capabilities.editor, editorCapabilityKeys),
     analyzers: pickKnown(capabilities.analyzers, analyzerCapabilityKeys),
   };
+}
+
+function sanitizeToolResults(toolResults) {
+  assert(Array.isArray(toolResults), "tool results are missing");
+  assert(toolResults.length === requiredToolResults.length, "required tool results are incomplete");
+  return toolResults.map((result, index) => {
+    const [expectedName, expectedStatus] = requiredToolResults[index];
+    const name = requireString(result?.name, "tool name");
+    const status = requireString(result?.status, `tool ${name} status`);
+    assert(name === expectedName && status === expectedStatus, `tool result ${index + 1} does not match the required headed workflow`);
+    return { name, status };
+  });
 }
 
 function pickKnown(value, keys) {

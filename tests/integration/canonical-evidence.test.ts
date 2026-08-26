@@ -74,6 +74,12 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       occurrenceId: "final-cut:occurrence:one",
       mediaId: "final-cut:media:one",
     },
+    toolResults: [
+      { name: "editor.inspect", status: "passed" },
+      { name: "project.inspect", status: "passed" },
+      { name: "timeline.edit", status: "VERIFIED" },
+      { name: "edit.undo", status: "passed" },
+    ],
     mutation: {
       operation: "rename-clip",
       status: "VERIFIED",
@@ -110,6 +116,20 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
   assert.equal(serialized.includes("transaction-secret"), false);
 });
 
+test("canonical headed evidence requires an exact full Git commit", () => {
+  assert.throws(
+    () => sanitizeCanonicalEvidence(rawRun, {
+      framekitVersion: "0.1.0",
+      gitCommit: "HEAD",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: Git commit must be a full SHA-1/,
+  );
+});
+
 const baseRevision = (id: string, sequence: number, timestamp: string) => ({ id, sequence, timestamp });
 
 const rawRun = {
@@ -142,6 +162,12 @@ const rawRun = {
     sequenceId: "final-cut:sequence:disposable",
   },
   target: { occurrenceId: "final-cut:occurrence:one", mediaId: "final-cut:media:one" },
+  toolResults: [
+    { name: "editor.inspect", status: "passed" },
+    { name: "project.inspect", status: "passed" },
+    { name: "timeline.edit", status: "VERIFIED" },
+    { name: "edit.undo", status: "passed" },
+  ],
   editStatus: "VERIFIED",
   before: snapshot("Interview", baseRevision("rev-10", 10, "2026-08-26T10:00:01.000Z")),
   after: snapshot("Interview [Framekit E2E]", baseRevision("rev-11", 11, "2026-08-26T10:00:02.000Z")),
