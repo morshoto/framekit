@@ -143,10 +143,21 @@ async function evidenceEnvironment() {
   if (!gitCommit) throw new Error("FINAL_CUT_E2E_COMMIT_UNAVAILABLE: git returned an empty commit");
   return {
     framekitVersion: packageJson.version,
+    finalCutVersion: await finalCutVersion(),
     gitCommit,
     nodeVersion: process.version,
     platform: process.platform,
     architecture: process.arch,
     osVersion: os.version(),
   };
+}
+
+async function finalCutVersion() {
+  try {
+    const version = (await execFile("osascript", ["-e", 'tell application "Final Cut Pro" to get version'])).stdout.trim();
+    if (version) return version;
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: ${String(error)}`);
+  }
+  throw new Error("FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: Final Cut Pro returned an empty version");
 }

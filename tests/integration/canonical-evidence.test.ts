@@ -26,6 +26,7 @@ test("canonical headed evidence documentation describes the sanitized review bou
 test("canonical headed evidence keeps mutation proof while omitting private snapshot data", () => {
   const evidence = sanitizeCanonicalEvidence(rawRun, {
     framekitVersion: "0.1.0",
+    finalCutVersion: "10.7.1",
     gitCommit: "0123456789abcdef0123456789abcdef01234567",
     nodeVersion: "v22.15.0",
     platform: "darwin",
@@ -40,6 +41,7 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
     recordedAt: "2026-08-26T10:00:00.000Z",
     environment: {
       framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
       gitCommit: "0123456789abcdef0123456789abcdef01234567",
       nodeVersion: "v22.15.0",
       platform: "darwin",
@@ -130,6 +132,7 @@ test("canonical headed evidence requires an exact full Git commit", () => {
   assert.throws(
     () => sanitizeCanonicalEvidence(rawRun, {
       framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
       gitCommit: "HEAD",
       nodeVersion: "v22.15.0",
       platform: "darwin",
@@ -147,6 +150,7 @@ test("canonical headed evidence rejects metadata-only capability claims", () => 
   assert.throws(
     () => sanitizeCanonicalEvidence(metadataOnlyRun, {
       framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
       gitCommit: "0123456789abcdef0123456789abcdef01234567",
       nodeVersion: "v22.15.0",
       platform: "darwin",

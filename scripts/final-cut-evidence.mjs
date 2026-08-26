@@ -104,6 +104,7 @@ function sanitizeEnvironment(environment) {
   assert(/^[0-9a-f]{40}$/i.test(gitCommit), "Git commit must be a full SHA-1");
   return {
     framekitVersion: requireString(environment?.framekitVersion, "Framekit version"),
+    finalCutVersion: requireString(environment?.finalCutVersion, "Final Cut version"),
     gitCommit,
     nodeVersion: requireString(environment?.nodeVersion, "Node version"),
     platform: requireString(environment?.platform, "platform"),
