@@ -143,6 +143,56 @@ test("canonical headed evidence requires an exact full Git commit", () => {
   );
 });
 
+test("canonical headed evidence rejects a non-advancing mutation revision", () => {
+  const nonAdvancingRun = structuredClone(rawRun);
+  nonAdvancingRun.after.revision = structuredClone(nonAdvancingRun.before.revision);
+
+  assert.throws(
+    () => sanitizeCanonicalEvidence(nonAdvancingRun, {
+      framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
+      gitCommit: "0123456789abcdef0123456789abcdef01234567",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: canonical mutation revision did not advance/,
+  );
+});
+
+test("canonical headed evidence rejects malformed summary scalar values", () => {
+  const malformedDurationRun = structuredClone(rawRun);
+  Reflect.set(malformedDurationRun.diff, "durationDelta", { value: 0 });
+  assert.throws(
+    () => sanitizeCanonicalEvidence(malformedDurationRun, {
+      framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
+      gitCommit: "0123456789abcdef0123456789abcdef01234567",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: duration delta must be a finite number/,
+  );
+
+  const malformedSequenceRun = structuredClone(rawRun);
+  Reflect.set(malformedSequenceRun.before.revision, "sequence", "10");
+  assert.throws(
+    () => sanitizeCanonicalEvidence(malformedSequenceRun, {
+      framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
+      gitCommit: "0123456789abcdef0123456789abcdef01234567",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: revision sequence must be a non-negative integer/,
+  );
+});
+
 test("canonical headed evidence rejects metadata-only capability claims", () => {
   const metadataOnlyRun = structuredClone(rawRun);
   metadataOnlyRun.capabilities.editor.canonicalTimelineMode = "metadata-only";

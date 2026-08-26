@@ -40,6 +40,10 @@ export function sanitizeCanonicalEvidence(run, environment) {
   assert(run.before && run.after && run.restored && run.diff, "canonical snapshots or diff are missing");
   assert(run.digests?.before && run.digests?.restored, "canonical digests are missing");
   assert(run.digests.before === run.digests.restored, "restored digest does not match the pre-edit digest");
+  const beforeRevision = summarizeRevision(run.before.revision);
+  const afterRevision = summarizeRevision(run.after.revision);
+  const restoredRevision = summarizeRevision(run.restored.revision);
+  assert(afterRevision.sequence > beforeRevision.sequence, "canonical mutation revision did not advance");
 
   const beforeTarget = findTarget(run.before, run.target.occurrenceId);
   const afterTarget = findTarget(run.after, run.target.occurrenceId);
@@ -73,14 +77,14 @@ export function sanitizeCanonicalEvidence(run, environment) {
       operation: "rename-clip",
       status: run.editStatus,
       timelineChanged: true,
-      beforeRevision: summarizeRevision(run.before.revision),
-      afterRevision: summarizeRevision(run.after.revision),
+      beforeRevision,
+      afterRevision,
       diff: {
         addedCount: countChanges(run.diff.added),
         removedCount: countChanges(run.diff.removed),
         modifiedCount: modifiedItemIds.length,
         modifiedItemIds,
-        durationDelta: run.diff.durationDelta,
+        durationDelta: requireFiniteNumber(run.diff.durationDelta, "duration delta"),
         affectedRangeCount: countChanges(run.diff.affectedRanges),
       },
     },
@@ -90,7 +94,7 @@ export function sanitizeCanonicalEvidence(run, environment) {
       restored: true,
       beforeDigest: run.digests.before,
       restoredDigest: run.digests.restored,
-      restoredRevision: summarizeRevision(run.restored.revision),
+      restoredRevision,
     },
     sanitization: {
       strategy: "allowlisted-summary",
@@ -161,7 +165,7 @@ function summarizeRevision(revision) {
   assert(revision, "revision is missing");
   return {
     id: requireString(revision.id, "revision id"),
-    sequence: revision.sequence,
+    sequence: requireNonNegativeInteger(revision.sequence, "revision sequence"),
     timestamp: requireString(revision.timestamp, "revision timestamp"),
   };
 }
@@ -176,6 +180,16 @@ function countChanges(changes) {
 
 function requireString(value, label) {
   assert(isNonEmptyString(value), `${label} is missing`);
+  return value;
+}
+
+function requireFiniteNumber(value, label) {
+  assert(typeof value === "number" && Number.isFinite(value), `${label} must be a finite number`);
+  return value;
+}
+
+function requireNonNegativeInteger(value, label) {
+  assert(Number.isInteger(value) && value >= 0, `${label} must be a non-negative integer`);
   return value;
 }
 
