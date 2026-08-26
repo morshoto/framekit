@@ -13,23 +13,380 @@
         "projectName": "Golden Workflow Fixture",
         "timelineId": "golden-timeline",
         "timelineName": "Main Edit",
-        "clips": [{ "id": "clip-main", "mediaId": "media-dialogue", "name": "Interview", "start": 0, "duration": 10, "track": 1 }],
-        "media": [{
-          "mediaId": "media-dialogue",
-          "source": "/fixtures/interview.mov",
-          "mediaKind": "video",
-          "duration": 10,
-          "sourceDigest": "sha256:interview",
-          "speech": { "words": [{ "text": "hello", "start": 0, "end": 1, "confidence": 0.99 }] },
-          "audio": { "integratedLufs": -18, "truePeakDb": -3, "silenceMs": 120 }
-        }],
-        "markers": [{ "id": "marker-review", "start": 2, "duration": 0, "name": "Review" }],
-        "captions": [{ "id": "caption-opening", "start": 0.5, "duration": 1, "text": "Hello" }]
+        "clips": [
+          {
+            "id": "clip-main",
+            "mediaId": "media-dialogue",
+            "name": "Interview",
+            "start": 0,
+            "duration": 10,
+            "track": 1
+          }
+        ],
+        "media": [
+          {
+            "mediaId": "media-dialogue",
+            "source": "/fixtures/interview.mov",
+            "mediaKind": "video",
+            "duration": 10,
+            "sourceDigest": "sha256:interview",
+            "speech": {
+              "words": [
+                {
+                  "text": "hello",
+                  "start": 0,
+                  "end": 1,
+                  "confidence": 0.99
+                }
+              ]
+            },
+            "audio": {
+              "integratedLufs": -18,
+              "truePeakDb": -3,
+              "silenceMs": 120
+            }
+          }
+        ],
+        "markers": [
+          {
+            "id": "marker-review",
+            "start": 2,
+            "duration": 0,
+            "name": "Review"
+          }
+        ],
+        "captions": [
+          {
+            "id": "caption-opening",
+            "start": 0.5,
+            "duration": 1,
+            "text": "Hello"
+          }
+        ]
       },
-      "operation": { "type": "rename-clip", "clipId": "clip-main", "name": "Interview - Clean" },
+      "operation": {
+        "type": "rename-clip",
+        "clipId": "clip-main",
+        "name": "Interview - Clean"
+      },
       "expected": {
-        "afterRevision": { "id": "rev-1", "sequence": 1, "timestamp": "1970-01-01T00:00:00.001Z" },
-        "undoRevision": { "id": "rev-2", "sequence": 2, "timestamp": "1970-01-01T00:00:00.002Z" }
+        "before": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview",
+              "speech": {
+                "words": [
+                  {
+                    "text": "hello",
+                    "start": 0,
+                    "end": 1,
+                    "confidence": 0.99
+                  }
+                ]
+              },
+              "audio": {
+                "integratedLufs": -18,
+                "truePeakDb": -3,
+                "silenceMs": 120
+              }
+            }
+          ],
+          "revision": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        "after": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview - Clean",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview",
+              "speech": {
+                "words": [
+                  {
+                    "text": "hello",
+                    "start": 0,
+                    "end": 1,
+                    "confidence": 0.99
+                  }
+                ]
+              },
+              "audio": {
+                "integratedLufs": -18,
+                "truePeakDb": -3,
+                "silenceMs": 120
+              }
+            }
+          ],
+          "revision": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          }
+        },
+        "diff": {
+          "from": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          },
+          "to": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "added": [],
+          "removed": [],
+          "modified": [
+            {
+              "type": "ITEM_MODIFIED",
+              "itemId": "clip-main",
+              "before": {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview - Clean",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            }
+          ],
+          "durationDelta": 0,
+          "durationDeltaTime": {
+            "value": "0",
+            "timescale": "1"
+          },
+          "markerChanges": [],
+          "captionChanges": [],
+          "storyElementChanges": [],
+          "mediaChanges": [],
+          "affectedRanges": [
+            {
+              "start": 0,
+              "end": 10,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "10",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 10,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "10",
+                "timescale": "1"
+              }
+            }
+          ]
+        },
+        "afterRevision": {
+          "id": "rev-1",
+          "sequence": 1,
+          "timestamp": "1970-01-01T00:00:00.001Z"
+        },
+        "undoRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        }
       }
     },
     {
@@ -42,15 +399,391 @@
         "projectName": "Golden Workflow Fixture",
         "timelineId": "golden-timeline",
         "timelineName": "Main Edit",
-        "clips": [{ "id": "clip-main", "mediaId": "media-dialogue", "name": "Interview", "start": 0, "duration": 10, "track": 1 }],
-        "media": [{ "mediaId": "media-dialogue", "source": "/fixtures/interview.mov", "mediaKind": "video", "duration": 10, "sourceDigest": "sha256:interview" }],
-        "markers": [{ "id": "marker-review", "start": 2, "duration": 0, "name": "Review" }],
-        "captions": [{ "id": "caption-opening", "start": 0.5, "duration": 1, "text": "Hello" }]
+        "clips": [
+          {
+            "id": "clip-main",
+            "mediaId": "media-dialogue",
+            "name": "Interview",
+            "start": 0,
+            "duration": 10,
+            "track": 1
+          }
+        ],
+        "media": [
+          {
+            "mediaId": "media-dialogue",
+            "source": "/fixtures/interview.mov",
+            "mediaKind": "video",
+            "duration": 10,
+            "sourceDigest": "sha256:interview"
+          }
+        ],
+        "markers": [
+          {
+            "id": "marker-review",
+            "start": 2,
+            "duration": 0,
+            "name": "Review"
+          }
+        ],
+        "captions": [
+          {
+            "id": "caption-opening",
+            "start": 0.5,
+            "duration": 1,
+            "text": "Hello"
+          }
+        ]
       },
-      "operation": { "type": "trim-clip", "clipId": "clip-main", "duration": 6 },
+      "operation": {
+        "type": "trim-clip",
+        "clipId": "clip-main",
+        "duration": 6
+      },
       "expected": {
-        "afterRevision": { "id": "rev-1", "sequence": 1, "timestamp": "1970-01-01T00:00:00.001Z" },
-        "undoRevision": { "id": "rev-2", "sequence": 2, "timestamp": "1970-01-01T00:00:00.002Z" }
+        "before": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        "after": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 6,
+            "durationTime": {
+              "value": "6",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 6,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "6",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 6,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          }
+        },
+        "diff": {
+          "from": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          },
+          "to": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "added": [],
+          "removed": [],
+          "modified": [
+            {
+              "type": "ITEM_MODIFIED",
+              "itemId": "clip-main",
+              "before": {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 6,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "6",
+                  "timescale": "1"
+                }
+              }
+            }
+          ],
+          "durationDelta": -4,
+          "durationDeltaTime": {
+            "value": "-4",
+            "timescale": "1"
+          },
+          "markerChanges": [],
+          "captionChanges": [],
+          "storyElementChanges": [
+            {
+              "type": "STORY_ELEMENT_MODIFIED",
+              "element": {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 6,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "before": {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "after": {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 6,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            }
+          ],
+          "mediaChanges": [],
+          "affectedRanges": [
+            {
+              "start": 0,
+              "end": 10,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "10",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 6,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "6",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 10
+            }
+          ]
+        },
+        "afterRevision": {
+          "id": "rev-1",
+          "sequence": 1,
+          "timestamp": "1970-01-01T00:00:00.001Z"
+        },
+        "undoRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        }
       }
     },
     {
@@ -63,15 +796,337 @@
         "projectName": "Golden Workflow Fixture",
         "timelineId": "golden-timeline",
         "timelineName": "Main Edit",
-        "clips": [{ "id": "clip-main", "mediaId": "media-dialogue", "name": "Interview", "start": 0, "duration": 10, "track": 1 }],
-        "media": [{ "mediaId": "media-dialogue", "source": "/fixtures/interview.mov", "mediaKind": "video", "duration": 10, "sourceDigest": "sha256:interview" }],
-        "markers": [{ "id": "marker-review", "start": 2, "duration": 0, "name": "Review" }],
-        "captions": [{ "id": "caption-opening", "start": 0.5, "duration": 1, "text": "Hello" }]
+        "clips": [
+          {
+            "id": "clip-main",
+            "mediaId": "media-dialogue",
+            "name": "Interview",
+            "start": 0,
+            "duration": 10,
+            "track": 1
+          }
+        ],
+        "media": [
+          {
+            "mediaId": "media-dialogue",
+            "source": "/fixtures/interview.mov",
+            "mediaKind": "video",
+            "duration": 10,
+            "sourceDigest": "sha256:interview"
+          }
+        ],
+        "markers": [
+          {
+            "id": "marker-review",
+            "start": 2,
+            "duration": 0,
+            "name": "Review"
+          }
+        ],
+        "captions": [
+          {
+            "id": "caption-opening",
+            "start": 0.5,
+            "duration": 1,
+            "text": "Hello"
+          }
+        ]
       },
-      "operation": { "type": "set-gain", "clipId": "clip-main", "gainDb": 3 },
+      "operation": {
+        "type": "set-gain",
+        "clipId": "clip-main",
+        "gainDb": 3
+      },
       "expected": {
-        "afterRevision": { "id": "rev-1", "sequence": 1, "timestamp": "1970-01-01T00:00:00.001Z" },
-        "undoRevision": { "id": "rev-2", "sequence": 2, "timestamp": "1970-01-01T00:00:00.002Z" }
+        "before": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        "after": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "gainDb": 3
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          }
+        },
+        "diff": {
+          "from": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          },
+          "to": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "added": [],
+          "removed": [],
+          "modified": [
+            {
+              "type": "ITEM_MODIFIED",
+              "itemId": "clip-main",
+              "before": {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "gainDb": 3
+              }
+            }
+          ],
+          "durationDelta": 0,
+          "durationDeltaTime": {
+            "value": "0",
+            "timescale": "1"
+          },
+          "markerChanges": [],
+          "captionChanges": [],
+          "storyElementChanges": [],
+          "mediaChanges": [],
+          "affectedRanges": [
+            {
+              "start": 0,
+              "end": 10,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "10",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 10,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "10",
+                "timescale": "1"
+              }
+            }
+          ]
+        },
+        "afterRevision": {
+          "id": "rev-1",
+          "sequence": 1,
+          "timestamp": "1970-01-01T00:00:00.001Z"
+        },
+        "undoRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        }
       }
     },
     {
@@ -85,21 +1140,860 @@
         "timelineId": "golden-timeline",
         "timelineName": "Main Edit",
         "clips": [
-          { "id": "clip-before", "mediaId": "media-dialogue", "name": "Before", "start": 0, "duration": 4, "track": 1 },
-          { "id": "clip-middle", "mediaId": "media-dialogue", "name": "Middle", "start": 4, "duration": 3, "track": 1 },
-          { "id": "clip-after", "mediaId": "media-dialogue", "name": "After", "start": 7, "duration": 3, "track": 1 }
+          {
+            "id": "clip-before",
+            "mediaId": "media-dialogue",
+            "name": "Before",
+            "start": 0,
+            "duration": 4,
+            "track": 1
+          },
+          {
+            "id": "clip-middle",
+            "mediaId": "media-dialogue",
+            "name": "Middle",
+            "start": 4,
+            "duration": 3,
+            "track": 1
+          },
+          {
+            "id": "clip-after",
+            "mediaId": "media-dialogue",
+            "name": "After",
+            "start": 7,
+            "duration": 3,
+            "track": 1
+          }
         ],
-        "media": [{ "mediaId": "media-dialogue", "source": "/fixtures/interview.mov", "mediaKind": "video", "duration": 10, "sourceDigest": "sha256:interview" }],
+        "media": [
+          {
+            "mediaId": "media-dialogue",
+            "source": "/fixtures/interview.mov",
+            "mediaKind": "video",
+            "duration": 10,
+            "sourceDigest": "sha256:interview"
+          }
+        ],
         "markers": [
-          { "id": "marker-before", "start": 2, "duration": 0, "name": "Keep" },
-          { "id": "marker-after", "start": 6, "duration": 1, "name": "Shift" }
+          {
+            "id": "marker-before",
+            "start": 2,
+            "duration": 0,
+            "name": "Keep"
+          },
+          {
+            "id": "marker-after",
+            "start": 6,
+            "duration": 1,
+            "name": "Shift"
+          }
         ],
-        "captions": [{ "id": "caption-opening", "start": 0.5, "duration": 1, "text": "Hello" }]
+        "captions": [
+          {
+            "id": "caption-opening",
+            "start": 0.5,
+            "duration": 1,
+            "text": "Hello"
+          }
+        ]
       },
-      "operation": { "type": "ripple-delete", "timelineId": "golden-timeline", "range": { "start": 3, "end": 5 }, "reason": "remove pause" },
+      "operation": {
+        "type": "ripple-delete",
+        "timelineId": "golden-timeline",
+        "range": {
+          "start": 3,
+          "end": 5
+        },
+        "reason": "remove pause"
+      },
       "expected": {
-        "afterRevision": { "id": "rev-1", "sequence": 1, "timestamp": "1970-01-01T00:00:00.001Z" },
-        "undoRevision": { "id": "rev-2", "sequence": 2, "timestamp": "1970-01-01T00:00:00.002Z" }
+        "before": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-before",
+                "mediaId": "media-dialogue",
+                "name": "Before",
+                "start": 0,
+                "duration": 4,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "clip-middle",
+                "mediaId": "media-dialogue",
+                "name": "Middle",
+                "start": 4,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "clip-after",
+                "mediaId": "media-dialogue",
+                "name": "After",
+                "start": 7,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-before",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 4,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              {
+                "id": "clip-middle",
+                "kind": "asset-clip",
+                "start": 4,
+                "duration": 3,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              {
+                "id": "clip-after",
+                "kind": "asset-clip",
+                "start": 7,
+                "duration": 3,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-before",
+                "start": 2,
+                "duration": 0,
+                "name": "Keep",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "marker-after",
+                "start": 6,
+                "duration": 1,
+                "name": "Shift",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        "after": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 8,
+            "durationTime": {
+              "value": "8",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-before",
+                "mediaId": "media-dialogue",
+                "name": "Before",
+                "start": 0,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "clip-middle",
+                "mediaId": "media-dialogue",
+                "name": "Middle",
+                "start": 3,
+                "duration": 2,
+                "track": 1,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "clip-after",
+                "mediaId": "media-dialogue",
+                "name": "After",
+                "start": 5,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-before",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 3,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              {
+                "id": "clip-middle",
+                "kind": "asset-clip",
+                "start": 3,
+                "duration": 2,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              {
+                "id": "clip-after",
+                "kind": "asset-clip",
+                "start": 5,
+                "duration": 3,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-before",
+                "start": 2,
+                "duration": 0,
+                "name": "Keep",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "marker-after",
+                "start": 4,
+                "duration": 1,
+                "name": "Shift",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          }
+        },
+        "diff": {
+          "from": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          },
+          "to": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "added": [],
+          "removed": [],
+          "modified": [
+            {
+              "type": "ITEM_MODIFIED",
+              "itemId": "clip-before",
+              "before": {
+                "id": "clip-before",
+                "mediaId": "media-dialogue",
+                "name": "Before",
+                "start": 0,
+                "duration": 4,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "clip-before",
+                "mediaId": "media-dialogue",
+                "name": "Before",
+                "start": 0,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                }
+              }
+            },
+            {
+              "type": "ITEM_MODIFIED",
+              "itemId": "clip-middle",
+              "before": {
+                "id": "clip-middle",
+                "mediaId": "media-dialogue",
+                "name": "Middle",
+                "start": 4,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "clip-middle",
+                "mediaId": "media-dialogue",
+                "name": "Middle",
+                "start": 3,
+                "duration": 2,
+                "track": 1,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              }
+            },
+            {
+              "type": "ITEM_MODIFIED",
+              "itemId": "clip-after",
+              "before": {
+                "id": "clip-after",
+                "mediaId": "media-dialogue",
+                "name": "After",
+                "start": 7,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "clip-after",
+                "mediaId": "media-dialogue",
+                "name": "After",
+                "start": 5,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              }
+            }
+          ],
+          "durationDelta": -2,
+          "durationDeltaTime": {
+            "value": "-2",
+            "timescale": "1"
+          },
+          "markerChanges": [
+            {
+              "type": "MARKER_MODIFIED",
+              "marker": {
+                "id": "marker-after",
+                "start": 4,
+                "duration": 1,
+                "name": "Shift",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              },
+              "before": {
+                "id": "marker-after",
+                "start": 6,
+                "duration": 1,
+                "name": "Shift",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "marker-after",
+                "start": 4,
+                "duration": 1,
+                "name": "Shift",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            }
+          ],
+          "captionChanges": [],
+          "storyElementChanges": [
+            {
+              "type": "STORY_ELEMENT_MODIFIED",
+              "element": {
+                "id": "clip-before",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 3,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "before": {
+                "id": "clip-before",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 4,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "after": {
+                "id": "clip-before",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 3,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            },
+            {
+              "type": "STORY_ELEMENT_MODIFIED",
+              "element": {
+                "id": "clip-middle",
+                "kind": "asset-clip",
+                "start": 3,
+                "duration": 2,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "before": {
+                "id": "clip-middle",
+                "kind": "asset-clip",
+                "start": 4,
+                "duration": 3,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "after": {
+                "id": "clip-middle",
+                "kind": "asset-clip",
+                "start": 3,
+                "duration": 2,
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            },
+            {
+              "type": "STORY_ELEMENT_MODIFIED",
+              "element": {
+                "id": "clip-after",
+                "kind": "asset-clip",
+                "start": 5,
+                "duration": 3,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "before": {
+                "id": "clip-after",
+                "kind": "asset-clip",
+                "start": 7,
+                "duration": 3,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              },
+              "after": {
+                "id": "clip-after",
+                "kind": "asset-clip",
+                "start": 5,
+                "duration": 3,
+                "startTime": {
+                  "value": "7",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            }
+          ],
+          "mediaChanges": [],
+          "affectedRanges": [
+            {
+              "start": 0,
+              "end": 4,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "4",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 3,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "4",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 4,
+              "end": 7,
+              "startTime": {
+                "value": "4",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "3",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 3,
+              "end": 5,
+              "startTime": {
+                "value": "4",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "3",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 7,
+              "end": 10,
+              "startTime": {
+                "value": "7",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "3",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 5,
+              "end": 8,
+              "startTime": {
+                "value": "7",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "3",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 6,
+              "end": 7,
+              "startTime": {
+                "value": "6",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "1",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 4,
+              "end": 7
+            },
+            {
+              "start": 7,
+              "end": 10
+            }
+          ]
+        },
+        "afterRevision": {
+          "id": "rev-1",
+          "sequence": 1,
+          "timestamp": "1970-01-01T00:00:00.001Z"
+        },
+        "undoRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        }
       }
     },
     {
@@ -112,19 +2006,323 @@
         "projectName": "Golden Workflow Fixture",
         "timelineId": "golden-timeline",
         "timelineName": "Main Edit",
-        "clips": [{ "id": "clip-main", "mediaId": "media-dialogue", "name": "Interview", "start": 0, "duration": 10, "track": 1 }],
-        "media": [{ "mediaId": "media-dialogue", "source": "/fixtures/interview.mov", "mediaKind": "video", "duration": 10, "sourceDigest": "sha256:interview" }],
-        "markers": [{ "id": "marker-review", "start": 2, "duration": 0, "name": "Review" }],
-        "captions": [{ "id": "caption-opening", "start": 0.5, "duration": 1, "text": "Hello" }]
+        "clips": [
+          {
+            "id": "clip-main",
+            "mediaId": "media-dialogue",
+            "name": "Interview",
+            "start": 0,
+            "duration": 10,
+            "track": 1
+          }
+        ],
+        "media": [
+          {
+            "mediaId": "media-dialogue",
+            "source": "/fixtures/interview.mov",
+            "mediaKind": "video",
+            "duration": 10,
+            "sourceDigest": "sha256:interview"
+          }
+        ],
+        "markers": [
+          {
+            "id": "marker-review",
+            "start": 2,
+            "duration": 0,
+            "name": "Review"
+          }
+        ],
+        "captions": [
+          {
+            "id": "caption-opening",
+            "start": 0.5,
+            "duration": 1,
+            "text": "Hello"
+          }
+        ]
       },
       "operation": {
         "type": "add-marker",
         "timelineId": "golden-timeline",
-        "marker": { "id": "marker-cut", "start": 4.5, "duration": 0.5, "name": "Cut here" }
+        "marker": {
+          "id": "marker-cut",
+          "start": 4.5,
+          "duration": 0.5,
+          "name": "Cut here"
+        }
       },
       "expected": {
-        "afterRevision": { "id": "rev-1", "sequence": 1, "timestamp": "1970-01-01T00:00:00.001Z" },
-        "undoRevision": { "id": "rev-2", "sequence": 2, "timestamp": "1970-01-01T00:00:00.002Z" }
+        "before": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        "after": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 10,
+            "durationTime": {
+              "value": "10",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-main",
+                "mediaId": "media-dialogue",
+                "name": "Interview",
+                "start": 0,
+                "duration": 10,
+                "track": 1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-main",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 10,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "10",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "mediaId": "media-dialogue"
+              }
+            ],
+            "markers": [
+              {
+                "id": "marker-review",
+                "start": 2,
+                "duration": 0,
+                "name": "Review",
+                "startTime": {
+                  "value": "2",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "0",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "marker-cut",
+                "start": 4.5,
+                "duration": 0.5,
+                "name": "Cut here",
+                "startTime": {
+                  "value": "45",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "5",
+                  "timescale": "10"
+                }
+              }
+            ],
+            "captions": [
+              {
+                "id": "caption-opening",
+                "start": 0.5,
+                "duration": 1,
+                "text": "Hello",
+                "startTime": {
+                  "value": "5",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            ]
+          },
+          "media": [
+            {
+              "mediaId": "media-dialogue",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 10,
+              "sourceDigest": "sha256:interview"
+            }
+          ],
+          "revision": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          }
+        },
+        "diff": {
+          "from": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          },
+          "to": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "added": [],
+          "removed": [],
+          "modified": [],
+          "durationDelta": 0,
+          "durationDeltaTime": {
+            "value": "0",
+            "timescale": "1"
+          },
+          "markerChanges": [
+            {
+              "type": "MARKER_ADDED",
+              "marker": {
+                "id": "marker-cut",
+                "start": 4.5,
+                "duration": 0.5,
+                "name": "Cut here",
+                "startTime": {
+                  "value": "45",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "5",
+                  "timescale": "10"
+                }
+              }
+            }
+          ],
+          "captionChanges": [],
+          "storyElementChanges": [],
+          "mediaChanges": [],
+          "affectedRanges": [
+            {
+              "start": 4.5,
+              "end": 5,
+              "startTime": {
+                "value": "45",
+                "timescale": "10"
+              },
+              "durationTime": {
+                "value": "5",
+                "timescale": "10"
+              }
+            }
+          ]
+        },
+        "afterRevision": {
+          "id": "rev-1",
+          "sequence": 1,
+          "timestamp": "1970-01-01T00:00:00.001Z"
+        },
+        "undoRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        }
       }
     },
     {
@@ -139,20 +2337,514 @@
         "timelineName": "Main Edit",
         "clips": [],
         "media": [],
-        "assets": [{ "id": "title-basic", "kind": "title", "name": "Basic Title", "vendor": "Framekit Fixture", "metadata": {} }],
+        "assets": [
+          {
+            "id": "title-basic",
+            "kind": "title",
+            "name": "Basic Title",
+            "vendor": "Framekit Fixture",
+            "metadata": {}
+          }
+        ],
         "captions": []
       },
       "operations": [
-        { "type": "media.import", "mediaId": "media-video", "source": "/fixtures/interview.mov", "mediaKind": "video", "duration": 12, "sourceDigest": "sha256:video" },
-        { "type": "media.import", "mediaId": "media-music", "source": "/fixtures/music.wav", "mediaKind": "audio", "duration": 8, "sourceDigest": "sha256:music" },
-        { "type": "timeline.media.add", "occurrenceId": "clip-video", "mediaId": "media-video", "role": "video", "start": 0, "duration": 12, "targetLane": "primary" },
-        { "type": "trim-clip", "clipId": "clip-video", "duration": 8 },
-        { "type": "timeline.media.add", "occurrenceId": "clip-music", "mediaId": "media-music", "role": "music", "start": 0, "duration": 8, "targetLane": -1 },
-        { "type": "timeline.title.add", "occurrenceId": "title-opening", "assetId": "title-basic", "text": "Framekit MVP", "start": 1, "duration": 3, "targetLane": 1 }
+        {
+          "type": "media.import",
+          "mediaId": "media-video",
+          "source": "/fixtures/interview.mov",
+          "mediaKind": "video",
+          "duration": 12,
+          "sourceDigest": "sha256:video"
+        },
+        {
+          "type": "media.import",
+          "mediaId": "media-music",
+          "source": "/fixtures/music.wav",
+          "mediaKind": "audio",
+          "duration": 8,
+          "sourceDigest": "sha256:music"
+        },
+        {
+          "type": "timeline.media.add",
+          "occurrenceId": "clip-video",
+          "mediaId": "media-video",
+          "role": "video",
+          "start": 0,
+          "duration": 12,
+          "targetLane": "primary"
+        },
+        {
+          "type": "trim-clip",
+          "clipId": "clip-video",
+          "duration": 8
+        },
+        {
+          "type": "timeline.media.add",
+          "occurrenceId": "clip-music",
+          "mediaId": "media-music",
+          "role": "music",
+          "start": 0,
+          "duration": 8,
+          "targetLane": -1
+        },
+        {
+          "type": "timeline.title.add",
+          "occurrenceId": "title-opening",
+          "assetId": "title-basic",
+          "text": "Framekit MVP",
+          "start": 1,
+          "duration": 3,
+          "targetLane": 1
+        }
       ],
       "expected": {
-        "afterRevision": { "id": "rev-1", "sequence": 1, "timestamp": "1970-01-01T00:00:00.001Z" },
-        "undoRevision": { "id": "rev-2", "sequence": 2, "timestamp": "1970-01-01T00:00:00.002Z" }
+        "before": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 0,
+            "durationTime": {
+              "value": "0",
+              "timescale": "1"
+            },
+            "clips": [],
+            "storyElements": [],
+            "markers": [],
+            "captions": []
+          },
+          "media": [],
+          "revision": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        "after": {
+          "projectId": "golden-project",
+          "projectName": "Golden Workflow Fixture",
+          "timeline": {
+            "id": "golden-timeline",
+            "name": "Main Edit",
+            "duration": 8,
+            "durationTime": {
+              "value": "8",
+              "timescale": "1"
+            },
+            "clips": [
+              {
+                "id": "clip-video",
+                "mediaId": "media-video",
+                "name": "interview.mov",
+                "start": 0,
+                "duration": 8,
+                "track": 0,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "clip-music",
+                "mediaId": "media-music",
+                "name": "music.wav",
+                "start": 0,
+                "duration": 8,
+                "track": -1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "title-opening",
+                "name": "Framekit MVP",
+                "start": 1,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "1",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              }
+            ],
+            "storyElements": [
+              {
+                "id": "clip-video",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 8,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                },
+                "lane": 0,
+                "mediaId": "media-video"
+              },
+              {
+                "id": "clip-music",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 8,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                },
+                "lane": -1,
+                "mediaId": "media-music"
+              },
+              {
+                "id": "title-opening",
+                "kind": "title",
+                "start": 1,
+                "duration": 3,
+                "startTime": {
+                  "value": "1",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "assetId": "title-basic",
+                "text": "Framekit MVP"
+              }
+            ],
+            "markers": [],
+            "captions": []
+          },
+          "media": [
+            {
+              "mediaId": "media-video",
+              "source": "/fixtures/interview.mov",
+              "mediaKind": "video",
+              "duration": 12,
+              "sourceDigest": "sha256:video"
+            },
+            {
+              "mediaId": "media-music",
+              "source": "/fixtures/music.wav",
+              "mediaKind": "audio",
+              "duration": 8,
+              "sourceDigest": "sha256:music"
+            }
+          ],
+          "revision": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          }
+        },
+        "diff": {
+          "from": {
+            "id": "rev-0",
+            "sequence": 0,
+            "timestamp": "1970-01-01T00:00:00.000Z"
+          },
+          "to": {
+            "id": "rev-1",
+            "sequence": 1,
+            "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "added": [
+            {
+              "type": "ITEM_ADDED",
+              "itemId": "clip-video",
+              "after": {
+                "id": "clip-video",
+                "mediaId": "media-video",
+                "name": "interview.mov",
+                "start": 0,
+                "duration": 8,
+                "track": 0,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                }
+              }
+            },
+            {
+              "type": "ITEM_ADDED",
+              "itemId": "clip-music",
+              "after": {
+                "id": "clip-music",
+                "mediaId": "media-music",
+                "name": "music.wav",
+                "start": 0,
+                "duration": 8,
+                "track": -1,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                }
+              }
+            },
+            {
+              "type": "ITEM_ADDED",
+              "itemId": "title-opening",
+              "after": {
+                "id": "title-opening",
+                "name": "Framekit MVP",
+                "start": 1,
+                "duration": 3,
+                "track": 1,
+                "startTime": {
+                  "value": "1",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                }
+              }
+            }
+          ],
+          "removed": [],
+          "modified": [],
+          "durationDelta": 8,
+          "durationDeltaTime": {
+            "value": "8",
+            "timescale": "1"
+          },
+          "markerChanges": [],
+          "captionChanges": [],
+          "storyElementChanges": [
+            {
+              "type": "STORY_ELEMENT_ADDED",
+              "element": {
+                "id": "clip-video",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 8,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                },
+                "lane": 0,
+                "mediaId": "media-video"
+              },
+              "after": {
+                "id": "clip-video",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 8,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                },
+                "lane": 0,
+                "mediaId": "media-video"
+              }
+            },
+            {
+              "type": "STORY_ELEMENT_ADDED",
+              "element": {
+                "id": "clip-music",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 8,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                },
+                "lane": -1,
+                "mediaId": "media-music"
+              },
+              "after": {
+                "id": "clip-music",
+                "kind": "asset-clip",
+                "start": 0,
+                "duration": 8,
+                "startTime": {
+                  "value": "0",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "8",
+                  "timescale": "1"
+                },
+                "lane": -1,
+                "mediaId": "media-music"
+              }
+            },
+            {
+              "type": "STORY_ELEMENT_ADDED",
+              "element": {
+                "id": "title-opening",
+                "kind": "title",
+                "start": 1,
+                "duration": 3,
+                "startTime": {
+                  "value": "1",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "assetId": "title-basic",
+                "text": "Framekit MVP"
+              },
+              "after": {
+                "id": "title-opening",
+                "kind": "title",
+                "start": 1,
+                "duration": 3,
+                "startTime": {
+                  "value": "1",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "3",
+                  "timescale": "1"
+                },
+                "lane": 1,
+                "assetId": "title-basic",
+                "text": "Framekit MVP"
+              }
+            }
+          ],
+          "mediaChanges": [
+            {
+              "type": "MEDIA_ADDED",
+              "media": {
+                "mediaId": "media-video",
+                "source": "/fixtures/interview.mov",
+                "mediaKind": "video",
+                "duration": 12,
+                "sourceDigest": "sha256:video"
+              },
+              "after": {
+                "mediaId": "media-video",
+                "source": "/fixtures/interview.mov",
+                "mediaKind": "video",
+                "duration": 12,
+                "sourceDigest": "sha256:video"
+              }
+            },
+            {
+              "type": "MEDIA_ADDED",
+              "media": {
+                "mediaId": "media-music",
+                "source": "/fixtures/music.wav",
+                "mediaKind": "audio",
+                "duration": 8,
+                "sourceDigest": "sha256:music"
+              },
+              "after": {
+                "mediaId": "media-music",
+                "source": "/fixtures/music.wav",
+                "mediaKind": "audio",
+                "duration": 8,
+                "sourceDigest": "sha256:music"
+              }
+            }
+          ],
+          "affectedRanges": [
+            {
+              "start": 0,
+              "end": 8,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "8",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 8,
+              "startTime": {
+                "value": "0",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "8",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 1,
+              "end": 4,
+              "startTime": {
+                "value": "1",
+                "timescale": "1"
+              },
+              "durationTime": {
+                "value": "3",
+                "timescale": "1"
+              }
+            },
+            {
+              "start": 0,
+              "end": 8
+            },
+            {
+              "start": 0,
+              "end": 8
+            },
+            {
+              "start": 1,
+              "end": 4
+            }
+          ]
+        },
+        "afterRevision": {
+          "id": "rev-1",
+          "sequence": 1,
+          "timestamp": "1970-01-01T00:00:00.001Z"
+        },
+        "undoRevision": {
+          "id": "rev-2",
+          "sequence": 2,
+          "timestamp": "1970-01-01T00:00:00.002Z"
+        }
       }
     }
   ]
