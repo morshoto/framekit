@@ -13,6 +13,16 @@ test("canonical headed runner publishes the sanitized evidence contract", async 
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
 });
 
+test("canonical headed evidence documentation describes the sanitized review boundary", async () => {
+  const documentation = await readFile(join(process.cwd(), "docs/tests/final-cut-live-e2e.md"), "utf8");
+
+  assert.match(documentation, /sanitized evidence document/);
+  assert.match(documentation, /full Git commit/);
+  assert.match(documentation, /tool results/);
+  assert.match(documentation, /raw snapshots/);
+  assert.match(documentation, /private media paths/);
+});
+
 test("canonical headed evidence keeps mutation proof while omitting private snapshot data", () => {
   const evidence = sanitizeCanonicalEvidence(rawRun, {
     framekitVersion: "0.1.0",
