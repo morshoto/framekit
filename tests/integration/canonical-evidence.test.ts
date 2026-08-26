@@ -161,6 +161,24 @@ test("canonical headed evidence rejects metadata-only capability claims", () => 
   );
 });
 
+test("canonical headed evidence rejects path-like malformed capability values", () => {
+  const malformedRun = structuredClone(rawRun);
+  Reflect.set(malformedRun.capabilities.editor, "timelineWrite", "/Users/private/credentials.txt");
+
+  assert.throws(
+    () => sanitizeCanonicalEvidence(malformedRun, {
+      framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
+      gitCommit: "0123456789abcdef0123456789abcdef01234567",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: timelineWrite capability must be boolean/,
+  );
+});
+
 const baseRevision = (id: string, sequence: number, timestamp: string) => ({ id, sequence, timestamp });
 
 const rawRun = {

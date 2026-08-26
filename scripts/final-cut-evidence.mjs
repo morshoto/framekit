@@ -122,9 +122,18 @@ function sanitizeIdentity(identity) {
 }
 
 function sanitizeCapabilities(capabilities) {
+  const editor = pickKnown(capabilities.editor, editorCapabilityKeys);
+  const analyzers = pickKnown(capabilities.analyzers, analyzerCapabilityKeys);
+  assert(typeof editor.canonicalTimelineMode === "string", "canonicalTimelineMode capability must be a string");
+  for (const key of editorCapabilityKeys.filter((key) => key !== "canonicalTimelineMode")) {
+    if (editor[key] !== undefined) assert(typeof editor[key] === "boolean", `${key} capability must be boolean`);
+  }
+  for (const key of analyzerCapabilityKeys) {
+    if (analyzers[key] !== undefined) assert(typeof analyzers[key] === "boolean", `${key} capability must be boolean`);
+  }
   return {
-    editor: pickKnown(capabilities.editor, editorCapabilityKeys),
-    analyzers: pickKnown(capabilities.analyzers, analyzerCapabilityKeys),
+    editor,
+    analyzers,
   };
 }
 
