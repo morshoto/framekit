@@ -3,7 +3,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { ContextRevision, EditorLiveState, RationalTime } from "@framekit/runtime";
+import type { ContextRevision, EditorAsset, EditorLiveState, RationalTime } from "@framekit/runtime";
 import type { NativeOperationLease } from "./native-operation.js";
 
 const execFile = promisify(execFileCallback);
@@ -128,6 +128,49 @@ export interface NativeFinalCutMediaInsertionResult {
   undoCommand?: string;
 }
 
+export interface NativeFinalCutTitleRequest {
+  asset: EditorAsset;
+  text: string;
+  /** Omit start to place the title at the current live playhead. */
+  start?: RationalTime;
+  duration: RationalTime;
+}
+
+export interface NativeFinalCutTitlePreview {
+  previewToken: string;
+  asset: Pick<EditorAsset, "id" | "kind" | "name" | "vendor">;
+  text: string;
+  target: "playhead" | "selected-range";
+  start: RationalTime;
+  end: RationalTime;
+  duration: RationalTime;
+  sequenceId?: string;
+  revision: string;
+  command: "Add native title";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutTitleResult {
+  operationId: string;
+  previewToken: string;
+  asset: Pick<EditorAsset, "id" | "kind" | "name" | "vendor">;
+  text: string;
+  target: "playhead" | "selected-range";
+  start: RationalTime;
+  end: RationalTime;
+  duration: RationalTime;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeRevision: ContextRevision;
+  afterRevision: ContextRevision;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+  undoCommand?: string;
+}
+
 export type NativeFinalCutRangeOperation = "delete-range" | "trim-to-duration";
 
 export interface NativeFinalCutRange {
@@ -209,6 +252,7 @@ export interface NativeFinalCutCapabilities {
   trimToDuration: boolean;
   mediaAppend: boolean;
   mediaInsert: boolean;
+  titlePlacement: boolean;
   timelineFocus: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
@@ -239,7 +283,7 @@ export interface NativeFinalCutUndoResult {
   };
 }
 
-type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion";
+type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement";
 type NativeRetryValidator = (context: NativeFinalCutContext) => Promise<void> | void;
 
 interface NativeOperationRecord {
@@ -299,6 +343,8 @@ export interface NativeFinalCutEditor {
   executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
+  previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
+  executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult>;
 }
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
@@ -343,6 +389,17 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     revision: string;
     expiresAt: number;
   }>();
+  private readonly titlePreviews = new Map<string, {
+    asset: EditorAsset;
+    text: string;
+    target: "playhead" | "selected-range";
+    start: RationalTime;
+    end: RationalTime;
+    duration: RationalTime;
+    sequenceId?: string;
+    revision: string;
+    expiresAt: number;
+  }>();
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
@@ -374,6 +431,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       trimToDuration: this.enabled,
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
+      titlePlacement: this.enabled,
       timelineFocus: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
@@ -921,6 +979,153 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "insert"));
   }
 
+  public async previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview> {
+    return this.withNativeUi(() => this.previewTitleAddNative(request));
+  }
+
+  public async executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult> {
+    return this.withNativeUi(() => this.executeTitleAddNative(previewToken));
+  }
+
+  private async previewTitleAddNative(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview> {
+    this.assertEnabled();
+    assertNativeTitleAsset(request.asset);
+    if (!request.text.trim()) throw new Error("INVALID_OPERATION: native title text cannot be empty");
+
+    const context = await this.requireTimelineContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    const live = await this.requireLiveState();
+    const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    const sequenceDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    const frameDuration = live.sequence?.frameDuration;
+    if (!sequenceStart || !sequenceDuration || !frameDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence timing is unavailable");
+    if (compareRational(frameDuration, zeroRational()) <= 0) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence frame duration is invalid");
+    if (compareRational(request.duration, zeroRational()) <= 0) {
+      throw new Error("INVALID_OPERATION: native title duration must be positive");
+    }
+    if (compareRational(request.duration, frameDuration) < 0 || !isFrameAligned(request.duration, zeroRational(), frameDuration)) {
+      throw new Error("INVALID_OPERATION: native title duration must cover a whole number of sequence frames");
+    }
+
+    const start = request.start ?? live.playheadTime;
+    if (!start) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut playhead is unavailable for native title placement");
+    if (!isFrameAligned(start, sequenceStart, frameDuration)) {
+      throw new Error("INVALID_OPERATION: native title start must align to the sequence frame duration");
+    }
+    const sequenceEnd = addRational(sequenceStart, sequenceDuration);
+    const end = addRational(start, request.duration);
+    if (compareRational(start, sequenceStart) < 0 || compareRational(end, sequenceEnd) > 0) {
+      throw new Error("FINAL_CUT_NATIVE_TITLE_RANGE_OUT_OF_BOUNDS: title placement must be inside the active sequence");
+    }
+
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle("title-preview");
+    const target = request.start ? "selected-range" : "playhead";
+    this.titlePreviews.set(previewToken, {
+      asset: structuredClone(request.asset),
+      text: request.text,
+      target,
+      start: structuredClone(start),
+      end: structuredClone(end),
+      duration: structuredClone(request.duration),
+      sequenceId: live.sequence?.id,
+      revision: live.revision.id,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      asset: publicTitleAsset(request.asset),
+      text: request.text,
+      target,
+      start: structuredClone(start),
+      end: structuredClone(end),
+      duration: structuredClone(request.duration),
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      revision: live.revision.id,
+      command: "Add native title",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  private async executeTitleAddNative(previewToken: string): Promise<NativeFinalCutTitleResult> {
+    this.assertEnabled();
+    const preview = this.titlePreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown native title preview");
+    this.titlePreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native title preview has expired");
+
+    const before = await this.requireTimelineContext();
+    const beforeLive = await this.requireLiveState();
+    this.validateTitleBinding(preview, beforeLive);
+    const startTimecode = this.toTimecode(preview.start, beforeLive);
+    const endTimecode = this.toTimecode(preview.end, beforeLive);
+    try {
+      await this.executeNativeSequence(async () => {
+        await this.executor(titleAssetSelectionScript(preview.asset.name));
+        await this.focusTimelineForMediaInsertion();
+        await this.executor(setPlayheadScript(startTimecode));
+        await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
+        await this.executor(markRangeStartScript());
+        await this.executor(setPlayheadScript(endTimecode));
+        await this.waitForPlayhead(preview.end, beforeLive.sequence?.id);
+        await this.executor(markRangeEndAndConnectTitleScript());
+        await this.executor(titleTextEditScript(preview.text));
+      }, async (recovered) => {
+        const targetChanged = before.target.kind !== recovered.target.kind
+          || before.target.name !== recovered.target.name
+          || before.target.role !== recovered.target.role;
+        if (targetChanged) throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection changed during focus recovery");
+        this.validateTitleBinding(preview, await this.requireLiveState());
+      });
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+
+    const after = await this.requireTimelineContext();
+    const afterLive = await this.waitForRevision(beforeLive.revision.id);
+    const verification = verifyNativeTitle(preview, beforeLive, after, afterLive);
+    const operationId = opaqueHandle("native-title");
+    const operation = {
+      kind: "title-placement" as const,
+      before,
+      after,
+      beforeLive,
+      afterLive,
+      undoCommand: after.undoCommand,
+    } satisfies NativeOperationRecord;
+    if (!verification.verified) {
+      if (afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
+        this.rememberOperation(operationId, operation);
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; title placement was rolled back`);
+      }
+      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+    }
+
+    this.rememberOperation(operationId, operation);
+    return {
+      operationId,
+      previewToken,
+      asset: publicTitleAsset(preview.asset),
+      text: preview.text,
+      target: preview.target,
+      start: structuredClone(preview.start),
+      end: structuredClone(preview.end),
+      duration: structuredClone(preview.duration),
+      before,
+      after,
+      beforeRevision: beforeLive.revision,
+      afterRevision: afterLive.revision,
+      verification,
+      undoAvailable: after.undoAvailable,
+      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+    };
+  }
+
   private async previewMediaInsertionNative(
     operation: NativeFinalCutMediaInsertionOperation,
     mediaHandle: string,
@@ -1241,12 +1446,34 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
+  private validateTitleBinding(
+    preview: { sequenceId?: string; revision: string; start: RationalTime; target: "playhead" | "selected-range" },
+    live: EditorLiveState,
+  ): void {
+    if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+    if (live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+    if (preview.target === "playhead" && (!live.playheadTime || compareRational(live.playheadTime, preview.start) !== 0)) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead changed");
+    }
+  }
+
   private async waitForMediaInsertion(expectedBeforeDuration: RationalTime, previousRevision: string): Promise<EditorLiveState> {
     const deadline = this.now() + 5_000;
     let latest = await this.requireLiveState();
     while (this.now() < deadline) {
       const duration = latest.sequenceTimeRange?.duration ?? latest.sequence?.duration;
       if (duration && compareRational(duration, expectedBeforeDuration) > 0 && latest.revision.id !== previousRevision) return latest;
+      await this.sleep(100);
+      latest = await this.requireLiveState();
+    }
+    return latest;
+  }
+
+  private async waitForRevision(previousRevision: string): Promise<EditorLiveState> {
+    const deadline = this.now() + 5_000;
+    let latest = await this.requireLiveState();
+    while (this.now() < deadline) {
+      if (latest.revision.id !== previousRevision) return latest;
       await this.sleep(100);
       latest = await this.requireLiveState();
     }
@@ -1342,7 +1569,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     let latest = await this.requireLiveState();
     while (this.now() < deadline) {
       if ((!sequenceId || latest.sequence?.id === sequenceId) && latest.playheadTime && compareRational(latest.playheadTime, expected) === 0) return latest;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await this.sleep(100);
       latest = await this.requireLiveState();
     }
     throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_VERIFICATION_FAILED: Final Cut did not move to the requested frame");
@@ -1524,6 +1751,47 @@ function verifyNativeUndo(
     };
   }
   return { verified: true, detail: "Final Cut restored the native edit's pre-operation state" };
+}
+
+function assertNativeTitleAsset(asset: EditorAsset): void {
+  if (!asset.id.trim() || !asset.name.trim()) throw new Error("TITLE_ASSET_NOT_FOUND: native title asset identity is incomplete");
+  if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${asset.id} is not a Final Cut title asset`);
+}
+
+function publicTitleAsset(asset: EditorAsset): Pick<EditorAsset, "id" | "kind" | "name" | "vendor"> {
+  return { id: asset.id, kind: asset.kind, name: asset.name, vendor: asset.vendor };
+}
+
+function verifyNativeTitle(
+  preview: {
+    asset: EditorAsset;
+    text: string;
+    start: RationalTime;
+    end: RationalTime;
+    duration: RationalTime;
+  },
+  beforeLive: EditorLiveState,
+  after: NativeFinalCutContext,
+  afterLive: EditorLiveState,
+): NativeFinalCutTitleResult["verification"] {
+  if (afterLive.revision.id === beforeLive.revision.id) {
+    return { verified: false, detail: "Final Cut did not expose a new revision after native title placement" };
+  }
+  if (after.target.kind !== "selected-clip") {
+    return { verified: false, detail: "Final Cut did not expose the inserted title as the selected timeline item" };
+  }
+  const observedName = after.target.name ?? "";
+  if (!observedName.toLowerCase().includes(preview.asset.name.toLowerCase())
+    && !observedName.toLowerCase().includes(preview.text.toLowerCase())) {
+    return { verified: false, detail: `Final Cut selected ${observedName || "an unnamed item"}, not ${preview.asset.name}` };
+  }
+  if (!after.undoAvailable || !after.undoCommand) {
+    return { verified: false, detail: "Final Cut did not expose an Undo command for the native title placement" };
+  }
+  return {
+    verified: true,
+    detail: `Final Cut selected ${preview.asset.name} for ${preview.start.value}/${preview.start.timescale}-${preview.end.value}/${preview.end.timescale} (${preview.duration.value}/${preview.duration.timescale}) at revision ${afterLive.revision.id}`,
+  };
 }
 
 async function runAppleScript(script: string, options: NativeFinalCutExecutorOptions = {}): Promise<string> {
@@ -2750,6 +3018,162 @@ tell application "System Events"
 end tell`;
 }
 
+function titleAssetSelectionScript(assetName: string): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set mainOrigin to position of mainWindow
+    -- Final Cut 10.7 exposes the Titles tab as a custom Browser control. Its
+    -- Control-Command-1 shortcut is not stable across releases (on some
+    -- builds it opens Export), so use the bounded window-relative fallback.
+    click at {(item 1 of mainOrigin) + 104, (item 2 of mainOrigin) + 53}
+    delay 0.3
+    set titleSearchField to missing value
+    repeat with candidate in entire contents of front window
+      try
+        set candidateRole to role of candidate as text
+        set candidateDescription to description of candidate as text
+        if (candidateRole is "AXTextField" or candidateRole is "AXSearchField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
+          set titleSearchField to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if titleSearchField is missing value then
+      -- The Browser search field is custom UI in some Final Cut builds and is
+      -- not present in the Accessibility tree. Focus its bounded position.
+      click at {(item 1 of mainOrigin) + 280, (item 2 of mainOrigin) + 83}
+      keystroke "a" using {command down}
+      key code 51
+      keystroke ${appleScriptString(assetName)}
+    else
+      set value of titleSearchField to ${appleScriptString(assetName)}
+      try
+        set value of attribute "AXFocused" of titleSearchField to true
+      end try
+    end if
+    delay 0.6
+    if titleSearchField is missing value then
+      -- An exact search leaves one result in the first title-grid slot. Final
+      -- Cut opens the category sidebar when the Titles tab is activated, so
+      -- the result begins after that sidebar.
+      click at {(item 1 of mainOrigin) + 240, (item 2 of mainOrigin) + 145}
+    else
+      set exactTitleItem to missing value
+      set containingTitleItem to missing value
+      set exactMatchCount to 0
+      set containingMatchCount to 0
+      set seenTitleIdentities to {}
+      repeat with candidate in entire contents of front window
+        try
+          set candidateRole to role of candidate as text
+          set candidateName to name of candidate as text
+          set candidateIdentity to ""
+          try
+            set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+            if candidateSourceIdentity is not "" then set candidateIdentity to "source:" & candidateSourceIdentity
+          end try
+          if candidateIdentity is "" then
+            set candidateIdentity to (candidateRole as text) & "|" & (candidateName as text) & "|" & ((position of candidate) as text) & "|" & ((size of candidate) as text)
+          end if
+          if (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}) and seenTitleIdentities does not contain candidateIdentity then
+            set end of seenTitleIdentities to candidateIdentity
+            if candidateName is ${appleScriptString(assetName)} then
+              set exactMatchCount to exactMatchCount + 1
+              set exactTitleItem to candidate
+            else
+              set containingMatchCount to containingMatchCount + 1
+              set containingTitleItem to candidate
+            end if
+          end if
+        end try
+      end repeat
+      set titleItem to missing value
+      if exactMatchCount is 1 then
+        set titleItem to exactTitleItem
+      else if exactMatchCount is greater than 1 then
+        error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple exact title matches were visible in the Titles browser"
+      else if containingMatchCount is 1 then
+        set titleItem to containingTitleItem
+      else if containingMatchCount is greater than 1 then
+        error "FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS: multiple title matches were visible in the Titles browser"
+      end if
+      if titleItem is missing value then error "FINAL_CUT_NATIVE_TITLE_ASSET_NOT_FOUND: installed title was not visible in the Titles browser"
+      try
+        perform action "AXPress" of titleItem
+      on error
+        click titleItem
+      end try
+    end if
+  end tell
+end tell`;
+}
+
+function markRangeEndAndConnectTitleScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    keystroke "o"
+    delay 0.2
+    keystroke "q"
+    delay 0.5
+  end tell
+end tell`;
+}
+
+function titleTextEditScript(text: string): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set mainWindow to window "Final Cut Pro"
+    set mainOrigin to position of mainWindow
+    set mainSize to size of mainWindow
+    -- Connecting a title leaves the Browser selection active on some Final
+    -- Cut builds. Select the connected title before opening its text controls.
+    -- The live insertion flow places the requested title at the sequence
+    -- start, which is the bounded leftmost connected-title slot here.
+    keystroke "a"
+    delay 0.1
+    set titleX to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.11)
+    set titleY to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.74)
+    click at {titleX, titleY}
+    delay 0.1
+    click at {titleX, titleY}
+    delay 0.2
+    keystroke "4" using {command down}
+    delay 0.3
+    -- The Text inspector is a custom control in Final Cut 10.7 and is not
+    -- exposed as an Accessibility text field until this tab is selected.
+    click at {(item 1 of mainOrigin) + (item 1 of mainSize) - 385, (item 2 of mainOrigin) + 53}
+    delay 0.2
+    set titleTextField to missing value
+    repeat with candidate in text fields of front window
+      try
+        set candidateName to name of candidate as text
+        set candidateDescription to description of candidate as text
+        if candidateName contains "Title" or candidateDescription contains "Title" then
+          set titleTextField to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if titleTextField is missing value then
+      -- Final Cut 10.7 keeps the editable title value in a custom control.
+      -- Focus its bounded Inspector position and use normal text editing.
+      click at {(item 1 of mainOrigin) + (item 1 of mainSize) - 215, (item 2 of mainOrigin) + 154}
+      keystroke "a" using {command down}
+      key code 51
+      keystroke ${appleScriptString(text)}
+    else
+      set value of titleTextField to ${appleScriptString(text)}
+    end if
+  end tell
+end tell`;
+}
+
 function setPlayheadScript(timecode: string): string {
   return `
 tell application "System Events"
@@ -2829,7 +3253,8 @@ function parseContext(output: string): NativeFinalCutContext {
     ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
     : selectedCount > 1
       ? { kind: "unknown" as const }
-      : focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title") && focusedName
+      : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")
+        || focusedRole === "AXTextArea" && focusedDescription === "text entry area") && focusedName
         ? { kind: "selected-clip" as const, name: focusedName, role: focusedRole }
       : { kind: "playhead" as const };
   return {
@@ -2955,6 +3380,13 @@ function compareRational(left: RationalTime, right: RationalTime): number {
   const [rightValue, rightScale] = rationalParts(right);
   const difference = leftValue * rightScale - rightValue * leftScale;
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function isFrameAligned(value: RationalTime, origin: RationalTime, frameDuration: RationalTime): boolean {
+  const relative = subtractRational(value, origin);
+  const [valueNumerator, valueDenominator] = rationalParts(relative);
+  const [frameNumerator, frameDenominator] = rationalParts(frameDuration);
+  return (valueNumerator * frameDenominator) % (valueDenominator * frameNumerator) === 0n;
 }
 
 function divideRationalFloor(value: RationalTime, divisor: RationalTime): bigint {

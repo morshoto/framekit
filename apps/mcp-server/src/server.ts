@@ -123,6 +123,12 @@ const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set-selected-clip-gain"), gainDb: z.number().finite() }),
   z.object({ type: z.literal("add-marker-at-playhead"), name: z.string().min(1), duration: z.number().nonnegative().optional() }),
 ]);
+const nativeTitlePreviewSchema = {
+  assetId: z.string().min(1),
+  text: z.string().trim().min(1),
+  start: rationalTimeSchema.optional(),
+  duration: rationalTimeSchema,
+};
 const exportExpectationSchema = z.object({
   durationSeconds: z.number().positive().optional(),
   durationToleranceSeconds: z.number().nonnegative().optional(),
@@ -245,6 +251,23 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (operation) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
     return jsonResult(await options.nativeEditor.edit(operation));
+  });
+
+  server.registerTool("editor.native.title.add.preview", {
+    description: "Preview adding an installed Final Cut title at the live playhead or an explicit timeline range.",
+    inputSchema: nativeTitlePreviewSchema,
+  }, async ({ assetId, text, start, duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
+    const asset = await resolveNativeTitleAsset(runtime, assetId);
+    return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }));
+  });
+
+  server.registerTool("editor.native.title.add.execute", {
+    description: "Execute a previously previewed native Final Cut title placement and return its verification and Undo handle.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
+    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
   });
 
   server.registerTool("editor.native.undo", {
@@ -555,4 +578,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ transactionId }) => jsonResult(await runtime.undo(transactionId)));
 
   return server;
+}
+
+async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: string) {
+  const assets = await runtime.listAssets();
+  const asset = assets.find((candidate) => candidate.id === assetId);
+  if (!asset) throw new Error(`TITLE_ASSET_NOT_FOUND: installed title asset ${assetId} was not discovered`);
+  if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${assetId} is not an installed Final Cut title asset`);
+  return asset;
 }

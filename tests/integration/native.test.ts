@@ -121,6 +121,196 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
+test("native Final Cut adapter previews and inserts a title at the playhead with text and placement verification", async () => {
+  const scripts: string[] = [];
+  let revision = 1;
+  let playhead = "5";
+  let pendingPlayhead: string | undefined;
+  let playheadPolls = 0;
+  let titleAdded = false;
+  const liveState = async () => {
+    if (pendingPlayhead) {
+      if (playheadPolls > 0) {
+        playhead = pendingPlayhead;
+        pendingPlayhead = undefined;
+      } else {
+        playheadPolls += 1;
+      }
+    }
+    return {
+      project: { id: "project-1", name: "Edit" },
+      sequence: {
+        id: "sequence-1",
+        name: "Edit",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      playheadTime: { value: playhead, timescale: "1" },
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+      },
+      revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+    };
+  };
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:05:00")) {
+        pendingPlayhead = "5";
+        playheadPolls = 0;
+      }
+      if (script.includes("00:00:08:00")) {
+        pendingPlayhead = "8";
+        playheadPolls = 0;
+      }
+      if (script.includes('keystroke "i"')) assert.equal(playhead, "5");
+      if (script.includes('keystroke "o"')) assert.equal(playhead, "8");
+      if (script.includes("Framekit Native Title")) {
+        titleAdded = true;
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Native Title"')) {
+        titleAdded = false;
+        revision = 3;
+      }
+      if (script.includes("timelineWindowAvailable")) {
+        return context(
+          true,
+          "Final Cut Pro",
+          titleAdded ? "Lower Third" : "",
+          titleAdded ? 1 : 0,
+          true,
+          true,
+          true,
+          "timeline",
+          1,
+          titleAdded ? "Undo Native Title" : "",
+        );
+      }
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewTitleAdd({
+    asset: {
+      id: "/Motion Templates.localized/Titles.localized/Lower Third.moti",
+      kind: "title",
+      name: "Lower Third",
+      vendor: "Framekit Fixture",
+      metadata: {},
+    },
+    text: "Framekit Native Title",
+    duration: { value: "3", timescale: "1" },
+  });
+
+  assert.equal(preview.target, "playhead");
+  assert.deepEqual(preview.start, { value: "5", timescale: "1" });
+  assert.deepEqual(preview.end, { value: "8", timescale: "1" });
+
+  const result = await adapter.executeTitleAdd(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.deepEqual(result.duration, { value: "3", timescale: "1" });
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.some((script) => script.includes("click at {(item 1 of mainOrigin) + 104, (item 2 of mainOrigin) + 53}")), true);
+  assert.equal(scripts.some((script) => script.includes('set value of attribute "AXFocused" of titleSearchField to true')), true);
+  assert.equal(scripts.some((script) => script.includes("set titleY") && script.includes("* 0.74")), true);
+  assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 385")), true);
+  assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 215")), true);
+  assert.equal(scripts.some((script) => script.includes("Lower Third")), true);
+  assert.equal(scripts.some((script) => script.includes("Framekit Native Title")), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "i"')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "o"')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "q"')), true);
+  assert.equal(scripts.some((script) => script.includes("FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS")), true);
+
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Native Title" of menu "Edit"')), true);
+});
+
+test("native title previews bind explicit selected ranges and reject incompatible or out-of-bounds assets", async () => {
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "5", timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? context(true, "Final Cut Pro", "", 0, true)
+      : "",
+  });
+  const title = {
+    id: "/Motion Templates.localized/Titles.localized/Lower Third.moti",
+    kind: "title" as const,
+    name: "Lower Third",
+    vendor: "Framekit Fixture",
+    metadata: {},
+  };
+
+  const preview = await adapter.previewTitleAdd({
+    asset: title,
+    text: "Selected Range",
+    start: { value: "4", timescale: "1" },
+    duration: { value: "2", timescale: "1" },
+  });
+  assert.equal(preview.target, "selected-range");
+  assert.deepEqual(preview.start, { value: "4", timescale: "1" });
+  assert.deepEqual(preview.end, { value: "6", timescale: "1" });
+
+  await assert.rejects(
+    adapter.previewTitleAdd({
+      asset: { ...title, kind: "effect" },
+      text: "Wrong kind",
+      duration: { value: "1", timescale: "1" },
+    }),
+    /TITLE_ASSET_INCOMPATIBLE/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({
+      asset: title,
+      text: "Outside sequence",
+      start: { value: "19", timescale: "1" },
+      duration: { value: "2", timescale: "1" },
+    }),
+    /FINAL_CUT_NATIVE_TITLE_RANGE_OUT_OF_BOUNDS/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "   ", duration: { value: "1", timescale: "1" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Zero duration", duration: { value: "0", timescale: "1" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Sub-frame", duration: { value: "1", timescale: "1000" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Misaligned start", start: { value: "1", timescale: "1000" }, duration: { value: "1", timescale: "24" } }),
+    /INVALID_OPERATION/,
+  );
+});
+
 test("native Final Cut Undo recovers when frontmost is lost after preflight", async () => {
   let preflightCalls = 0;
   let undoCalls = 0;

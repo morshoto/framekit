@@ -55,9 +55,12 @@ and do not change the canonical `timelineWrite` or `timelineSnapshotRead`
 capability flags. With the same opt-in, the native path can import local video or
 audio, wait for the asset to appear in the active Browser, return a stable
 session media handle, search/select Browser media, locate a unique timeline
-occurrence, and Blade it at the playhead. Imported media handles are session
-stable; timeline occurrence handles remain short-lived and are not canonical
-timeline identities.
+occurrence, Blade it at the playhead, and add a discovered native title with
+text at the playhead or an explicit range. Imported media handles are session
+stable; timeline occurrence and native title operation handles remain short-lived
+and are not canonical timeline identities. Native title placement is reported
+separately as `titlePlacement` and never upgrades the live Workflow Extension's
+canonical timeline capabilities.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `timelinePublishNewProject` allows a verified artifact to be imported as a new
