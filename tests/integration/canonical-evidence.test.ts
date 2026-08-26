@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { join } from "node:path";
 import { sanitizeCanonicalEvidence } from "../../scripts/final-cut-evidence.mjs";
+
+test("canonical headed runner publishes the sanitized evidence contract", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
+
+  assert.match(runner, /sanitizeCanonicalEvidence/);
+  assert.match(runner, /gitCommit/);
+  assert.match(runner, /editStatus: transaction\.status/);
+  assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
+});
 
 test("canonical headed evidence keeps mutation proof while omitting private snapshot data", () => {
   const evidence = sanitizeCanonicalEvidence(rawRun, {

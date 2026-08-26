@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import os from "node:os";
+import { execFile as execFileCallback } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import { sanitizeCanonicalEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const execFile = promisify(execFileCallback);
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
 const clipId = process.env.FRAMEKIT_FINAL_CUT_E2E_CLIP_ID;
 
@@ -59,19 +65,21 @@ try {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
   }
 
-  process.stdout.write(`${JSON.stringify({
+  const evidence = sanitizeCanonicalEvidence({
     passed: true,
     recordedAt: new Date().toISOString(),
     editor: editor.identity,
     capabilities: editor.capabilities,
     project: { id: before.projectId, name: before.projectName, sequenceId: before.timeline.id },
     target: { occurrenceId: target.id, mediaId: target.mediaId },
+    editStatus: transaction.status,
     before,
     after: transaction.after,
     diff: transaction.diff,
     restored,
     digests: { before: beforeDigest, restored: restoredDigest },
-  }, null, 2)}\n`);
+  }, await evidenceEnvironment());
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
   if (transactionId) {
     try {
@@ -117,4 +125,23 @@ function stableJson(value) {
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function evidenceEnvironment() {
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  let gitCommit;
+  try {
+    gitCommit = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_COMMIT_UNAVAILABLE: ${String(error)}`);
+  }
+  if (!gitCommit) throw new Error("FINAL_CUT_E2E_COMMIT_UNAVAILABLE: git returned an empty commit");
+  return {
+    framekitVersion: packageJson.version,
+    gitCommit,
+    nodeVersion: process.version,
+    platform: process.platform,
+    architecture: process.arch,
+    osVersion: os.version(),
+  };
 }
