@@ -1,4 +1,5 @@
 import type {
+  Caption,
   Clip,
   ContextChangeSet,
   ContextRevision,
@@ -28,6 +29,7 @@ export interface InMemoryProjectFixture {
   clips: Array<Omit<Clip, "startTime" | "durationTime"> & Partial<Pick<Clip, "startTime" | "durationTime">>>;
   media?: MediaContext[];
   markers?: Marker[];
+  captions?: Caption[];
   assets?: EditorAsset[];
   frames?: Array<{
     position: RationalTime;
@@ -502,7 +504,7 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
         mediaId: clip.mediaId,
       })),
       markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
-      captions: [],
+      captions: (fixture.captions ?? []).map((caption) => normalizeCaption(caption)),
     },
     media: structuredClone(fixture.media ?? []),
     revision: {
@@ -531,6 +533,10 @@ function withClipTime(clip: Omit<Clip, "startTime" | "durationTime"> & Partial<P
 
 function normalizeMarker(marker: Marker): Marker {
   return { ...marker, startTime: marker.startTime ?? decimalToRational(marker.start), durationTime: marker.durationTime ?? decimalToRational(marker.duration) };
+}
+
+function normalizeCaption(caption: Caption): Caption {
+  return { ...caption, startTime: caption.startTime ?? decimalToRational(caption.start), durationTime: caption.durationTime ?? decimalToRational(caption.duration) };
 }
 
 function decimalToRational(value: number): RationalTime {
