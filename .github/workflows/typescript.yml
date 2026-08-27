@@ -78,3 +78,14 @@ jobs:
 
       - name: Run deterministic MCP evaluation
         run: pnpm run evaluate
+
+      - name: Run filler-removal benchmark
+        run: pnpm run benchmark:filler-removal -- --output-dir artifacts/filler-removal/${{ github.run_id }}
+
+      - name: Upload filler-removal benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: filler-removal-benchmark-${{ github.run_id }}
+          path: artifacts/filler-removal/${{ github.run_id }}
+          if-no-files-found: warn

@@ -162,6 +162,21 @@ export async function runFillerRemovalBenchmark(
   };
 }
 
+export function renderFillerRemovalReport(report: FillerRemovalBenchmarkReport): string {
+  const categories = Object.entries(report.summary.failureCategories)
+    .map(([category, count]) => `${category}=${count}`)
+    .join(" ");
+  return [
+    "Filler-removal benchmark",
+    `corpus_version=${report.corpusVersion}`,
+    `metric=${report.metric}`,
+    `verification_success_rate=${formatPercent(report.summary.verificationSuccessRate)}`,
+    `threshold=${formatPercent(report.summary.threshold.minimum)} threshold_passed=${report.summary.threshold.passed}`,
+    `scenarios=${report.summary.totalScenarios} passed=${report.summary.passedScenarios} failed=${report.summary.failedScenarios}`,
+    `failure_categories=${categories}`,
+  ].join("\n");
+}
+
 export function summarizeFillerRemovalResults(results: FillerRemovalRawResult[]): FillerRemovalSummary {
   const failureCategories: Record<FillerRemovalFailureCategory, number> = {
     boundary: 0,
@@ -338,6 +353,10 @@ function transcriptMatches(expected: string[], actual: string[]): boolean {
 function classifyError(error: unknown): FillerRemovalFailureCategory {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("FILLER_") ? "planning" : "execution";
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function assertCorpus(value: unknown): asserts value is FillerRemovalCorpus {
