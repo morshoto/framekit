@@ -46,10 +46,22 @@ test("headed overlay probe reports actionable Accessibility diagnostics", async 
   }
 });
 
+test("headed overlay probe fails closed unless visibility is explicitly verified", async () => {
+  const { ensureFramekitWindowVisible } = await import(accessibilityModulePath);
+
+  for (const stdout of ["true", "", "unexpected"] as const) {
+    await assert.rejects(
+      ensureFramekitWindowVisible(async () => ({ stdout })),
+      /FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE: the Framekit window could not be made visible/i,
+    );
+  }
+});
+
 test("headed runner delegates overlay preparation to the bounded probe", async () => {
   const runner = await readFile(runnerPath, "utf8");
 
   assert.match(runner, /final-cut-overlay-accessibility\.mjs/);
   assert.match(runner, /ensureFramekitWindowVisible/);
   assert.doesNotMatch(runner, /window "Framekit"/);
+  assert.ok(runner.indexOf("ensureFramekitWindowVisible()") < runner.indexOf('callJson("editor.native.trim-to-duration.preview"'));
 });
