@@ -8,6 +8,8 @@ import { FcpxmlDocumentAdapter, FinalCutLiveAdapter, FinalCutSessionAdapter, typ
 import { AgentVideoRuntime, type EditorChange, type EditorLiveState } from "@framekit/runtime";
 
 class FakeFinalCutLiveTransport {
+  public constructor(private readonly invalidState = false) {}
+
   public readonly requests: FinalCutLiveRequest[] = [];
   private readonly state: EditorLiveState = {
     project: { id: "project-live-1", name: "Framekit Phase 1 E2E" },
@@ -28,6 +30,9 @@ class FakeFinalCutLiveTransport {
 
   public async request(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> {
     this.requests.push(request);
+    const state = this.invalidState
+      ? { ...this.state, playheadTime: { value: "0", timescale: "0" } }
+      : this.state;
     const identity = { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" };
     const capabilities = {
       editor: {
@@ -47,11 +52,11 @@ class FakeFinalCutLiveTransport {
       analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
     };
     if (request.method === "capabilities") return { version: 1, id: request.id, ok: true, result: { identity, capabilities } };
-    if (request.method === "state") return { version: 1, id: request.id, ok: true, result: { identity, capabilities, state: this.state } };
+    if (request.method === "state") return { version: 1, id: request.id, ok: true, result: { identity, capabilities, state } };
     const change: EditorChange = {
       kind: "playhead-changed",
-      revision: this.state.revision,
-      state: this.state,
+      revision: state.revision,
+      state,
     };
     return { version: 1, id: request.id, ok: true, result: { identity, capabilities, changes: request.afterSequence === 2 ? [] : [change] } };
   }
@@ -134,6 +139,23 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   assert.match(await readFile(path, "utf8"), /adjust-volume amount="2dB"/);
 });
 
+test("FCPXML runtime rolls back an artifact after verification failure", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-rollback-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-rollback" name="Rollback"><sequence uid="sequence-rollback" duration="2s"><spine><asset-clip name="Original" offset="0s" duration="2s" /></spine></sequence></project></event></library></fcpxml>`);
+
+  const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+  const before = await runtime.inspectProject();
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Must Roll Back" },
+    { maxTruePeakDb: -6 },
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal((await runtime.inspectProject()).timeline.clips[0]?.name, "Original");
+  assert.match(await readFile(path, "utf8"), /name="Original"/);
+});
+
 test("FCPXML project identity fails closed without an immutable uid", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-project-identity-"));
   const path = join(directory, "project.fcpxml");
@@ -210,6 +232,7 @@ test("FCPXML preserves heterogeneous spine order and distinct clip occurrences",
     <title offset="3s" duration="1s" name="Card" />
     <asset-clip ref="r1" offset="4s" duration="2s" />
     <transition offset="6s" duration="1s" />
+    <caption id="caption-1" start="6s" duration="1s" text="Hello" />
     <ref-clip ref="r1" offset="7s" duration="1s" />
   </spine></sequence></project></event></library></fcpxml>`);
 
@@ -219,6 +242,15 @@ test("FCPXML preserves heterogeneous spine order and distinct clip occurrences",
     "asset-clip", "gap", "title", "asset-clip", "transition", "ref-clip",
   ]);
   assert.equal(before.timeline.clips.length, 3);
+  assert.equal(before.timeline.clips[0]?.mediaId, "r1");
+  assert.deepEqual(before.timeline.captions, [{
+    id: "caption-1",
+    start: 6,
+    duration: 1,
+    startTime: { value: "6", timescale: "1" },
+    durationTime: { value: "1", timescale: "1" },
+    text: "Hello",
+  }]);
   assert.equal(new Set(before.timeline.clips.map((clip) => clip.id)).size, 3);
   assert.deepEqual(before.timeline.clips.map((clip) => clip.mediaId), ["r1", "r1", "r1"]);
 
@@ -311,6 +343,16 @@ test("Final Cut live adapter reads native state and incremental events", async (
   assert.equal((await adapter.getCapabilities()).editor.timelineSnapshotRead, false);
   assert.equal((await adapter.liveChangesSince({ id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() })).length, 1);
   assert.deepEqual(transport.requests.map(({ method }) => method), ["state", "capabilities", "changes"]);
+});
+
+test("Final Cut live adapter rejects unavailable rational times", async () => {
+  const adapter = new FinalCutLiveAdapter(new FakeFinalCutLiveTransport(true));
+
+  await assert.rejects(adapter.readLiveState(), /positive timescale/);
+  await assert.rejects(
+    adapter.liveChangesSince({ id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() }),
+    /positive timescale/,
+  );
 });
 
 test("Phase 1 verifies successful transactions and supports undo", async () => {

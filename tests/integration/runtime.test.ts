@@ -30,6 +30,7 @@ test("Phase 0 proves read, write, read-after-write, and diff", async () => {
   assert.equal(transaction.status, "VERIFIED");
   assert.equal(transaction.before.timeline.clips[0]?.name, "Interview");
   assert.equal(transaction.after.timeline.clips[0]?.name, "Interview - Clean");
+  assert.equal(transaction.diff.affectedRanges.length, 1);
   assert.deepEqual(transaction.diff.modified, [
     {
       type: "ITEM_MODIFIED",

@@ -12,11 +12,12 @@ Phase 1 extends the deterministic runtime with:
 - ripple-delete, marker, and signal verification policies;
 - MCP exposure of the runtime.
 
-Run:
+Run from the repository root:
 
 ```sh
-npm test
+pnpm run test
 ```
 
-The full suite passed 20 tests on 2026-08-16. These tests exercise runtime and
-adapter contracts without exporting media.
+The full suite exercises the runtime, MCP, and Final Cut adapter contracts.
+These tests do not substitute for headed native mutation evidence or the
+quantitative filler-removal benchmark in the checklist.
