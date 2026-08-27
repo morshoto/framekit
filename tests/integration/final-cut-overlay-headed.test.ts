@@ -75,5 +75,5 @@ test("headed overlay documentation explains Accessibility recovery diagnostics",
   assert.match(documentation, /FINAL_CUT_E2E_OVERLAY_WRONG_PROCESS/);
   assert.match(documentation, /FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING/);
   assert.match(documentation, /FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE/);
-  assert.match(documentation, /does not expose private paths or media/i);
+  assert.match(documentation, /do not expose private paths\s+or media/i);
 });
