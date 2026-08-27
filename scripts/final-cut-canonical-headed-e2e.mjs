@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import os from "node:os";
+import { execFile as execFileCallback } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import { sanitizeCanonicalEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const execFile = promisify(execFileCallback);
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
 const clipId = process.env.FRAMEKIT_FINAL_CUT_E2E_CLIP_ID;
 
@@ -29,11 +35,13 @@ let transactionId;
 try {
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
+  const toolResults = [{ name: "editor.inspect", status: "passed" }];
   if (editor.capabilities?.editor?.canonicalTimelineMode !== "canonical-write") {
     throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${editor.capabilities?.editor?.canonicalTimelineMode ?? "unknown"}; canonical-write is required`);
   }
 
   const before = await callJson("project.inspect");
+  toolResults.push({ name: "project.inspect", status: "passed" });
   if (before.projectName !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${before.projectName ?? "unknown"}`);
   }
@@ -47,31 +55,36 @@ try {
     name: `${target.name} [Framekit E2E]`,
     baseRevision: before.revision,
   });
+  toolResults.push({ name: "timeline.edit", status: transaction.status });
   transactionId = transaction.id;
   if (transaction.status !== "VERIFIED" || transaction.diff?.modified?.[0]?.itemId !== clipId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: live edit did not return the expected verified diff");
   }
 
   const restored = await callJson("edit.undo", { transactionId });
+  toolResults.push({ name: "edit.undo", status: "passed" });
   transactionId = undefined;
   const restoredDigest = canonicalDigest(restored);
   if (restoredDigest !== beforeDigest) {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
   }
 
-  process.stdout.write(`${JSON.stringify({
+  const evidence = sanitizeCanonicalEvidence({
     passed: true,
     recordedAt: new Date().toISOString(),
     editor: editor.identity,
     capabilities: editor.capabilities,
     project: { id: before.projectId, name: before.projectName, sequenceId: before.timeline.id },
     target: { occurrenceId: target.id, mediaId: target.mediaId },
+    toolResults,
+    editStatus: transaction.status,
     before,
     after: transaction.after,
     diff: transaction.diff,
     restored,
     digests: { before: beforeDigest, restored: restoredDigest },
-  }, null, 2)}\n`);
+  }, await evidenceEnvironment());
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
   if (transactionId) {
     try {
@@ -117,4 +130,34 @@ function stableJson(value) {
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function evidenceEnvironment() {
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  let gitCommit;
+  try {
+    gitCommit = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_COMMIT_UNAVAILABLE: ${String(error)}`);
+  }
+  if (!gitCommit) throw new Error("FINAL_CUT_E2E_COMMIT_UNAVAILABLE: git returned an empty commit");
+  return {
+    framekitVersion: packageJson.version,
+    finalCutVersion: await finalCutVersion(),
+    gitCommit,
+    nodeVersion: process.version,
+    platform: process.platform,
+    architecture: process.arch,
+    osVersion: os.version(),
+  };
+}
+
+async function finalCutVersion() {
+  try {
+    const version = (await execFile("osascript", ["-e", 'tell application "Final Cut Pro" to get version'])).stdout.trim();
+    if (version) return version;
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: ${String(error)}`);
+  }
+  throw new Error("FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: Final Cut Pro returned an empty version");
 }
