@@ -20,6 +20,8 @@ test("headed overlay probe discovers Framekit windows owned by Final Cut", async
   assert.match(scripts[0], /repeat with candidateWindow in windows/);
   assert.match(scripts[0], /candidateWindowName contains "Framekit"/);
   assert.match(scripts[0], /set framekitWindow to contents of candidateWindow/);
+  assert.match(scripts[0], /set finalCutProcess to process "Final Cut Pro"/);
+  assert.match(scripts[0], /end tell\s+if framekitWindow is missing value[\s\S]*repeat with candidateProcess in processes/);
   assert.doesNotMatch(scripts[0], /window "Framekit"/);
 });
 
