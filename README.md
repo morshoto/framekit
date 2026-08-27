@@ -60,6 +60,7 @@ edit Final Cut through macOS UI automation. See the
 
 - [Documentation index](./docs/README.md)
 - [Architecture](./docs/ARCHITECTURE.md)
+- [Clean Codex and Claude Code MCP validation](./docs/tests/clean-mcp-clients.md)
 
 ## Development
 
