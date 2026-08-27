@@ -168,16 +168,30 @@ function assertRationalTiming(items: TimedSnapshotItem[], label: string): void {
 
 function rationalMatchesNumber(time: RationalTime | undefined, seconds: number): boolean {
   if (!time || !Number.isFinite(seconds) || typeof time.value !== "string" || typeof time.timescale !== "string") return false;
-  const [whole, fraction = ""] = seconds.toString().split(".");
   try {
-    const numericValue = BigInt(`${whole}${fraction}`);
-    const numericScale = 10n ** BigInt(fraction.length);
     const value = BigInt(time.value);
     const timescale = BigInt(time.timescale);
-    return timescale > 0n && value * numericScale === numericValue * timescale;
+    if (timescale <= 0n) return false;
+    const numeric = numberAsRational(seconds);
+    const tolerance = Number.EPSILON * 8 * Math.max(1, Math.abs(seconds));
+    if (!Number.isFinite(tolerance)) return value * numeric.scale === numeric.value * timescale;
+    const toleranceRational = numberAsRational(tolerance);
+    const difference = (value * numeric.scale - numeric.value * timescale);
+    return (difference < 0n ? -difference : difference) * toleranceRational.scale
+      <= toleranceRational.value * timescale * numeric.scale;
   } catch {
     return false;
   }
+}
+
+function numberAsRational(value: number): { value: bigint; scale: bigint } {
+  const [coefficient, exponentText = "0"] = value.toString().toLowerCase().split("e");
+  const [whole, fraction = ""] = coefficient.split(".");
+  const exponent = BigInt(exponentText.replace(/^\+/, ""));
+  const coefficientValue = BigInt(`${whole}${fraction}`);
+  const decimalPlaces = BigInt(fraction.length) - exponent;
+  if (decimalPlaces >= 0n) return { value: coefficientValue, scale: 10n ** decimalPlaces };
+  return { value: coefficientValue * (10n ** -decimalPlaces), scale: 1n };
 }
 
 function assertCorpus(value: unknown): asserts value is GoldenCorpus {

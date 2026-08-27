@@ -1188,6 +1188,12 @@
             "start": 0.5,
             "duration": 1,
             "text": "Hello"
+          },
+          {
+            "id": "caption-after",
+            "start": 6,
+            "duration": 1,
+            "text": "Shifted"
           }
         ]
       },
@@ -1351,6 +1357,20 @@
                 "startTime": {
                   "value": "5",
                   "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "caption-after",
+                "start": 6,
+                "duration": 1,
+                "text": "Shifted",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
                 },
                 "durationTime": {
                   "value": "1",
@@ -1524,6 +1544,20 @@
                 "startTime": {
                   "value": "5",
                   "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              },
+              {
+                "id": "caption-after",
+                "start": 4,
+                "duration": 1,
+                "text": "Shifted",
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
                 },
                 "durationTime": {
                   "value": "1",
@@ -1722,7 +1756,53 @@
               }
             }
           ],
-          "captionChanges": [],
+          "captionChanges": [
+            {
+              "type": "CAPTION_MODIFIED",
+              "caption": {
+                "id": "caption-after",
+                "start": 4,
+                "duration": 1,
+                "text": "Shifted",
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              },
+              "before": {
+                "id": "caption-after",
+                "start": 6,
+                "duration": 1,
+                "text": "Shifted",
+                "startTime": {
+                  "value": "6",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              },
+              "after": {
+                "id": "caption-after",
+                "start": 4,
+                "duration": 1,
+                "text": "Shifted",
+                "startTime": {
+                  "value": "4",
+                  "timescale": "1"
+                },
+                "durationTime": {
+                  "value": "1",
+                  "timescale": "1"
+                }
+              }
+            }
+          ],
           "storyElementChanges": [
             {
               "type": "STORY_ELEMENT_MODIFIED",

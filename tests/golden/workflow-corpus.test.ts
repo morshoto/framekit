@@ -45,6 +45,17 @@ test("golden structural validation rejects inconsistent rational timing", () => 
   );
 });
 
+test("golden structural validation accepts equivalent non-terminating rational timing", () => {
+  const scenario = corpus.scenarios.find((candidate) => candidate.id === "phase1.ripple-delete")!;
+  const valid = structuredClone(scenario.expected.before);
+  valid.timeline.clips[0]!.start = 1 / 3;
+  valid.timeline.clips[0]!.startTime = { value: "1", timescale: "3" };
+  valid.timeline.storyElements[0]!.start = 1 / 3;
+  valid.timeline.storyElements[0]!.startTime = { value: "1", timescale: "3" };
+
+  assert.doesNotThrow(() => validateGoldenSnapshot(valid, scenario.id));
+});
+
 for (const scenario of corpus.scenarios) {
   test(`golden workflow ${scenario.id} has zero silent corruption`, async () => {
     await runGoldenScenario(scenario);

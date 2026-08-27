@@ -454,6 +454,16 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (marker.start + marker.duration <= start) return [marker];
       return [];
     });
+    const captions = snapshot.timeline.captions.flatMap((caption) => {
+      if (caption.start + caption.duration <= start) return [caption];
+      if (caption.start >= end) return [normalizeCaption({
+        ...caption,
+        start: caption.start - removedDuration,
+        startTime: undefined,
+        durationTime: undefined,
+      })];
+      return [];
+    });
     return {
       ...snapshot,
       timeline: {
@@ -466,6 +476,7 @@ export class InMemoryEditorAdapter implements EditorPort {
             return clip ? { ...element, start: clip.start, duration: clip.duration, startTime: clip.startTime, durationTime: clip.durationTime } : element;
           }),
         markers,
+        captions,
       },
     };
   }
