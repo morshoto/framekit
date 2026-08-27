@@ -73,6 +73,29 @@ test("published clean MCP evidence documents the current validation result", asy
   for (const client of evidence.clients ?? []) assert.equal(client.workflow?.tools?.length, 6);
 });
 
+test("clean MCP client instructions document both supported registration paths", async () => {
+  const documentation = await readFile(resolve(repository, "docs/tests/clean-mcp-clients.md"), "utf8");
+  const readme = await readFile(resolve(repository, "docs/tests/README.md"), "utf8");
+  const packageManifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+
+  for (const expected of [
+    "codex plugin marketplace add morshoto/framekit",
+    "codex plugin add framekit@framekit",
+    "claude mcp add --scope user --transport stdio framekit",
+    "npx -y @morshoto/framekit",
+    "FRAMEKIT_CLEAN_CLIENT",
+    "CAPABILITY_UNAVAILABLE",
+    "no repository checkout",
+    "sanitized",
+  ]) {
+    assert.match(documentation, new RegExp(escapeRegExp(expected), "i"));
+  }
+  assert.match(readme, /clean MCP client/i);
+  assert.equal(packageManifest.scripts?.["test:clean-mcp-clients"], "node scripts/clean-mcp-client-smoke.mjs");
+});
+
 function rawEvidence() {
   return {
     schemaVersion: 1,
