@@ -14,6 +14,7 @@ import type {
   ProjectCatalog,
   ProjectSnapshot,
   ProjectSelection,
+  RationalTime,
 } from "@framekit/runtime";
 
 export const FINAL_CUT_LIVE_PROTOCOL_VERSION = 1;
@@ -258,17 +259,45 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
   requireArray(snapshot.media, "media references");
   validateRevision(snapshot.revision, "revision");
 
+  for (const media of snapshot.media) {
+    requireRecord(media, "media");
+    requireNonEmpty(media.mediaId, "media id");
+    requireNonEmpty(media.source, `media ${media.mediaId} source`);
+    if (media.duration !== undefined) requireFiniteNonNegative(media.duration, `media ${media.mediaId} duration`);
+  }
   const mediaIds = uniqueIds(snapshot.media, ({ mediaId }) => mediaId, "media");
   uniqueIds(snapshot.timeline.markers, ({ id }) => id, "marker");
   uniqueIds(snapshot.timeline.captions, ({ id }) => id, "caption");
   const occurrenceIds = uniqueIds(snapshot.timeline.clips, ({ id }) => id, "timeline occurrence");
   const storyElementIds = uniqueIds(snapshot.timeline.storyElements, ({ id }) => id, "story element");
+  const timelineDuration = rationalSeconds(snapshot.timeline.durationTime, "timeline duration time");
+  assertMatchingSeconds(snapshot.timeline.duration, timelineDuration, "timeline duration");
+  for (const storyElement of snapshot.timeline.storyElements) {
+    validateCanonicalCoordinates(storyElement, `story element ${storyElement.id}`);
+    if (storyElement.lane !== undefined && !Number.isInteger(storyElement.lane)) {
+      protocolError(`story element ${storyElement.id} lane must be an integer`);
+    }
+    if (storyElement.mediaId && !mediaIds.has(storyElement.mediaId)) {
+      protocolError(`story element ${storyElement.id} references missing media ${storyElement.mediaId}`);
+    }
+  }
+  for (const marker of snapshot.timeline.markers) {
+    validateCanonicalCoordinates(marker, `marker ${marker.id}`);
+    requireNonEmpty(marker.name, `marker ${marker.id} name`);
+  }
+  for (const caption of snapshot.timeline.captions) {
+    validateCanonicalCoordinates(caption, `caption ${caption.id}`);
+    if (typeof caption.text !== "string") protocolError(`caption ${caption.id} text must be a string`);
+  }
   for (const clip of snapshot.timeline.clips) {
-    requireFiniteNonNegative(clip.start, `occurrence ${clip.id} start`);
-    requireFiniteNonNegative(clip.duration, `occurrence ${clip.id} duration`);
+    requireNonEmpty(clip.name, `occurrence ${clip.id} name`);
+    validateCanonicalCoordinates(clip, `occurrence ${clip.id}`);
     if (!Number.isInteger(clip.track)) protocolError(`occurrence ${clip.id} track must be an integer`);
-    requireRational(clip.startTime, `occurrence ${clip.id} start time`);
-    requireRational(clip.durationTime, `occurrence ${clip.id} duration time`);
+    const storyElement = snapshot.timeline.storyElements.find(({ id }) => id === clip.id);
+    if (!storyElement) protocolError(`occurrence ${clip.id} has no storyline relationship`);
+    if (storyElement && (storyElement.start !== clip.start || storyElement.duration !== clip.duration)) {
+      protocolError(`occurrence ${clip.id} does not match its storyline coordinates`);
+    }
     if (clip.mediaId && !mediaIds.has(clip.mediaId)) {
       protocolError(`occurrence ${clip.id} references missing media ${clip.mediaId}`);
     }
@@ -409,6 +438,30 @@ function requireNonEmpty(value: unknown, field: string): asserts value is string
 function requireFiniteNonNegative(value: unknown, field: string): asserts value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     protocolError(`${field} must be finite and non-negative`);
+  }
+}
+
+function validateCanonicalCoordinates(
+  value: { start: number; duration: number; startTime?: RationalTime; durationTime?: RationalTime },
+  field: string,
+): void {
+  requireFiniteNonNegative(value.start, `${field} start`);
+  requireFiniteNonNegative(value.duration, `${field} duration`);
+  assertMatchingSeconds(value.start, rationalSeconds(value.startTime, `${field} start time`), `${field} start`);
+  assertMatchingSeconds(value.duration, rationalSeconds(value.durationTime, `${field} duration time`), `${field} duration`);
+}
+
+function rationalSeconds(value: unknown, field: string): number {
+  const candidate = value as { value?: unknown; timescale?: unknown } | undefined;
+  requireRational(candidate, field);
+  const seconds = Number(candidate!.value) / Number(candidate!.timescale);
+  if (!Number.isFinite(seconds)) protocolError(`${field} must represent a finite time`);
+  return seconds;
+}
+
+function assertMatchingSeconds(actual: number, expected: number, field: string): void {
+  if (Math.abs(actual - expected) > Math.max(1e-9, Math.abs(actual) * 1e-12)) {
+    protocolError(`${field} time does not match seconds`);
   }
 }
 
