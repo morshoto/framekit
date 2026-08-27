@@ -6,7 +6,10 @@ const execFile = promisify(execFileCallback);
 export async function ensureFramekitWindowVisible(run = execFile) {
   try {
     const result = await run("osascript", ["-e", overlayAccessibilityScript]);
-    return result.stdout.trim() === "true";
+    if (result.stdout.trim() !== "false") {
+      throw new Error("FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE");
+    }
+    return false;
   } catch (error) {
     throw overlayAccessibilityError(error);
   }
