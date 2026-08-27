@@ -9,7 +9,14 @@ authoritative at runtime; unsupported operations must fail with an explicit
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | unavailable until configured | Motion-template registry |
-| Final Cut live | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (bundled Workflow Extension) | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (canonical-capable bridge) | guarded live IPC provider contract | complete snapshot with explicit targets | yes, when canonical-write is advertised | yes | yes | provider-specific | provider-specific | provider-specific | provider-specific |
+
+The canonical-capable live row describes an optional provider contract, not a
+claim about the bundled Workflow Extension. The bundled bridge remains
+metadata-only until a real Final Cut bridge can enumerate and mutate the open
+timeline and pass the headed evidence gate documented in
+[`docs/tests/final-cut-live-e2e.md`](tests/final-cut-live-e2e.md).
 
 ## Verified local environment
 
@@ -48,13 +55,21 @@ and do not change the canonical `timelineWrite` or `timelineSnapshotRead`
 capability flags. With the same opt-in, the native path can import local video or
 audio, wait for the asset to appear in the active Browser, return a stable
 session media handle, search/select Browser media, locate a unique timeline
-occurrence, and Blade it at the playhead. Imported media handles are session
-stable; timeline occurrence handles remain short-lived and are not canonical
-timeline identities.
+occurrence, Blade it at the playhead, and add a discovered native title with
+text at the playhead or an explicit range. Imported media handles are session
+stable; timeline occurrence and native title operation handles remain short-lived
+and are not canonical timeline identities. Native title placement is reported
+separately as `titlePlacement` and never upgrades the live Workflow Extension's
+canonical timeline capabilities.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `timelinePublishNewProject` allows a verified artifact to be imported as a new
 Final Cut project. The active project is never replaced automatically.
+
+With native writes enabled, the live server also exposes `timeline.export` for
+rendering the active Final Cut timeline to a local video file. This separate
+capability requires `ffprobe`; it verifies file completion and media metadata
+and does not make the FCPXML artifact or live timeline canonically writable.
 
 ## Phase 2 local runtime
 

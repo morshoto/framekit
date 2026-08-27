@@ -7,11 +7,15 @@ Repository-local GitHub agent playbooks are documented in
 
 - [Getting started](./getting-started.md): development setup, MCP, and Final Cut connection.
 - [PRD](./PRD.md): product goals and roadmap.
+- [Phase 0 and Phase 1 checklist](./phase-0-1-checklist.md): delivery gates,
+  evidence, and current native Final Cut boundaries.
 - [SDD](./SDD.md): architecture and design contracts.
 - [Compatibility](./COMPATIBILITY.md): verified editor and toolchain support.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.
 - [Tests](./tests/README.md): reproducible checks and evidence, including the [golden workflow corpus](./tests/golden-corpus.md) and [deterministic MCP evaluation](./tests/mcp-evaluation.md).
 - [Final Cut](./final-cut/README.md): native integration and operations.
+- [Native media insertion breakthrough](./final-cut/native-media-insertion-breakthrough.md):
+  verified Browser discovery, focus recovery, modal handling, and live proof.
 - [Basic Final Cut Editing MVP](./final-cut/basic-editing-mvp.md): issue #7
   workflow, MCP contract, validation gates, and success metrics.
 - [Architecture overview](./ARCHITECTURE.md): runtime, MCP, and adapter boundaries.

@@ -55,6 +55,8 @@ Important error codes include:
 - `CAPABILITY_UNAVAILABLE`: the backend cannot safely perform the operation.
 - `FINAL_CUT_LIVE_UNAVAILABLE`: the live socket cannot be reached.
 - `FINAL_CUT_LIVE_TIMEOUT`: the bridge did not respond in time.
+- `FINAL_CUT_ACTIVATION_TIMEOUT`: Final Cut did not complete Workflow Extension activation before the bounded connection deadline.
+- `FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT`: Final Cut did not respond to a native AppleEvent; reopen or bring Final Cut Pro to the front and retry.
 - `FINAL_CUT_LIVE_PROTOCOL`: framing, JSON, or version failure.
 - `EDITOR_NOT_CONNECTED`: no usable editor backend is connected.
 - `STALE_CONTEXT`: an edit used an old revision.
@@ -64,6 +66,17 @@ Important error codes include:
 - `ANALYZER_TIMEOUT`: a configured analyzer exceeded its time limit.
 - `ANALYZER_FAILED`: a configured analyzer exited unsuccessfully.
 - `ANALYZER_INVALID_OUTPUT`: a configured analyzer returned invalid typed JSON.
+- `FINAL_CUT_EXPORT_COMPLETION_TIMEOUT`: Final Cut did not produce a non-empty output file before the export deadline.
+- `FINAL_CUT_EXPORT_OUTPUT_EXISTS`: an existing output was protected from replacement without `overwrite: true`.
+- `FINAL_CUT_EXPORT_VERIFICATION_FAILED`: the output media metadata was missing, invalid, or did not match requested expectations.
+- `FINAL_CUT_EXPORT_METADATA_FAILED`: `ffprobe` could not inspect the exported video.
+- `FINAL_CUT_EXPORT_METADATA_UNAVAILABLE`: `ffprobe` was not available before export started.
+- `FINAL_CUT_EXPORT_COMMIT_FAILED`: the verified staging file could not be moved to the requested output path.
+
+Music mixing reports `CAPABILITY_UNAVAILABLE: dialogue ducking` when a request
+asks for automatic dialogue ducking. Gain and fades are verified for the
+deterministic composite workflow, but ducking must not be silently approximated
+with a fixed music gain.
 
 ## Connection status
 
@@ -135,6 +148,7 @@ use `FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE`,
 `FINAL_CUT_NATIVE_SELECTION_VERIFICATION_FAILED`. Local media import additionally
 uses `FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE`,
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`, and
+`FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`,
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`,
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`, and
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
@@ -158,3 +172,15 @@ mutate timeline content, and it never clicks the Framekit close button.
 `timelinePublishNewProject` is reported separately from `timelineWrite`. It
 means a verified FCPXML artifact can be imported as a new Final Cut project;
 it does not mean the currently open timeline is directly writable.
+
+`videoExport` is reported separately from canonical timeline capabilities. It is
+true only when the live server has enabled the guarded native Final Cut export
+adapter with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1` and a usable `ffprobe`; deterministic
+fixtures do not claim to render video. `timeline.export` supports the `master`
+(`Export File`) and `web` (`Web Hosting`) Final Cut share presets. It waits for a
+stable non-empty file, probes it with `ffprobe`, and verifies duration, width,
+height, frame rate, and audio presence before returning success. Export performs
+the same native timeline-window/frontmost/focus preflight as other guarded UI
+operations. An existing file is preserved until the replacement has passed
+verification and is never replaced unless the request explicitly sets
+`overwrite: true`.

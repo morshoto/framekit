@@ -119,6 +119,35 @@ test("connection manager starts Final Cut and retries until the bridge is ready"
   assert.equal(probes >= 2, true);
 });
 
+test("connection manager bounds a blocking extension activation to the startup deadline", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-activation-timeout-test-"));
+  const extensionPath = join(directory, "FramekitFinalCutWorkflow.app");
+  await mkdir(extensionPath);
+  let activationOptions: { signal?: AbortSignal; timeoutMs?: number } | undefined;
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    startupTimeoutMs: 30,
+    extensionInstallPath: extensionPath,
+    detectFinalCut: async () => true,
+    probe: async () => { throw new Error("socket missing"); },
+    activateExtension: async (options) => {
+      activationOptions = options;
+      await new Promise<void>((_, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("activation aborted")), { once: true });
+      });
+    },
+    sleep: async () => {},
+  });
+
+  const startedAt = Date.now();
+  const status = await manager.ensureConnected();
+  assert.ok(Date.now() - startedAt < 500);
+  assert.equal(status.state, "unavailable");
+  assert.equal(status.lastError?.code, "FINAL_CUT_ACTIVATION_TIMEOUT");
+  assert.ok(activationOptions?.timeoutMs !== undefined && activationOptions.timeoutMs <= 30);
+  assert.equal(activationOptions?.signal?.aborted, true);
+});
+
 test("explicit connection restarts Final Cut after replacing the extension", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-restart-test-"));
   const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");

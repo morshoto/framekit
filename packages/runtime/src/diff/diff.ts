@@ -108,7 +108,7 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     })),
   ];
 
-  const affectedRanges = [
+  const affectedRanges = uniqueRanges([
     ...added.flatMap((change) => rangesForClip(change.after)),
     ...removed.flatMap((change) => rangesForClip(change.before)),
     ...modified.flatMap((change) => [...rangesForClip(change.before), ...rangesForClip(change.after)]),
@@ -128,7 +128,7 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
       start: previous?.start ?? element.start,
       end: Math.max(previous ? previous.start + previous.duration : 0, element.start + element.duration),
     }]),
-  ];
+  ]);
 
   return {
     from: before.revision,
@@ -144,6 +144,23 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     mediaChanges,
     affectedRanges,
   };
+}
+
+function uniqueRanges(ranges: TimeRange[]): TimeRange[] {
+  const seen = new Set<string>();
+  return ranges.filter((range) => {
+    const key = [
+      range.start,
+      range.end,
+      range.startTime?.value ?? "",
+      range.startTime?.timescale ?? "",
+      range.durationTime?.value ?? "",
+      range.durationTime?.timescale ?? "",
+    ].join("/");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function decimalToRational(value: number) {

@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
-import type { FinalCutProjectPublisher, NativeFinalCutEditor } from "@framekit/final-cut";
+import type { FinalCutProjectPublisher, FinalCutVideoExporter, NativeFinalCutEditor } from "@framekit/final-cut";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -41,6 +41,19 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const editToolInputSchema = z.object({
+  type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
+  clipId: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  duration: z.number().positive().optional(),
+  durationTime: rationalTimeSchema.optional(),
+  gainDb: z.number().finite().optional(),
+  timelineId: z.string().min(1).optional(),
+  range: rangeSchema.optional(),
+  reason: z.string().optional(),
+  marker: markerSchema.optional(),
+  baseRevision: revisionSchema,
+}).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
@@ -65,6 +78,12 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
   }),
   z.object({
+    type: z.literal("timeline.audio.fades"),
+    clipId: z.string().min(1),
+    fadeIn: z.number().nonnegative(),
+    fadeOut: z.number().nonnegative(),
+  }),
+  z.object({
     type: z.literal("timeline.title.add"),
     occurrenceId: z.string().min(1),
     assetId: z.string().min(1),
@@ -86,12 +105,64 @@ const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRe
     }
   });
 });
+const musicImportSchema = z.object({
+  mediaId: z.string().min(1),
+  source: z.string().min(1),
+  duration: z.number().positive(),
+  sourceDigest: z.string().min(1),
+});
+const musicDuckingSchema = z.object({
+  enabled: z.boolean(),
+  dialogueClipIds: z.array(z.string().min(1)).optional(),
+  reductionDb: z.number().finite().optional(),
+});
+const musicAddInputSchema = {
+  baseRevision: revisionValueSchema,
+  occurrenceId: z.string().min(1),
+  mediaId: z.string().min(1).optional(),
+  import: musicImportSchema.optional(),
+  placement: z.enum(["append", "insert"]),
+  start: z.number().nonnegative().optional(),
+  duration: z.number().positive().optional(),
+  targetLane: z.number().int().refine((lane) => lane !== 0, "music requires a non-primary lane"),
+  gainDb: z.number().finite().optional(),
+  fadeIn: z.number().nonnegative().optional(),
+  fadeOut: z.number().nonnegative().optional(),
+  ducking: musicDuckingSchema.optional(),
+};
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
   z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
   z.object({ type: z.literal("set-selected-clip-gain"), gainDb: z.number().finite() }),
   z.object({ type: z.literal("add-marker-at-playhead"), name: z.string().min(1), duration: z.number().nonnegative().optional() }),
 ]);
+const nativeTitlePreviewSchema = {
+  assetId: z.string().min(1),
+  text: z.string().trim().min(1),
+  start: rationalTimeSchema.optional(),
+  duration: rationalTimeSchema,
+};
+const exportExpectationSchema = z.object({
+  durationSeconds: z.number().positive().optional(),
+  durationToleranceSeconds: z.number().nonnegative().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  frameRate: z.number().positive().optional(),
+  frameRateTolerance: z.number().nonnegative().optional(),
+  hasAudio: z.boolean().optional(),
+}).optional();
+const nativeEditToolInputSchema = z.object({
+  type: z.enum([
+    "rename-selected-clip",
+    "trim-selected-clip-to-playhead",
+    "set-selected-clip-gain",
+    "add-marker-at-playhead",
+  ]),
+  name: z.string().min(1).optional(),
+  edge: z.enum(["start", "end"]).optional(),
+  gainDb: z.number().finite().optional(),
+  duration: z.number().nonnegative().optional(),
+}).strict();
 
 function jsonResult(value: unknown) {
   return {
@@ -119,6 +190,7 @@ export interface McpServerOptions {
   connectionStatus?: () => unknown;
   nativeEditor?: NativeFinalCutEditor;
   projectPublisher?: FinalCutProjectPublisher;
+  videoExporter?: FinalCutVideoExporter;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -164,6 +236,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         editor: {
           ...inspected.capabilities.editor,
           timelinePublishNewProject: Boolean(options.projectPublisher),
+          videoExport: Boolean(options.videoExporter?.isAvailable()),
         },
       },
       ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
@@ -199,10 +272,28 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
-    inputSchema: nativeEditSchema,
-  }, async (operation) => {
+    inputSchema: nativeEditToolInputSchema,
+  }, async (input) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
+    const operation = nativeEditSchema.parse(input);
     return jsonResult(await options.nativeEditor.edit(operation));
+  });
+
+  server.registerTool("editor.native.title.add.preview", {
+    description: "Preview adding an installed Final Cut title at the live playhead or an explicit timeline range.",
+    inputSchema: nativeTitlePreviewSchema,
+  }, async ({ assetId, text, start, duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
+    const asset = await resolveNativeTitleAsset(runtime, assetId);
+    return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }));
+  });
+
+  server.registerTool("editor.native.title.add.execute", {
+    description: "Execute a previously previewed native Final Cut title placement and return its verification and Undo handle.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
+    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
   });
 
   server.registerTool("editor.native.undo", {
@@ -243,6 +334,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
     return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken));
+  });
+
+  server.registerTool("editor.native.media.append.selected.preview", {
+    description: "Preview appending the currently selected Final Cut Browser media to the end of the active timeline.",
+    inputSchema: {},
+  }, async () => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
+    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia());
+  });
+
+  server.registerTool("editor.native.media.append.selected.execute", {
+    description: "Execute a previously previewed append of the currently selected Final Cut Browser media.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
+    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken));
   });
 
   server.registerTool("editor.native.media.insert.preview", {
@@ -333,6 +440,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const verification = await runtime.verifyTransaction(transactionId);
     if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
     return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
+  });
+
+  server.registerTool("timeline.export", {
+    description: "Export the active Final Cut timeline to a local video file, wait for completion, and verify its media metadata.",
+    inputSchema: {
+      outputPath: z.string().trim().min(1),
+      preset: z.enum(["master", "web"]),
+      overwrite: z.boolean().optional(),
+      expected: exportExpectationSchema,
+    },
+  }, async ({ outputPath, preset, overwrite, expected }) => {
+    if (!options.videoExporter?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is not configured");
+    return jsonResult(await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected }));
   });
 
   server.registerTool("context.inspect", {
@@ -427,8 +547,23 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("timeline.edit", {
     description: "Apply one supported edit and return read-after-write plus its diff.",
-    inputSchema: editOperationSchema,
-  }, async (operation) => jsonResult(await runtime.edit(operation)));
+    inputSchema: editToolInputSchema,
+  }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input))));
+
+  server.registerTool("music.add", {
+    description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
+    inputSchema: musicAddInputSchema,
+  }, async (request) => jsonResult(await runtime.previewMusic(request)));
+
+  server.registerTool("music.add.preview", {
+    description: "Preview adding a searched or imported music bed without mutating the timeline.",
+    inputSchema: musicAddInputSchema,
+  }, async (request) => jsonResult(await runtime.previewMusic(request)));
+
+  server.registerTool("music.add.execute", {
+    description: "Execute a previously previewed music add and return verified placement and audio state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
   server.registerTool("timeline.edit.preview", {
     description: "Validate and preview one ordered, atomic Basic Editing MVP workflow without mutating the project.",
@@ -469,4 +604,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ transactionId }) => jsonResult(await runtime.undo(transactionId)));
 
   return server;
+}
+
+async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: string) {
+  const assets = await runtime.listAssets();
+  const asset = assets.find((candidate) => candidate.id === assetId);
+  if (!asset) throw new Error(`TITLE_ASSET_NOT_FOUND: installed title asset ${assetId} was not discovered`);
+  if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${assetId} is not an installed Final Cut title asset`);
+  return asset;
 }

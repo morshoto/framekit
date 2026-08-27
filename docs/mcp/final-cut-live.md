@@ -145,6 +145,8 @@ multiple newly appearing same-name results are found, it returns
 an immutable source identity is accepted even when a same-name result existed
 before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
+If Final Cut does not expose a ready Media Import window, folder sheet, or import
+button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
 
 ## Live Browser search and Blade
 
@@ -190,6 +192,17 @@ same preview/execute safety boundary:
    should be rolled back. Undo verifies restoration of the prior duration and
    a new live revision.
 
+Native Browser import, search, selection, and selected-media append operations
+focus Final Cut's Browser automatically through Accessibility automation. A
+user does not need to click the Browser pane first.
+
+When Browser search cannot expose the selected item through its usual media
+role, use `editor.native.media.append.selected.preview` and
+`editor.native.media.append.selected.execute`. This path requires Final Cut
+to expose exactly one selected Browser item with a stable `AXIdentifier`; it
+does not fall back to screenshot text or coordinate-only identity. The
+selected identity is revalidated immediately before the Append command.
+
 Insertion previews expire and fail closed when the selected media handle,
 sequence, revision, duration, or insert playhead changes. The live Workflow
 Extension remains a read-only state source; the guarded Node-side native
@@ -218,6 +231,32 @@ pre-edit state.
 selected range. `trim-to-duration` preserves the beginning of the sequence and
 deletes everything after the requested duration. A target duration that is
 already at or beyond the current duration returns a verified no-op.
+
+## Native title placement
+
+Native titles use the installed Motion-template registry and a guarded
+preview/execute flow:
+
+1. Call `editor.assets` with `kind: "title"` and choose one returned `assetId`.
+2. Call `editor.native.title.add.preview` with that `assetId`, title `text`,
+   and a positive rational `duration`. Omit `start` to use the current
+   playhead; provide `start` to place the title across an explicit range.
+3. Confirm the returned title, range, sequence, and revision, then call
+   `editor.native.title.add.execute` with the short-lived preview token.
+4. Confirm the returned selected title, changed revision, duration metadata,
+   and Undo command. Use `editor.native.undo` with the returned `operationId`
+   to revert it.
+
+The preview fails closed with `TITLE_ASSET_NOT_FOUND` for an undiscovered ID,
+`TITLE_ASSET_INCOMPATIBLE` for a non-title asset, and
+`FINAL_CUT_NATIVE_TITLE_RANGE_OUT_OF_BOUNDS` when the placement falls outside
+the active sequence. It also returns `INVALID_OPERATION` for sub-frame or
+misaligned timing and `FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS` when the Titles
+browser exposes multiple matching templates. The native adapter does
+not invent title assets or claim canonical timeline enumeration; it uses
+Accessibility automation to open Final Cut's Titles and Generators browser,
+select the discovered template, apply the text, and verify the selected title
+and live revision.
 
 Before timeline-native preview or execute calls in normal native mode, Framekit activates Final Cut
 Pro, waits up to two seconds for an accessible project timeline, and focuses

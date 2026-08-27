@@ -156,12 +156,20 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    validateRevision(expectedRevision, "expected revision");
     const capabilities = await this.getCapabilities();
     if (capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical mutation");
     }
     const response = await this.request({ method: "apply", operation, expectedRevision });
     if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: apply response revision was empty");
+    validateRevision(response.revision, "apply response revision");
+    if (
+      response.revision.sequence <= expectedRevision.sequence
+      || response.revision.id === expectedRevision.id
+    ) {
+      protocolError("apply response revision must advance expected revision");
+    }
     return response.revision;
   }
 
@@ -176,6 +184,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   public async readLiveState(): Promise<EditorLiveState> {
     const response = await this.request({ method: "state" });
     if (!response.state) throw new Error("FINAL_CUT_LIVE_PROTOCOL: state response was empty");
+    validateLiveState(response.state, "live state");
     return response.state;
   }
 
@@ -185,22 +194,31 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
       afterSequence: revision.sequence,
       waitMs,
     });
-    return response.changes ?? [];
+    const changes = response.changes ?? [];
+    changes.forEach((change, index) => validateLiveChange(change, `live change ${index}`));
+    return changes;
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
     const response = await this.request({ method: "projects" });
     if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project catalog response was empty");
+    validateProjectCatalog(response.catalog);
     return response.catalog;
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+    requireNonEmpty(selection.projectId, "selected project id");
+    if (selection.sequenceId !== undefined) {
+      requireNonEmpty(selection.sequenceId, "selected sequence id");
+    }
     const response = await this.request({
       method: "select-project",
       projectId: selection.projectId,
       sequenceId: selection.sequenceId,
     });
     if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response was empty");
+    validateProjectCatalog(response.catalog);
+    validateProjectSelection(response.catalog, selection);
     return response.catalog;
   }
 
@@ -238,11 +256,7 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
   requireArray(snapshot.timeline?.markers, "timeline markers");
   requireArray(snapshot.timeline?.captions, "timeline captions");
   requireArray(snapshot.media, "media references");
-  requireNonEmpty(snapshot.revision?.id, "revision id");
-  if (!Number.isInteger(snapshot.revision?.sequence) || snapshot.revision.sequence < 0) {
-    protocolError("revision sequence must be a non-negative integer");
-  }
-  requireNonEmpty(snapshot.revision?.timestamp, "revision timestamp");
+  validateRevision(snapshot.revision, "revision");
 
   const mediaIds = uniqueIds(snapshot.media, ({ mediaId }) => mediaId, "media");
   uniqueIds(snapshot.timeline.markers, ({ id }) => id, "marker");
@@ -265,6 +279,39 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
   }
 }
 
+function validateLiveState(state: EditorLiveState, field: string): void {
+  if (!state || typeof state !== "object") protocolError(`${field} must be an object`);
+  validateRevision(state.revision, `${field} revision`);
+  if (state.project) {
+    requireNonEmpty(state.project.id, `${field} project id`);
+    requireNonEmpty(state.project.name, `${field} project name`);
+  }
+  if (state.sequence) {
+    requireNonEmpty(state.sequence.id, `${field} sequence id`);
+    requireNonEmpty(state.sequence.name, `${field} sequence name`);
+    requireRational(state.sequence.startTime, `${field} sequence start time`);
+    requireRational(state.sequence.duration, `${field} sequence duration`);
+    requireRational(state.sequence.frameDuration, `${field} sequence frame duration`);
+  }
+  if (state.playheadTime) requireRational(state.playheadTime, `${field} playhead time`);
+  if (state.sequenceTimeRange) {
+    requireRational(state.sequenceTimeRange.start, `${field} range start`);
+    requireRational(state.sequenceTimeRange.duration, `${field} range duration`);
+  }
+}
+
+function validateLiveChange(change: EditorChange, field: string): void {
+  if (!change || typeof change !== "object") protocolError(`${field} must be an object`);
+  if (!["active-sequence-changed", "playhead-changed", "sequence-time-range-changed"].includes(change.kind)) {
+    protocolError(`${field} has an unsupported kind`);
+  }
+  validateRevision(change.revision, `${field} revision`);
+  validateLiveState(change.state, `${field} state`);
+  if (change.state.revision.sequence !== change.revision.sequence) {
+    protocolError(`${field} revision does not match its state revision`);
+  }
+}
+
 function validateSnapshotTarget(snapshot: ProjectSnapshot, catalog: ProjectCatalog): void {
   if (catalog.activeProjectId !== snapshot.projectId || catalog.activeSequenceId !== snapshot.timeline.id) {
     throw new Error(
@@ -274,6 +321,63 @@ function validateSnapshotTarget(snapshot: ProjectSnapshot, catalog: ProjectCatal
   const project = catalog.projects.find(({ id }) => id === snapshot.projectId);
   if (!project?.sequences.some(({ id }) => id === snapshot.timeline.id)) {
     protocolError("active canonical snapshot target is absent from the project catalog");
+  }
+}
+
+function validateProjectCatalog(catalog: ProjectCatalog): void {
+  if (!Array.isArray(catalog.projects)) protocolError("project catalog projects must be an array");
+  const projectIds = new Set<string>();
+  for (const project of catalog.projects) {
+    requireRecord(project, "project");
+    requireNonEmpty(project.id, "project id");
+    requireNonEmpty(project.name, `project ${project.id} name`);
+    if (projectIds.has(project.id)) protocolError(`duplicate project id ${project.id}`);
+    projectIds.add(project.id);
+    if (!Array.isArray(project.sequences)) protocolError(`project ${project.id} sequences must be an array`);
+    const sequenceIds = new Set<string>();
+    for (const sequence of project.sequences) {
+      requireRecord(sequence, `sequence in project ${project.id}`);
+      requireNonEmpty(sequence.id, `sequence in project ${project.id} id`);
+      requireNonEmpty(sequence.name, `sequence ${sequence.id} name`);
+      if (sequenceIds.has(sequence.id)) protocolError(`duplicate sequence id ${sequence.id} in project ${project.id}`);
+      sequenceIds.add(sequence.id);
+    }
+  }
+  if (catalog.activeProjectId !== undefined) {
+    requireNonEmpty(catalog.activeProjectId, "active project id");
+    if (!projectIds.has(catalog.activeProjectId)) {
+      protocolError(`active project ${catalog.activeProjectId} is absent from the project catalog`);
+    }
+  }
+  if (catalog.activeSequenceId !== undefined) {
+    requireNonEmpty(catalog.activeSequenceId, "active sequence id");
+    const activeProject = catalog.projects.find(({ id }) => id === catalog.activeProjectId);
+    if (!activeProject?.sequences.some(({ id }) => id === catalog.activeSequenceId)) {
+      protocolError(`active sequence ${catalog.activeSequenceId} is absent from the active project catalog`);
+    }
+  }
+}
+
+function validateProjectSelection(catalog: ProjectCatalog, selection: ProjectSelection): void {
+  if (catalog.activeProjectId !== selection.projectId) {
+    throw new Error(
+      `TARGET_MISMATCH: live project selection did not activate requested target ${selection.projectId}/${selection.sequenceId ?? "unknown"}`,
+    );
+  }
+  const project = catalog.projects.find(({ id }) => id === selection.projectId);
+  if (!project) {
+    throw new Error(`TARGET_MISMATCH: selected project ${selection.projectId} is absent from the project catalog`);
+  }
+  if (selection.sequenceId !== undefined) {
+    if (catalog.activeSequenceId !== selection.sequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: live project selection did not activate requested target ${selection.projectId}/${selection.sequenceId}`,
+      );
+    }
+    return;
+  }
+  if (project.sequences.length !== 1 || catalog.activeSequenceId !== project.sequences[0]?.id) {
+    throw new Error(`AMBIGUOUS_PROJECT_TARGET: sequenceId is required for project ${selection.projectId}`);
   }
 }
 
@@ -292,6 +396,12 @@ function requireArray(value: unknown, field: string): asserts value is unknown[]
   if (!Array.isArray(value)) protocolError(`${field} must be an array`);
 }
 
+function requireRecord(value: unknown, field: string): asserts value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    protocolError(`${field} must be an object`);
+  }
+}
+
 function requireNonEmpty(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) protocolError(`${field} must be a non-empty string`);
 }
@@ -300,6 +410,14 @@ function requireFiniteNonNegative(value: unknown, field: string): asserts value 
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     protocolError(`${field} must be finite and non-negative`);
   }
+}
+
+function validateRevision(revision: ContextRevision | undefined, field: string): asserts revision is ContextRevision {
+  requireNonEmpty(revision?.id, `${field} id`);
+  if (!Number.isInteger(revision?.sequence) || revision.sequence < 0) {
+    protocolError(`${field} sequence must be a non-negative integer`);
+  }
+  requireNonEmpty(revision?.timestamp, `${field} timestamp`);
 }
 
 function requireRational(value: unknown, field: string): void {

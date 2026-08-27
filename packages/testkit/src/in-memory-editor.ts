@@ -313,6 +313,24 @@ export class InMemoryEditorAdapter implements EditorPort {
         },
       };
     }
+    if (operation.type === "timeline.audio.fades") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+      if (!Number.isFinite(operation.fadeIn) || !Number.isFinite(operation.fadeOut)
+        || operation.fadeIn < 0 || operation.fadeOut < 0
+        || operation.fadeIn + operation.fadeOut > clip.duration) {
+        throw new Error("INVALID_OPERATION: audio fades must be non-negative and fit within the clip duration");
+      }
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: snapshot.timeline.clips.map((candidate) => candidate.id === operation.clipId
+            ? { ...candidate, fadeIn: operation.fadeIn, fadeOut: operation.fadeOut }
+            : candidate),
+        },
+      };
+    }
     if (operation.type === "timeline.title.add") {
       const asset = this.assets.find((candidate) => candidate.id === operation.assetId && candidate.kind === "title");
       if (!asset) throw new Error(`TITLE_ASSET_NOT_FOUND: ${operation.assetId}`);

@@ -123,14 +123,21 @@ pnpm run test:final-cut-canonical-headed \
 ```
 
 The runner disables FCPXML composition, verifies the exact project and
-occurrence before mutation, renames that occurrence, records the capability
-payload plus complete before/after state and deterministic diff, and performs
-compensating undo. It succeeds only when the restored canonical digest matches
-the pre-edit digest. If the bridge is metadata-only or canonical-read, it fails
-before calling `timeline.edit`. Review the JSON for the Framekit version, Final
-Cut identity/version, target IDs, capability payload, and matching digests
-before attaching it to a release or pull request. Do not commit evidence that
-contains private media paths.
+occurrence before mutation, renames that occurrence, and performs compensating
+undo. It emits a sanitized evidence document using an allowlisted summary
+rather than the raw snapshots returned by the MCP tools. The document records
+the Framekit version, full Git commit, runtime environment, Final Cut
+identity/version, capability payload, required tool results, target IDs,
+verified revision/diff summaries, and matching pre-edit/restored digests. It
+proves that the open canonical timeline changed through the verified target
+diff and advancing revision, then proves restoration through the matching
+canonical digest. If the bridge is metadata-only or canonical-read, it fails
+before calling `timeline.edit`.
+
+Before attaching the JSON to a release or pull request, review that it contains
+no private media paths, raw snapshots, transaction identifiers, credentials,
+or diagnostics. The runner and sanitizer both fail closed when the mutation,
+undo, required tool sequence, or full commit provenance is incomplete.
 
 ## Optional native UI validation
 

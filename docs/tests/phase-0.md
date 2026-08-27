@@ -8,10 +8,10 @@ Phase 0 proves the basic agent editing loop against deterministic data:
 read → write → read-after-write → diff
 ```
 
-Run:
+Run from the repository root:
 
 ```sh
-npm test
+pnpm run test
 ```
 
 Coverage includes MCP stdio wiring, supported FCPXML reads and writes,

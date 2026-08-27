@@ -3,9 +3,17 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
+import { createNativeOperationLease, FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
+import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 
 const separator = String.fromCharCode(31);
+
+function serializeBrowserFixture(): string {
+  const recordSeparator = String.fromCharCode(30);
+  return finalCutBrowserAccessibilityFixture.media
+    .map((media) => [media.value, media.role, media.bounds, media.axIdentifier].join(separator) + recordSeparator)
+    .join("");
+}
 
 function context(
   frontmost: boolean,
@@ -111,6 +119,196 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(undone.context.target.name, "Interview");
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo" of menu "Edit"')), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
+});
+
+test("native Final Cut adapter previews and inserts a title at the playhead with text and placement verification", async () => {
+  const scripts: string[] = [];
+  let revision = 1;
+  let playhead = "5";
+  let pendingPlayhead: string | undefined;
+  let playheadPolls = 0;
+  let titleAdded = false;
+  const liveState = async () => {
+    if (pendingPlayhead) {
+      if (playheadPolls > 0) {
+        playhead = pendingPlayhead;
+        pendingPlayhead = undefined;
+      } else {
+        playheadPolls += 1;
+      }
+    }
+    return {
+      project: { id: "project-1", name: "Edit" },
+      sequence: {
+        id: "sequence-1",
+        name: "Edit",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      playheadTime: { value: playhead, timescale: "1" },
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+      },
+      revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+    };
+  };
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:05:00")) {
+        pendingPlayhead = "5";
+        playheadPolls = 0;
+      }
+      if (script.includes("00:00:08:00")) {
+        pendingPlayhead = "8";
+        playheadPolls = 0;
+      }
+      if (script.includes('keystroke "i"')) assert.equal(playhead, "5");
+      if (script.includes('keystroke "o"')) assert.equal(playhead, "8");
+      if (script.includes("Framekit Native Title")) {
+        titleAdded = true;
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Native Title"')) {
+        titleAdded = false;
+        revision = 3;
+      }
+      if (script.includes("timelineWindowAvailable")) {
+        return context(
+          true,
+          "Final Cut Pro",
+          titleAdded ? "Lower Third" : "",
+          titleAdded ? 1 : 0,
+          true,
+          true,
+          true,
+          "timeline",
+          1,
+          titleAdded ? "Undo Native Title" : "",
+        );
+      }
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewTitleAdd({
+    asset: {
+      id: "/Motion Templates.localized/Titles.localized/Lower Third.moti",
+      kind: "title",
+      name: "Lower Third",
+      vendor: "Framekit Fixture",
+      metadata: {},
+    },
+    text: "Framekit Native Title",
+    duration: { value: "3", timescale: "1" },
+  });
+
+  assert.equal(preview.target, "playhead");
+  assert.deepEqual(preview.start, { value: "5", timescale: "1" });
+  assert.deepEqual(preview.end, { value: "8", timescale: "1" });
+
+  const result = await adapter.executeTitleAdd(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.deepEqual(result.duration, { value: "3", timescale: "1" });
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.some((script) => script.includes("click at {(item 1 of mainOrigin) + 104, (item 2 of mainOrigin) + 53}")), true);
+  assert.equal(scripts.some((script) => script.includes('set value of attribute "AXFocused" of titleSearchField to true')), true);
+  assert.equal(scripts.some((script) => script.includes("set titleY") && script.includes("* 0.74")), true);
+  assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 385")), true);
+  assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 215")), true);
+  assert.equal(scripts.some((script) => script.includes("Lower Third")), true);
+  assert.equal(scripts.some((script) => script.includes("Framekit Native Title")), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "i"')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "o"')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "q"')), true);
+  assert.equal(scripts.some((script) => script.includes("FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS")), true);
+
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Native Title" of menu "Edit"')), true);
+});
+
+test("native title previews bind explicit selected ranges and reject incompatible or out-of-bounds assets", async () => {
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "5", timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? context(true, "Final Cut Pro", "", 0, true)
+      : "",
+  });
+  const title = {
+    id: "/Motion Templates.localized/Titles.localized/Lower Third.moti",
+    kind: "title" as const,
+    name: "Lower Third",
+    vendor: "Framekit Fixture",
+    metadata: {},
+  };
+
+  const preview = await adapter.previewTitleAdd({
+    asset: title,
+    text: "Selected Range",
+    start: { value: "4", timescale: "1" },
+    duration: { value: "2", timescale: "1" },
+  });
+  assert.equal(preview.target, "selected-range");
+  assert.deepEqual(preview.start, { value: "4", timescale: "1" });
+  assert.deepEqual(preview.end, { value: "6", timescale: "1" });
+
+  await assert.rejects(
+    adapter.previewTitleAdd({
+      asset: { ...title, kind: "effect" },
+      text: "Wrong kind",
+      duration: { value: "1", timescale: "1" },
+    }),
+    /TITLE_ASSET_INCOMPATIBLE/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({
+      asset: title,
+      text: "Outside sequence",
+      start: { value: "19", timescale: "1" },
+      duration: { value: "2", timescale: "1" },
+    }),
+    /FINAL_CUT_NATIVE_TITLE_RANGE_OUT_OF_BOUNDS/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "   ", duration: { value: "1", timescale: "1" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Zero duration", duration: { value: "0", timescale: "1" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Sub-frame", duration: { value: "1", timescale: "1000" } }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    adapter.previewTitleAdd({ asset: title, text: "Misaligned start", start: { value: "1", timescale: "1000" }, duration: { value: "1", timescale: "24" } }),
+    /INVALID_OPERATION/,
+  );
 });
 
 test("native Final Cut Undo recovers when frontmost is lost after preflight", async () => {
@@ -603,7 +801,8 @@ test("native timeline preflight retries a focus race before editing", async () =
   const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
   assert.equal(result.verification.verified, true);
   assert.equal(preflightCalls >= 3, true);
-  assert.equal(scripts.some((script) => script.includes("tell application \"Final Cut Pro\" to activate")), true);
+  assert.equal(scripts.some((script) => script.includes("tell application \"Final Cut Pro\" to activate")), false);
+  assert.equal(scripts.some((script) => script.includes("set frontmost to true")), true);
 });
 
 test("native Final Cut recovers when frontmost is lost after preflight", async () => {
@@ -824,7 +1023,38 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const matches = await adapter.searchMedia("Interview");
   assert.equal(matches.length, 1);
   assert.equal(matches[0].name, "Interview");
-  assert.equal(scripts.some((script) => script.includes('set searchX to (item 1 of origin) + 240')), true);
+  assert.match(matches[0].handle, /^media-/);
+  assert.equal(matches[0].sourceIdentity, "media-source-1");
+  assert.equal(scripts.some((script) => script.includes('candidateDescription contains "search"') && script.includes('perform action "AXPress" of searchButton')), true);
+  assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
+  assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {368, 400, 340, 561, 531, 501}")), true);
+  assert.equal(scripts.some((script) => script.includes('set searchFieldFound to false') && script.includes('candidateRole is "AXSearchField"')), true);
+  assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
+  const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
+  assert.ok(searchScript);
+  const activationIndex = searchScript.indexOf('set frontmost to true');
+  const frontmostGuardIndex = searchScript.indexOf("if not frontmost then error number -1719");
+  assert.ok(activationIndex >= 0);
+  assert.ok(frontmostGuardIndex > activationIndex);
+  assert.equal(searchScript.includes('tell application "Final Cut Pro" to activate'), false);
+  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
+  assert.match(searchScript, /on revealBrowser\(containerItem, depth\)/);
+  assert.match(searchScript, /candidateDescription contains "Browser"/);
+  assert.match(searchScript, /if depth > 12 then return missing value/);
+  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
+  assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath\)/);
+  assert.match(searchScript, /on collectSelectedBrowserMedia\(containerItem, depth, origin, inheritedContext, seenIdentities, browserPath\)/);
+  assert.match(searchScript, /containerText contains "Events"/);
+  assert.match(searchScript, /set containerText to value of containerItem as text/);
+  assert.match(searchScript, /on accessibilityMediaIdentity\(candidate, candidateName, candidateRole, mediaContext, browserPath\)/);
+  assert.match(searchScript, /fcp-ax:\/\/browser\//);
+  assert.match(searchScript, /candidateRole is "AXGroup"/);
+  assert.match(searchScript, /set candidateItems to UI elements of containerItem/);
+  assert.match(searchScript, /set candidatePath to browserPath & "\/" & \(candidateIndex as text\)/);
+  assert.match(searchScript, /if depth > 12 then return ""/);
+  assert.match(searchScript, /focusedDescription to ""\s+try\s+set focusedDescription to description of focusedCandidate as text/);
+  assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
+  assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
   assert.equal(scripts.some((script) => script.includes('keystroke "f" using {command down}')), false);
   const occurrences = await adapter.locateOccurrence(matches[0].handle);
@@ -837,6 +1067,197 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(result.resultingSegments.length, 2);
   assert.equal(scripts.some((script) => script.includes("Blade")), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
+});
+
+test("native Final Cut literal Browser search does not fall back to arbitrary audio", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes('set searchQuery to "Hang Tight Bass 03"')) {
+        return `Hang Tight Bass 03${separator}AXBrowserMedia${separator}browser-3${separator}media-source-3${recordSeparator}`;
+      }
+      if (script.includes('set searchQuery to "music"')) return "";
+      return "";
+    },
+  });
+
+  const imported = await adapter.searchMedia("Hang Tight Bass 03");
+  assert.equal(imported.length, 1);
+  assert.match(imported[0].handle, /^media-/);
+  assert.equal(imported[0].sourceIdentity, "media-source-3");
+
+  const nonmatching = await adapter.searchMedia("music");
+  assert.deepEqual(nonmatching, []);
+});
+
+test("native Final Cut search includes selected Browser media with an alternate AX role", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes("set candidateSelected to false")) {
+        return `Hang Tight Bass 03${separator}AXStaticText${separator}(561, 210), (120, 80)${separator}media-source-3${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const [match] = await adapter.searchMedia("Hang Tight Bass 03");
+  assert.equal(match?.name, "Hang Tight Bass 03");
+  assert.equal(match?.sourceIdentity, "media-source-3");
+  assert.equal(scripts.some((script) => script.includes("(selected of candidate) is true")), true);
+  assert.equal(scripts.some((script) => script.includes("candidateSelected and candidateSourceIdentity is not \"\"")), true);
+});
+
+test("native Final Cut Browser discovery accepts generic Events media and reuses source handles", async () => {
+  const browserOutput = serializeBrowserFixture();
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes("set value of searchField to searchQuery")) return browserOutput;
+      return "";
+    },
+  });
+
+  const first = await adapter.searchMedia("Blue Steel Guitar");
+  const second = await adapter.searchMedia("Blue Steel Guitar");
+  assert.equal(first.length, 2);
+  assert.equal(second.length, 2);
+  assert.deepEqual(first.map((match) => match.sourceIdentity), [
+    "fcp://media/blue-steel-guitar",
+    "fcp://media/blue-steel-guitar-copy",
+  ]);
+  assert.equal(first[0]?.handle, second[0]?.handle);
+  assert.equal(first.some((match) => match.sourceIdentity === ""), false);
+  assert.equal(scripts.some((script) => script.includes("entire contents of mainWindow")), false);
+  assert.equal(scripts.some((script) => script.includes("UI elements of containerItem")), true);
+  assert.equal(scripts.some((script) => script.includes("AXIdentifier")), true);
+  assert.equal(scripts.some((script) => script.includes("collectBrowserMedia(browserRoot")), true);
+  assert.equal(scripts.some((script) => script.includes("on orderedChildIndices(containerItem)")), true);
+});
+
+test("native Final Cut selected-media traversal returns the stable generic Browser identity", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  const selected = finalCutBrowserAccessibilityFixture.media[0];
+  const selectedOutput = [selected.value, selected.role, selected.axIdentifier, selected.axIdentifier].join(separator) + recordSeparator;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "0", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes("set frontWindow to window \"Final Cut Pro\"")) return context(true, "Final Cut Pro", "", 0, true);
+      if (script.includes("selectedCandidateCount")) return selectedOutput;
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewAppendSelectedMedia();
+  assert.equal(preview.media.name, "Blue Steel Guitar");
+  assert.equal(preview.media.sourceIdentity, "fcp://media/blue-steel-guitar");
+});
+
+test("native Final Cut appends the currently selected Browser media with AX identity verification", async () => {
+  let revision = 1;
+  let duration = "10";
+  const scripts: string[] = [];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: duration, timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('keystroke "e"')) {
+        duration = "15";
+        revision = 2;
+        return "";
+      }
+      if (script.includes("selectedCandidateCount")) {
+        return `Hang Tight Bass 03${separator}AXStaticText${separator}(561, 210), (120, 80)${separator}media-source-3${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo");
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewAppendSelectedMedia();
+  assert.equal(preview.media.name, "Hang Tight Bass 03");
+  assert.equal(preview.media.sourceIdentity, "media-source-3");
+  assert.equal(preview.insertionTime.value, "10");
+  const result = await adapter.executeAppendSelectedMedia(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.equal(result.afterDuration.value, "15");
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.some((script) => script.includes("selectedBrowserMediaScript")), false);
+  assert.equal(scripts.some((script) => script.includes('keystroke "e"')), true);
+  assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
+});
+
+test("native Final Cut selected-media append fails closed without AX identity or after selection changes", async () => {
+  const makeAdapter = (selectedOutput: string | Error) => new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("selectedCandidateCount")) {
+        if (selectedOutput instanceof Error) throw selectedOutput;
+        return selectedOutput;
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      return "";
+    },
+  });
+  const missingIdentity = makeAdapter(new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: selected Browser media has no AXIdentifier"));
+  await assert.rejects(missingIdentity.previewAppendSelectedMedia(), /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE/);
+
+  let selectedReads = 0;
+  let revision = 1;
+  let duration = "10";
+  const changedSelection = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+      revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes("selectedCandidateCount")) {
+        selectedReads += 1;
+        const source = selectedReads === 1 ? "media-source-3" : "media-source-4";
+        return `Hang Tight Bass 03${separator}AXStaticText${separator}(561, 210), (120, 80)${separator}${source}${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, true);
+      return "";
+    },
+  });
+  const preview = await changedSelection.previewAppendSelectedMedia();
+  await assert.rejects(changedSelection.executeAppendSelectedMedia(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED/);
 });
 
 test("native Final Cut adapter previews, appends selected media, verifies duration and revision, and undoes", async () => {
@@ -888,6 +1309,11 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(result.undoCommand, "Undo Append");
   assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length >= 2, true);
+  const appendScript = scripts.find((script) => script.includes('keystroke "e"'));
+  assert.ok(appendScript);
+  assert.ok(appendScript.indexOf("click at") < appendScript.indexOf('keystroke "e"'));
+  assert.ok(appendScript.includes('exists sheet 1 of mainWindow'));
+  assert.ok(appendScript.includes('click button "OK" of sheet 1 of mainWindow'));
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
@@ -1158,11 +1584,12 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.equal(target.selected, true);
   assert.equal(target.playheadTime, "1/1");
   assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
-  assert.equal(scripts.some((script) => script.includes("set browserRegion to") && script.includes("AXRow")), true);
+  assert.equal(scripts.some((script) => script.includes("on browserRegion(candidatePosition, origin, mediaContext)") && script.includes("AXRow")), true);
   const occurrenceScript = scripts.find((script) => script.includes("xOffset"));
   assert.ok(occurrenceScript);
   assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
   assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
+  assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity, browserPath)")), true);
 });
 
 test("native Final Cut media targeting rejects missing and ambiguous targets", async () => {
@@ -1201,7 +1628,7 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
     /FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE/,
   );
   await assert.rejects(
-    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}${recordSeparator}`).targetMedia("missing-source-id"),
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}${recordSeparator}`).targetMedia("Interview"),
     /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE/,
   );
   await assert.rejects(
@@ -1301,6 +1728,17 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   assert.notEqual(video.mediaHandle, audio.mediaHandle);
   assert.equal(searchCalls.get("interview.mov"), 2);
   assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 2);
+  const importScript = scripts.find((script) => script.includes("FRAMEKIT_IMPORT_MEDIA"));
+  assert.ok(importScript);
+  assert.match(importScript, /window "Media Import"/);
+  assert.match(importScript, /sheet 1 of mediaImportWindow/);
+  assert.match(importScript, /text field 1 of goSheet/);
+  assert.match(importScript, /keystroke "interview\.mov"/);
+  assert.match(importScript, /click at \{\(item 1 of importWindowPosition\) \+ 400/);
+  assert.match(importScript, /click importButton/);
+  assert.match(importScript, /window "Processing Files"/);
+  assert.match(importScript, /description of candidate as text/);
+  assert.match(importScript, /button "Import All"/);
 
   const searched = await adapter.searchMedia("interview.mov");
   assert.equal(searched[0]?.handle, video.mediaHandle);
@@ -1323,7 +1761,8 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
       if (script.includes("set targetIdentity to")) {
         const selectsBySourceIdentity = script.includes('set targetSourceIdentity to "file:///imported/interview.mov"')
-          && script.includes("if candidateSourceIdentity is targetSourceIdentity then");
+          && script.includes("candidateSourceIdentity is targetSourceIdentity")
+          && script.includes("pressBrowserMedia(browserRoot");
         if (!selectsBySourceIdentity) {
           throw new Error("selection used stale Browser geometry");
         }
@@ -1389,6 +1828,31 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   assert.notEqual(existing.handle, newlyImported.handle);
 });
 
+test("native Final Cut import reports Browser identity loss separately from import UI timeout", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-id-unavailable-"));
+  const sourcePath = join(directory, "blue-steel-guitar.wav");
+  await writeFile(sourcePath, "audio fixture");
+
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    mediaImportDiscoveryTimeoutMs: 20,
+    mediaImportPollMs: 10,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      return "";
+    },
+  });
+
+  await assert.rejects(
+    adapter.importMedia(sourcePath),
+    /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported blue-steel-guitar\.wav/,
+  );
+});
+
 test("native Final Cut import aborts a stalled native executor at its deadline", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-timeout-"));
   const sourcePath = join(directory, "interview.mov");
@@ -1444,6 +1908,46 @@ test("native Final Cut preserves explicit command errors over embedded frontmost
   await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE/);
 });
 
+test("native Final Cut classifies AppleEvent timeouts explicitly", async () => {
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    executor: async () => {
+      throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: Final Cut Pro got an error: AppleEvent timed out (-1712)");
+    },
+  });
+
+  const inspected = await adapter.inspect();
+  assert.equal(inspected.available, false);
+  assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
+  assert.match(inspected.error?.message ?? "", /did not respond to an AppleEvent/);
+});
+
+test("native Final Cut bounds a blocking timeline preflight AppleEvent", async () => {
+  let aborted = false;
+  const started = Date.now();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativePreflightTimeoutMs: 2_000,
+    executor: async (_script, options) => {
+      return new Promise<never>((_, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("native executor aborted"));
+        }, { once: true });
+      });
+    },
+  });
+
+  const inspected = await adapter.inspect();
+  assert.ok(Date.now() - started < 4_000);
+  assert.equal(aborted, true);
+  assert.equal(inspected.available, false);
+  assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
+});
+
 test("native UI transactions pause and resume live connection supervision", async () => {
   const events: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
@@ -1458,6 +1962,29 @@ test("native UI transactions pause and resume live connection supervision", asyn
   });
 
   await adapter.searchMedia("Interview");
+  assert.deepEqual(events, ["suspend", "resume"]);
+});
+
+test("shared native operation leases keep supervision paused across nested adapters", async () => {
+  const events: string[] = [];
+  const lease = createNativeOperationLease(
+    () => events.push("suspend"),
+    () => events.push("resume"),
+  );
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativeOperationLease: lease,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return "";
+    },
+  });
+
+  lease.acquire();
+  await adapter.searchMedia("Interview");
+  lease.release();
+
   assert.deepEqual(events, ["suspend", "resume"]);
 });
 
