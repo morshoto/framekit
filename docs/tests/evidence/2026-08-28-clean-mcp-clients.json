@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "evidenceType": "clean-mcp-client-workflow",
   "passed": true,
-  "recordedAt": "2026-08-27T15:16:24.374Z",
+  "recordedAt": "2026-08-27T15:18:28.193Z",
   "environment": {
-    "gitCommit": "9bd5f3e5244dd42b6daf032229a8075190ccb90b",
+    "gitCommit": "9cae7d5d846c311216d14e28d228bdb55d272d3e",
     "nodeVersion": "v22.23.1",
     "platform": "darwin",
     "architecture": "arm64",
