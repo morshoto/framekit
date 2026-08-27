@@ -76,6 +76,8 @@ test("filler-removal artifacts retain raw results and refuse overwrites", async 
   };
 
   assert.equal(raw.trim().split("\n").length, report.scenarios.length);
+  const parsedRawResults = raw.trim().split("\n").map((line) => JSON.parse(line) as FillerRemovalRawResult);
+  assert.deepEqual(summarizeFillerRemovalResults(parsedRawResults), report.summary);
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.benchmark, "filler-removal");
   assert.equal(manifest.corpusDigest, report.corpusDigest);
