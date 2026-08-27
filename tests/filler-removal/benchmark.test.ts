@@ -40,8 +40,9 @@ test("filler-removal benchmark runs planning, edit, re-observation, and transcri
 
 test("filler-removal verification metric is reproducible from raw results", async () => {
   const report = await runFillerRemovalBenchmark({ generatedAt: "2026-08-28T00:00:00.000Z" });
-  const rawResults = report.scenarios.map(({ scenarioId, expectedOutcome, actualOutcome, passed, workflow, failure }) => ({
+  const rawResults = report.scenarios.map(({ scenarioId, category, expectedOutcome, actualOutcome, passed, workflow, failure }) => ({
     scenarioId,
+    category,
     expectedOutcome,
     actualOutcome,
     passed,
