@@ -1,4 +1,11 @@
-import type { SpeechWord, TimeRange, RationalTime } from "../domain/types.js";
+import type {
+  ContextRevision,
+  EditOperation,
+  RationalTime,
+  SpeechWord,
+  TimeRange,
+  TimelineDiff,
+} from "../domain/types.js";
 
 export const DEFAULT_FILLER_CONFIDENCE = 0.92;
 export const DEFAULT_PRESERVE_PAUSE_MS = 700;
@@ -13,6 +20,28 @@ export interface FillerRemovalOptions {
 export interface FillerRemovalCandidate {
   word: SpeechWord;
   range: TimeRange;
+}
+
+export interface FillerRemovalRequest extends FillerRemovalOptions {
+  baseRevision: ContextRevision;
+  range: TimeRange;
+}
+
+export interface FillerRemovalTarget extends FillerRemovalCandidate {
+  clipId: string;
+  mediaId: string;
+  sourceRange: TimeRange;
+}
+
+export interface FillerRemovalPreview {
+  previewToken: string;
+  baseRevision: ContextRevision;
+  range: TimeRange;
+  candidates: FillerRemovalTarget[];
+  operations: EditOperation[];
+  expectedDiff?: TimelineDiff;
+  warnings: string[];
+  expiresAt: string;
 }
 
 /** Resolve transcript fillers into conservative, exact timeline ranges. */
