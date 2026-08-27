@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime, planFillerRemoval, type SpeechAnalyzer } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function createFillerRuntime(analyzer: SpeechAnalyzer) {
   const adapter = new InMemoryEditorAdapter({
@@ -23,6 +26,15 @@ function createFillerRuntime(analyzer: SpeechAnalyzer) {
     }],
   });
   return { adapter, runtime: new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer }) };
+}
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { type?: string; text?: unknown } | undefined;
+  assert.equal(first?.type, "text");
+  assert.equal(typeof first?.text, "string");
+  return first.text as string;
 }
 
 test("filler planning selects high-confidence words and preserves a short pause", () => {
@@ -172,4 +184,45 @@ test("filler removal requires canonical timeline writes and never falls back to 
     /CAPABILITY_UNAVAILABLE: filler removal requires canonical timeline write/,
   );
   assert.equal((await adapter.readProject()).revision.id, before.revision.id);
+});
+
+test("MCP exposes the guarded filler removal preview and execute workflow", async () => {
+  let calls = 0;
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ media }) => {
+      calls += 1;
+      return calls === 1
+        ? structuredClone(media.speech!)
+        : { words: [
+          { text: "So", start: 0, end: 0.3, confidence: 0.99 },
+          { text: "what", start: 0.9, end: 1.3, confidence: 0.99 },
+        ] };
+    },
+  };
+  const { runtime } = createFillerRuntime(analyzer);
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "filler-removal-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.some((tool) => tool.name === "speech.filler.remove.preview"));
+    assert.ok(tools.tools.some((tool) => tool.name === "speech.filler.remove.execute"));
+    const before = await runtime.inspectProject();
+    const preview = JSON.parse(textFrom(await client.callTool({
+      name: "speech.filler.remove.preview",
+      arguments: { baseRevision: before.revision, range: { start: 10, end: 13 } },
+    })));
+    assert.equal(preview.candidates[0].word.text, "um");
+    assert.deepEqual(await runtime.inspectProject(), before);
+    const transaction = JSON.parse(textFrom(await client.callTool({
+      name: "speech.filler.remove.execute",
+      arguments: { previewToken: preview.previewToken },
+    })));
+    assert.equal(transaction.status, "VERIFIED");
+    assert.equal(transaction.verification.checks.some((check: { name: string }) => check.name === "filler-speech-continuity"), true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
