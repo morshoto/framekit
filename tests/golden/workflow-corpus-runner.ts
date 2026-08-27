@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { AgentVideoRuntime, type ContextRevision, type EditOperation, type ProjectSnapshot, type TimelineDiff, type WorkflowOperation } from "@framekit/runtime";
+import { AgentVideoRuntime, type ContextRevision, type EditOperation, type ProjectSnapshot, type RationalTime, type TimelineDiff, type WorkflowOperation } from "@framekit/runtime";
 import { InMemoryEditorAdapter, type InMemoryFixture } from "@framekit/testkit";
 
 export interface GoldenScenario {
@@ -138,12 +138,45 @@ export function validateGoldenSnapshot(snapshot: ProjectSnapshot, scenarioId: st
   assertUniqueIds(snapshot.timeline.markers, `${label} marker`);
   assertUniqueIds(snapshot.timeline.captions, `${label} caption`);
   assertUniqueIds(snapshot.media, `${label} media` , (media) => media.mediaId);
+  assertRationalTiming(snapshot.timeline.clips, `${label} clip`);
+  assertRationalTiming(snapshot.timeline.storyElements, `${label} story element`);
+  assertRationalTiming(snapshot.timeline.markers, `${label} marker`);
+  assertRationalTiming(snapshot.timeline.captions, `${label} caption`);
   const mediaIds = new Set(snapshot.media.map((media) => media.mediaId));
   for (const clip of snapshot.timeline.clips) {
     if (clip.mediaId) assert.equal(mediaIds.has(clip.mediaId), true, `${label} media reference ${clip.mediaId} is unresolved`);
   }
   for (const element of snapshot.timeline.storyElements) {
     if (element.mediaId) assert.equal(mediaIds.has(element.mediaId), true, `${label} media reference ${element.mediaId} is unresolved`);
+  }
+}
+
+interface TimedSnapshotItem {
+  id: string;
+  start: number;
+  duration: number;
+  startTime?: RationalTime;
+  durationTime?: RationalTime;
+}
+
+function assertRationalTiming(items: TimedSnapshotItem[], label: string): void {
+  for (const item of items) {
+    assert.equal(rationalMatchesNumber(item.startTime, item.start), true, `${label} ${item.id} startTime disagrees with start`);
+    assert.equal(rationalMatchesNumber(item.durationTime, item.duration), true, `${label} ${item.id} durationTime disagrees with duration`);
+  }
+}
+
+function rationalMatchesNumber(time: RationalTime | undefined, seconds: number): boolean {
+  if (!time || !Number.isFinite(seconds) || typeof time.value !== "string" || typeof time.timescale !== "string") return false;
+  const [whole, fraction = ""] = seconds.toString().split(".");
+  try {
+    const numericValue = BigInt(`${whole}${fraction}`);
+    const numericScale = 10n ** BigInt(fraction.length);
+    const value = BigInt(time.value);
+    const timescale = BigInt(time.timescale);
+    return timescale > 0n && value * numericScale === numericValue * timescale;
+  } catch {
+    return false;
   }
 }
 

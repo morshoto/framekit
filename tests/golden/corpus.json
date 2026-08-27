@@ -362,18 +362,6 @@
                 "value": "10",
                 "timescale": "1"
               }
-            },
-            {
-              "start": 0,
-              "end": 10,
-              "startTime": {
-                "value": "0",
-                "timescale": "1"
-              },
-              "durationTime": {
-                "value": "10",
-                "timescale": "1"
-              }
             }
           ]
         },
@@ -1114,18 +1102,6 @@
                 "value": "10",
                 "timescale": "1"
               }
-            },
-            {
-              "start": 0,
-              "end": 10,
-              "startTime": {
-                "value": "0",
-                "timescale": "1"
-              },
-              "durationTime": {
-                "value": "10",
-                "timescale": "1"
-              }
             }
           ]
         },
@@ -1422,7 +1398,7 @@
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 }
               },
@@ -1434,11 +1410,11 @@
                 "duration": 2,
                 "track": 1,
                 "startTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "3",
+                  "value": "2",
                   "timescale": "1"
                 }
               },
@@ -1450,7 +1426,7 @@
                 "duration": 3,
                 "track": 1,
                 "startTime": {
-                  "value": "7",
+                  "value": "5",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1470,7 +1446,7 @@
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "lane": 1,
@@ -1482,11 +1458,11 @@
                 "start": 3,
                 "duration": 2,
                 "startTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "3",
+                  "value": "2",
                   "timescale": "1"
                 },
                 "lane": 1,
@@ -1498,7 +1474,7 @@
                 "start": 5,
                 "duration": 3,
                 "startTime": {
-                  "value": "7",
+                  "value": "5",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1530,7 +1506,7 @@
                 "duration": 1,
                 "name": "Shift",
                 "startTime": {
-                  "value": "6",
+                  "value": "4",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1616,7 +1592,7 @@
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 }
               }
@@ -1648,11 +1624,11 @@
                 "duration": 2,
                 "track": 1,
                 "startTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "3",
+                  "value": "2",
                   "timescale": "1"
                 }
               }
@@ -1684,7 +1660,7 @@
                 "duration": 3,
                 "track": 1,
                 "startTime": {
-                  "value": "7",
+                  "value": "5",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1708,7 +1684,7 @@
                 "duration": 1,
                 "name": "Shift",
                 "startTime": {
-                  "value": "6",
+                  "value": "4",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1736,7 +1712,7 @@
                 "duration": 1,
                 "name": "Shift",
                 "startTime": {
-                  "value": "6",
+                  "value": "4",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1760,7 +1736,7 @@
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "lane": 1,
@@ -1792,7 +1768,7 @@
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "lane": 1,
@@ -1807,11 +1783,11 @@
                 "start": 3,
                 "duration": 2,
                 "startTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "3",
+                  "value": "2",
                   "timescale": "1"
                 },
                 "lane": 1,
@@ -1839,11 +1815,11 @@
                 "start": 3,
                 "duration": 2,
                 "startTime": {
-                  "value": "4",
+                  "value": "3",
                   "timescale": "1"
                 },
                 "durationTime": {
-                  "value": "3",
+                  "value": "2",
                   "timescale": "1"
                 },
                 "lane": 1,
@@ -1858,7 +1834,7 @@
                 "start": 5,
                 "duration": 3,
                 "startTime": {
-                  "value": "7",
+                  "value": "5",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1890,7 +1866,7 @@
                 "start": 5,
                 "duration": 3,
                 "startTime": {
-                  "value": "7",
+                  "value": "5",
                   "timescale": "1"
                 },
                 "durationTime": {
@@ -1924,7 +1900,7 @@
                 "timescale": "1"
               },
               "durationTime": {
-                "value": "4",
+                "value": "3",
                 "timescale": "1"
               }
             },
@@ -1944,11 +1920,11 @@
               "start": 3,
               "end": 5,
               "startTime": {
-                "value": "4",
+                "value": "3",
                 "timescale": "1"
               },
               "durationTime": {
-                "value": "3",
+                "value": "2",
                 "timescale": "1"
               }
             },
@@ -1968,7 +1944,7 @@
               "start": 5,
               "end": 8,
               "startTime": {
-                "value": "7",
+                "value": "5",
                 "timescale": "1"
               },
               "durationTime": {
@@ -2828,18 +2804,6 @@
               }
             },
             {
-              "start": 0,
-              "end": 8,
-              "startTime": {
-                "value": "0",
-                "timescale": "1"
-              },
-              "durationTime": {
-                "value": "8",
-                "timescale": "1"
-              }
-            },
-            {
               "start": 1,
               "end": 4,
               "startTime": {
@@ -2850,10 +2814,6 @@
                 "value": "3",
                 "timescale": "1"
               }
-            },
-            {
-              "start": 0,
-              "end": 8
             },
             {
               "start": 0,

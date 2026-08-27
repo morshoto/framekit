@@ -427,7 +427,12 @@ export class InMemoryEditorAdapter implements EditorPort {
     const clips = snapshot.timeline.clips.flatMap((clip) => {
       const clipEnd = clip.start + clip.duration;
       if (clipEnd <= start) return [clip];
-      if (clip.start >= end) return [withClipTime({ ...clip, start: clip.start - removedDuration })];
+      if (clip.start >= end) return [withClipTime({
+        ...clip,
+        start: clip.start - removedDuration,
+        startTime: undefined,
+        durationTime: undefined,
+      })];
       const overlap = Math.min(clipEnd, end) - Math.max(clip.start, start);
       const duration = clip.duration - overlap;
       if (duration <= 0) return [];
@@ -435,10 +440,17 @@ export class InMemoryEditorAdapter implements EditorPort {
         ...clip,
         start: clip.start < start ? clip.start : start,
         duration,
+        startTime: undefined,
+        durationTime: undefined,
       })];
     });
     const markers = snapshot.timeline.markers.flatMap((marker) => {
-      if (marker.start >= end) return [normalizeMarker({ ...marker, start: marker.start - removedDuration })];
+      if (marker.start >= end) return [normalizeMarker({
+        ...marker,
+        start: marker.start - removedDuration,
+        startTime: undefined,
+        durationTime: undefined,
+      })];
       if (marker.start + marker.duration <= start) return [marker];
       return [];
     });

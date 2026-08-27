@@ -34,6 +34,17 @@ test("golden structural validation rejects unresolved media references", () => {
   );
 });
 
+test("golden structural validation rejects inconsistent rational timing", () => {
+  const scenario = corpus.scenarios.find((candidate) => candidate.id === "phase1.ripple-delete")!;
+  const invalid = structuredClone(scenario.expected.before);
+  invalid.timeline.clips[0]!.durationTime = { value: "999", timescale: "1" };
+
+  assert.throws(
+    () => validateGoldenSnapshot(invalid, scenario.id),
+    new RegExp(`${scenario.id}.*durationTime disagrees with duration`),
+  );
+});
+
 for (const scenario of corpus.scenarios) {
   test(`golden workflow ${scenario.id} has zero silent corruption`, async () => {
     await runGoldenScenario(scenario);
