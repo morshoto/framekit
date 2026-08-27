@@ -7,6 +7,7 @@ import {
   FinalCutAssetRegistry,
   FinalCutConnectionManager,
   FinalCutNativeAutomationAdapter,
+  DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
@@ -109,6 +110,13 @@ const nativeEditor = liveMode
       nativeOperationLease,
     })
   : undefined;
+const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
+  ? new DisposableNativeEditWorkflow({
+      native: nativeEditor,
+      readCanonicalSnapshot: () => runtime.inspectProject(),
+      readCanonicalCapabilities: async () => (await runtime.inspectEditor()).capabilities,
+    })
+  : undefined;
 const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
   ? new FinalCutProjectPublisher({
       enabled: true,
@@ -130,6 +138,7 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
 const server = createMcpServer(runtime, {
   connectionStatus: () => connection?.getStatus(),
   nativeEditor,
+  disposableNative,
   projectPublisher,
   videoExporter,
 });
