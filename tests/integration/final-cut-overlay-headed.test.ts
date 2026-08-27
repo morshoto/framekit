@@ -16,7 +16,7 @@ test("headed overlay probe discovers Framekit windows owned by Final Cut", async
   });
 
   assert.equal(visible, false);
-  assert.match(scripts[0], /tell process "Final Cut Pro"/);
+  assert.match(scripts[0], /tell finalCutProcess/);
   assert.match(scripts[0], /repeat with candidateWindow in windows/);
   assert.match(scripts[0], /candidateWindowName contains "Framekit"/);
   assert.match(scripts[0], /set framekitWindow to contents of candidateWindow/);
@@ -47,6 +47,21 @@ test("headed overlay probe reports actionable Accessibility diagnostics", async 
       },
     );
   }
+});
+
+test("headed overlay probe classifies the AppleScript stderr instead of its submitted script", async () => {
+  const { ensureFramekitWindowVisible } = await import(accessibilityModulePath);
+  const appleScriptError = Object.assign(
+    new Error("Command failed: osascript -e error \\\"FINAL_CUT_E2E_FINAL_CUT_PROCESS_MISSING\\\""),
+    { stderr: "execution error: FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING (-2700)" },
+  );
+
+  await assert.rejects(
+    ensureFramekitWindowVisible(async () => {
+      throw appleScriptError;
+    }),
+    /FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING: open the Framekit extension in Final Cut Pro and retry/,
+  );
 });
 
 test("headed overlay probe fails closed unless visibility is explicitly verified", async () => {
