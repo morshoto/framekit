@@ -261,6 +261,41 @@ test("FCPXML preserves heterogeneous spine order and distinct clip occurrences",
   assert.ok(xml.indexOf('name="Second use"') < xml.indexOf("<transition"));
 });
 
+test("FCPXML preserves connected story elements with exact parent-relative coordinates", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-connected-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources>
+    <asset id="r1" src="file:///primary.mov" />
+    <asset id="r2" src="file:///connected.mov" />
+  </resources><library><event><project uid="project-connected" name="Connected"><sequence uid="sequence-connected" duration="8s"><spine>
+    <asset-clip id="primary" ref="r1" offset="1/3s" duration="7s">
+      <asset-clip id="connected" ref="r2" offset="2/3s" duration="3s" lane="1" />
+      <title id="connected-title" offset="5/3s" duration="1s" lane="2" name="Connected title" />
+    </asset-clip>
+    <marker id="marker-1" start="7s" duration="0s" value="End" />
+  </spine></sequence></project></event></library></fcpxml>`);
+
+  const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+
+  assert.deepEqual(snapshot.timeline.storyElements.map(({ id, kind, start, duration, lane }) => ({
+    id,
+    kind,
+    start,
+    duration,
+    lane,
+  })), [
+    { id: "primary", kind: "asset-clip", start: 1 / 3, duration: 7, lane: undefined },
+    { id: "connected", kind: "asset-clip", start: 1, duration: 3, lane: 1 },
+    { id: "connected-title", kind: "title", start: 2, duration: 1, lane: 2 },
+  ]);
+  assert.deepEqual(snapshot.timeline.clips.map(({ id, startTime, durationTime }) => ({ id, startTime, durationTime })), [
+    { id: "primary", startTime: { value: "1", timescale: "3" }, durationTime: { value: "7", timescale: "1" } },
+    { id: "connected", startTime: { value: "1", timescale: "1" }, durationTime: { value: "3", timescale: "1" } },
+  ]);
+  assert.deepEqual(snapshot.timeline.storyElements[1]?.startTime, { value: "1", timescale: "1" });
+  assert.deepEqual(snapshot.timeline.storyElements[2]?.startTime, { value: "2", timescale: "1" });
+});
+
 test("Final Cut session composes document snapshot and live state providers", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-session-"));
   const path = join(directory, "project.fcpxml");
