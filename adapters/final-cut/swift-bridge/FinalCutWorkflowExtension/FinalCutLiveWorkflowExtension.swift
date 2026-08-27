@@ -359,6 +359,10 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         guard let host, let timeline = host.timeline, let sequence = timeline.activeSequence else {
             throw NSError(domain: "Framekit", code: 1, userInfo: [NSLocalizedDescriptionKey: "no active sequence"])
         }
+        guard usable(sequence.startTime), usable(sequence.duration), usable(sequence.frameDuration),
+              usable(timeline.playheadTime()), usable(timeline.sequenceTimeRange.start), usable(timeline.sequenceTimeRange.duration) else {
+            throw NSError(domain: "Framekit", code: 2, userInfo: [NSLocalizedDescriptionKey: "live timeline times are not available yet"])
+        }
         let project = (sequence.container as? FCPXProject).map {
             LiveState.Project(id: "final-cut:project:\($0.uid)", name: $0.name)
         }
@@ -371,6 +375,10 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
         let currentRevision = stateLock.withLock { revision }
         return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
+    }
+
+    private func usable(_ time: CMTime) -> Bool {
+        time.isValid && time.isNumeric && time.timescale > 0
     }
 }
 

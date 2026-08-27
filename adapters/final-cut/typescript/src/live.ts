@@ -184,6 +184,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
   public async readLiveState(): Promise<EditorLiveState> {
     const response = await this.request({ method: "state" });
     if (!response.state) throw new Error("FINAL_CUT_LIVE_PROTOCOL: state response was empty");
+    validateLiveState(response.state, "live state");
     return response.state;
   }
 
@@ -193,7 +194,9 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
       afterSequence: revision.sequence,
       waitMs,
     });
-    return response.changes ?? [];
+    const changes = response.changes ?? [];
+    changes.forEach((change, index) => validateLiveChange(change, `live change ${index}`));
+    return changes;
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
@@ -273,6 +276,39 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
   }
   for (const occurrenceId of occurrenceIds) {
     if (mediaIds.has(occurrenceId)) protocolError(`occurrence identity ${occurrenceId} must be distinct from media identity`);
+  }
+}
+
+function validateLiveState(state: EditorLiveState, field: string): void {
+  if (!state || typeof state !== "object") protocolError(`${field} must be an object`);
+  validateRevision(state.revision, `${field} revision`);
+  if (state.project) {
+    requireNonEmpty(state.project.id, `${field} project id`);
+    requireNonEmpty(state.project.name, `${field} project name`);
+  }
+  if (state.sequence) {
+    requireNonEmpty(state.sequence.id, `${field} sequence id`);
+    requireNonEmpty(state.sequence.name, `${field} sequence name`);
+    requireRational(state.sequence.startTime, `${field} sequence start time`);
+    requireRational(state.sequence.duration, `${field} sequence duration`);
+    requireRational(state.sequence.frameDuration, `${field} sequence frame duration`);
+  }
+  if (state.playheadTime) requireRational(state.playheadTime, `${field} playhead time`);
+  if (state.sequenceTimeRange) {
+    requireRational(state.sequenceTimeRange.start, `${field} range start`);
+    requireRational(state.sequenceTimeRange.duration, `${field} range duration`);
+  }
+}
+
+function validateLiveChange(change: EditorChange, field: string): void {
+  if (!change || typeof change !== "object") protocolError(`${field} must be an object`);
+  if (!["active-sequence-changed", "playhead-changed", "sequence-time-range-changed"].includes(change.kind)) {
+    protocolError(`${field} has an unsupported kind`);
+  }
+  validateRevision(change.revision, `${field} revision`);
+  validateLiveState(change.state, `${field} state`);
+  if (change.state.revision.sequence !== change.revision.sequence) {
+    protocolError(`${field} revision does not match its state revision`);
   }
 }
 

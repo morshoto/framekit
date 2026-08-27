@@ -88,6 +88,14 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "visual.analyze",
       ],
     );
+    const timelineEditTool = tools.tools.find((tool) => tool.name === "timeline.edit");
+    assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
+      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "range", "reason", "timelineId", "type",
+    ]);
+    assert.deepEqual(timelineEditTool?.inputSchema.required, ["type"]);
+    const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
+    assert.deepEqual(Object.keys(nativeEditTool?.inputSchema.properties ?? {}).sort(), ["duration", "edge", "gainDb", "name", "type"]);
+    assert.deepEqual(nativeEditTool?.inputSchema.required, ["type"]);
 
     const editor = await client.callTool({ name: "editor.inspect", arguments: {} });
     const editorPayload = JSON.parse(textFrom(editor));
@@ -123,6 +131,19 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const transaction = JSON.parse(textFrom(edited));
     assert.equal(transaction.after.timeline.clips[0].name, "Interview - Clean");
     assert.equal(transaction.diff.modified[0].itemId, "clip-1");
+    assert.equal(transaction.after.media[0].speech.words.length, 1);
+    assert.equal(transaction.after.media[0].visual.scenes.length, 1);
+    const staleEdit = await client.callTool({
+      name: "timeline.edit",
+      arguments: {
+        type: "rename-clip",
+        clipId: "clip-1",
+        name: "Stale MCP edit",
+        baseRevision: before.revision,
+      },
+    });
+    assert.equal(staleEdit.isError, true);
+    assert.match(textFrom(staleEdit), /STALE_CONTEXT/);
 
     const changes = await client.callTool({
       name: "timeline.changes",
