@@ -541,9 +541,15 @@ export class AgentVideoRuntime {
       this.transactions.set(transaction.id, transaction);
       return transaction;
     } catch (error) {
-      if (!sameRevision(currentRevision, before.revision)) {
+      let partiallyApplied: ProjectSnapshot;
+      try {
+        partiallyApplied = await this.inspectProject();
+      } catch (readError) {
+        throw new Error(`FILLER_REMOVAL_FAILED: ${String(error)}; rollback failed: ${String(readError)}`);
+      }
+      if (!sameRevision(partiallyApplied.revision, before.revision)) {
         try {
-          await this.adapter.restore(before, currentRevision);
+          await this.adapter.restore(before, partiallyApplied.revision);
           this.assertRestored(before, await this.inspectProject());
         } catch (rollbackError) {
           throw new Error(`FILLER_REMOVAL_FAILED: ${String(error)}; rollback failed: ${String(rollbackError)}`);

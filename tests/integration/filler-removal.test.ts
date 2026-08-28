@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AgentVideoRuntime, planFillerRemoval, type SpeechAnalyzer } from "@framekit/runtime";
+import { AgentVideoRuntime, canonicalSnapshotDigest, planFillerRemoval, type SpeechAnalyzer } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
@@ -163,6 +163,26 @@ test("failed filler continuity verification restores the original timeline", asy
   assert.equal(transaction.verification?.passed, false);
   assert.equal(transaction.verification?.checks.some((check) => check.name === "filler-speech-continuity" && !check.passed), true);
   assert.equal((await runtime.inspectProject()).timeline.clips[0]?.duration, 3);
+});
+
+test("filler removal restores a revision advanced by a failing apply", async () => {
+  const analyzer: SpeechAnalyzer = { analyze: async ({ media }) => structuredClone(media.speech!) };
+  const { adapter, runtime } = createFillerRuntime(analyzer);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+  const apply = adapter.apply.bind(adapter);
+  adapter.apply = async (operation, expectedRevision) => {
+    await apply(operation, expectedRevision);
+    throw new Error("simulated apply failure after mutation");
+  };
+
+  await assert.rejects(
+    runtime.executeFillerRemoval(preview.previewToken),
+    /FILLER_REMOVAL_FAILED: Error: simulated apply failure after mutation/,
+  );
+  const restored = await adapter.readProject();
+  assert.equal(canonicalSnapshotDigest(restored), canonicalSnapshotDigest(before));
+  assert.notEqual(restored.revision.id, before.revision.id);
 });
 
 test("filler removal requires canonical timeline writes and never falls back to artifact mutation", async () => {
