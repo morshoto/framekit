@@ -689,6 +689,12 @@ test("live canonical snapshots require valid media references and caption coordi
     adapter.readProject(),
     /FINAL_CUT_LIVE_PROTOCOL: media final-cut:media:shared source must be a non-empty string/,
   );
+
+  malformed.media[0]!.source = canonicalSnapshot.media[0]!.source;
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: caption caption-1 start time must use an integer value and positive timescale/,
+  );
 });
 
 test("live canonical snapshots fail closed when the active target does not match", async () => {
