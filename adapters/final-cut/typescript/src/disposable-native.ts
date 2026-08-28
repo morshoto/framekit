@@ -72,6 +72,7 @@ export interface DisposableNativeEditWorkflowOptions {
   readCanonicalCapabilities: () => Promise<RuntimeCapabilities>;
   now?: () => number;
   previewTtlMs?: number;
+  maxOperations?: number;
 }
 
 interface PreviewRecord {
@@ -98,10 +99,15 @@ export class DisposableNativeEditWorkflow {
   private readonly operations = new Map<string, ExecutedRecord>();
   private readonly now: () => number;
   private readonly previewTtlMs: number;
+  private readonly maxOperations: number;
 
   public constructor(private readonly options: DisposableNativeEditWorkflowOptions) {
     this.now = options.now ?? Date.now;
     this.previewTtlMs = options.previewTtlMs ?? 30_000;
+    this.maxOperations = options.maxOperations ?? 100;
+    if (!Number.isInteger(this.maxOperations) || this.maxOperations < 1) {
+      throw new Error("INVALID_OPERATION: disposable native maxOperations must be a positive integer");
+    }
   }
 
   public async preview(request: NativeFinalCutDisposableRequest): Promise<NativeFinalCutDisposablePreview> {
@@ -178,6 +184,7 @@ export class DisposableNativeEditWorkflow {
       };
     }
 
+    this.pruneOperations();
     this.operations.set(native.operationId, {
       request: structuredClone(preview.request),
       before: preview.before,
@@ -306,6 +313,14 @@ export class DisposableNativeEditWorkflow {
     const now = this.now();
     for (const [token, preview] of this.previews) {
       if (now > preview.expiresAt) this.previews.delete(token);
+    }
+  }
+
+  private pruneOperations(): void {
+    while (this.operations.size >= this.maxOperations) {
+      const oldestOperationId = this.operations.keys().next().value;
+      if (!oldestOperationId) return;
+      this.operations.delete(oldestOperationId);
     }
   }
 }

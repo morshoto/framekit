@@ -116,6 +116,42 @@ test("disposable native restoration evidence names the requested non-first targe
   assert.match(targetCheck?.detail ?? "", /clip-2/);
 });
 
+test("disposable native workflow bounds retained operations while preserving the newest undo", async () => {
+  let currentName = "Interview";
+  let previousName = currentName;
+  let revision = 1;
+  let operationCount = 0;
+  const native = {
+    capabilities: () => nativeCapabilities,
+    inspect: async () => nativeContext(currentName, revision > 1),
+    edit: async (operation: Extract<NativeFinalCutEdit, { type: "rename-selected-clip" }>) => {
+      previousName = currentName;
+      currentName = operation.name;
+      revision += 1;
+      return { ...nativeEditResult(operation, currentName), operationId: `native-operation-${++operationCount}` };
+    },
+    undo: async (operationId: string) => {
+      currentName = previousName;
+      revision += 1;
+      return nativeUndoResult(operationId, currentName);
+    },
+  } as unknown as NativeFinalCutEditor;
+  const workflow = new DisposableNativeEditWorkflow({
+    native,
+    maxOperations: 1,
+    readCanonicalSnapshot: async () => snapshot(currentName, revision),
+    readCanonicalCapabilities: async () => canonicalCapabilities,
+  });
+
+  const first = await workflow.execute((await workflow.preview({ clipId: "clip-1", name: "Interview One" })).previewToken);
+  const second = await workflow.execute((await workflow.preview({ clipId: "clip-1", name: "Interview Two" })).previewToken);
+
+  await assert.rejects(workflow.undo(first.operationId), /NATIVE_DISPOSABLE_UNDO_UNAVAILABLE/);
+  const undone = await workflow.undo(second.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.restored.timeline.clips[0]?.name, "Interview One");
+});
+
 test("disposable native execute rejects a stale preview before native mutation", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
