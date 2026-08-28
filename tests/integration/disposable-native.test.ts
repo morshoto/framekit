@@ -92,6 +92,30 @@ test("disposable native execute returns a canonical diff and explicit undo resto
   assert.equal(state.nativeUndoCalls, 1);
 });
 
+test("disposable native restoration evidence names the requested non-first target", async () => {
+  const state = createState();
+  state.snapshot.timeline.clips.push({
+    id: "clip-2",
+    mediaId: "media-2",
+    name: "Outro",
+    start: 10,
+    duration: 5,
+    track: 1,
+    startTime: { value: "10", timescale: "1" },
+    durationTime: { value: "5", timescale: "1" },
+  });
+  state.targetClipId = "clip-2";
+  state.selectedName = "Outro";
+  const workflow = createWorkflow(state);
+  const preview = await workflow.preview({ clipId: "clip-2", name: "Outro Clean" });
+
+  const result = await workflow.execute(preview.previewToken);
+  const undone = await workflow.undo(result.operationId);
+  const targetCheck = undone.verification.checks.find((check) => check.name === "canonical-target-restored");
+
+  assert.match(targetCheck?.detail ?? "", /clip-2/);
+});
+
 test("disposable native execute rejects a stale preview before native mutation", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
@@ -149,6 +173,7 @@ test("disposable native workflow fails closed when canonical snapshots are unava
 
 interface TestState {
   snapshot: ProjectSnapshot;
+  targetClipId: string;
   selectedName: string;
   canonicalAfterEditName?: string;
   nativeEditCalls: number;
@@ -162,7 +187,8 @@ function createWorkflow(state: TestState): DisposableNativeEditWorkflow {
     readCanonicalSnapshot: async () => {
       const snapshot = structuredClone(state.snapshot);
       if (state.nativeEditCalls > state.nativeUndoCalls) {
-        snapshot.timeline.clips[0]!.name = state.canonicalAfterEditName ?? state.selectedName;
+        const target = snapshot.timeline.clips.find((clip) => clip.id === state.targetClipId);
+        target!.name = state.canonicalAfterEditName ?? state.selectedName;
         snapshot.revision = { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() };
       }
       return snapshot;
@@ -174,6 +200,7 @@ function createWorkflow(state: TestState): DisposableNativeEditWorkflow {
 function createState(): TestState {
   const state = {} as TestState;
   state.snapshot = snapshot("Interview", 1);
+  state.targetClipId = "clip-1";
   state.selectedName = "Interview";
   state.nativeEditCalls = 0;
   state.nativeUndoCalls = 0;

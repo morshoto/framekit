@@ -150,7 +150,7 @@ export class DisposableNativeEditWorkflow {
     try {
       after = await this.readCanonical("read-after-write");
     } catch (error) {
-      await this.compensate(native.operationId, preview.before, error, "READ_AFTER_WRITE_FAILED");
+      await this.compensate(native.operationId, preview.before, preview.request.clipId, error, "READ_AFTER_WRITE_FAILED");
       throw new Error(`READ_AFTER_WRITE_FAILED: canonical state was restored (${String(error)})`);
     }
 
@@ -159,7 +159,7 @@ export class DisposableNativeEditWorkflow {
     const afterDigest = canonicalSnapshotDigest(after);
     const verification = verifyDisposableRename(preview.before, after, diff, preview.request);
     if (!verification.passed) {
-      const restored = await this.compensate(native.operationId, preview.before, verification, "VERIFICATION_FAILED");
+      const restored = await this.compensate(native.operationId, preview.before, preview.request.clipId, verification, "VERIFICATION_FAILED");
       return {
         operationId: native.operationId,
         previewToken,
@@ -220,7 +220,7 @@ export class DisposableNativeEditWorkflow {
       throw new Error(`READ_AFTER_UNDO_FAILED: native Undo completed but canonical restoration could not be observed (${String(error)})`);
     }
     const restoredDigest = canonicalSnapshotDigest(restored);
-    const verification = verifyRestoration(operation.before, restored, operation.beforeDigest);
+    const verification = verifyRestoration(operation.before, restored, operation.beforeDigest, operation.request.clipId);
     if (!verification.passed) {
       throw new Error(`ROLLBACK_FAILED: ${verification.checks.find((check) => !check.passed)?.detail ?? "canonical digest mismatch"}`);
     }
@@ -286,6 +286,7 @@ export class DisposableNativeEditWorkflow {
   private async compensate(
     operationId: string,
     before: ProjectSnapshot,
+    clipId: string,
     cause: unknown,
     code: string,
   ): Promise<ProjectSnapshot> {
@@ -293,7 +294,7 @@ export class DisposableNativeEditWorkflow {
       const native = await this.options.native.undo(operationId);
       if (!native.undone) throw new Error("native Undo did not report restoration");
       const restored = await this.readCanonical("compensating undo");
-      const verification = verifyRestoration(before, restored, canonicalSnapshotDigest(before));
+      const verification = verifyRestoration(before, restored, canonicalSnapshotDigest(before), clipId);
       if (!verification.passed) throw new Error(verification.checks.find((check) => !check.passed)?.detail ?? "canonical digest mismatch");
       return restored;
     } catch (rollbackError) {
@@ -349,7 +350,12 @@ function verifyDisposableRename(
   return { passed: checks.every((check) => check.passed), checks };
 }
 
-function verifyRestoration(before: ProjectSnapshot, restored: ProjectSnapshot, beforeDigest: string): VerificationReport {
+function verifyRestoration(
+  before: ProjectSnapshot,
+  restored: ProjectSnapshot,
+  beforeDigest: string,
+  clipId: string,
+): VerificationReport {
   const restoredDigest = canonicalSnapshotDigest(restored);
   const checks: VerificationCheck[] = [
     {
@@ -359,8 +365,8 @@ function verifyRestoration(before: ProjectSnapshot, restored: ProjectSnapshot, b
     },
     {
       name: "canonical-target-restored",
-      passed: restored.timeline.clips.some((clip) => clip.id === before.timeline.clips[0]?.id),
-      detail: "canonical target occurrence is present after native Undo",
+      passed: restored.timeline.clips.some((clip) => clip.id === clipId),
+      detail: `canonical target occurrence ${clipId} is present after native Undo`,
     },
   ];
   return { passed: checks.every((check) => check.passed), checks };
