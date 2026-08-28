@@ -41,8 +41,9 @@ start a new Codex session. No repository checkout is required.
 Claude Code uses a user-scoped local stdio server:
 
 ```sh
-claude mcp add --scope user --transport stdio framekit -- \
-  npx -y @morshoto/framekit mcp --editor final-cut-live --headless
+claude mcp add --env FRAMEKIT_EDITOR=final-cut-live \
+  --scope user --transport stdio framekit -- \
+  npx -y @morshoto/framekit mcp --headless
 claude mcp list
 claude mcp get framekit
 ```

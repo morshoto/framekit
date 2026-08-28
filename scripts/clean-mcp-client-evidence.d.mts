@@ -22,4 +22,8 @@ export interface CleanMcpEvidence {
   sanitization: { strategy: string; omitted: string[] };
 }
 
-export function sanitizeCleanMcpEvidence(run: unknown): CleanMcpEvidence;
+export interface CleanMcpEvidenceOptions {
+  expectedClientNames?: Array<"Codex" | "Claude Code">;
+}
+
+export function sanitizeCleanMcpEvidence(run: unknown, options?: CleanMcpEvidenceOptions): CleanMcpEvidence;

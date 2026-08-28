@@ -27,6 +27,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 export async function main() {
+  const expectedClientNames = expectedClientNamesForSelection(clientSelection);
   const packageManifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   const runtimeManifest = JSON.parse(await readFile(join(root, "packages/runtime/package.json"), "utf8"));
   const packageStatus = await inspectPublishedPackage();
@@ -44,8 +45,6 @@ export async function main() {
     if (clientSelection === "all" || clientSelection === "claude") {
       clients.push(await runClaudeWorkflow(executable, packageManifest.version, packageStatus));
     }
-    if (clients.length !== 2) throw new Error("Set FRAMEKIT_CLEAN_CLIENT=all when publishing both client results");
-
     const evidence = sanitizeCleanMcpEvidence({
       schemaVersion: 1,
       recordedAt: new Date().toISOString(),
@@ -53,12 +52,19 @@ export async function main() {
       runtime: { version: runtimeManifest.version, packageName: "@framekit/runtime" },
       environment,
       clients,
-    });
+    }, { expectedClientNames });
     process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
   } finally {
     await rm(packageDirectory, { recursive: true, force: true });
     await rm(installDirectory, { recursive: true, force: true });
   }
+}
+
+function expectedClientNamesForSelection(selection) {
+  if (selection === "all") return ["Codex", "Claude Code"];
+  if (selection === "codex") return ["Codex"];
+  if (selection === "claude") return ["Claude Code"];
+  throw new Error("FRAMEKIT_CLEAN_CLIENT must be all, codex, or claude");
 }
 
 async function runCodexWorkflow(executable, framekitVersion, packageStatus) {
@@ -102,10 +108,10 @@ async function runClaudeWorkflow(executable, framekitVersion, packageStatus) {
   const configDirectory = await mkdtemp(join(os.tmpdir(), "framekit-clean-claude-config-"));
   try {
     const claude = await ensureClaudeBinary(clientDirectory);
-    const registrationCommand = "claude mcp add --scope user --transport stdio framekit -- npx -y @morshoto/framekit mcp --editor final-cut-live --headless";
+    const registrationCommand = "claude mcp add --env FRAMEKIT_EDITOR=final-cut-live --scope user --transport stdio framekit -- npx -y @morshoto/framekit mcp --headless";
     const add = await runCommand(claude, [
-      "mcp", "add", "--scope", "user", "--transport", "stdio", "framekit", "--",
-      "npx", "-y", packageName, "mcp", "--editor", "final-cut-live", "--headless",
+      "mcp", "add", "--env", "FRAMEKIT_EDITOR=final-cut-live", "--scope", "user", "--transport", "stdio", "framekit", "--",
+      "npx", "-y", packageName, "mcp", "--headless",
     ], { CLAUDE_CONFIG_DIR: configDirectory });
     if (!/^Added stdio MCP server framekit/m.test(add.stdout)) throw new Error("Claude Code did not add the Framekit MCP server");
     await runCommand(claude, ["mcp", "list"], { CLAUDE_CONFIG_DIR: configDirectory });

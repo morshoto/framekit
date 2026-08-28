@@ -64,6 +64,15 @@ test("clean MCP evidence rejects incomplete client workflows", () => {
   );
 });
 
+test("clean MCP evidence permits a selected single-client diagnostic", () => {
+  const partial = rawEvidence();
+  partial.clients = [partial.clients[0]!];
+
+  const evidence = sanitizeCleanMcpEvidence(partial, { expectedClientNames: ["Codex"] });
+
+  assert.deepEqual(evidence.clients.map((client) => client.name), ["Codex"]);
+});
+
 test("published clean MCP evidence documents the current validation result", async () => {
   const evidence = JSON.parse(
     await readFile(resolve(repository, "docs/tests/evidence/2026-08-27-clean-mcp-clients.json"), "utf8"),
@@ -83,7 +92,8 @@ test("clean MCP client instructions document both supported registration paths",
   for (const expected of [
     "codex plugin marketplace add morshoto/framekit",
     "codex plugin add framekit@framekit",
-    "claude mcp add --scope user --transport stdio framekit",
+    "claude mcp add --env FRAMEKIT_EDITOR=final-cut-live",
+    "--scope user --transport stdio framekit",
     "npx -y @morshoto/framekit",
     "FRAMEKIT_CLEAN_CLIENT",
     "CAPABILITY_UNAVAILABLE",
@@ -92,6 +102,7 @@ test("clean MCP client instructions document both supported registration paths",
   ]) {
     assert.match(documentation, new RegExp(escapeRegExp(expected), "i"));
   }
+  assert.doesNotMatch(documentation, /mcp --editor final-cut-live/);
   assert.match(readme, /clean MCP client/i);
   assert.equal(packageManifest.scripts?.["test:clean-mcp-clients"], "node scripts/clean-mcp-client-smoke.mjs");
 });

@@ -30,9 +30,9 @@ const editorCapabilityKeys = [
 
 const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"];
 
-export function sanitizeCleanMcpEvidence(run) {
+export function sanitizeCleanMcpEvidence(run, options = {}) {
   assert(run?.schemaVersion === 1, "schema version must be 1");
-  const clients = requireClients(run.clients);
+  const clients = requireClients(run.clients, options.expectedClientNames);
 
   return {
     schemaVersion: 1,
@@ -56,10 +56,20 @@ export function sanitizeCleanMcpEvidence(run) {
   };
 }
 
-function requireClients(clients) {
-  assert(Array.isArray(clients) && clients.length === 2, "exactly two client records are required");
+function requireClients(clients, expectedClientNames = ["Codex", "Claude Code"]) {
+  assert(
+    Array.isArray(expectedClientNames) && expectedClientNames.length > 0,
+    "at least one expected client is required",
+  );
+  assert(
+    Array.isArray(clients) && clients.length === expectedClientNames.length,
+    `${expectedClientNames.join(" and ")} client records are required`,
+  );
   const names = clients.map((client) => requireString(client?.name, "client name"));
-  assert(names[0] === "Codex" && names[1] === "Claude Code", "Codex and Claude Code records are required in order");
+  assert(
+    names.every((name, index) => name === expectedClientNames[index]),
+    `${expectedClientNames.join(" and ")} records are required in order`,
+  );
   return clients;
 }
 
