@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "clean-mcp-client-workflow",
+  "passed": true,
+  "recordedAt": "2026-08-28T01:25:13.776Z",
+  "environment": {
+    "gitCommit": "512841cf3d53b6a92bf3e2b09c38cfaadb6a4a3f",
+    "nodeVersion": "v22.23.1",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "osVersion": "Darwin Kernel Version 25.5.0: Mon Apr 27 20:41:15 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T6041"
+  },
+  "framekit": { "version": "0.1.0" },
+  "runtime": { "version": "0.1.0" },
+  "clients": [
+    {
+      "name": "Codex",
+      "clientVersion": "0.144.1",
+      "registration": {
+        "status": "passed",
+        "command": "codex plugin marketplace add morshoto/framekit; codex plugin add framekit@framekit",
+        "publicPackage": {
+          "status": "blocked",
+          "reason": "@morshoto/framekit is not available from the configured npm registry"
+        }
+      },
+      "server": { "version": "0.1.0", "protocolVersion": "2025-11-25" },
+      "editor": { "name": "In-memory Editor", "version": "phase-2-fixture", "backend": "fixture" },
+      "capabilities": {
+        "editor": {
+          "canonicalTimelineMode": "canonical-write",
+          "projectRead": true,
+          "timelineSnapshotRead": true,
+          "timelineWrite": true,
+          "timelineArtifactWrite": false,
+          "readAfterWrite": true,
+          "incrementalChanges": true,
+          "rollback": true,
+          "assetDiscovery": true,
+          "liveStateRead": false,
+          "playheadWrite": false,
+          "frameCapture": true,
+          "projectCatalogRead": true,
+          "projectSelection": true,
+          "compositeTransactions": true,
+          "mediaImport": true,
+          "mediaPlacement": true,
+          "titlePlacement": true
+        },
+        "analyzers": {
+          "speechTranscribe": true,
+          "speechVad": false,
+          "audioLoudness": true,
+          "visualTrack": true
+        }
+      },
+      "workflow": {
+        "status": "passed",
+        "tools": [
+          { "name": "project.inspect", "status": "passed" },
+          { "name": "speech.analyze", "status": "passed" },
+          { "name": "timeline.edit", "status": "VERIFIED" },
+          { "name": "edit.diff", "status": "passed" },
+          { "name": "edit.verify", "status": "passed" },
+          { "name": "edit.undo", "status": "passed" }
+        ],
+        "limitations": [
+          "CAPABILITY_UNAVAILABLE: native Final Cut mutation is disabled by headless mode",
+          "CAPABILITY_UNAVAILABLE: the published npm package is unavailable in the current registry"
+        ]
+      }
+    },
+    {
+      "name": "Claude Code",
+      "clientVersion": "2.1.231",
+      "registration": {
+        "status": "passed",
+        "command": "claude mcp add --env FRAMEKIT_EDITOR=final-cut-live --scope user --transport stdio framekit -- npx -y @morshoto/framekit mcp --headless",
+        "publicPackage": {
+          "status": "blocked",
+          "reason": "@morshoto/framekit is not available from the configured npm registry"
+        }
+      },
+      "server": { "version": "0.1.0", "protocolVersion": "2025-11-25" },
+      "editor": { "name": "In-memory Editor", "version": "phase-2-fixture", "backend": "fixture" },
+      "capabilities": {
+        "editor": {
+          "canonicalTimelineMode": "canonical-write",
+          "projectRead": true,
+          "timelineSnapshotRead": true,
+          "timelineWrite": true,
+          "timelineArtifactWrite": false,
+          "readAfterWrite": true,
+          "incrementalChanges": true,
+          "rollback": true,
+          "assetDiscovery": true,
+          "liveStateRead": false,
+          "playheadWrite": false,
+          "frameCapture": true,
+          "projectCatalogRead": true,
+          "projectSelection": true,
+          "compositeTransactions": true,
+          "mediaImport": true,
+          "mediaPlacement": true,
+          "titlePlacement": true
+        },
+        "analyzers": {
+          "speechTranscribe": true,
+          "speechVad": false,
+          "audioLoudness": true,
+          "visualTrack": true
+        }
+      },
+      "workflow": {
+        "status": "passed",
+        "tools": [
+          { "name": "project.inspect", "status": "passed" },
+          { "name": "speech.analyze", "status": "passed" },
+          { "name": "timeline.edit", "status": "VERIFIED" },
+          { "name": "edit.diff", "status": "passed" },
+          { "name": "edit.verify", "status": "passed" },
+          { "name": "edit.undo", "status": "passed" }
+        ],
+        "limitations": [
+          "CAPABILITY_UNAVAILABLE: native Final Cut mutation is disabled by headless mode",
+          "CAPABILITY_UNAVAILABLE: the published npm package is unavailable in the current registry"
+        ]
+      }
+    }
+  ],
+  "sanitization": {
+    "strategy": "allowlisted-summary",
+    "omitted": [
+      "private filesystem paths",
+      "raw tool responses",
+      "transaction identifiers",
+      "credentials",
+      "diagnostics"
+    ]
+  }
+}

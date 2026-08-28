@@ -12,6 +12,8 @@ real Final Cut Pro process.
   exact expected state/diffs, and the zero-silent-corruption gate.
 - [Deterministic MCP evaluation](./mcp-evaluation.md): fixture-backed workflow,
   failure-path, capability-coverage, and scenario-consistency metrics.
+- [Clean MCP clients](./clean-mcp-clients.md): isolated Codex and Claude Code
+  registration probes, stdio workflow coverage, and sanitized evidence.
 - [Controlled filler-removal benchmark](./filler-removal-benchmark.md):
   reproducible verification rate, rollback categories, and retained evidence.
 - [Final Cut live E2E](./final-cut-live-e2e.md): read-only native bridge test.
