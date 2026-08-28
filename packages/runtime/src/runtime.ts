@@ -481,6 +481,16 @@ export class AgentVideoRuntime {
       warnings: expectedDiff ? [] : ["The selected canonical editor has no non-mutating preview provider; the diff will be observed after execution."],
       expiresAt,
     };
+    this.pruneFillerPreviews();
+    const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews)
+      && this.options.maxActivePreviews! > 0
+      ? this.options.maxActivePreviews!
+      : 128;
+    while (this.fillerPreviews.size >= maxActivePreviews) {
+      const oldestToken = this.fillerPreviews.keys().next().value;
+      if (oldestToken === undefined) break;
+      this.fillerPreviews.delete(oldestToken);
+    }
     this.fillerPreviews.set(previewToken, {
       preview,
       expectedWordsByClip,
@@ -726,6 +736,13 @@ export class AgentVideoRuntime {
     const now = this.now();
     for (const [previewToken, preview] of this.editPreviews) {
       if (now > Date.parse(preview.expiresAt)) this.editPreviews.delete(previewToken);
+    }
+  }
+
+  private pruneFillerPreviews(): void {
+    const now = this.now();
+    for (const [previewToken, record] of this.fillerPreviews) {
+      if (now > Date.parse(record.preview.expiresAt)) this.fillerPreviews.delete(previewToken);
     }
   }
 

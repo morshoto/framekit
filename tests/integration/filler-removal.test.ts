@@ -6,7 +6,10 @@ import { AgentVideoRuntime, canonicalSnapshotDigest, planFillerRemoval, type Spe
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
-function createFillerRuntime(analyzer: SpeechAnalyzer) {
+function createFillerRuntime(
+  analyzer: SpeechAnalyzer,
+  options: ConstructorParameters<typeof AgentVideoRuntime>[1] = {},
+) {
   const adapter = new InMemoryEditorAdapter({
     projectId: "project-filler",
     projectName: "Filler Fixture",
@@ -25,7 +28,7 @@ function createFillerRuntime(analyzer: SpeechAnalyzer) {
       },
     }],
   });
-  return { adapter, runtime: new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer }) };
+  return { adapter, runtime: new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer, ...options }) };
 }
 
 function textFrom(result: unknown): string {
@@ -183,6 +186,31 @@ test("filler removal restores a revision advanced by a failing apply", async () 
   const restored = await adapter.readProject();
   assert.equal(canonicalSnapshotDigest(restored), canonicalSnapshotDigest(before));
   assert.notEqual(restored.revision.id, before.revision.id);
+});
+
+test("filler preview storage evicts the oldest active token at its configured bound", async () => {
+  const analyzer: SpeechAnalyzer = { analyze: async ({ media }) => structuredClone(media.speech!) };
+  const { runtime } = createFillerRuntime(analyzer, { maxActivePreviews: 2 });
+  const before = await runtime.inspectProject();
+  const first = await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+  await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+  await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+
+  await assert.rejects(runtime.executeFillerRemoval(first.previewToken), /PREVIEW_TOKEN_INVALID/);
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("filler preview storage prunes expired tokens before inserting new previews", async () => {
+  let now = 0;
+  const analyzer: SpeechAnalyzer = { analyze: async ({ media }) => structuredClone(media.speech!) };
+  const { runtime } = createFillerRuntime(analyzer, { now: () => now, previewTtlMs: 100 });
+  const before = await runtime.inspectProject();
+  const first = await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+  now = 101;
+  await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+
+  await assert.rejects(runtime.executeFillerRemoval(first.previewToken), /PREVIEW_TOKEN_INVALID/);
+  assert.deepEqual(await runtime.inspectProject(), before);
 });
 
 test("filler removal requires canonical timeline writes and never falls back to artifact mutation", async () => {
