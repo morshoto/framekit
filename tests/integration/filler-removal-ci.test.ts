@@ -13,9 +13,10 @@ test("filler-removal benchmark is wired into local and CI validation", async () 
   assert.match(packageJson.scripts?.test ?? "", /tests\/filler-removal\/\*\.test\.ts/);
   assert.equal(packageJson.scripts?.["test:filler-removal"], "tsx --test tests/filler-removal/*.test.ts");
   assert.equal(packageJson.scripts?.["benchmark:filler-removal"], "tsx scripts/run-filler-removal-benchmark.ts");
-  assert.match(workflow, /pnpm run benchmark:filler-removal -- --output-dir artifacts\/filler-removal\/\$\{\{ github\.run_id \}\}/);
+  assert.match(workflow, /pnpm run benchmark:filler-removal --output-dir artifacts\/filler-removal\/\$\{\{ github\.run_id \}\}/);
+  assert.doesNotMatch(workflow, /pnpm run benchmark:filler-removal -- --output-dir/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
-  assert.match(documentation, /pnpm run benchmark:filler-removal/);
+  assert.match(documentation, /pnpm run benchmark:filler-removal --output-dir artifacts\/filler-removal\/local-run/);
   assert.match(documentation, /results\.jsonl/);
   assert.match(documentation, /manifest\.json/);
   assert.match(documentation, /95\.0%/);

@@ -15,7 +15,7 @@ pnpm run test:filler-removal
 Run the benchmark and retain a new evidence directory with:
 
 ```sh
-pnpm run benchmark:filler-removal -- --output-dir artifacts/filler-removal/local-run
+pnpm run benchmark:filler-removal --output-dir artifacts/filler-removal/local-run
 ```
 
 The command refuses to reuse an existing output directory. Each run retains:
