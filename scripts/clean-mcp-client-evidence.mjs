@@ -31,7 +31,7 @@ const editorCapabilityKeys = [
 const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"];
 const prohibitedPublicTextPatterns = [
   /(?:^|[\\/])(?:Users|home|private|var[\\/]folders)(?:[\\/]|$)/i,
-  /(?:api[-_ ]?key|access[-_ ]?token|password|secret|authorization)\s*[:=]/i,
+  /(?:api[-_ ]?key|access[-_ ]?token|password|secret|authorization)(?:\s*[:=]\s*|\s+)\S+/i,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/i,
   /\b(?:crash dump|stack trace|raw diagnostics?|exception(?:\s|:))/i,
   /\b(?:transaction|revision)[-_ ]?(?:id|identifier)?\s*[:=]\s*\S+/i,

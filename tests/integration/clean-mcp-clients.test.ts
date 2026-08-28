@@ -65,6 +65,12 @@ test("clean MCP evidence rejects prohibited free-text fields", () => {
     /CLEAN_MCP_EVIDENCE_INCOMPLETE: Codex registration command contains prohibited content/,
   );
 
+  unsafe.clients[0]!.registration.command = "claude mcp add --env API_KEY top-secret";
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(unsafe),
+    /CLEAN_MCP_EVIDENCE_INCOMPLETE: Codex registration command contains prohibited content/,
+  );
+
   unsafe.clients[0]!.registration.command = "claude mcp add framekit";
   unsafe.clients[0]!.workflow.limitations[0] = "raw crash dump: transaction id: tx-secret";
   assert.throws(
