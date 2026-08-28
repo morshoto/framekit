@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   canonicalSnapshotDigest,
   diffSnapshots,
@@ -370,5 +371,5 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
 }
 
 function randomToken(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return randomUUID();
 }

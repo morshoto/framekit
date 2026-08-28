@@ -61,6 +61,7 @@ test("disposable native preview binds the canonical target without mutating it",
 
   const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
 
+  assert.match(preview.previewToken, /^disposable-native-preview-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(preview.operation.type, "rename-selected-clip");
   assert.equal(preview.target.clipId, "clip-1");
   assert.equal(preview.target.name, "Interview");
