@@ -158,9 +158,10 @@ export function sanitizeDisposableNativeEvidence(run, environment) {
   assert(beforeTarget.name !== afterTarget.name, "canonical mutation did not change the target occurrence");
   assert(beforeTarget.name === restoredTarget.name, "restored target occurrence does not match the pre-edit state");
 
-  const modifiedItemIds = (run.diff.modified ?? []).map((change) => change?.itemId).filter(isNonEmptyString);
+  const modified = Array.isArray(run.diff.modified) ? run.diff.modified : [];
+  const modifiedItemIds = modified.map((change) => change?.itemId).filter(isNonEmptyString);
   assert(countChanges(run.diff.added) === 0 && countChanges(run.diff.removed) === 0, "disposable diff contains unexpected additions or removals");
-  assert(modifiedItemIds.length === 1 && modifiedItemIds[0] === run.target.occurrenceId, "disposable diff does not identify exactly the target occurrence");
+  assert(modified.length === 1 && modifiedItemIds.length === 1 && modifiedItemIds[0] === run.target.occurrenceId, "disposable diff does not identify exactly the target occurrence");
 
   return {
     schemaVersion: 1,

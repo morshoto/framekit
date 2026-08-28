@@ -46,6 +46,16 @@ test("disposable native evidence rejects metadata-only capability claims", () =>
   );
 });
 
+test("disposable native evidence rejects unidentifiable extra modified entries", () => {
+  const malformedRun = structuredClone(rawRun);
+  Reflect.set(malformedRun.diff, "modified", [...malformedRun.diff.modified, { detail: "unidentifiable change" }]);
+
+  assert.throws(
+    () => sanitizeDisposableNativeEvidence(malformedRun, environment),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: disposable diff does not identify exactly the target occurrence/,
+  );
+});
+
 const environment = {
   framekitVersion: "0.1.0",
   finalCutVersion: "10.7.1",
