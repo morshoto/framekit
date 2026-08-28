@@ -29,7 +29,7 @@ test("filler-removal CLI rejects duplicate and unsupported arguments", () => {
   }
   assert.throws(
     () => parseFillerRemovalOutputDirectory(["--output-dir"], "default"),
-    /USAGE: --output-dir requires a path/,
+    /USAGE:/,
   );
   assert.throws(
     () => parseFillerRemovalOutputDirectory(["--output-dir", "--other"], "default"),

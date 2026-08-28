@@ -5,8 +5,11 @@ import {
   runFillerRemovalBenchmark,
 } from "../tests/filler-removal/benchmark.js";
 import { writeFillerRemovalArtifacts } from "../tests/filler-removal/artifacts.js";
+import { parseFillerRemovalOutputDirectory } from "./run-filler-removal-benchmark-args.js";
 
-const outputDirectory = parseOutputDirectory(process.argv.slice(2));
+const defaultRunId = `${new Date().toISOString().replace(/[^0-9]/g, "")}-${process.pid}`;
+const defaultOutputDirectory = join(process.cwd(), "artifacts", "filler-removal", defaultRunId);
+const outputDirectory = parseFillerRemovalOutputDirectory(process.argv.slice(2), defaultOutputDirectory);
 const report = await runFillerRemovalBenchmark();
 await mkdir(dirname(outputDirectory), { recursive: true });
 const artifacts = await writeFillerRemovalArtifacts(report, outputDirectory);
@@ -17,22 +20,3 @@ console.log(`results=${resolve(artifacts.resultsPath)}`);
 console.log(`manifest=${resolve(artifacts.manifestPath)}`);
 
 if (!report.summary.threshold.passed) process.exitCode = 1;
-
-function parseOutputDirectory(args: string[]): string {
-  const optionIndex = args.indexOf("--output-dir");
-  const inlineOption = args.find((arg) => arg.startsWith("--output-dir="));
-  if (optionIndex >= 0) {
-    const value = args[optionIndex + 1];
-    if (!value || value.startsWith("--")) throw new Error("USAGE: --output-dir requires a path");
-    if (inlineOption) throw new Error("USAGE: specify --output-dir once");
-    return value;
-  }
-  if (inlineOption) {
-    const value = inlineOption.slice("--output-dir=".length);
-    if (!value) throw new Error("USAGE: --output-dir requires a path");
-    return value;
-  }
-  if (args.length > 0) throw new Error("USAGE: only --output-dir is supported");
-  const runId = `${new Date().toISOString().replace(/[^0-9]/g, "")}-${process.pid}`;
-  return join(process.cwd(), "artifacts", "filler-removal", runId);
-}
