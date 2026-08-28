@@ -296,6 +296,26 @@ test("FCPXML preserves connected story elements with exact parent-relative coord
   assert.deepEqual(snapshot.timeline.storyElements[2]?.startTime, { value: "2", timescale: "1" });
 });
 
+test("FCPXML separates asset source starts from timeline offsets", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-source-start-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources>
+    <asset id="r1" src="file:///trimmed.mov" />
+  </resources><library><event><project uid="project-source-start" name="Source starts"><sequence uid="sequence-source-start"><spine>
+    <asset-clip id="trimmed" ref="r1" start="4s" duration="3s" />
+    <marker id="marker-source-start" start="2s" duration="0s" value="Marker" />
+    <caption id="caption-source-start" start="5s" duration="1s" text="Caption" />
+  </spine></sequence></project></event></library></fcpxml>`);
+
+  const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+
+  assert.equal(snapshot.timeline.duration, 3);
+  assert.deepEqual(snapshot.timeline.clips[0]?.startTime, { value: "0", timescale: "1" });
+  assert.equal(snapshot.timeline.clips[0]?.start, 0);
+  assert.equal(snapshot.timeline.markers[0]?.start, 2);
+  assert.equal(snapshot.timeline.captions[0]?.start, 5);
+});
+
 test("Final Cut session composes document snapshot and live state providers", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-session-"));
   const path = join(directory, "project.fcpxml");

@@ -394,7 +394,11 @@ function timelineEntries(spine: XmlNode): TimelineEntry[] {
   const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string): void => {
     storyEntries(node).forEach(({ kind, node: child }, index) => {
       const path = parentPath.length === 0 ? String(index) : `${parentPath}.${index}`;
-      const localStart = parseRational(attribute(child, "offset") ?? attribute(child, "start") ?? "0s");
+      const localStart = parseRational(
+        attribute(child, "offset")
+          ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
+          ?? "0s",
+      );
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
       const startTime = addRational(parentStart, localStart);
       if (TIMELINE_KINDS.has(kind)) {
