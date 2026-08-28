@@ -186,7 +186,8 @@ export function summarizeFillerRemovalResults(results: FillerRemovalRawResult[])
     verification: 0,
   };
   for (const result of results) {
-    if (result.failure) failureCategories[result.failure.category] += 1;
+    const failure = fallbackFailure(result);
+    if (failure) failureCategories[failure.category] += 1;
   }
 
   const verificationResults = results.filter((result) => result.expectedOutcome === "verified");
@@ -275,6 +276,9 @@ async function runScenario(
     && workflow.reObserved
     && workflow.transcriptVerified
     && (scenario.expectedOutcome === "verified" ? afterDigest !== beforeDigest : afterDigest === beforeDigest);
+  if (!failure) {
+    failure = fallbackFailure({ category: scenario.category, passed, failure });
+  }
 
   return {
     scenarioId: scenario.id,
@@ -291,6 +295,16 @@ async function runScenario(
     ...(plannedOperation ? { plannedOperation } : {}),
     transcriptBefore,
     transcriptAfter,
+  };
+}
+
+function fallbackFailure(
+  result: Pick<FillerRemovalRawResult, "category" | "passed" | "failure">,
+): FillerRemovalFailure | undefined {
+  if (result.passed || result.failure) return result.failure;
+  return {
+    category: result.category === "success" ? "verification" : result.category,
+    detail: "benchmark postcondition did not hold",
   };
 }
 
