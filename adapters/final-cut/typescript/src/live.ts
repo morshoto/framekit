@@ -273,6 +273,7 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
   const timelineDuration = rationalSeconds(snapshot.timeline.durationTime, "timeline duration time");
   assertMatchingSeconds(snapshot.timeline.duration, timelineDuration, "timeline duration");
   for (const storyElement of snapshot.timeline.storyElements) {
+    requireNonEmpty(storyElement.kind, `story element ${storyElement.id} kind`);
     validateCanonicalCoordinates(storyElement, `story element ${storyElement.id}`);
     if (storyElement.lane !== undefined && !Number.isInteger(storyElement.lane)) {
       protocolError(`story element ${storyElement.id} lane must be an integer`);

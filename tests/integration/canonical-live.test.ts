@@ -608,6 +608,39 @@ test("live canonical snapshots require exact coordinates for every supported ele
   );
 });
 
+test("live canonical snapshots require a non-empty story element kind", async () => {
+  const malformed = structuredClone(canonicalSnapshot);
+  malformed.timeline.storyElements[0]!.kind = "";
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        ...(request.method === "snapshot" ? { snapshot: malformed } : {}),
+        ...(request.method === "projects" ? {
+          catalog: {
+            projects: [{
+              id: canonicalSnapshot.projectId,
+              name: canonicalSnapshot.projectName,
+              sequences: [{ id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name }],
+            }],
+            activeProjectId: canonicalSnapshot.projectId,
+            activeSequenceId: canonicalSnapshot.timeline.id,
+          },
+        } : {}),
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: story element final-cut:occurrence:one kind must be a non-empty string/,
+  );
+});
+
 test("live canonical snapshots reject inconsistent rational convenience values", async () => {
   const malformed = structuredClone(canonicalSnapshot);
   malformed.timeline.clips[0]!.durationTime = { value: "1", timescale: "1" };
