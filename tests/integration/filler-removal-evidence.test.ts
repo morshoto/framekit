@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 test("headed filler-removal runner covers live preflight, verification, and rollback", async () => {
-  const runner = await readFile(join(process.cwd(), "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8");
+  const runner = await readFile(join(repositoryRoot, "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8");
 
   assert.match(runner, /canonical-write/);
   assert.match(runner, /editor\.live\.inspect/);
@@ -12,11 +15,12 @@ test("headed filler-removal runner covers live preflight, verification, and roll
   assert.match(runner, /speech\.filler\.remove\.execute/);
   assert.match(runner, /filler-speech-continuity/);
   assert.match(runner, /edit\.undo/);
-  assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
+  assert.match(runner, /schemaVersion:\s*1/);
+  assert.match(runner, /evidenceType:\s*"headed-native-filler-removal"/);
 });
 
 test("headed filler-removal evidence documentation keeps live and deterministic proof separate", async () => {
-  const documentation = await readFile(join(process.cwd(), "docs/tests/final-cut-filler-removal-e2e.md"), "utf8");
+  const documentation = await readFile(join(repositoryRoot, "docs/tests/final-cut-filler-removal-e2e.md"), "utf8");
 
   assert.match(documentation, /FRAMEKIT_FINAL_CUT_E2E_PROJECT/);
   assert.match(documentation, /FRAMEKIT_SPEECH_ANALYZER/);
