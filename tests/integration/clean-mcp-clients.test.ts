@@ -79,6 +79,33 @@ test("clean MCP evidence rejects prohibited free-text fields", () => {
   );
 });
 
+test("clean MCP evidence permits ordinary prose mentioning 'key' without actual credentials", () => {
+  const safe = rawEvidence();
+  safe.clients[0]!.workflow.limitations[0] = "No API key is required for this operation";
+  safe.clients[0]!.workflow.limitations[1] = "The secret to success is practice";
+
+  const evidence = sanitizeCleanMcpEvidence(safe);
+
+  assert.equal(evidence.clients[0]?.workflow.limitations[0], "No API key is required for this operation");
+  assert.equal(evidence.clients[0]?.workflow.limitations[1], "The secret to success is practice");
+});
+
+test("clean MCP evidence still rejects actual whitespace-delimited credentials", () => {
+  const unsafe = rawEvidence();
+  unsafe.clients[0]!.registration.command = "start --env API_KEY top-secret";
+
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(unsafe),
+    /CLEAN_MCP_EVIDENCE_INCOMPLETE: Codex registration command contains prohibited content/,
+  );
+
+  unsafe.clients[0]!.registration.command = "export PASSWORD hunter2 && run";
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(unsafe),
+    /CLEAN_MCP_EVIDENCE_INCOMPLETE: Codex registration command contains prohibited content/,
+  );
+});
+
 test("clean MCP evidence rejects incomplete client workflows", () => {
   const incomplete = rawEvidence();
   incomplete.clients[1]!.workflow.tools = incomplete.clients[1]!.workflow.tools.slice(0, 5);
