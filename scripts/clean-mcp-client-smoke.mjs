@@ -22,6 +22,21 @@ const requiredTools = [
   ["edit.undo", "passed"],
 ];
 
+class RecordingMcpClient extends Client {
+  negotiatedProtocolVersion;
+
+  async request(request, resultSchema, options) {
+    const result = await super.request(request, resultSchema, options);
+    if (request?.method === "initialize") {
+      if (typeof result?.protocolVersion !== "string" || result.protocolVersion.length === 0) {
+        throw new Error("MCP initialize response did not include a protocol version");
+      }
+      this.negotiatedProtocolVersion = result.protocolVersion;
+    }
+    return result;
+  }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await main();
 }
@@ -140,7 +155,7 @@ async function runMcpWorkflow({ clientName, clientVersion, executable, framekitV
     args: ["mcp", "--editor", "fixture"],
     stderr: "pipe",
   });
-  const client = new Client({ name: clientName, version: clientVersion });
+  const client = new RecordingMcpClient({ name: clientName, version: clientVersion });
 
   try {
     await client.connect(transport);
@@ -175,12 +190,14 @@ async function runMcpWorkflow({ clientName, clientVersion, executable, framekitV
     if (undone.timeline?.clips?.[0]?.name !== "Interview") throw new Error(`${clientName} undo workflow did not restore the fixture`);
 
     const serverInfo = client.getServerVersion?.();
+    const protocolVersion = client.negotiatedProtocolVersion;
+    if (!protocolVersion) throw new Error(`${clientName} did not negotiate an MCP protocol version`);
     return {
       name: "pending",
       clientVersion,
       server: {
         version: serverInfo?.version ?? framekitVersion,
-        protocolVersion: client.getServerCapabilities?.()?.protocolVersion ?? "2025-11-25",
+        protocolVersion,
       },
       editor: editor.identity,
       capabilities: editor.capabilities,

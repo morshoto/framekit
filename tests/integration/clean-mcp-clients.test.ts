@@ -21,6 +21,7 @@ test("clean MCP client runner covers the required setup and workflow", async () 
     "edit.verify",
     "edit.undo",
     "@modelcontextprotocol/sdk",
+    "initialize",
   ]) {
     assert.match(runner, new RegExp(escapeRegExp(expected), "i"));
   }
