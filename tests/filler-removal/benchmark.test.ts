@@ -90,3 +90,28 @@ test("filler-removal artifacts retain raw results and refuse overwrites", async 
     /FILLER_REMOVAL_ARTIFACT_EXISTS/,
   );
 });
+
+test("filler-removal summaries classify failed results without supplied failure metadata", () => {
+  const summary = summarizeFillerRemovalResults([
+    {
+      scenarioId: "failed-transcript",
+      category: "success",
+      expectedOutcome: "verified",
+      actualOutcome: "verified",
+      passed: false,
+      workflow: { planned: true, edited: true, reObserved: true, transcriptVerified: false },
+    },
+    {
+      scenarioId: "failed-boundary",
+      category: "boundary",
+      expectedOutcome: "rolled-back",
+      actualOutcome: "verified",
+      passed: false,
+      workflow: { planned: true, edited: true, reObserved: true, transcriptVerified: true },
+    },
+  ]);
+
+  assert.equal(summary.failedScenarios, 2);
+  assert.equal(summary.failureCategories.verification, 1);
+  assert.equal(summary.failureCategories.boundary, 1);
+});
