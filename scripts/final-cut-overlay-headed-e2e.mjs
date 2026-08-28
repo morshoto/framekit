@@ -1,12 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { execFile as execFileCallback } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
+import { ensureFramekitWindowVisible } from "./final-cut-overlay-accessibility.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const execFile = promisify(execFileCallback);
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
 
 if (!expectedProject) {
@@ -72,24 +70,6 @@ try {
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
-}
-
-async function ensureFramekitWindowVisible() {
-  const script = `
-tell application "System Events"
-  tell process "Final Cut Pro"
-    try
-      set framekitWindow to window "Framekit"
-      set value of attribute "AXMinimized" of framekitWindow to false
-      delay 0.2
-      return (value of attribute "AXMinimized" of framekitWindow) as text
-    on error
-      error "FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING"
-    end try
-  end tell
-end tell`;
-  const result = await execFile("osascript", ["-e", script]);
-  return result.stdout.trim() === "true";
 }
 
 async function callJson(name, arguments_ = {}) {

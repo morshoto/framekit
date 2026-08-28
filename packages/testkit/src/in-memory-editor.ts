@@ -1,4 +1,5 @@
 import type {
+  Caption,
   Clip,
   ContextChangeSet,
   ContextRevision,
@@ -28,6 +29,7 @@ export interface InMemoryProjectFixture {
   clips: Array<Omit<Clip, "startTime" | "durationTime"> & Partial<Pick<Clip, "startTime" | "durationTime">>>;
   media?: MediaContext[];
   markers?: Marker[];
+  captions?: Caption[];
   assets?: EditorAsset[];
   frames?: Array<{
     position: RationalTime;
@@ -425,7 +427,12 @@ export class InMemoryEditorAdapter implements EditorPort {
     const clips = snapshot.timeline.clips.flatMap((clip) => {
       const clipEnd = clip.start + clip.duration;
       if (clipEnd <= start) return [clip];
-      if (clip.start >= end) return [withClipTime({ ...clip, start: clip.start - removedDuration })];
+      if (clip.start >= end) return [withClipTime({
+        ...clip,
+        start: clip.start - removedDuration,
+        startTime: undefined,
+        durationTime: undefined,
+      })];
       const overlap = Math.min(clipEnd, end) - Math.max(clip.start, start);
       const duration = clip.duration - overlap;
       if (duration <= 0) return [];
@@ -433,11 +440,28 @@ export class InMemoryEditorAdapter implements EditorPort {
         ...clip,
         start: clip.start < start ? clip.start : start,
         duration,
+        startTime: undefined,
+        durationTime: undefined,
       })];
     });
     const markers = snapshot.timeline.markers.flatMap((marker) => {
-      if (marker.start >= end) return [normalizeMarker({ ...marker, start: marker.start - removedDuration })];
+      if (marker.start >= end) return [normalizeMarker({
+        ...marker,
+        start: marker.start - removedDuration,
+        startTime: undefined,
+        durationTime: undefined,
+      })];
       if (marker.start + marker.duration <= start) return [marker];
+      return [];
+    });
+    const captions = snapshot.timeline.captions.flatMap((caption) => {
+      if (caption.start + caption.duration <= start) return [caption];
+      if (caption.start >= end) return [normalizeCaption({
+        ...caption,
+        start: caption.start - removedDuration,
+        startTime: undefined,
+        durationTime: undefined,
+      })];
       return [];
     });
     return {
@@ -452,6 +476,7 @@ export class InMemoryEditorAdapter implements EditorPort {
             return clip ? { ...element, start: clip.start, duration: clip.duration, startTime: clip.startTime, durationTime: clip.durationTime } : element;
           }),
         markers,
+        captions,
       },
     };
   }
@@ -520,7 +545,7 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
         mediaId: clip.mediaId,
       })),
       markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
-      captions: [],
+      captions: (fixture.captions ?? []).map((caption) => normalizeCaption(caption)),
     },
     media: structuredClone(fixture.media ?? []),
     revision: {
@@ -549,6 +574,10 @@ function withClipTime(clip: Omit<Clip, "startTime" | "durationTime"> & Partial<P
 
 function normalizeMarker(marker: Marker): Marker {
   return { ...marker, startTime: marker.startTime ?? decimalToRational(marker.start), durationTime: marker.durationTime ?? decimalToRational(marker.duration) };
+}
+
+function normalizeCaption(caption: Caption): Caption {
+  return { ...caption, startTime: caption.startTime ?? decimalToRational(caption.start), durationTime: caption.durationTime ?? decimalToRational(caption.duration) };
 }
 
 function decimalToRational(value: number): RationalTime {
