@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "evidenceType": "clean-mcp-client-workflow",
   "passed": true,
-  "recordedAt": "2026-08-27T15:18:28.193Z",
+  "recordedAt": "2026-08-28T01:25:13.776Z",
   "environment": {
-    "gitCommit": "9cae7d5d846c311216d14e28d228bdb55d272d3e",
+    "gitCommit": "512841cf3d53b6a92bf3e2b09c38cfaadb6a4a3f",
     "nodeVersion": "v22.23.1",
     "platform": "darwin",
     "architecture": "arm64",
@@ -75,7 +75,7 @@
       "clientVersion": "2.1.231",
       "registration": {
         "status": "passed",
-        "command": "claude mcp add --scope user --transport stdio framekit -- npx -y @morshoto/framekit mcp --editor final-cut-live --headless",
+        "command": "claude mcp add --env FRAMEKIT_EDITOR=final-cut-live --scope user --transport stdio framekit -- npx -y @morshoto/framekit mcp --headless",
         "publicPackage": {
           "status": "blocked",
           "reason": "@morshoto/framekit is not available from the configured npm registry"
