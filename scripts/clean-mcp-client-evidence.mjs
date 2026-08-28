@@ -29,6 +29,13 @@ const editorCapabilityKeys = [
 ];
 
 const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"];
+const prohibitedPublicTextPatterns = [
+  /(?:^|[\\/])(?:Users|home|private|var[\\/]folders)(?:[\\/]|$)/i,
+  /(?:api[-_ ]?key|access[-_ ]?token|password|secret|authorization)\s*[:=]/i,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/i,
+  /\b(?:crash dump|stack trace|raw diagnostics?|exception(?:\s|:))/i,
+  /\b(?:transaction|revision)[-_ ]?(?:id|identifier)?\s*[:=]\s*\S+/i,
+];
 
 export function sanitizeCleanMcpEvidence(run, options = {}) {
   assert(run?.schemaVersion === 1, "schema version must be 1");
@@ -40,8 +47,8 @@ export function sanitizeCleanMcpEvidence(run, options = {}) {
     passed: true,
     recordedAt: requireString(run.recordedAt, "recordedAt"),
     environment: sanitizeEnvironment(run.environment),
-    framekit: { version: requireString(run.framekit?.version, "Framekit version") },
-    runtime: { version: requireString(run.runtime?.version, "runtime version") },
+    framekit: { version: sanitizePublicText(run.framekit?.version, "Framekit version") },
+    runtime: { version: sanitizePublicText(run.runtime?.version, "runtime version") },
     clients: clients.map((client) => sanitizeClient(client)),
     sanitization: {
       strategy: "allowlisted-summary",
@@ -81,18 +88,18 @@ function sanitizeClient(client) {
 
   return {
     name,
-    clientVersion: requireString(client.clientVersion, `${name} version`),
+    clientVersion: sanitizePublicText(client.clientVersion, `${name} version`),
     registration: sanitizeRegistration(client.registration, name),
     server: {
-      version: requireString(client.server?.version, `${name} server version`),
-      protocolVersion: requireString(client.server?.protocolVersion, `${name} protocol version`),
+      version: sanitizePublicText(client.server?.version, `${name} server version`),
+      protocolVersion: sanitizePublicText(client.server?.protocolVersion, `${name} protocol version`),
     },
     editor: sanitizeIdentity(client.editor, name),
     capabilities: sanitizeCapabilities(client.capabilities, name),
     workflow: {
       status: "passed",
       tools: workflowTools,
-      limitations: limitations.map((limitation) => requireString(limitation, `${name} limitation`)),
+      limitations: limitations.map((limitation) => sanitizePublicText(limitation, `${name} limitation`)),
     },
   };
 }
@@ -101,7 +108,7 @@ function sanitizeRegistration(registration, clientName) {
   assert(registration?.status === "passed", `${clientName} registration did not pass`);
   const result = {
     status: "passed",
-    command: requireString(registration.command, `${clientName} registration command`),
+    command: sanitizePublicText(registration.command, `${clientName} registration command`),
   };
   if (registration.publicPackage) {
     const status = registration.publicPackage.status;
@@ -109,7 +116,7 @@ function sanitizeRegistration(registration, clientName) {
     result.publicPackage = {
       status,
       ...(status === "blocked"
-        ? { reason: requireString(registration.publicPackage.reason, `${clientName} public package reason`) }
+        ? { reason: sanitizePublicText(registration.publicPackage.reason, `${clientName} public package reason`) }
         : {}),
     };
   }
@@ -132,19 +139,21 @@ function sanitizeEnvironment(environment) {
   assert(/^[0-9a-f]{40}$/i.test(gitCommit), "Git commit must be a full SHA-1");
   return {
     gitCommit,
-    nodeVersion: requireString(environment.nodeVersion, "Node version"),
-    platform: requireString(environment.platform, "platform"),
-    architecture: requireString(environment.architecture, "architecture"),
-    ...(isNonEmptyString(environment.osVersion) ? { osVersion: environment.osVersion } : {}),
+    nodeVersion: sanitizePublicText(environment.nodeVersion, "Node version"),
+    platform: sanitizePublicText(environment.platform, "platform"),
+    architecture: sanitizePublicText(environment.architecture, "architecture"),
+    ...(isNonEmptyString(environment.osVersion)
+      ? { osVersion: sanitizePublicText(environment.osVersion, "OS version") }
+      : {}),
   };
 }
 
 function sanitizeIdentity(identity, clientName) {
   assert(identity, `${clientName} editor identity is missing`);
   return {
-    name: requireString(identity.name, `${clientName} editor name`),
-    version: requireString(identity.version, `${clientName} editor version`),
-    backend: requireString(identity.backend, `${clientName} editor backend`),
+    name: sanitizePublicText(identity.name, `${clientName} editor name`),
+    version: sanitizePublicText(identity.version, `${clientName} editor version`),
+    backend: sanitizePublicText(identity.backend, `${clientName} editor backend`),
   };
 }
 
@@ -153,6 +162,7 @@ function sanitizeCapabilities(capabilities, clientName) {
   const editor = pickKnown(capabilities.editor, editorCapabilityKeys);
   const analyzers = pickKnown(capabilities.analyzers, analyzerCapabilityKeys);
   assert(typeof editor.canonicalTimelineMode === "string", `${clientName} canonicalTimelineMode is missing`);
+  editor.canonicalTimelineMode = sanitizePublicText(editor.canonicalTimelineMode, `${clientName} canonicalTimelineMode`);
   for (const key of editorCapabilityKeys.filter((candidate) => candidate !== "canonicalTimelineMode")) {
     if (editor[key] !== undefined) assert(typeof editor[key] === "boolean", `${clientName} ${key} capability must be boolean`);
   }
@@ -173,6 +183,16 @@ function pickKnown(value, keys) {
 function requireString(value, label) {
   assert(isNonEmptyString(value), `${label} is missing`);
   return value;
+}
+
+function sanitizePublicText(value, label) {
+  const text = requireString(value, label).trim();
+  assert(text.length <= 240, `${label} is too long`);
+  assert(
+    !prohibitedPublicTextPatterns.some((pattern) => pattern.test(text)),
+    `${label} contains prohibited content`,
+  );
+  return text;
 }
 
 function isNonEmptyString(value) {

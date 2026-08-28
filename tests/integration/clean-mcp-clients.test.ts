@@ -54,6 +54,24 @@ test("clean MCP evidence omits private paths, transaction IDs, and raw diagnosti
   assert.match(serialized, /CAPABILITY_UNAVAILABLE/);
 });
 
+test("clean MCP evidence rejects prohibited free-text fields", () => {
+  const unsafe = rawEvidence();
+  unsafe.clients[0]!.registration.command =
+    "claude mcp add --env API_KEY=top-secret -- /Users/private/secret-footage.mov";
+
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(unsafe),
+    /CLEAN_MCP_EVIDENCE_INCOMPLETE: Codex registration command contains prohibited content/,
+  );
+
+  unsafe.clients[0]!.registration.command = "claude mcp add framekit";
+  unsafe.clients[0]!.workflow.limitations[0] = "raw crash dump: transaction id: tx-secret";
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(unsafe),
+    /CLEAN_MCP_EVIDENCE_INCOMPLETE: Codex limitation contains prohibited content/,
+  );
+});
+
 test("clean MCP evidence rejects incomplete client workflows", () => {
   const incomplete = rawEvidence();
   incomplete.clients[1]!.workflow.tools = incomplete.clients[1]!.workflow.tools.slice(0, 5);
