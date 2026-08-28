@@ -186,11 +186,13 @@ function validateReadSnapshot(snapshot) {
     }
     return media.mediaId;
   });
-  const storyElementIds = uniqueReadIds(snapshot.timeline.storyElements, "story element", (element) => {
+  const storyElementsById = new Map();
+  uniqueReadIds(snapshot.timeline.storyElements, "story element", (element) => {
     requireString(element.id, "story element id");
     validateReadCoordinates(element, `story element ${element.id}`);
     if (element.lane !== undefined) assert(Number.isInteger(element.lane), `story element ${element.id} lane must be an integer`);
     if (element.mediaId !== undefined) assert(mediaIds.has(element.mediaId), `story element ${element.id} references missing media`);
+    storyElementsById.set(element.id, element);
     return element.id;
   });
   uniqueReadIds(snapshot.timeline.markers, "marker", (marker) => {
@@ -211,8 +213,8 @@ function validateReadSnapshot(snapshot) {
     assert(Number.isInteger(clip.track), `occurrence ${clip.id} track must be an integer`);
     validateReadCoordinates(clip, `occurrence ${clip.id}`);
     if (clip.mediaId !== undefined) assert(mediaIds.has(clip.mediaId), `occurrence ${clip.id} references missing media`);
-    const storyElement = snapshot.timeline.storyElements.find(({ id }) => id === clip.id);
-    assert(storyElementIds.has(clip.id) && storyElement, `occurrence ${clip.id} has no storyline relationship`);
+    const storyElement = storyElementsById.get(clip.id);
+    assert(storyElement, `occurrence ${clip.id} has no storyline relationship`);
     assert(storyElement.start === clip.start && storyElement.duration === clip.duration, `occurrence ${clip.id} does not match storyline coordinates`);
     return clip.id;
   });
