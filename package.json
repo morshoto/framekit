@@ -28,6 +28,7 @@
     "test:final-cut-headless": "tsx --test tests/integration/connection.test.ts tests/integration/finalcut-mcp.test.ts tests/integration/native.test.ts",
     "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
     "test:final-cut-canonical-headed": "node scripts/final-cut-canonical-headed-e2e.mjs",
+    "test:final-cut-filler-headed": "node scripts/final-cut-filler-removal-headed-e2e.mjs",
     "test:watch": "tsx --test --watch tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/golden/*.test.ts",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",

@@ -130,6 +130,13 @@ const musicAddInputSchema = {
   fadeOut: z.number().nonnegative().optional(),
   ducking: musicDuckingSchema.optional(),
 };
+const fillerRemovalInputSchema = {
+  baseRevision: revisionValueSchema,
+  range: rangeSchema,
+  confidenceThreshold: z.number().finite().min(0).max(1).optional(),
+  preservePauseMs: z.number().finite().nonnegative().optional(),
+  targetPauseMs: z.number().finite().nonnegative().optional(),
+};
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
   z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
@@ -582,6 +589,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Analyze speech words and filler markers for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
   }, async ({ mediaId }) => jsonResult(await runtime.analyzeSpeech(mediaId)));
+
+  server.registerTool("speech.filler.remove.preview", {
+    description: "Analyze a selected canonical timeline range and preview removal of high-confidence filler words with safe rational delete ranges.",
+    inputSchema: fillerRemovalInputSchema,
+  }, async (request) => jsonResult(await runtime.previewFillerRemoval(request)));
+
+  server.registerTool("speech.filler.remove.execute", {
+    description: "Execute a previously previewed filler removal, re-analyze adjacent speech, and return the verified or rolled-back transaction.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeFillerRemoval(previewToken)));
 
   server.registerTool("audio.analyze", {
     description: "Analyze loudness, true peak, and silence for one media item.",
