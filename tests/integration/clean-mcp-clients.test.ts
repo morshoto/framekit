@@ -94,7 +94,7 @@ test("clean MCP evidence permits a selected single-client diagnostic", () => {
 
 test("published clean MCP evidence documents the current validation result", async () => {
   const evidence = JSON.parse(
-    await readFile(resolve(repository, "docs/tests/evidence/2026-08-27-clean-mcp-clients.json"), "utf8"),
+    await readFile(resolve(repository, "docs/tests/evidence/2026-08-28-clean-mcp-clients.json"), "utf8"),
   ) as { clients?: Array<{ name?: string; workflow?: { tools?: unknown[] } }> };
 
   assert.deepEqual(evidence.clients?.map((client) => client.name), ["Codex", "Claude Code"]);

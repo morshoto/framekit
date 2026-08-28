@@ -3,8 +3,9 @@
 Status: the client registration and complete MCP workflow pass against a clean
 packed Framekit package. The documented public `npx` path remains blocked until
 `@morshoto/framekit` is published to npm and a release is available. The
-current sanitized result is
-[`2026-08-27-clean-mcp-clients.json`](./evidence/2026-08-27-clean-mcp-clients.json).
+Evidence filenames use the UTC calendar date, matching the date portion of the
+ISO-8601 `recordedAt` timestamp. The current sanitized result is
+[`2026-08-28-clean-mcp-clients.json`](./evidence/2026-08-28-clean-mcp-clients.json).
 
 ## What this proves
 
