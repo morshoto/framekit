@@ -8,7 +8,7 @@ test("canonical headed runner publishes the sanitized evidence contract", async 
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
 
   assert.match(runner, /sanitizeCanonicalEvidence/);
-  assert.match(runner, /gitCommit/);
+  assert.match(runner, /evidenceEnvironment\(root\)/);
   assert.match(runner, /editStatus: transaction\.status/);
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
 });

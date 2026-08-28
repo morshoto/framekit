@@ -1,3 +1,11 @@
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
+
 const editorCapabilityKeys = [
   "canonicalTimelineMode",
   "projectRead",
@@ -29,6 +37,35 @@ const requiredToolResults = [
   ["timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
+
+export async function evidenceEnvironment(root) {
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  let gitCommit;
+  try {
+    gitCommit = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_COMMIT_UNAVAILABLE: ${String(error)}`);
+  }
+  if (!/^[0-9a-f]{40}$/i.test(gitCommit)) {
+    throw new Error("FINAL_CUT_E2E_COMMIT_UNAVAILABLE: git returned an invalid commit");
+  }
+  let finalCutVersion;
+  try {
+    finalCutVersion = (await execFile("osascript", ["-e", 'tell application "Final Cut Pro" to get version'])).stdout.trim();
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: ${String(error)}`);
+  }
+  if (!finalCutVersion) throw new Error("FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: Final Cut Pro returned an empty version");
+  return {
+    framekitVersion: packageJson.version,
+    finalCutVersion,
+    gitCommit,
+    nodeVersion: process.version,
+    platform: process.platform,
+    architecture: process.arch,
+    osVersion: os.version(),
+  };
+}
 
 export function sanitizeCanonicalEvidence(run, environment) {
   assert(run?.passed === true, "headed run did not pass");
