@@ -9,13 +9,14 @@ import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 function createFillerRuntime(
   analyzer: SpeechAnalyzer,
   options: ConstructorParameters<typeof AgentVideoRuntime>[1] = {},
+  clips = [{ id: "clip-filler", mediaId: "media-filler", name: "Interview", start: 10, duration: 3, track: 0 }],
 ) {
   const adapter = new InMemoryEditorAdapter({
     projectId: "project-filler",
     projectName: "Filler Fixture",
     timelineId: "timeline-filler",
     timelineName: "Main Edit",
-    clips: [{ id: "clip-filler", mediaId: "media-filler", name: "Interview", start: 10, duration: 3, track: 0 }],
+    clips,
     media: [{
       mediaId: "media-filler",
       source: "interview.wav",
@@ -211,6 +212,32 @@ test("filler preview storage prunes expired tokens before inserting new previews
 
   await assert.rejects(runtime.executeFillerRemoval(first.previewToken), /PREVIEW_TOKEN_INVALID/);
   assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("filler removal rejects repeated media occurrences before speech analysis", async () => {
+  let calls = 0;
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ media }) => {
+      calls += 1;
+      return structuredClone(media.speech!);
+    },
+  };
+  const { adapter, runtime } = createFillerRuntime(analyzer, {}, [
+    { id: "clip-filler", mediaId: "media-filler", name: "Interview", start: 10, duration: 3, track: 0 },
+    { id: "clip-filler-copy", mediaId: "media-filler", name: "Interview copy", start: 20, duration: 3, track: 1 },
+  ]);
+  const before = await runtime.inspectProject();
+  assert.deepEqual(before.timeline.clips.map(({ id, mediaId }) => ({ id, mediaId })), [
+    { id: "clip-filler", mediaId: "media-filler" },
+    { id: "clip-filler-copy", mediaId: "media-filler" },
+  ]);
+
+  await assert.rejects(
+    runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 23 } }),
+    /CAPABILITY_UNAVAILABLE: filler removal cannot verify repeated timeline occurrences/,
+  );
+  assert.equal(calls, 0);
+  assert.deepEqual(await adapter.readProject(), before);
 });
 
 test("filler removal requires canonical timeline writes and never falls back to artifact mutation", async () => {

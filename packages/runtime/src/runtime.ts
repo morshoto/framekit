@@ -435,8 +435,18 @@ export class AgentVideoRuntime {
     const selectedRange = validateFillerSelection(request.range);
     const candidates: FillerRemovalTarget[] = [];
     const expectedWordsByClip = new Map<string, SpeechWord[]>();
-    for (const clip of before.timeline.clips) {
-      if (!clip.mediaId || !rangesOverlap(clip.start, clip.start + clip.duration, selectedRange.start, selectedRange.end)) continue;
+    const selectedClips = before.timeline.clips.filter((clip) =>
+      clip.mediaId && rangesOverlap(clip.start, clip.start + clip.duration, selectedRange.start, selectedRange.end),
+    );
+    const selectedMediaIds = new Set<string>();
+    for (const clip of selectedClips) {
+      if (clip.mediaId && selectedMediaIds.has(clip.mediaId)) {
+        throw new Error("CAPABILITY_UNAVAILABLE: filler removal cannot verify repeated timeline occurrences of the same media item");
+      }
+      if (clip.mediaId) selectedMediaIds.add(clip.mediaId);
+    }
+    for (const clip of selectedClips) {
+      if (!clip.mediaId) continue;
       const media = before.media.find((candidate) => candidate.mediaId === clip.mediaId);
       if (!media) throw new Error(`MEDIA_NOT_FOUND: ${clip.mediaId}`);
       const localRange = {
