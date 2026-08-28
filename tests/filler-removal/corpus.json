@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "2026-08-28",
+  "runtimeContract": "phase-1",
+  "config": {
+    "fillerConfidenceMinimum": 0.92,
+    "verificationPolicy": {
+      "requireExpectedChange": true,
+      "requireSpeechContinuity": true
+    },
+    "verificationThreshold": 0.95
+  },
+  "scenarios": [
+    {
+      "id": "success.middle-filler",
+      "category": "success",
+      "description": "Remove a high-confidence filler between two spoken phrases.",
+      "mediaId": "media-middle",
+      "target": { "text": "um", "start": 0.6, "end": 0.9 },
+      "range": { "start": 0.6, "end": 0.9 },
+      "expectedOutcome": "verified",
+      "expectedTranscript": ["So", "we", "decided"],
+      "fixture": {
+        "projectId": "filler-project-middle",
+        "projectName": "Filler Removal Fixture",
+        "timelineId": "filler-timeline-middle",
+        "timelineName": "Middle Filler",
+        "clips": [{ "id": "clip-middle", "mediaId": "media-middle", "name": "Interview", "start": 0, "duration": 6, "track": 1 }],
+        "media": [{
+          "mediaId": "media-middle",
+          "source": "fixtures/filler-middle.wav",
+          "mediaKind": "video",
+          "duration": 6,
+          "speech": { "words": [
+            { "text": "So", "start": 0, "end": 0.4, "confidence": 0.99 },
+            { "text": "um", "start": 0.6, "end": 0.9, "confidence": 0.98, "filler": true },
+            { "text": "we", "start": 1, "end": 1.5, "confidence": 0.99 },
+            { "text": "decided", "start": 1.6, "end": 2.3, "confidence": 0.99 }
+          ] }
+        }]
+      }
+    },
+    {
+      "id": "success.leading-filler-boundary",
+      "category": "success",
+      "description": "Remove a filler at the safe leading speech boundary.",
+      "mediaId": "media-leading",
+      "target": { "text": "um", "start": 0, "end": 0.3 },
+      "range": { "start": 0, "end": 0.3 },
+      "expectedOutcome": "verified",
+      "expectedTranscript": ["hello", "world"],
+      "fixture": {
+        "projectId": "filler-project-leading",
+        "projectName": "Filler Removal Fixture",
+        "timelineId": "filler-timeline-leading",
+        "timelineName": "Leading Filler",
+        "clips": [{ "id": "clip-leading", "mediaId": "media-leading", "name": "Interview", "start": 0, "duration": 4, "track": 1 }],
+        "media": [{
+          "mediaId": "media-leading",
+          "source": "fixtures/filler-leading.wav",
+          "mediaKind": "video",
+          "duration": 4,
+          "speech": { "words": [
+            { "text": "um", "start": 0, "end": 0.3, "confidence": 0.98, "filler": true },
+            { "text": "hello", "start": 0.4, "end": 1, "confidence": 0.99 },
+            { "text": "world", "start": 1.1, "end": 1.7, "confidence": 0.99 }
+          ] }
+        }]
+      }
+    },
+    {
+      "id": "success.trailing-filler-boundary",
+      "category": "success",
+      "description": "Remove a filler near the trailing boundary while preserving the closing word.",
+      "mediaId": "media-trailing",
+      "target": { "text": "um", "start": 2.8, "end": 3.1 },
+      "range": { "start": 2.8, "end": 3.1 },
+      "expectedOutcome": "verified",
+      "expectedTranscript": ["okay", "this", "thanks"],
+      "fixture": {
+        "projectId": "filler-project-trailing",
+        "projectName": "Filler Removal Fixture",
+        "timelineId": "filler-timeline-trailing",
+        "timelineName": "Trailing Filler",
+        "clips": [{ "id": "clip-trailing", "mediaId": "media-trailing", "name": "Interview", "start": 0, "duration": 3.5, "track": 1 }],
+        "media": [{
+          "mediaId": "media-trailing",
+          "source": "fixtures/filler-trailing.wav",
+          "mediaKind": "video",
+          "duration": 3.5,
+          "speech": { "words": [
+            { "text": "okay", "start": 0, "end": 0.8, "confidence": 0.99 },
+            { "text": "this", "start": 1, "end": 2, "confidence": 0.99 },
+            { "text": "um", "start": 2.8, "end": 3.1, "confidence": 0.98, "filler": true },
+            { "text": "thanks", "start": 3.15, "end": 3.4, "confidence": 0.99 }
+          ] }
+        }]
+      }
+    },
+    {
+      "id": "success.repeated-filler-target",
+      "category": "success",
+      "description": "Remove the selected occurrence when the transcript contains repeated fillers.",
+      "mediaId": "media-repeated",
+      "target": { "text": "uh", "start": 2, "end": 2.2 },
+      "range": { "start": 2, "end": 2.2 },
+      "expectedOutcome": "verified",
+      "expectedTranscript": ["well", "um", "we", "go"],
+      "fixture": {
+        "projectId": "filler-project-repeated",
+        "projectName": "Filler Removal Fixture",
+        "timelineId": "filler-timeline-repeated",
+        "timelineName": "Repeated Fillers",
+        "clips": [{ "id": "clip-repeated", "mediaId": "media-repeated", "name": "Interview", "start": 0, "duration": 5, "track": 1 }],
+        "media": [{
+          "mediaId": "media-repeated",
+          "source": "fixtures/filler-repeated.wav",
+          "mediaKind": "video",
+          "duration": 5,
+          "speech": { "words": [
+            { "text": "well", "start": 0, "end": 0.5, "confidence": 0.99 },
+            { "text": "um", "start": 0.7, "end": 0.9, "confidence": 0.97, "filler": true },
+            { "text": "we", "start": 1.1, "end": 1.6, "confidence": 0.99 },
+            { "text": "uh", "start": 2, "end": 2.2, "confidence": 0.98, "filler": true },
+            { "text": "go", "start": 2.3, "end": 2.8, "confidence": 0.99 }
+          ] }
+        }]
+      }
+    },
+    {
+      "id": "boundary.overlapping-speech",
+      "category": "boundary",
+      "description": "Reject a range that crosses from a filler into adjacent speech and restore the original timeline.",
+      "mediaId": "media-boundary",
+      "target": { "text": "um", "start": 2.2, "end": 2.4 },
+      "range": { "start": 2.2, "end": 2.5 },
+      "expectedOutcome": "rolled-back",
+      "expectedTranscript": ["intro", "um", "answer"],
+      "fixture": {
+        "projectId": "filler-project-boundary",
+        "projectName": "Filler Removal Fixture",
+        "timelineId": "filler-timeline-boundary",
+        "timelineName": "Overlapping Boundary",
+        "clips": [{ "id": "clip-boundary", "mediaId": "media-boundary", "name": "Interview", "start": 0, "duration": 3, "track": 1 }],
+        "media": [{
+          "mediaId": "media-boundary",
+          "source": "fixtures/filler-boundary.wav",
+          "mediaKind": "video",
+          "duration": 3,
+          "speech": { "words": [
+            { "text": "intro", "start": 0, "end": 0.4, "confidence": 0.99 },
+            { "text": "um", "start": 2.2, "end": 2.4, "confidence": 0.98, "filler": true },
+            { "text": "answer", "start": 2.42, "end": 2.8, "confidence": 0.99 }
+          ] }
+        }]
+      }
+    },
+    {
+      "id": "rollback.forced-verification-failure",
+      "category": "rollback",
+      "description": "Restore the original project when post-edit verification reports a controlled failure.",
+      "mediaId": "media-rollback",
+      "target": { "text": "um", "start": 1, "end": 1.3 },
+      "range": { "start": 1, "end": 1.3 },
+      "expectedOutcome": "rolled-back",
+      "expectedTranscript": ["So", "um", "we"],
+      "fixture": {
+        "projectId": "filler-project-rollback",
+        "projectName": "Filler Removal Fixture",
+        "timelineId": "filler-timeline-rollback",
+        "timelineName": "Forced Rollback",
+        "clips": [{ "id": "clip-rollback", "mediaId": "media-rollback", "name": "Interview", "start": 0, "duration": 5, "track": 1 }],
+        "media": [{
+          "mediaId": "media-rollback",
+          "source": "fixtures/filler-rollback.wav",
+          "mediaKind": "video",
+          "duration": 5,
+          "speech": { "words": [
+            { "text": "So", "start": 0, "end": 0.4, "confidence": 0.99 },
+            { "text": "um", "start": 1, "end": 1.3, "confidence": 0.98, "filler": true },
+            { "text": "we", "start": 1.4, "end": 2, "confidence": 0.99 }
+          ] }
+        }]
+      }
+    }
+  ]
+}

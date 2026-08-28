@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-package/
+artifacts/
 .DS_Store
 
 PLAN.md
