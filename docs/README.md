@@ -6,6 +6,7 @@ Repository-local GitHub agent playbooks are documented in
 [`../.agents/README.md`](../.agents/README.md).
 
 - [Getting started](./getting-started.md): development setup, MCP, and Final Cut connection.
+- [Releasing](./releasing.md): npm Trusted Publishing and automated GitHub releases.
 - [PRD](./PRD.md): product goals and roadmap.
 - [Phase 0 and Phase 1 checklist](./phase-0-1-checklist.md): delivery gates,
   evidence, and current native Final Cut boundaries.

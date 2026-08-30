@@ -118,12 +118,26 @@ test("tagpr releases publish the package consumed by the plugin", async () => {
   const tagpr = await readFile(resolve(repository, ".tagpr"), "utf8");
   assert.match(tagpr, /versionFile = package\.json,plugins\/framekit\/\.codex-plugin\/plugin\.json/);
 
+  const packageManifest = await readJson("package.json") as {
+    repository?: { type?: string; url?: string };
+  };
+  assert.deepEqual(packageManifest.repository, {
+    type: "git",
+    url: "https://github.com/morshoto/framekit.git",
+  });
+
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /publish-npm:/);
   assert.match(workflow, /publish-npm:[\s\S]*?actions\/checkout@v4\s+with:\s+persist-credentials:\s+false/);
   assert.match(workflow, /needs:\s+tagpr/);
   assert.match(workflow, /needs\.tagpr\.outputs\.tagpr-tag != ''/);
   assert.match(workflow, /id-token:\s+write/);
-  assert.match(workflow, /npm publish --provenance --access public/);
-  assert.match(workflow, /NODE_AUTH_TOKEN:\s+\$\{\{ secrets\.NPM_TOKEN \}\}/);
+  assert.match(workflow, /npm install --global npm@11\.5\.1/);
+  assert.match(workflow, /npm publish --access public/);
+  assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN:\s+\$\{\{ secrets\.NPM_TOKEN \}\}/);
+  assert.match(workflow, /gh release edit [\s\S]*--draft=false/);
+  assert.ok(
+    workflow.indexOf("Verify npm publication") < workflow.indexOf("Publish GitHub release"),
+    "the GitHub release must be published only after npm verification",
+  );
 });
