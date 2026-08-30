@@ -6,6 +6,7 @@ import { createCommandAnalyzers } from "@framekit/final-cut";
 import {
   FixtureAudioAnalyzer,
   FixtureMetadataAnalyzer,
+  FixtureSpeechAnalyzer,
   FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
@@ -62,6 +63,14 @@ function semanticFixture() {
       subjects: [{ id: "subject-1", label: "person", confidence: 0.99, start: 1, end: 4 }],
       keyframes: [],
     },
+    speech: {
+      words: [{ text: "hello", start: 1, end: 2, confidence: 0.98 }],
+    },
+    audio: {
+      integratedLufs: -18,
+      truePeakDb: -1,
+      silenceMs: 0,
+    },
   };
   return {
     usableRange,
@@ -117,6 +126,35 @@ test("media understanding cache rejects changed source identities", async () => 
     assert.equal(inspected.media[0]?.semantic, undefined, JSON.stringify(patch));
     assert.equal(inspected.media[0]?.analysis, undefined, JSON.stringify(patch));
   }
+});
+
+test("attached media understanding is isolated from returned snapshots", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: new FixtureAudioAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const inspected = await runtime.inspectProject();
+  const media = inspected.media[0]!;
+  media.metadata!.environments![0]!.value = "mutated";
+  media.speech!.words[0]!.text = "mutated";
+  media.audio!.integratedLufs = -1;
+  media.visual!.scenes[0]!.label = "mutated";
+  media.semantic!.environments[0]!.value = "mutated";
+  media.analysis![0]!.status = "unavailable";
+
+  const reread = await runtime.inspectProject();
+  const rereadMedia = reread.media[0]!;
+  assert.equal(rereadMedia.metadata!.environments![0]!.value, "studio");
+  assert.equal(rereadMedia.speech!.words[0]!.text, "hello");
+  assert.equal(rereadMedia.audio!.integratedLufs, -18);
+  assert.equal(rereadMedia.visual!.scenes[0]!.label, "interview");
+  assert.equal(rereadMedia.semantic!.environments[0]!.value, "studio");
+  assert.equal(rereadMedia.analysis![0]!.status, "analyzed");
 });
 
 test("media understanding preserves successful results when one analyzer cannot analyze", async () => {

@@ -121,15 +121,16 @@ export class ContextEngine {
     next.media = next.media.map((media) => {
       const understanding = this.mediaUnderstanding.get(media.mediaId);
       if (!understanding || !sameMediaSourceIdentity(understanding.sourceIdentity, media)) return media;
+      const attached = structuredClone(understanding);
       return {
         ...media,
-        metadata: understanding.metadata,
-        speech: understanding.speech,
-        audio: understanding.audio,
-        visual: understanding.visual,
-        semantic: understanding.semantic,
-        analysis: understanding.analysis,
-        analysisRevision: understanding.analysisRevision.id,
+        metadata: attached.metadata,
+        speech: attached.speech,
+        audio: attached.audio,
+        visual: attached.visual,
+        semantic: attached.semantic,
+        analysis: attached.analysis,
+        analysisRevision: attached.analysisRevision.id,
       };
     });
     return next;
