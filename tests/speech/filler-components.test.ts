@@ -246,6 +246,95 @@ test("resolver distinguishes malformed VAD evidence from missing VAD", () => {
   assert.deepEqual(decision.reasonCodes, ["INVALID_VAD_EVIDENCE"]);
 });
 
+test("resolver rejects VAD segments that overlap across speech and silence", () => {
+  const decision = new SafeCutResolver().resolve(resolverRequest({
+    analysis: {
+      ...analysisWithVAD,
+      vadSegments: [
+        { start: 5, end: 5.3, kind: "speech" },
+        { start: 5.3, end: 5.4, kind: "silence" },
+        { start: 5.4, end: 6, kind: "speech" },
+        { start: 5.7, end: 6.6, kind: "silence" },
+        { start: 6.6, end: 6.9, kind: "speech" },
+      ],
+    } as SpeechAnalysis,
+  }));
+
+  assert.equal(decision.status, "SKIPPED");
+  assert.deepEqual(decision.reasonCodes, ["INVALID_VAD_EVIDENCE"]);
+});
+
+test("resolver protects segments touched by outward frame alignment", () => {
+  const decision = new SafeCutResolver().resolve(resolverRequest({
+    analysis: {
+      ...analysisWithVAD,
+      protectedSegments: [{ start: 6.11, end: 6.12, kind: "laughter" }],
+    } as SpeechAnalysis,
+    sequenceFrameDuration: { value: "1", timescale: "24" },
+  }));
+
+  assert.equal(decision.status, "SKIPPED");
+  assert.deepEqual(decision.reasonCodes, ["PROTECTED_SEGMENT_OVERLAP"]);
+});
+
+test("resolver keeps multiple resolved candidates deterministic and non-overlapping", () => {
+  const detector = new FillerDetector({ vocabulary: ["um", "uh"] });
+  const words = [
+    { text: "So", start: 0, end: 0.3, confidence: 0.99 },
+    { text: "um", start: 0.4, end: 0.7, confidence: 0.99, filler: true },
+    { text: "we", start: 0.8, end: 1.1, confidence: 0.99 },
+    { text: "uh", start: 1.2, end: 1.4, confidence: 0.99, filler: true },
+    { text: "go", start: 1.5, end: 1.8, confidence: 0.99 },
+  ];
+  const occurrence = {
+    occurrenceId: "occurrence-many",
+    sourceRange: { start: 0, end: 2 },
+    sequenceRange: { start: 20, end: 22 },
+  };
+  const analysisWithSegments = {
+    words,
+    vadSegments: [
+      { start: 0, end: 0.3, kind: "speech" },
+      { start: 0.3, end: 0.4, kind: "silence" },
+      { start: 0.4, end: 0.7, kind: "speech" },
+      { start: 0.7, end: 0.8, kind: "silence" },
+      { start: 0.8, end: 1.1, kind: "speech" },
+      { start: 1.1, end: 1.2, kind: "silence" },
+      { start: 1.2, end: 1.4, kind: "speech" },
+      { start: 1.4, end: 1.5, kind: "silence" },
+      { start: 1.5, end: 1.8, kind: "speech" },
+    ],
+  } as SpeechAnalysis;
+  const candidates = detector.detect({
+    previewId: "preview-many",
+    analysis: analysisWithSegments,
+    targetRange: { start: 20, end: 22 },
+    occurrence,
+  });
+  const resolver = new SafeCutResolver();
+  const resolve = () => candidates.map((candidate) => resolver.resolve({
+    candidate,
+    analysis: analysisWithSegments,
+    targetRange: { start: 20, end: 22 },
+    occurrence,
+    timelineId: "timeline-many",
+    sequenceFrameDuration: { value: "1", timescale: "30" },
+  }));
+  const decisions = resolve();
+
+  assert.deepEqual(decisions, resolve());
+  assert.equal(decisions.every((decision) => decision.status === "AUTO_APPLY"), true);
+  const ranges = decisions.map((decision) => decision.range!).sort((left, right) => left.start - right.start);
+  for (let index = 0; index < ranges.length; index += 1) {
+    const range = ranges[index]!;
+    assert.equal(range.start >= 20 && range.end <= 22, true);
+    assert.equal(range.end > range.start, true);
+    assert.equal(Math.abs(range.start * 30 - Math.round(range.start * 30)) < 0.000001, true);
+    assert.equal(Math.abs(range.end * 30 - Math.round(range.end * 30)) < 0.000001, true);
+    assert.equal(index === 0 || ranges[index - 1]!.end <= range.start, true);
+  }
+});
+
 test("resolver keeps every range inside target and occurrence bounds", () => {
   const outsideTarget = new SafeCutResolver().resolve(resolverRequest({
     targetRange: { start: 10.5, end: 13 },

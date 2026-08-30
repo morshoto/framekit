@@ -130,14 +130,16 @@ export class SafeCutResolver {
     if (hasOverlappingSpeech(vadSegments) || hasOverlappingWords(words)) {
       return { ...base, status: "SKIPPED", reasonCodes: ["OVERLAPPING_SPEECH"] };
     }
+    if (hasOverlappingSegments(vadSegments)) {
+      return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_VAD_EVIDENCE"] };
+    }
     if (!coversRange(evidence.speechSegments, request.candidate.sourceRange)) {
       return { ...base, status: "SKIPPED", reasonCodes: ["MISSING_VAD_EVIDENCE"] };
     }
 
-    const silenceSegments = validateSegments([
-      ...(request.analysis.silenceSegments ?? []),
-      ...vadSegments.filter((segment) => segment.kind === "silence"),
-    ]);
+    const silenceSegments = validateSegments(
+      request.analysis.silenceSegments ?? vadSegments.filter((segment) => segment.kind === "silence"),
+    );
     if (!silenceSegments) {
       return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_VAD_EVIDENCE"] };
     }
@@ -197,6 +199,16 @@ export class SafeCutResolver {
       return { ...base, status: "SKIPPED", reasonCodes: ["NO_FRAME_ALIGNED_RANGE"] };
     }
 
+    const alignedSourceRange = {
+      start: request.occurrence.sourceRange.start
+        + (safeStart - request.occurrence.sequenceRange.start),
+      end: request.occurrence.sourceRange.start
+        + (safeEnd - request.occurrence.sequenceRange.start),
+    };
+    if (overlapsAny(protectedSegments, alignedSourceRange)) {
+      return { ...base, status: "SKIPPED", reasonCodes: ["PROTECTED_SEGMENT_OVERLAP"] };
+    }
+
     const range = rangeFromRationals(alignedStart, subtractRationals(alignedEnd, alignedStart));
     evidence.safeRange = structuredClone(range);
     initialReasons.push("SAFE_BOUNDARY_RESOLVED");
@@ -242,7 +254,8 @@ function createEvidence(request: SafeCutRequest): SafeCutEvidence {
 function validateSegments(segments: SpeechSegment[] | undefined): SpeechSegment[] | undefined {
   if (!segments) return undefined;
   const ordered = segments.map((segment) => ({ ...segment })).sort((left, right) => left.start - right.start || left.end - right.end);
-  for (const segment of ordered) {
+  for (let index = 0; index < ordered.length; index += 1) {
+    const segment = ordered[index]!;
     if (!Number.isFinite(segment.start)
       || !Number.isFinite(segment.end)
       || segment.start < 0
@@ -266,6 +279,10 @@ function hasOverlappingWords(words: SpeechWord[]): boolean {
 function hasOverlappingSpeech(segments: SpeechSegment[]): boolean {
   const speech = segments.filter((segment) => segment.kind === "speech");
   return speech.some((segment, index) => index > 0 && speech[index - 1]!.end > segment.start);
+}
+
+function hasOverlappingSegments(segments: SpeechSegment[]): boolean {
+  return segments.some((segment, index) => index > 0 && segments[index - 1]!.end > segment.start);
 }
 
 function coversRange(segments: SpeechSegment[], range: TimeRange): boolean {
