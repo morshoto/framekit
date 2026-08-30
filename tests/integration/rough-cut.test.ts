@@ -319,6 +319,28 @@ test("incompatible transition assets fail before preview mutation", async () => 
   assert.deepEqual(await active.inspectProject(), before);
 });
 
+test("media replacement preserves the existing media kind", async () => {
+  const { runtime: active } = constructionRuntime();
+  const before = await active.inspectProject();
+
+  await assert.rejects(active.previewEdit({
+    baseRevision: before.revision,
+    operations: [{
+      type: "media.import",
+      mediaId: "audio-replacement",
+      source: "/fixtures/replacement.wav",
+      mediaKind: "audio",
+      duration: 4,
+      sourceDigest: "sha256:audio-replacement",
+    }, {
+      type: "timeline.media.replace",
+      occurrenceId: "base-a",
+      mediaId: "audio-replacement",
+    }],
+  }), /MEDIA_KIND_MISMATCH/);
+  assert.deepEqual(await active.inspectProject(), before);
+});
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
