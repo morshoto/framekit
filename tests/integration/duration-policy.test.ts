@@ -32,6 +32,18 @@ test("duration planning recommends a shorter strong edit for ten minutes of requ
   assert.deepEqual(plan.reusedRanges, []);
 });
 
+test("duration planning reports the requested duration when footage is abundant", () => {
+  const plan = planDurationPolicy({
+    requestedDurationSeconds: 60,
+    footage: [{ id: "abundant-footage", durationSeconds: 120 }],
+  });
+
+  assert.equal(plan.selectedAction, "deliver-exact-duration");
+  assert.equal(plan.availableFootage.uniqueDurationSeconds, 120);
+  assert.equal(plan.achievableDurationSeconds, 60);
+  assert.equal(plan.durationReport.achievableDurationSeconds, 60);
+});
+
 test("hard duration planning uses explicitly permitted B-roll reuse and reports its source range", () => {
   const plan = planDurationPolicy({
     requestedDurationSeconds: 300,
