@@ -155,8 +155,26 @@ const canonicalSnapshot: ProjectSnapshot = {
       },
     ],
     storyElements: [
-      { id: "final-cut:occurrence:one", kind: "asset-clip", start: 0, duration: 4, lane: 0, mediaId: "final-cut:media:shared" },
-      { id: "final-cut:occurrence:two", kind: "asset-clip", start: 4, duration: 4, lane: 1, mediaId: "final-cut:media:shared" },
+      {
+        id: "final-cut:occurrence:one",
+        kind: "asset-clip",
+        start: 0,
+        duration: 4,
+        startTime: { value: "0", timescale: "24000" },
+        durationTime: { value: "96000", timescale: "24000" },
+        lane: 0,
+        mediaId: "final-cut:media:shared",
+      },
+      {
+        id: "final-cut:occurrence:two",
+        kind: "asset-clip",
+        start: 4,
+        duration: 4,
+        startTime: { value: "96000", timescale: "24000" },
+        durationTime: { value: "96000", timescale: "24000" },
+        lane: 1,
+        mediaId: "final-cut:media:shared",
+      },
     ],
     markers: [],
     captions: [],
@@ -566,6 +584,117 @@ test("live canonical snapshots fail closed on duplicate occurrence identities", 
   });
 
   await assert.rejects(adapter.readProject(), /FINAL_CUT_LIVE_PROTOCOL: duplicate timeline occurrence id/);
+});
+
+test("live canonical snapshots require exact coordinates for every supported element", async () => {
+  const malformed = structuredClone(canonicalSnapshot);
+  delete malformed.timeline.storyElements[0]!.startTime;
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        ...(request.method === "snapshot" ? { snapshot: malformed } : {}),
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: story element final-cut:occurrence:one start time must use an integer value and positive timescale/,
+  );
+});
+
+test("live canonical snapshots require a non-empty story element kind", async () => {
+  const malformed = structuredClone(canonicalSnapshot);
+  malformed.timeline.storyElements[0]!.kind = "";
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        ...(request.method === "snapshot" ? { snapshot: malformed } : {}),
+        ...(request.method === "projects" ? {
+          catalog: {
+            projects: [{
+              id: canonicalSnapshot.projectId,
+              name: canonicalSnapshot.projectName,
+              sequences: [{ id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name }],
+            }],
+            activeProjectId: canonicalSnapshot.projectId,
+            activeSequenceId: canonicalSnapshot.timeline.id,
+          },
+        } : {}),
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: story element final-cut:occurrence:one kind must be a non-empty string/,
+  );
+});
+
+test("live canonical snapshots reject inconsistent rational convenience values", async () => {
+  const malformed = structuredClone(canonicalSnapshot);
+  malformed.timeline.clips[0]!.durationTime = { value: "1", timescale: "1" };
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        ...(request.method === "snapshot" ? { snapshot: malformed } : {}),
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: occurrence final-cut:occurrence:one duration time does not match seconds/,
+  );
+});
+
+test("live canonical snapshots require valid media references and caption coordinates", async () => {
+  const malformed = structuredClone(canonicalSnapshot);
+  malformed.media[0]!.source = "";
+  malformed.timeline.captions = [{
+    id: "caption-1",
+    start: 1,
+    duration: 1,
+    text: "Caption",
+  }];
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        ...(request.method === "snapshot" ? { snapshot: malformed } : {}),
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: media final-cut:media:shared source must be a non-empty string/,
+  );
+
+  malformed.media[0]!.source = canonicalSnapshot.media[0]!.source;
+  await assert.rejects(
+    adapter.readProject(),
+    /FINAL_CUT_LIVE_PROTOCOL: caption caption-1 start time must use an integer value and positive timescale/,
+  );
 });
 
 test("live canonical snapshots fail closed when the active target does not match", async () => {

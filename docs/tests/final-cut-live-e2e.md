@@ -157,6 +157,29 @@ no private media paths, raw snapshots, transaction identifiers, credentials,
 or diagnostics. The runner and sanitizer both fail closed when the mutation,
 undo, required tool sequence, or full commit provenance is incomplete.
 
+## Canonical live read evidence
+
+When a live bridge advertises `canonicalTimelineMode: canonical-read` (or the
+read-capable `canonical-write` mode), the read-only evidence runner verifies the
+active project and sequence catalog against `project.inspect` without selecting
+a project or calling any mutation tool:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut:sequence:example" \
+pnpm run test:final-cut-canonical-read-headed \
+  > docs/tests/evidence/$(date +%F)-canonical-live-read.json
+```
+
+The sequence variable is optional only when the bridge reports an unambiguous
+active sequence. The sanitized document records the full commit, target
+identity, revision, exact-coordinate coverage, and counts of clips, ordered
+story elements, media references, markers, and captions; it never includes raw
+snapshots or media sources. Metadata-only bridges fail before `project.inspect`.
+The bundled Workflow Extension remains metadata-only because the public host API
+does not expose complete timeline enumeration; this runner becomes a passing
+gate only after a real enumeration-capable bridge is installed.
+
 ## Optional native UI validation
 
 Final Cut Pro does not provide a supported headless Accessibility mode. Native

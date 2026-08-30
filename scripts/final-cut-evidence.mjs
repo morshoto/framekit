@@ -1,3 +1,11 @@
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
+
 const editorCapabilityKeys = [
   "canonicalTimelineMode",
   "projectRead",
@@ -29,6 +37,35 @@ const requiredToolResults = [
   ["timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
+
+export async function evidenceEnvironment(root) {
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  let gitCommit;
+  try {
+    gitCommit = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_COMMIT_UNAVAILABLE: ${String(error)}`);
+  }
+  if (!/^[0-9a-f]{40}$/i.test(gitCommit)) {
+    throw new Error("FINAL_CUT_E2E_COMMIT_UNAVAILABLE: git returned an invalid commit");
+  }
+  let finalCutVersion;
+  try {
+    finalCutVersion = (await execFile("osascript", ["-e", 'tell application "Final Cut Pro" to get version'])).stdout.trim();
+  } catch (error) {
+    throw new Error(`FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: ${String(error)}`);
+  }
+  if (!finalCutVersion) throw new Error("FINAL_CUT_E2E_FINAL_CUT_VERSION_UNAVAILABLE: Final Cut Pro returned an empty version");
+  return {
+    framekitVersion: packageJson.version,
+    finalCutVersion,
+    gitCommit,
+    nodeVersion: process.version,
+    platform: process.platform,
+    architecture: process.arch,
+    osVersion: os.version(),
+  };
+}
 
 export function sanitizeCanonicalEvidence(run, environment) {
   assert(run?.passed === true, "headed run did not pass");
@@ -101,6 +138,162 @@ export function sanitizeCanonicalEvidence(run, environment) {
       omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostics"],
     },
   };
+}
+
+export function sanitizeCanonicalReadEvidence(run, environment) {
+  assert(run?.passed === true, "headed read did not pass");
+  assert(run.editor, "editor identity is missing");
+  assert(run.capabilities, "capability payload is missing");
+  const capabilities = sanitizeCapabilities(run.capabilities);
+  assert(
+    capabilities.editor.canonicalTimelineMode === "canonical-read"
+      || capabilities.editor.canonicalTimelineMode === "canonical-write",
+    "canonical-read or canonical-write capability is required",
+  );
+  assert(run.project && run.catalog && run.snapshot, "project, catalog, or canonical snapshot is missing");
+  assert(run.catalog.activeProjectId === run.project.id, "catalog active project does not match the requested target");
+  assert(run.catalog.activeSequenceId === run.project.sequenceId, "catalog active sequence does not match the requested target");
+  assert(run.snapshot.projectId === run.project.id, "snapshot project does not match the requested target");
+  assert(run.snapshot.projectName === run.project.name, "snapshot project name does not match the requested target");
+  assert(run.snapshot.timeline.id === run.project.sequenceId, "snapshot sequence does not match the requested target");
+  const snapshot = validateReadSnapshot(run.snapshot);
+
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-canonical-read",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities,
+    project: {
+      id: requireString(run.project.id, "project id"),
+      name: requireString(run.project.name, "project name"),
+      sequenceId: requireString(run.project.sequenceId, "sequence id"),
+    },
+    snapshot: {
+      revision: summarizeRevision(snapshot.revision),
+      timeline: {
+        id: requireString(snapshot.timeline.id, "timeline id"),
+        name: requireString(snapshot.timeline.name, "timeline name"),
+        duration: requireFiniteNumber(snapshot.timeline.duration, "timeline duration"),
+        durationTime: snapshot.timeline.durationTime,
+        clipCount: snapshot.timeline.clips.length,
+        storyElementCount: snapshot.timeline.storyElements.length,
+        markerCount: snapshot.timeline.markers.length,
+        captionCount: snapshot.timeline.captions.length,
+        exactCoordinateCounts: {
+          clips: snapshot.timeline.clips.length,
+          storyElements: snapshot.timeline.storyElements.length,
+          markers: snapshot.timeline.markers.length,
+          captions: snapshot.timeline.captions.length,
+        },
+      },
+      mediaCount: snapshot.media.length,
+    },
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media sources", "raw snapshots", "diagnostics"],
+    },
+  };
+}
+
+function validateReadSnapshot(snapshot) {
+  requireString(snapshot.projectId, "snapshot project id");
+  requireString(snapshot.projectName, "snapshot project name");
+  requireString(snapshot.timeline?.id, "snapshot timeline id");
+  requireString(snapshot.timeline?.name, "snapshot timeline name");
+  requireFiniteNumber(snapshot.timeline?.duration, "timeline duration");
+  assert(snapshot.timeline.duration >= 0, "timeline duration must be non-negative");
+  validateReadRational(snapshot.timeline.durationTime, "timeline duration time");
+  assertReadRationalMatches(snapshot.timeline.duration, snapshot.timeline.durationTime, "timeline duration");
+  requireReadArray(snapshot.timeline.clips, "timeline clips");
+  requireReadArray(snapshot.timeline.storyElements, "timeline story elements");
+  requireReadArray(snapshot.timeline.markers, "timeline markers");
+  requireReadArray(snapshot.timeline.captions, "timeline captions");
+  requireReadArray(snapshot.media, "media references");
+  summarizeRevision(snapshot.revision);
+
+  const mediaIds = uniqueReadIds(snapshot.media, "media", (media) => {
+    requireString(media.mediaId, "media id");
+    requireString(media.source, `media ${media.mediaId} source`);
+    if (media.duration !== undefined) {
+      requireFiniteNumber(media.duration, `media ${media.mediaId} duration`);
+      assert(media.duration >= 0, `media ${media.mediaId} duration must be non-negative`);
+    }
+    return media.mediaId;
+  });
+  const storyElementsById = new Map();
+  uniqueReadIds(snapshot.timeline.storyElements, "story element", (element) => {
+    requireString(element.id, "story element id");
+    validateReadCoordinates(element, `story element ${element.id}`);
+    if (element.lane !== undefined) assert(Number.isInteger(element.lane), `story element ${element.id} lane must be an integer`);
+    if (element.mediaId !== undefined) assert(mediaIds.has(element.mediaId), `story element ${element.id} references missing media`);
+    storyElementsById.set(element.id, element);
+    return element.id;
+  });
+  uniqueReadIds(snapshot.timeline.markers, "marker", (marker) => {
+    requireString(marker.id, "marker id");
+    requireString(marker.name, `marker ${marker.id} name`);
+    validateReadCoordinates(marker, `marker ${marker.id}`);
+    return marker.id;
+  });
+  uniqueReadIds(snapshot.timeline.captions, "caption", (caption) => {
+    requireString(caption.id, "caption id");
+    assert(typeof caption.text === "string", `caption ${caption.id} text must be a string`);
+    validateReadCoordinates(caption, `caption ${caption.id}`);
+    return caption.id;
+  });
+  uniqueReadIds(snapshot.timeline.clips, "timeline occurrence", (clip) => {
+    requireString(clip.id, "occurrence id");
+    requireString(clip.name, `occurrence ${clip.id} name`);
+    assert(Number.isInteger(clip.track), `occurrence ${clip.id} track must be an integer`);
+    validateReadCoordinates(clip, `occurrence ${clip.id}`);
+    if (clip.mediaId !== undefined) assert(mediaIds.has(clip.mediaId), `occurrence ${clip.id} references missing media`);
+    const storyElement = storyElementsById.get(clip.id);
+    assert(storyElement, `occurrence ${clip.id} has no storyline relationship`);
+    assert(storyElement.start === clip.start && storyElement.duration === clip.duration, `occurrence ${clip.id} does not match storyline coordinates`);
+    return clip.id;
+  });
+  return snapshot;
+}
+
+function validateReadCoordinates(value, field) {
+  requireFiniteNumber(value.start, `${field} start`);
+  requireFiniteNumber(value.duration, `${field} duration`);
+  assert(value.start >= 0, `${field} start must be non-negative`);
+  assert(value.duration >= 0, `${field} duration must be non-negative`);
+  validateReadRational(value.startTime, `${field} start time`);
+  validateReadRational(value.durationTime, `${field} duration time`);
+  assertReadRationalMatches(value.start, value.startTime, `${field} start`);
+  assertReadRationalMatches(value.duration, value.durationTime, `${field} duration`);
+}
+
+function validateReadRational(value, field) {
+  assert(value && /^-?\d+$/.test(value.value) && /^\d+$/.test(value.timescale), `${field} must use an integer value and positive timescale`);
+  assert(BigInt(value.timescale) > 0n, `${field} must use a positive timescale`);
+  const seconds = Number(value.value) / Number(value.timescale);
+  assert(Number.isFinite(seconds), `${field} must represent a finite time`);
+}
+
+function assertReadRationalMatches(actual, rational, field) {
+  const expected = Number(rational.value) / Number(rational.timescale);
+  assert(Math.abs(actual - expected) <= Math.max(1e-9, Math.abs(actual) * 1e-12), `${field} time does not match seconds`);
+}
+
+function uniqueReadIds(values, kind, validate) {
+  const ids = new Set();
+  for (const value of values) {
+    assert(value && typeof value === "object" && !Array.isArray(value), `${kind} must be an object`);
+    const id = validate(value);
+    assert(!ids.has(id), `duplicate ${kind} id ${id}`);
+    ids.add(id);
+  }
+  return ids;
+}
+
+function requireReadArray(value, field) {
+  assert(Array.isArray(value), `${field} must be an array`);
 }
 
 function sanitizeEnvironment(environment) {
