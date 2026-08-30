@@ -78,7 +78,7 @@ export class FillerDetector {
       throw new Error("AMBIGUOUS_MAPPING: source and sequence occurrence durations differ");
     }
 
-    return words.flatMap((word, index) => {
+    return words.flatMap((word) => {
       const analyzerMarkedFiller = word.filler === true;
       const vocabularyMatch = this.vocabulary.has(normalizeWord(word.text));
       if (!analyzerMarkedFiller && !vocabularyMatch) return [];
@@ -98,7 +98,7 @@ export class FillerDetector {
       if (!eligible) reasonCodes.push("BELOW_CONFIDENCE_THRESHOLD");
       const sourceRange = { start: word.start, end: word.end };
       const candidate: FillerCandidate = {
-        id: stableCandidateId(input, index, sourceRange),
+        id: stableCandidateId(input, sourceRange),
         word: { ...word },
         wordEvidence: { ...word },
         confidence: word.confidence,
@@ -171,7 +171,6 @@ function normalizeWord(text: string): string {
 
 function stableCandidateId(
   input: FillerDetectionInput,
-  wordIndex: number,
   sourceRange: TimeRange,
 ): string {
   const identity = JSON.stringify({
@@ -179,7 +178,6 @@ function stableCandidateId(
     revisionId: input.revisionId ?? "",
     occurrenceId: input.occurrence.occurrenceId,
     mediaId: input.occurrence.mediaId ?? "",
-    wordIndex,
     sourceRange,
   });
   return `filler-candidate-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
