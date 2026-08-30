@@ -55,14 +55,18 @@ function shotFor(
     ...(request.mood ? [`mood:${request.mood}`] : []),
     ...(request.motion ? [`motion:${request.motion}`] : []),
   ];
-  const confidence = Math.max(
-    0,
-    ...entry.semantic.subjects.map((tag) => tag.confidence),
-    ...entry.semantic.scenes.map((tag) => tag.confidence),
-    ...entry.semantic.environments.map((tag) => tag.confidence),
-    ...entry.semantic.timeOfDay.map((tag) => tag.confidence),
-    ...entry.semantic.moods.map((tag) => tag.confidence),
-  );
+  const semanticAnnotations = [
+    { query: request.subject, tags: entry.semantic.subjects },
+    { query: request.scene, tags: entry.semantic.scenes },
+    { query: request.environment, tags: entry.semantic.environments },
+    { query: request.timeOfDay, tags: entry.semantic.timeOfDay },
+    { query: request.mood, tags: entry.semantic.moods },
+  ];
+  const activeAnnotations = semanticAnnotations.filter(({ query }) => Boolean(query?.trim()));
+  const confidenceTags = activeAnnotations.length > 0
+    ? activeAnnotations.flatMap(({ query, tags }) => tags.filter((tag) => tag.value.toLowerCase() === query!.trim().toLowerCase()))
+    : semanticAnnotations.flatMap(({ tags }) => tags);
+  const confidence = Math.max(0, ...confidenceTags.map((tag) => tag.confidence));
   const reason = matchedProperties.length > 0
     ? `matches ${matchedProperties.map((property) => {
       const [kind, ...value] = property.split(":");

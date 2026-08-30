@@ -157,6 +157,27 @@ test("attached media understanding is isolated from returned snapshots", async (
   assert.equal(rereadMedia.analysis![0]!.status, "analyzed");
 });
 
+test("rough-cut confidence uses matching semantic annotations", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({
+    metadata: {
+      subjects: [{ value: "person", confidence: 0.1 }],
+      environments: [{ value: "studio", confidence: 0.99 }],
+      usableRanges: [fixture.usableRange],
+    },
+  });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const filtered = await runtime.planRoughCut({ subject: "person" });
+  const unfiltered = await runtime.planRoughCut({});
+
+  assert.equal(filtered.shots[0]!.confidence, 0.1);
+  assert.equal(unfiltered.shots[0]!.confidence, 0.99);
+});
+
 test("media understanding preserves successful results when one analyzer cannot analyze", async () => {
   const fixture = semanticFixture();
   const project = await fixture.adapter.readProject();
