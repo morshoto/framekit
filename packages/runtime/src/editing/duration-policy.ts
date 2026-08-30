@@ -39,7 +39,7 @@ export function planDurationPolicy(request: DurationPolicyRequest): DurationPoli
   const achievableDurationSeconds = selectedAction === "reuse-selected-b-roll"
     ? request.requestedDurationSeconds
     : uniqueDurationSeconds;
-  const unmetConstraints = insufficient
+  const unmetConstraints = insufficient && selectedAction !== "reuse-selected-b-roll"
     ? ["Requested duration exceeds unique usable footage"]
     : [];
   if (constraint === "hard" && insufficient && selectedAction !== "reuse-selected-b-roll") {
