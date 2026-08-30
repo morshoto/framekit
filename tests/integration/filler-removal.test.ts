@@ -202,6 +202,11 @@ test("filler execution verifies a partial range in the middle of a longer clip",
   assert.equal(transaction.status, "VERIFIED");
   assert.equal(transaction.verification?.checks.some((check) => check.name === "filler-speech-continuity" && check.passed), true);
   assert.ok(Math.abs((transaction.after.timeline.clips[0]?.duration ?? 0) - 4.3) < 0.000001);
+  assert.deepEqual(transaction.after.media[0]?.speech?.words.map(({ text, start, end }) => ({ text, start, end })), [
+    { text: "before", start: 0.2, end: 0.5 },
+    { text: "what", start: 1.9, end: 2.3 },
+    { text: "after", start: 3.5, end: 3.8 },
+  ]);
   assert.equal(calls, 2);
 });
 
