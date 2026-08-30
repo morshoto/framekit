@@ -79,6 +79,46 @@ test("duration planning never silently selects slow motion or generated assets",
   assert.equal(plan.alternatives.find((alternative) => alternative.kind === "generated-interstitial")?.status, "requires-confirmation");
 });
 
+test("duration planning counts disjoint usable ranges once and rejects overlapping or duplicate footage", () => {
+  const plan = planDurationPolicy({
+    requestedDurationSeconds: 120,
+    footage: [{
+      id: "interview",
+      durationSeconds: 90,
+      usableRanges: [
+        { startSeconds: 0, endSeconds: 30 },
+        { startSeconds: 60, endSeconds: 90 },
+      ],
+    }],
+  });
+  assert.equal(plan.availableFootage.uniqueDurationSeconds, 60);
+
+  assert.throws(
+    () => planDurationPolicy({
+      requestedDurationSeconds: 120,
+      footage: [{
+        id: "overlap",
+        durationSeconds: 90,
+        usableRanges: [
+          { startSeconds: 0, endSeconds: 45 },
+          { startSeconds: 30, endSeconds: 60 },
+        ],
+      }],
+    }),
+    /INVALID_DURATION_FOOTAGE: usable ranges overlap for overlap/,
+  );
+  assert.throws(
+    () => planDurationPolicy({
+      requestedDurationSeconds: 120,
+      footage: [
+        { id: "duplicate", durationSeconds: 60 },
+        { id: "duplicate", durationSeconds: 60 },
+      ],
+    }),
+    /INVALID_DURATION_FOOTAGE: duplicate footage id duplicate/,
+  );
+});
+
 test("runtime duration planning is read-only and reports the observed actual duration", async () => {
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "duration-policy-project",

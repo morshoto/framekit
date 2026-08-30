@@ -1,6 +1,4 @@
 import type {
-  DurationAlternativeKind,
-  DurationAlternativeStatus,
   DurationPolicyFootage,
   DurationPolicyPlan,
   DurationPolicyRequest,
@@ -133,14 +131,18 @@ function buildAlternatives(input: {
 }
 
 function normalizeFootage(item: DurationPolicyFootage): NormalizedFootage {
-  const usableRanges = item.usableRanges?.map((range) => ({ ...range })) ?? [{
+  const usableRanges = item.usableRanges?.map((range) => ({ ...range })).sort((left, right) => left.startSeconds - right.startSeconds) ?? [{
     startSeconds: 0,
     endSeconds: item.usableDurationSeconds ?? item.durationSeconds,
   }];
-  for (const range of usableRanges) {
+  for (const [index, range] of usableRanges.entries()) {
     if (!Number.isFinite(range.startSeconds) || !Number.isFinite(range.endSeconds)
       || range.startSeconds < 0 || range.endSeconds <= range.startSeconds || range.endSeconds > item.durationSeconds) {
       throw new Error(`INVALID_DURATION_FOOTAGE: invalid usable range for ${item.id}`);
+    }
+    const previous = usableRanges[index - 1];
+    if (previous && range.startSeconds < previous.endSeconds) {
+      throw new Error(`INVALID_DURATION_FOOTAGE: usable ranges overlap for ${item.id}`);
     }
   }
   const usableDurationSeconds = sum(usableRanges.map((range) => range.endSeconds - range.startSeconds));
@@ -186,10 +188,16 @@ function validateRequest(request: DurationPolicyRequest): void {
     && (!Number.isFinite(request.actualDurationSeconds) || request.actualDurationSeconds < 0)) {
     throw new Error("INVALID_DURATION_POLICY: actual duration must be non-negative");
   }
+  const footageIds = new Set<string>();
   for (const item of request.footage) {
+    const normalizedId = item.id.trim();
     if (!item.id.trim() || !Number.isFinite(item.durationSeconds) || item.durationSeconds <= 0) {
       throw new Error("INVALID_DURATION_FOOTAGE: id and positive duration are required");
     }
+    if (footageIds.has(normalizedId)) {
+      throw new Error(`INVALID_DURATION_FOOTAGE: duplicate footage id ${normalizedId}`);
+    }
+    footageIds.add(normalizedId);
     if (item.usableDurationSeconds !== undefined
       && (!Number.isFinite(item.usableDurationSeconds) || item.usableDurationSeconds <= 0
         || item.usableDurationSeconds > item.durationSeconds)) {
@@ -201,5 +209,3 @@ function validateRequest(request: DurationPolicyRequest): void {
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
-
-export type { DurationAlternativeKind, DurationAlternativeStatus, DurationRange };
