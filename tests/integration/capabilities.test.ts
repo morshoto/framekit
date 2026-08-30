@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -12,6 +13,7 @@ import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime, withCapabilityFamilies } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { join } from "node:path";
 
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
@@ -76,6 +78,27 @@ test("capability families expose versioned canonical and observation operations"
     backend: "fcpxml-document",
     guarantee: "artifact-write",
   });
+});
+
+test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
+  const canonicalWrite = withCapabilityFamilies({
+    editor: {
+      ...artifactCapabilities.editor,
+      timelineWrite: true,
+    },
+    analyzers: artifactCapabilities.analyzers,
+  }, { backend: "canonical-live-ipc" });
+  const assetOnly = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      assetDiscovery: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, { backend: "motion-template-registry" });
+
+  assert.equal(canonicalWrite.families.canonicalDocument.read.guarantee, "canonical-read");
+  assert.equal(canonicalWrite.families.canonicalDocument.write.available, true);
+  assert.equal(assetOnly.families.observation.media.available, false);
 });
 
 test("unavailable capability operations explain their fail-closed reason", () => {
@@ -237,4 +260,18 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
     await client.close();
     await server.close();
   }
+});
+
+test("capability documentation describes the versioned operation contract", async () => {
+  const architecture = await readFile(join(process.cwd(), "docs/architecture/capability-model.md"), "utf8");
+  const mcp = await readFile(join(process.cwd(), "docs/mcp/capabilities-and-errors.md"), "utf8");
+  const documentation = `${architecture}\n${mcp}`;
+
+  assert.match(documentation, /schemaVersion/);
+  assert.match(documentation, /families/);
+  assert.match(documentation, /unavailableReason/);
+  assert.match(documentation, /canonicalDocument/);
+  assert.match(documentation, /projectCreation/);
+  assert.match(documentation, /clipInsertion/);
+  assert.match(documentation, /clipMovement/);
 });

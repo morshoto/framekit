@@ -102,9 +102,9 @@ export function withCapabilityFamilies(
         "timeline observation is unavailable",
       ),
       media: descriptorFrom(
-        editor.timelineSnapshotRead && editor.projectRead || editor.assetDiscovery,
+        editor.timelineSnapshotRead && editor.projectRead,
         backend,
-        editor.timelineSnapshotRead && editor.projectRead ? "canonical-read" : "observed",
+        "canonical-read",
         "media observation is unavailable",
       ),
     },
@@ -113,7 +113,7 @@ export function withCapabilityFamilies(
         editor.canonicalTimelineMode === "canonical-read"
           || editor.canonicalTimelineMode === "canonical-write",
         backend,
-        editor.canonicalTimelineMode === "canonical-write" ? "canonical-write" : "canonical-read",
+        "canonical-read",
         "canonical timeline reads are unavailable",
       ),
       write: descriptorFrom(
