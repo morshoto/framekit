@@ -109,6 +109,7 @@ export class ProjectService {
           speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
           audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
           visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
+          metadataDescribe: capabilities.analyzers.metadataDescribe || Boolean(this.options.metadataAnalyzer),
         },
       },
     };

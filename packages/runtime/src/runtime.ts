@@ -14,6 +14,10 @@ import type {
   EditorLiveState,
   EditorPort,
   MediaContext,
+  MediaIndexEntry,
+  MediaIndexQuery,
+  RoughCutPlan,
+  RoughCutPlanRequest,
   MediaUnderstanding,
   MusicAddRequest,
   ProjectCatalog,
@@ -165,6 +169,14 @@ export class AgentVideoRuntime {
 
   public async searchMedia(query: string): Promise<MediaContext[]> {
     return this.media.searchMedia(query);
+  }
+
+  public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
+    return this.media.indexMedia(query);
+  }
+
+  public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
+    return this.media.planRoughCut(request);
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

@@ -75,10 +75,12 @@ this routing tool.
 | `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, and audio presence | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
+| `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
-| `media.understand` | Combined speech, audio, and visual understanding | Configured providers required for Final Cut |
+| `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
+| `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
 | `editor.assets` | Search native editor assets by text, kind, or vendor | Fixture or Motion-template registry |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
@@ -135,6 +137,26 @@ use the explicit `editor.native.media.*` tools because Browser media identity an
 timeline occurrence identity are different. Imported media handles are stable
 for the current native session; timeline occurrence handles remain short-lived
 and bound to the active sequence/playhead state.
+
+## Semantic media understanding
+
+`media.understand` runs the independently configured speech, audio, visual, and
+metadata analyzers for one media item. Its response includes the exact source
+identity (`mediaId`, source, optional digest, kind, and duration), semantic tags,
+usable source ranges, and one machine-readable status per capability. A provider
+failure or missing provider is reported as `unavailable`; successful modalities
+remain available in a partial result, and no description is invented for a
+missing modality.
+
+`media.index` searches the attached, provenance-aware descriptions. Filters can
+match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free text,
+overlapping usable `range`, and required analyzer `capabilities`. Every analyzed
+status carries the analyzer ID/provider and source identity used to produce it.
+
+`rough-cut.plan` consumes the same index and returns deterministic shots sorted
+by media ID and source range. Each shot includes its exact source identity,
+usable range, confidence, matched properties, and rationale. The planner is
+read-only; it produces planning data and does not add clips to a timeline.
 
 ## Music mixing workflow
 

@@ -28,6 +28,20 @@ const rangeSchema = z.object({
   start: z.number().nonnegative(),
   end: z.number().positive(),
 });
+const mediaIndexQuerySchema = z.object({
+  query: z.string().optional(),
+  subject: z.string().optional(),
+  scene: z.string().optional(),
+  environment: z.string().optional(),
+  timeOfDay: z.string().optional(),
+  mood: z.string().optional(),
+  motion: z.enum(["static", "low", "medium", "high"]).optional(),
+  range: rangeSchema.optional(),
+  capabilities: z.array(z.enum(["metadata", "speech", "audio", "visual"])).optional(),
+});
+const roughCutPlanSchema = mediaIndexQuerySchema.extend({
+  maxShots: z.number().int().positive().optional(),
+});
 const durationRangeSchema = z.object({
   startSeconds: z.number().finite().nonnegative(),
   endSeconds: z.number().finite().positive(),
@@ -592,6 +606,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { query: z.string() },
   }, async ({ query }) => jsonResult(await runtime.searchMedia(query)));
 
+  server.registerTool("media.index", {
+    description: "Query analyzed media by semantic properties, source identity, capabilities, and usable ranges.",
+    inputSchema: mediaIndexQuerySchema.shape,
+  }, async (query) => jsonResult(await runtime.indexMedia(query)));
+
   server.registerTool("visual.analyze", {
     description: "Analyze scenes, subjects, motion, and keyframes for one media item.",
     inputSchema: {
@@ -604,6 +623,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Return combined speech, audio, and visual understanding for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
   }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
+
+  server.registerTool("rough-cut.plan", {
+    description: "Create a deterministic, explainable, read-only shot plan from analyzed media; does not mutate the timeline.",
+    inputSchema: roughCutPlanSchema.shape,
+  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
 
   server.registerTool("editor.assets", {
     description: "Search editor-native transitions, effects, titles, generators, and templates.",

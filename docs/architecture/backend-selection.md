@@ -6,7 +6,7 @@ Final Cut currently has two intentionally separate paths:
 | --- | --- | --- |
 | FCPXML | Canonical timeline reads, supported writes, read-after-write, diffs | Requires file interchange |
 | Workflow Extension IPC | Live project/sequence metadata, playhead, range, events | Does not expose a complete timeline or writes |
-| Local analyzer commands | Speech, audio, and visual media analysis | Requires configured executable providers |
+| Local analyzer commands | Speech, audio, visual, and metadata media analysis | Requires configured executable providers |
 | Motion-template registry | Installed transitions, effects, titles, generators, and audio effects | Read-only filesystem discovery |
 
 The runtime should prefer the safest available backend for each capability. A

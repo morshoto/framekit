@@ -40,6 +40,7 @@ export interface AnalyzerCapabilities {
   speechVad: boolean;
   audioLoudness: boolean;
   visualTrack: boolean;
+  metadataDescribe?: boolean;
 }
 
 export interface RuntimeCapabilities {

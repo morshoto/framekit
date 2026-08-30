@@ -8,6 +8,8 @@ real Final Cut Pro process.
   verification, rollback, and MCP.
 - [Phase 2](./phase-2.md): incremental synchronization, visual analysis,
   media understanding, and native asset discovery.
+- [Semantic media understanding](./semantic-media-understanding.md):
+  provenance-aware indexing, partial/unavailable analyzers, and rough-cut plans.
 - [Golden workflow corpus](./golden-corpus.md): versioned Phase 0/1 workflows,
   exact expected state/diffs, and the zero-silent-corruption gate.
 - [Deterministic MCP evaluation](./mcp-evaluation.md): fixture-backed workflow,

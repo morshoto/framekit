@@ -78,13 +78,17 @@ Optional local JSON analysis providers are configured with:
 - `FRAMEKIT_SPEECH_ANALYZER`
 - `FRAMEKIT_AUDIO_ANALYZER`
 - `FRAMEKIT_VISUAL_ANALYZER`
+- `FRAMEKIT_METADATA_ANALYZER`
 
 Each command receives one JSON request on stdin and returns one typed JSON
 result on stdout. Set `FRAMEKIT_ANALYZER_TIMEOUT_MS` to change the default
-timeout. Motion templates are discovered from standard locations; restrict
-those locations with the colon-separated `FRAMEKIT_FINAL_CUT_ASSET_ROOTS`
-variable. The complete provider setup is documented in the
-[Final Cut installation guide](./final-cut/installation.md).
+timeout. The metadata provider supplies semantic labels such as environment,
+time of day, mood, and usable source ranges. Analyzer availability is exposed
+through `editor.inspect`; missing providers produce explicit unavailable
+statuses instead of fabricated descriptions. Motion templates are discovered
+from standard locations; restrict those locations with the colon-separated
+`FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable. The complete provider setup is
+documented in the [Final Cut installation guide](./final-cut/installation.md).
 
 ## Connect Codex to Final Cut
 

@@ -105,9 +105,11 @@ import edits into the open Final Cut timeline.
 
 Optional local JSON analyzer commands can be configured with
 `FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, and
-`FRAMEKIT_VISUAL_ANALYZER`. Each receives one JSON request on stdin and
-returns one typed JSON result on stdout. Motion-template discovery can be
-restricted with the colon-separated `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
+`FRAMEKIT_VISUAL_ANALYZER`. Add `FRAMEKIT_METADATA_ANALYZER` for semantic
+environment, time-of-day, mood, and usable-range descriptions. Each receives
+one JSON request on stdin and returns one typed JSON result on stdout.
+Motion-template discovery can be restricted with the colon-separated
+`FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
 
 For selection-scoped native UI edits, explicitly opt in and grant the MCP host
 Accessibility and Automation permission in System Settings:
