@@ -383,7 +383,7 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (!Number.isFinite(operation.start) || operation.start < 0) {
         throw new Error("INVALID_OPERATION: media move start must be non-negative");
       }
-      const lane = operation.targetLane ?? clip.track;
+      const lane = operation.targetLane ?? (clip.track === 0 ? "primary" : clip.track);
       if (lane === "primary") {
         if (clip.role !== undefined && clip.role !== "video") {
           throw new Error("INVALID_OPERATION: audio and title clips require a non-primary lane");
