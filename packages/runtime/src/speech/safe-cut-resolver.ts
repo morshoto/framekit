@@ -129,7 +129,7 @@ export class SafeCutResolver {
       return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_VAD_EVIDENCE"] };
     }
     evidence.speechSegments = vadSegments.filter((segment) => segment.kind === "speech");
-    if (hasOverlappingSpeech(vadSegments) || hasOverlappingWords(words)) {
+    if (hasOverlappingSpeech(vadSegments)) {
       return { ...base, status: "SKIPPED", reasonCodes: ["OVERLAPPING_SPEECH"] };
     }
     if (hasOverlappingSegments(vadSegments)) {
