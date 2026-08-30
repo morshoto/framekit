@@ -44,3 +44,13 @@ test("Swift CI remains an independent native validation gate", async () => {
   assert.match(workflow, /xcrun swiftc/);
   assert.match(workflow, /ProExtensionHostShim/);
 });
+
+test("Swift bridge documents the separate bounded CodeQL path", async () => {
+  const documentation = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
+
+  assert.match(documentation, /CodeQL Swift extraction/);
+  assert.match(documentation, /checked-in `ProExtensionHostShim`/);
+  assert.match(documentation, /does not invoke `build\.sh`/);
+  assert.match(documentation, /five-minute/);
+  assert.match(documentation, /standalone Swift CI/);
+});
