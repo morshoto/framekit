@@ -7,3 +7,4 @@ export * from "./editing/duration-policy.js";
 export * from "./capabilities.js";
 export * from "./timeline/snapshot-digest.js";
 export * from "./speech/filler-removal.js";
+export * from "./audio/dialogue-normalization.js";

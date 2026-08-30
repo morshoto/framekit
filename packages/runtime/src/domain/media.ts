@@ -136,6 +136,23 @@ export interface AudioAnalysis {
   analyzedDurationSeconds?: number;
 }
 
+/** Revision-bound audio evidence for one complete timeline occurrence. */
+export interface AudioMeasurement {
+  mediaId: string;
+  occurrenceId: string;
+  requestedRange: TimeRange;
+  measuredRange: TimeRange;
+  revision: ContextRevision;
+  provider: AnalyzerDescriptor;
+  dialoguePresent: boolean;
+  integratedLufs: number;
+  truePeakDb: number;
+  silenceMs: number;
+  analyzedDurationSeconds: number;
+  valid: boolean;
+  invalidReason?: string;
+}
+
 export interface VisualScene {
   id: string;
   start: number;
