@@ -80,7 +80,7 @@ export class AgentVideoRuntime {
     this.edits = new EditService(adapter, this.projects, this.media, verificationEngine, options, transactions);
     this.music = new MusicService(this.projects, this.edits);
     this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
-    this.dialogueNormalization = new DialogueNormalizationService(this.projects, this.media, this.edits);
+    this.dialogueNormalization = new DialogueNormalizationService(adapter, this.projects, this.media, this.edits);
     this.durationPolicy = new DurationPolicyService();
   }
 

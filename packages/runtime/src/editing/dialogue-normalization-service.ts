@@ -10,6 +10,7 @@ import { sameRevision } from "../context/revision.js";
 import { MediaAnalysisService } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import { EditService } from "./edit-service.js";
+import type { EditorPort } from "../domain/ports.js";
 
 interface StoredDialoguePreview {
   request: DialogueNormalizationRequest;
@@ -20,6 +21,7 @@ export class DialogueNormalizationService {
   private readonly previews = new Map<string, StoredDialoguePreview>();
 
   public constructor(
+    private readonly adapter: EditorPort,
     private readonly project: ProjectService,
     private readonly analysis: MediaAnalysisService,
     private readonly edits: EditService,
@@ -30,6 +32,7 @@ export class DialogueNormalizationService {
     if (!sameRevision(request.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: dialogue normalization base revision does not match current editor state");
     }
+    await this.assertCapabilities();
     const measurement = await this.analysis.measureAudio(request.mediaId, request.occurrenceId);
     const plan = planDialogueGain(measurement, request);
     const result: DialogueNormalizationPreview = {
@@ -91,6 +94,14 @@ export class DialogueNormalizationService {
     transaction.after = restored;
     transaction.status = "ROLLED_BACK";
     return transaction;
+  }
+
+  private async assertCapabilities(): Promise<void> {
+    const capabilities = (await this.adapter.getCapabilities()).editor;
+    if (!capabilities.timelineSnapshotRead || !capabilities.timelineWrite
+      || !capabilities.readAfterWrite || !capabilities.rollback || !capabilities.compositeTransactions) {
+      throw new Error("CAPABILITY_UNAVAILABLE: dialogue normalization requires canonical timeline write, read-after-write, and rollback");
+    }
   }
 
   private async rollbackAfterMeasurementFailure(transaction: EditTransaction, error: unknown): Promise<EditTransaction> {
