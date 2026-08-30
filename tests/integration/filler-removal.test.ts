@@ -86,6 +86,56 @@ test("filler planning returns multiple ranges from latest to earliest", () => {
   assert.deepEqual(candidates.map(({ range }) => range.start), [1.2, 0.4]);
 });
 
+test("filler execution translates adjacent speech across multiple removals", async () => {
+  let calls = 0;
+  const words = [
+    { text: "so", start: 0, end: 0.3, confidence: 0.99 },
+    { text: "um", start: 0.6, end: 0.9, confidence: 0.98, filler: true },
+    { text: "we", start: 1, end: 1.4, confidence: 0.99 },
+    { text: "uh", start: 2, end: 2.3, confidence: 0.98, filler: true },
+    { text: "decided", start: 2.4, end: 3, confidence: 0.99 },
+  ];
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ media }) => {
+      calls += 1;
+      if (calls === 1) return { words: structuredClone(words) };
+      const deletes = words.filter((word) => word.filler).map(({ start, end }) => ({ start, end }));
+      return {
+        words: words.filter((word) => !word.filler).map((word) => {
+          const shift = deletes
+            .filter((deletion) => deletion.end <= word.start)
+            .reduce((total, deletion) => total + deletion.end - deletion.start, 0);
+          return { ...word, start: word.start - shift, end: word.end - shift };
+        }),
+      };
+    },
+  };
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-filler-multiple",
+    projectName: "Multiple Filler Fixture",
+    timelineId: "timeline-filler-multiple",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-filler-multiple", mediaId: "media-filler-multiple", name: "Interview", start: 0, duration: 6, track: 0 }],
+    media: [{
+      mediaId: "media-filler-multiple",
+      source: "interview-multiple.wav",
+      speech: { words },
+    }],
+  });
+  const runtime = new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewFillerRemoval({
+    baseRevision: before.revision,
+    range: { start: 0, end: 6 },
+  });
+
+  const transaction = await runtime.executeFillerRemoval(preview.previewToken);
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.verification?.checks.some((check) => check.name === "filler-speech-continuity" && check.passed), true);
+  assert.equal(calls, 2);
+});
+
 test("filler planning rejects malformed speech boundaries", () => {
   assert.throws(
     () => planFillerRemoval([
