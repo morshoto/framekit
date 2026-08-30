@@ -73,9 +73,9 @@ jobs:
         run: |
           xcodebuild \
             -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
-            -scheme FramekitFinalCutWorkflowExtension \
+            -target FramekitFinalCutWorkflowExtension \
             -configuration Debug \
-            -derivedDataPath "$RUNNER_TEMP/framekit-codeql-derived" \
+            -sdk macosx \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             COMPILATION_CACHE_ENABLE_CACHING=NO \
