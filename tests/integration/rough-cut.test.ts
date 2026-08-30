@@ -222,7 +222,7 @@ function constructionRuntime(transitionKinds = ["asset-clip"]) {
 }
 
 function constructionOperations(): WorkflowOperation[] {
-  return [{
+  const operations: WorkflowOperation[] = [{
     type: "media.import",
     mediaId: "replacement-media",
     source: "/fixtures/replacement.mov",
@@ -269,7 +269,8 @@ function constructionOperations(): WorkflowOperation[] {
   }, {
     type: "timeline.media.remove",
     occurrenceId: "remove-me",
-  }] as unknown as WorkflowOperation[];
+  }];
+  return operations;
 }
 
 test("fixture construction supports move, replace, remove, transitions, and attached audio mixing", async () => {
