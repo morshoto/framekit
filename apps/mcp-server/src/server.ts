@@ -36,6 +36,27 @@ const mediaIndexQuerySchema = z.object({
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
 });
+const durationRangeSchema = z.object({
+  startSeconds: z.number().finite().nonnegative(),
+  endSeconds: z.number().finite().positive(),
+});
+const durationPolicyInputSchema = z.object({
+  requestedDurationSeconds: z.number().finite().positive(),
+  footage: z.array(z.object({
+    id: z.string().trim().min(1),
+    durationSeconds: z.number().finite().positive(),
+    usableDurationSeconds: z.number().finite().positive().optional(),
+    usableRanges: z.array(durationRangeSchema).optional(),
+    reusable: z.boolean().optional(),
+  })),
+  constraint: z.enum(["hard", "soft"]).optional(),
+  permissions: z.object({
+    allowReuse: z.boolean().optional(),
+    allowSlowMotion: z.boolean().optional(),
+    allowGeneratedAssets: z.boolean().optional(),
+  }).optional(),
+  actualDurationSeconds: z.number().finite().nonnegative().optional(),
+});
 const markerSchema = z.object({
     id: z.string().min(1),
     start: z.number().nonnegative(),
@@ -279,6 +300,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
     inputSchema: { request: z.string().trim().min(1) },
   }, async ({ request }) => jsonResult(resolveEditingIntent(request)));
+
+  server.registerTool("editing.duration.plan", {
+    description: "Plan requested duration against unique footage and return explicit quality-preserving alternatives without editing.",
+    inputSchema: durationPolicyInputSchema,
+  }, async (request) => jsonResult(runtime.planDuration(request)));
 
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
