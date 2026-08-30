@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.1.1](https://github.com/morshoto/framekit/compare/v0.1.0...v0.1.1) - 2026-08-30
+
+- chore: automate npm and GitHub releases by @morshoto in https://github.com/morshoto/framekit/pull/84
+- docs: improve README onboarding by @morshoto in https://github.com/morshoto/framekit/pull/93
+- chore: move PR labeling rules to YAML by @morshoto in https://github.com/morshoto/framekit/pull/94
+- refactor(runtime): split runtime responsibilities by @morshoto in https://github.com/morshoto/framekit/pull/95
+- feat: define editorial duration policy by @morshoto in https://github.com/morshoto/framekit/pull/96
+- [Improvement] Make Framekit MCP workflow routing editor-first by @morshoto in https://github.com/morshoto/framekit/pull/97
+- feat: add semantic media understanding by @morshoto in https://github.com/morshoto/framekit/pull/98
+- feat: expose operation-level capability discovery by @morshoto in https://github.com/morshoto/framekit/pull/99
+- feat: assert semantic verification outcomes by @morshoto in https://github.com/morshoto/framekit/pull/100
+- feat: add rough-cut project construction primitives by @morshoto in https://github.com/morshoto/framekit/pull/101
+- chore: issue tempalte tags by @morshoto in https://github.com/morshoto/framekit/pull/105
+- feat: separate artifact and live edits by @morshoto in https://github.com/morshoto/framekit/pull/102
+
 ## [v0.1.0](https://github.com/morshoto/framekit/commits/v0.1.0) - 2026-08-30
 
 ### Features
