@@ -33,6 +33,12 @@ export interface EditorCapabilities {
   mediaImport?: boolean;
   mediaPlacement?: boolean;
   titlePlacement?: boolean;
+  clipMove?: boolean;
+  clipReplace?: boolean;
+  clipRemoval?: boolean;
+  transitionPlacement?: boolean;
+  audioAttachment?: boolean;
+  audioMixing?: boolean;
 }
 
 export interface AnalyzerCapabilities {

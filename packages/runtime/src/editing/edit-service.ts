@@ -252,6 +252,25 @@ export class EditService {
       && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");
     }
+    if (operations.some((operation) => operation.type === "timeline.media.move") && !capabilities.clipMove) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media move");
+    }
+    if (operations.some((operation) => operation.type === "timeline.media.replace") && !capabilities.clipReplace) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media replace");
+    }
+    if (operations.some((operation) => operation.type === "timeline.media.remove") && !capabilities.clipRemoval) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media removal");
+    }
+    if (operations.some((operation) => operation.type === "timeline.transition.add")
+      && (!capabilities.transitionPlacement || !capabilities.assetDiscovery)) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline transition placement");
+    }
+    if (operations.some((operation) => operation.type === "timeline.audio.attach") && !capabilities.audioAttachment) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline audio attachment");
+    }
+    if (operations.some((operation) => operation.type === "timeline.audio.mix") && !capabilities.audioMixing) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline audio mixing");
+    }
     if (operations.some((operation) => operation.type !== "media.import")
       && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");

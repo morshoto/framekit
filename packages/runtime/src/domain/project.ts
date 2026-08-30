@@ -14,6 +14,8 @@ export interface Clip {
   fadeIn?: number;
   fadeOut?: number;
   enabled?: boolean;
+  role?: "video" | "audio" | "music" | "title";
+  attachedTo?: string;
   /** Authoritative exact timeline coordinates; start/duration are convenience seconds. */
   startTime: RationalTime;
   durationTime: RationalTime;
@@ -66,4 +68,7 @@ export interface StoryElement {
   mediaId?: string;
   assetId?: string;
   text?: string;
+  attachedTo?: string;
+  beforeClipId?: string;
+  afterClipId?: string;
 }
