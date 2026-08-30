@@ -13,6 +13,7 @@ import type {
   ProjectCatalog,
   ProjectSelection,
   RuntimeCapabilities,
+  ManagedArtifact,
 } from "@framekit/runtime";
 
 interface FinalCutSessionOptions {
@@ -43,6 +44,15 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     if (this.options.snapshot) return this.options.snapshot.getIdentity();
     if (this.options.live) return this.options.live.getIdentity();
     return { name: "Final Cut Pro", version: "unknown", backend: "final-cut-session" };
+  }
+
+  public async getManagedArtifact(): Promise<ManagedArtifact> {
+    if (this.options.snapshot?.getManagedArtifact) return this.options.snapshot.getManagedArtifact();
+    throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
+  }
+
+  public async getManagedArtifactDigest(): Promise<string | undefined> {
+    return this.options.snapshot?.getManagedArtifactDigest?.();
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {

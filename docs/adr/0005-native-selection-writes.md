@@ -20,6 +20,6 @@ Accessibility and Automation permissions, and fails closed when Final Cut is
 not frontmost, the target selection is unavailable, or verification cannot be
 performed.
 
-Native selection writes are separate from `timeline.edit`: they do not claim
+Native selection writes are separate from `editor.timeline.edit`: they do not claim
 canonical timeline snapshots, clip identity mapping, complete diffs, or
 automatic FCPXML synchronization.

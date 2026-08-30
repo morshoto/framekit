@@ -20,7 +20,9 @@ export interface EditorCapabilities {
   /** The backend can return image data for an exact timeline position. */
   frameCapture: boolean;
   playbackControl?: boolean;
-  /** Canonical artifact can be imported as a new editor project. */
+  /** The managed artifact can be imported as a new editor project. */
+  artifactPublish?: boolean;
+  /** Legacy alias for artifactPublish used by editor-first routing. */
   timelinePublishNewProject?: boolean;
   /** The backend can enumerate stable project and sequence identities. */
   projectCatalogRead?: boolean;

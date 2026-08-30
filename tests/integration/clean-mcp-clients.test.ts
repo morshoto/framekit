@@ -16,7 +16,7 @@ test("clean MCP client runner covers the required setup and workflow", async () 
     "connection.status",
     "project.inspect",
     "speech.analyze",
-    "timeline.edit",
+    "editor.timeline.edit",
     "edit.diff",
     "edit.verify",
     "edit.undo",
@@ -39,7 +39,7 @@ test("clean MCP evidence preserves both client records and versioned workflow re
   assert.deepEqual(evidence.clients[0]?.workflow.tools, [
     { name: "project.inspect", status: "passed" },
     { name: "speech.analyze", status: "passed" },
-    { name: "timeline.edit", status: "VERIFIED" },
+    { name: "editor.timeline.edit", status: "VERIFIED" },
     { name: "edit.diff", status: "passed" },
     { name: "edit.verify", status: "passed" },
     { name: "edit.undo", status: "passed" },
@@ -208,7 +208,7 @@ function client(name: string, clientVersion: string, registrationCommand: string
       tools: [
         { name: "project.inspect", status: "passed", raw: { source: "/Users/private/secret-footage.mov" } },
         { name: "speech.analyze", status: "passed" },
-        { name: "timeline.edit", status: "VERIFIED" },
+        { name: "editor.timeline.edit", status: "VERIFIED" },
         { name: "edit.diff", status: "passed" },
         { name: "edit.verify", status: "passed" },
         { name: "edit.undo", status: "passed" },

@@ -95,7 +95,13 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     nativeRequirement("undo"),
   ],
   "timeline.publish.new-project": [
-    editorRequirement("timelinePublishNewProject"),
+    {
+      label: "editor.artifactPublish",
+      satisfied: (context) => Boolean(
+        context.editor?.capabilities.editor.artifactPublish
+        || context.editor?.capabilities.editor.timelinePublishNewProject,
+      ),
+    },
   ],
   "timeline.export": [
     editorRequirement("videoExport"),

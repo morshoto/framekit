@@ -747,6 +747,11 @@ test("configured artifact providers do not inherit or route canonical live write
     },
     analyzers: emptyAnalyzers,
   });
+  artifact.getManagedArtifact = async () => ({
+    id: "artifact-fixture",
+    path: "fixture.fcpxml",
+    format: "fcpxml",
+  });
   const liveTransport = new MutableCanonicalLiveTransport();
   const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({
     snapshot: artifact,
@@ -759,7 +764,11 @@ test("configured artifact providers do not inherit or route canonical live write
   assert.equal(inspected.capabilities.editor.timelineWrite, false);
   assert.equal(inspected.capabilities.editor.timelineArtifactWrite, true);
   assert.equal((await runtime.listProjects()).activeProjectId, "artifact-project");
-  await runtime.edit({ type: "rename-clip", clipId: "artifact-clip", name: "Artifact edited" });
+  await runtime.editArtifact("fixture.fcpxml", {
+    type: "rename-clip",
+    clipId: "artifact-clip",
+    name: "Artifact edited",
+  });
   assert.equal(liveTransport.applyCalls, 0);
 });
 
@@ -910,8 +919,10 @@ test("MCP inspects, edits, diffs, and undoes a canonical live timeline", async (
     const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
 
     const edited = JSON.parse(textFrom(await client.callTool({
-      name: "timeline.edit",
+      name: "editor.timeline.edit",
       arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
         type: "rename-clip",
         clipId: "final-cut:occurrence:one",
         name: "Edited through MCP",
@@ -920,6 +931,11 @@ test("MCP inspects, edits, diffs, and undoes a canonical live timeline", async (
     })));
     assert.equal(edited.status, "VERIFIED");
     assert.equal(edited.after.timeline.clips[0].name, "Edited through MCP");
+    assert.deepEqual(edited.target, {
+      kind: "editor.timeline",
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+    });
 
     const diff = JSON.parse(textFrom(await client.callTool({
       name: "edit.diff",

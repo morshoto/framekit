@@ -907,7 +907,9 @@ Recommended conceptual API:
 project.inspect
 timeline.inspect
 timeline.changes
-timeline.edit
+artifact.edit
+artifact.publish
+editor.timeline.edit
 media.inspect
 media.search
 speech.analyze

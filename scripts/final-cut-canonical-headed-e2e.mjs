@@ -44,13 +44,15 @@ try {
   if (!target) throw new Error(`FINAL_CUT_E2E_CLIP_MISMATCH: ${clipId} is not in the selected timeline`);
   const beforeDigest = canonicalDigest(before);
 
-  const transaction = await callJson("timeline.edit", {
+  const transaction = await callJson("editor.timeline.edit", {
+    projectId: before.projectId,
+    sequenceId: before.timeline.id,
     type: "rename-clip",
     clipId,
     name: `${target.name} [Framekit E2E]`,
     baseRevision: before.revision,
   });
-  toolResults.push({ name: "timeline.edit", status: transaction.status });
+  toolResults.push({ name: "editor.timeline.edit", status: transaction.status });
   transactionId = transaction.id;
   if (transaction.status !== "VERIFIED" || transaction.diff?.modified?.[0]?.itemId !== clipId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: live edit did not return the expected verified diff");

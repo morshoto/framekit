@@ -6,6 +6,29 @@ import type { TimelineDiff } from "./diff.js";
 
 import type { VerificationPolicy, VerificationReport } from "./verification.js";
 
+export interface ArtifactEditTarget {
+  kind: "artifact";
+  artifactId: string;
+  artifactPath: string;
+}
+
+export interface EditorTimelineEditTarget {
+  kind: "editor.timeline";
+  projectId: string;
+  sequenceId: string;
+}
+
+export type EditTarget = ArtifactEditTarget | EditorTimelineEditTarget;
+
+export interface ArtifactEditTargetInput {
+  artifactPath: string;
+}
+
+export interface EditorTimelineEditTargetInput {
+  projectId: string;
+  sequenceId: string;
+}
+
 export type EditOperation =
   | {
       type: "rename-clip";
@@ -168,6 +191,7 @@ export interface CompositeEditRequest {
 
 export interface CompositeEditPreview {
   previewToken: string;
+  target: EditTarget;
   baseRevision: ContextRevision;
   operations: WorkflowOperation[];
   expectedDiff: TimelineDiff;
@@ -178,6 +202,8 @@ export interface CompositeEditPreview {
 
 export interface EditTransaction {
   id: string;
+  target?: EditTarget;
+  artifactDigest?: string;
   operation?: EditOperation;
   intent: string;
   planned: WorkflowOperation[];

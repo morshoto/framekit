@@ -189,7 +189,11 @@ export class DefaultVerificationEngine implements VerificationEngine {
 
     checks.push(...(policy.assertions ?? []).map((assertion) => verifyAssertion(transaction, assertion)));
 
-    return { passed: checks.every((check) => check.passed), checks };
+    return {
+      passed: checks.every((check) => check.passed),
+      checks,
+      ...(transaction.target ? { target: structuredClone(transaction.target) } : {}),
+    };
   }
 }
 

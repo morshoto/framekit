@@ -1,5 +1,5 @@
 import { ContextEngine } from "../context/context-engine.js";
-import type { AssetSearchQuery, EditorAsset, EditorPort } from "../domain/ports.js";
+import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact } from "../domain/ports.js";
 import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
@@ -22,6 +22,13 @@ export class ProjectService {
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     const project = await this.inspectProject();
     return project.timeline;
+  }
+
+  public async inspectArtifact(): Promise<ManagedArtifact> {
+    if (!this.adapter.getManagedArtifact) {
+      throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
+    }
+    return this.adapter.getManagedArtifact();
   }
 
   public async captureFrame(

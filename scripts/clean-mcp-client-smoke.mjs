@@ -16,7 +16,7 @@ const clientSelection = process.env.FRAMEKIT_CLEAN_CLIENT ?? "all";
 const requiredTools = [
   ["project.inspect", "passed"],
   ["speech.analyze", "passed"],
-  ["timeline.edit", "VERIFIED"],
+  ["editor.timeline.edit", "VERIFIED"],
   ["edit.diff", "passed"],
   ["edit.verify", "passed"],
   ["edit.undo", "passed"],
@@ -175,7 +175,9 @@ async function runMcpWorkflow({ clientName, clientVersion, executable, framekitV
 
     const analysis = await callJson(client, "speech.analyze", { mediaId: "media-1" });
     if (analysis.words?.[0]?.filler !== true) throw new Error(`${clientName} analysis workflow did not return the filler fixture`);
-    const transaction = await callJson(client, "timeline.edit", {
+    const transaction = await callJson(client, "editor.timeline.edit", {
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
       type: "rename-clip",
       clipId: "clip-1",
       name: "Interview - Clean",
@@ -205,7 +207,7 @@ async function runMcpWorkflow({ clientName, clientVersion, executable, framekitV
         tools: [
           { name: "project.inspect", status: "passed" },
           { name: "speech.analyze", status: "passed" },
-          { name: "timeline.edit", status: transaction.status },
+          { name: "editor.timeline.edit", status: transaction.status },
           { name: "edit.diff", status: "passed" },
           { name: "edit.verify", status: "passed" },
           { name: "edit.undo", status: "passed" },

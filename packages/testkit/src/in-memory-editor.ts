@@ -7,6 +7,7 @@ import type {
   EditorCapabilities,
   EditorIdentity,
   EditorPort,
+  ManagedArtifact,
   EditorAsset,
   AssetSearchQuery,
   MediaContext,
@@ -45,6 +46,7 @@ export interface InMemoryFixture extends InMemoryProjectFixture {
 }
 
 export class InMemoryEditorAdapter implements EditorPort {
+  public getManagedArtifact?: () => Promise<ManagedArtifact>;
   private snapshot: ProjectSnapshot;
   private readonly assets: EditorAsset[];
   private readonly history = new Map<string, ProjectSnapshot>();

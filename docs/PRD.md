@@ -648,7 +648,9 @@ speech.analyze
 audio.analyze
 visual.analyze
 editor.assets
-timeline.edit
+artifact.edit
+artifact.publish
+editor.timeline.edit
 edit.diff
 edit.verify
 edit.undo

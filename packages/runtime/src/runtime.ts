@@ -13,6 +13,7 @@ import type {
   EditorChange,
   EditorLiveState,
   EditorPort,
+  ManagedArtifact,
   MediaContext,
   MediaIndexEntry,
   MediaIndexQuery,
@@ -33,6 +34,7 @@ import type {
   TimeRange,
   VerificationPolicy,
   VisualAnalysis,
+  EditorTimelineEditTargetInput,
   DurationPolicyPlan,
   DurationPolicyRequest,
 } from "./domain/index.js";
@@ -81,6 +83,10 @@ export class AgentVideoRuntime {
 
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     return this.projects.inspectTimeline();
+  }
+
+  public async inspectArtifact(): Promise<ManagedArtifact> {
+    return this.projects.inspectArtifact();
   }
 
   public async planRoughCutConstruction(
@@ -133,8 +139,38 @@ export class AgentVideoRuntime {
     return this.edits.edit(operation, policy);
   }
 
+  public async editArtifact(
+    artifactPath: string,
+    operation: EditOperation,
+    policy: VerificationPolicy = {},
+  ): Promise<EditTransaction> {
+    return this.edits.editArtifact({ artifactPath }, operation, policy);
+  }
+
+  public async editTimeline(
+    target: EditorTimelineEditTargetInput,
+    operation: EditOperation,
+    policy: VerificationPolicy = {},
+  ): Promise<EditTransaction> {
+    return this.edits.editTimeline(target, operation, policy);
+  }
+
   public async previewEdit(request: CompositeEditRequest): Promise<CompositeEditPreview> {
     return this.edits.previewEdit(request);
+  }
+
+  public async previewArtifactEdit(
+    artifactPath: string,
+    request: CompositeEditRequest,
+  ): Promise<CompositeEditPreview> {
+    return this.edits.previewArtifactEdit({ artifactPath }, request);
+  }
+
+  public async previewTimelineEdit(
+    target: EditorTimelineEditTargetInput,
+    request: CompositeEditRequest,
+  ): Promise<CompositeEditPreview> {
+    return this.edits.previewTimelineEdit(target, request);
   }
 
   public async executeEdit(previewToken: string, policy: VerificationPolicy = {}): Promise<EditTransaction> {

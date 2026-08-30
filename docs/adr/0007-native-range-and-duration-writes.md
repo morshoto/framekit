@@ -26,7 +26,7 @@ Cut-native Undo.
 
 ## Consequences
 
-- Native range operations are separate from canonical `timeline.edit`.
+- Native range operations are separate from canonical `editor.timeline.edit`.
 - `timelineWrite` remains false for the live Workflow Extension backend.
 - Connected-clip selection, automatic clip choice, and unnecessary-footage
   analysis remain future capabilities.

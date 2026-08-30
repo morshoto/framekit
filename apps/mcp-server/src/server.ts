@@ -185,6 +185,20 @@ const editToolInputSchema = z.object({
   baseRevision: revisionSchema,
   verification: verificationPolicySchema.optional(),
 }).strict();
+const artifactEditToolInputSchema = editToolInputSchema.extend({
+  artifactPath: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+}).strict();
+const editorTimelineEditToolInputSchema = editToolInputSchema.extend({
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+}).strict();
+const artifactPublishInputSchema = z.object({
+  artifactPath: z.string().trim().min(1),
+  transactionId: z.string().min(1),
+  confirm: z.boolean(),
+}).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
@@ -470,6 +484,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
   }, async () => jsonResult(await runtime.inspectProject()));
 
+  server.registerTool("artifact.inspect", {
+    description: "Identify the managed FCPXML artifact used by artifact.edit and artifact.publish.",
+    inputSchema: {},
+  }, async () => jsonResult(await runtime.inspectArtifact()));
+
   server.registerTool("project.list", {
     description: "List projects and their stable Final Cut sequence identities, including the active target.",
     inputSchema: {},
@@ -485,7 +504,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable capabilities before selecting an editing path.",
-  }, async () => jsonResult(await inspectMcpEditor(runtime, options)));
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capabilities = inspected.capabilities as RuntimeCapabilities & {
+      editor: RuntimeCapabilities["editor"] & { artifactPublish?: boolean };
+    };
+    return jsonResult({
+      ...inspected,
+      capabilities: {
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          artifactPublish: Boolean(
+            capabilities.editor.artifactPublish ?? capabilities.editor.timelinePublishNewProject,
+          ),
+        },
+      },
+    });
+  });
 
   server.registerTool("editing.intent.resolve", {
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
@@ -721,14 +757,48 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken));
   });
 
+  server.registerTool("artifact.publish", {
+    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project; requires explicit confirmation.",
+    inputSchema: artifactPublishInputSchema,
+  }, async ({ artifactPath, transactionId, confirm }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const transaction = runtime.getTransaction(transactionId);
+    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    }
+    if (!transaction.artifactDigest) {
+      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    }
+    const verification = await runtime.verifyTransaction(transactionId);
+    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+    return jsonResult(await options.projectPublisher.publishNewProject({
+      sourceTransactionId: transactionId,
+      artifactPath,
+      artifactDigest: transaction.artifactDigest,
+      confirm,
+    }));
+  });
+
   server.registerTool("timeline.publish.new-project", {
-    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
+    description: "Legacy alias for publishing a verified artifact transaction as a new Final Cut project.",
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const transaction = runtime.getTransaction(transactionId);
+    if (transaction.target?.kind !== "artifact") {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for a managed artifact`);
+    }
+    if (!transaction.artifactDigest) {
+      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    }
     const verification = await runtime.verifyTransaction(transactionId);
     if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
-    return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
+    return jsonResult(await options.projectPublisher.publishNewProject({
+      sourceTransactionId: transactionId,
+      artifactPath: transaction.target.artifactPath,
+      artifactDigest: transaction.artifactDigest,
+      confirm: true,
+    }));
   });
 
   server.registerTool("timeline.export", {
@@ -862,6 +932,26 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: roughCutConstructionPlanInputSchema,
   }, async (request) => jsonResult(await runtime.previewRoughCutConstruction(request)));
 
+  server.registerTool("artifact.edit", {
+    description: "Edit the identified managed FCPXML artifact and return its artifact target, new revision, read-after-write, and diff.",
+    inputSchema: artifactEditToolInputSchema,
+  }, async (input) => {
+    const { artifactPath, verification, ...operation } = input;
+    return jsonResult(await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation), verification ?? {}));
+  });
+
+  server.registerTool("editor.timeline.edit", {
+    description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
+    inputSchema: editorTimelineEditToolInputSchema,
+  }, async (input) => {
+    const { projectId, sequenceId, verification, ...operation } = input;
+    return jsonResult(await runtime.editTimeline(
+      { projectId, sequenceId },
+      editOperationSchema.parse(operation),
+      verification ?? {},
+    ));
+  });
+
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
     inputSchema: musicAddInputSchema,
@@ -888,6 +978,43 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     await requireEditingRoute(runtime, options, "timeline.edit");
     return jsonResult(await runtime.previewEdit(request));
   });
+
+  server.registerTool("artifact.edit.preview", {
+    description: "Validate and preview an ordered artifact edit against the identified FCPXML artifact without mutating it.",
+    inputSchema: {
+      artifactPath: z.string().trim().min(1),
+      baseRevision: revisionValueSchema,
+      operations: workflowOperationsSchema,
+      verification: verificationPolicySchema.optional(),
+    },
+  }, async ({ artifactPath, baseRevision, operations, verification }) => jsonResult(await runtime.previewArtifactEdit(
+    artifactPath,
+    { baseRevision, operations, ...(verification ? { verification } : {}) },
+  )));
+
+  server.registerTool("editor.timeline.edit.preview", {
+    description: "Validate and preview an ordered live timeline edit against the identified active project and sequence without mutating it.",
+    inputSchema: {
+      projectId: z.string().trim().min(1),
+      sequenceId: z.string().trim().min(1),
+      baseRevision: revisionValueSchema,
+      operations: workflowOperationsSchema,
+      verification: verificationPolicySchema.optional(),
+    },
+  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => jsonResult(await runtime.previewTimelineEdit(
+    { projectId, sequenceId },
+    { baseRevision, operations, ...(verification ? { verification } : {}) },
+  )));
+
+  server.registerTool("artifact.edit.execute", {
+    description: "Execute one short-lived artifact edit preview token exactly once and verify the artifact transaction.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+
+  server.registerTool("editor.timeline.edit.execute", {
+    description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
   server.registerTool("timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
@@ -966,7 +1093,8 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       ...inspected.capabilities,
       editor: {
         ...inspected.capabilities.editor,
-        timelinePublishNewProject: publishingAvailable,
+        artifactPublish: publishingAvailable,
+        ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
         videoExport: exportAvailable,
       },
     }, {

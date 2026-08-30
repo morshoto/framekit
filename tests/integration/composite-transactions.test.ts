@@ -131,6 +131,25 @@ test("composite preview is non-mutating and execute applies the ordered MVP work
   assert.equal(undone.revision.timestamp, new Date(2).toISOString());
 });
 
+test("targeted composite previews retain the selected editor timeline target", async () => {
+  const { runtime } = createCompositeRuntime();
+  const before = await runtime.inspectProject();
+
+  const preview = await runtime.previewTimelineEdit(
+    { projectId: before.projectId, sequenceId: before.timeline.id },
+    { baseRevision: before.revision, operations: workflowOperations() },
+  );
+
+  assert.deepEqual(preview.target, {
+    kind: "editor.timeline",
+    projectId: before.projectId,
+    sequenceId: before.timeline.id,
+  });
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.deepEqual(transaction.target, preview.target);
+  assert.deepEqual(transaction.verification?.target, preview.target);
+});
+
 test("media-only composite transactions count registry changes during verification", async () => {
   const { runtime } = createCompositeRuntime();
   const before = await runtime.inspectProject();
@@ -320,19 +339,24 @@ test("MCP exposes one composite preview and execute contract with workflow opera
   try {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     const tools = await client.listTools();
-    assert.ok(tools.tools.some((tool) => tool.name === "timeline.edit.preview"));
-    assert.ok(tools.tools.some((tool) => tool.name === "timeline.edit.execute"));
+    assert.ok(tools.tools.some((tool) => tool.name === "editor.timeline.edit.preview"));
+    assert.ok(tools.tools.some((tool) => tool.name === "editor.timeline.edit.execute"));
 
     const before = await runtime.inspectProject();
     const preview = JSON.parse(textFrom(await client.callTool({
-      name: "timeline.edit.preview",
-      arguments: { baseRevision: before.revision, operations: workflowOperations() },
+      name: "editor.timeline.edit.preview",
+      arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
+        baseRevision: before.revision,
+        operations: workflowOperations(),
+      },
     })));
     assert.match(preview.previewToken, /^preview-/);
     assert.deepEqual(await runtime.inspectProject(), before);
 
     const executed = JSON.parse(textFrom(await client.callTool({
-      name: "timeline.edit.execute",
+      name: "editor.timeline.edit.execute",
       arguments: { previewToken: preview.previewToken },
     })));
     assert.equal(executed.status, "VERIFIED");
@@ -340,8 +364,10 @@ test("MCP exposes one composite preview and execute contract with workflow opera
     assert.equal(executed.diff.mediaChanges.length, 2);
 
     const invalid = await client.callTool({
-      name: "timeline.edit.preview",
+      name: "editor.timeline.edit.preview",
       arguments: {
+        projectId: executed.target.projectId,
+        sequenceId: executed.target.sequenceId,
         baseRevision: executed.after.revision,
         operations: [{
           type: "timeline.media.add",

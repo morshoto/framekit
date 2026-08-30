@@ -1,7 +1,7 @@
 const requiredTools = [
   ["project.inspect", "passed"],
   ["speech.analyze", "passed"],
-  ["timeline.edit", "VERIFIED"],
+  ["editor.timeline.edit", "VERIFIED"],
   ["edit.diff", "passed"],
   ["edit.verify", "passed"],
   ["edit.undo", "passed"],

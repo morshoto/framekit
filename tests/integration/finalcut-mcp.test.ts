@@ -114,16 +114,28 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     });
 
     const edited = JSON.parse(textFrom(await client.callTool({
-      name: "timeline.edit",
-      arguments: { type: "rename-clip", clipId: project.timeline.clips[0].id, name: "Interview Clean", baseRevision: project.revision },
+      name: "artifact.edit",
+      arguments: {
+        artifactPath: xmlPath,
+        type: "rename-clip",
+        clipId: project.timeline.clips[0].id,
+        name: "Interview Clean",
+        baseRevision: project.revision,
+      },
     })));
     assert.equal(edited.status, "VERIFIED");
     assert.equal(edited.after.timeline.clips[0].name, "Interview Clean");
+    assert.deepEqual(edited.target, {
+      kind: "artifact",
+      artifactId: `fcpxml:${xmlPath}`,
+      artifactPath: xmlPath,
+    });
 
     const diff = JSON.parse(textFrom(await client.callTool({ name: "edit.diff", arguments: { transactionId: edited.id } })));
     assert.equal(diff.modified[0].after.name, "Interview Clean");
     const verification = JSON.parse(textFrom(await client.callTool({ name: "edit.verify", arguments: { transactionId: edited.id } })));
     assert.equal(verification.passed, true);
+    assert.deepEqual(verification.target, edited.target);
     const undone = JSON.parse(textFrom(await client.callTool({ name: "edit.undo", arguments: { transactionId: edited.id } })));
     assert.equal(undone.timeline.clips[0].name, "Interview");
   } finally {

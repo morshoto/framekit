@@ -23,6 +23,9 @@ test("deterministic MCP evaluation covers editing workflows and reports actionab
   assert.ok(report.byCategory["failure-path"].total >= 2);
   assert.equal(report.byCategory["workflow-assets"].supported, 3);
   assert.equal(report.byCategory["workflow-assets"].unavailable, 2);
+  assert.ok(report.scenarios.some((scenario) => scenario.id === "artifact-publish-capability"
+    && scenario.intent === "Publish the verified FCPXML artifact as a new project"));
+  assert.equal(report.scenarios.some((scenario) => scenario.id === "export-capability"), false);
   assert.ok(report.scenarios.some((scenario) => scenario.id === "undo-verified" && scenario.passed && scenario.support === "supported"));
 
   const rendered = renderEvaluationReport(report);

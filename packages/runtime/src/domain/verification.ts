@@ -1,4 +1,5 @@
 import type { EditTransaction } from "./editing.js";
+import type { EditTarget } from "./editing.js";
 
 export interface AudioAudibilityAssertion {
   type: "audio-audibility";
@@ -92,6 +93,7 @@ export interface VerificationCheck {
 export interface VerificationReport {
   passed: boolean;
   checks: VerificationCheck[];
+  target?: EditTarget;
 }
 
 export interface VerificationEngine {

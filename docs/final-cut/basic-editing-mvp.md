@@ -38,7 +38,8 @@ The minimum deterministic editing gate is:
 
 For the complete MVP workflow, the backend must also advertise or expose
 `media.import`, `timeline.media.add`, `timeline.title.add`,
-`timeline.edit.preview`, `timeline.edit.execute`, and `timeline.export`. A
+`editor.timeline.edit.preview`, `editor.timeline.edit.execute`, and
+`timeline.export`. A
 missing workflow capability is detected before any project mutation; tool
 presence must not be inferred from a documentation-only contract.
 
@@ -66,10 +67,10 @@ the capability as unavailable before execution.
 ### 3. Make a basic edit
 
 Use `timeline.media.add` with `role: "video"` to place the selected video on
-the primary storyline, then use `timeline.edit` to trim it to the requested
+the primary storyline, then use `editor.timeline.edit` to trim it to the requested
 duration. The edit must be tied to the captured base revision and must return a
 transaction ID, before/after snapshots, a deterministic diff, and affected
-ranges. The current `timeline.edit` implementation supports rename, trim, gain,
+ranges. The current `editor.timeline.edit` implementation supports rename, trim, gain,
 ripple-delete, and marker operations; placement is a required extension.
 
 The design requires a preview/execute split for any edit that changes project
@@ -84,9 +85,10 @@ content:
 3. A changed revision, failed precondition, or unavailable capability rejects
    execution with `STALE_CONTEXT` or `CAPABILITY_UNAVAILABLE`.
 
-The existing `timeline.edit` path is the deterministic transaction seam. The
-preview token API is a required extension of this contract; it must not weaken
-the existing transaction, diff, or fail-closed behavior.
+The target-specific `editor.timeline.edit` path is the deterministic live
+transaction seam. The target-specific `artifact.edit` path is the equivalent
+FCPXML transaction seam. Neither path may weaken the existing transaction, diff,
+or fail-closed behavior.
 
 Verification intent is carried in `verification.assertions` on direct edits,
 composite previews, and music operations. Each assertion produces a
@@ -135,9 +137,10 @@ containing the source project revision, transaction ID, timeline duration,
 referenced media digests, output format, and output digest. Export is allowed
 only after structural verification passes.
 
-`timeline.publish.new-project` is a different existing capability: it imports a
-verified FCPXML artifact as a new Final Cut project. It is not an export and
-does not mean that the currently open Final Cut timeline is directly writable.
+`artifact.publish` is a different capability: it imports a verified FCPXML
+artifact as a new Final Cut project after receiving the matching `artifactPath`
+and explicit `confirm: true`. It is not an export and does not mean that the
+currently open Final Cut timeline is directly writable.
 The current live MCP implementation exposes `timeline.export` with explicit
 `outputPath` and `preset` values, and verifies the rendered file with `ffprobe`.
 The richer transaction-bound export manifest described above remains a tracked
@@ -185,18 +188,19 @@ rollback before returning a failed result.
 | `media.inspect` | Existing | Read normalized media metadata and attached analysis. |
 | `timeline.media.add` | Composite operation | Place an imported video or music occurrence by stable media ID and role-specific lane. |
 | `timeline.title.add` | Composite operation | Place a discovered title asset with explicit text and timing. |
-| `timeline.edit` | Existing | Execute supported deterministic edits and return a transaction. |
-| `timeline.edit.preview` / `timeline.edit.execute` | Implemented for deterministic fixture | Provide non-mutating preview and guarded, single-use execution. |
+| `artifact.edit` | Existing | Edit the managed FCPXML artifact with an explicit artifact target. |
+| `editor.timeline.edit` | Existing | Edit the explicitly identified live project and sequence. |
+| `editor.timeline.edit.preview` / `editor.timeline.edit.execute` | Implemented for deterministic fixture | Provide non-mutating preview and guarded, single-use execution for the live target. |
+| `artifact.publish` | Existing | Create/import a new project from a verified artifact with explicit confirmation. |
 | `editor.assets` | Existing | Select a real installed title asset. |
 | `timeline.export` | Required extension | Render/export a verified result and manifest. |
 | `edit.diff` | Existing | Return the deterministic transaction diff. |
 | `edit.verify` | Existing | Return structural and configured media verification checks. |
 | `edit.undo` | Existing | Restore the transaction's pre-edit snapshot. |
 
-The required extensions are design targets, not present-day tools. Adding
-them requires corresponding MCP schemas, runtime contracts, deterministic
-fixtures, and integration tests; this document does not silently redefine an
-existing tool's input or output.
+These target-specific tools require corresponding MCP schemas, runtime
+contracts, deterministic fixtures, and integration tests. They do not silently
+redefine an existing tool's input or output.
 
 The complete MVP uses one composite workflow transaction for video placement,
 trim, music placement, and title placement. Its preview returns one token and
@@ -208,10 +212,11 @@ capabilities fail closed. Undo restores the original timeline and media
 registry in one observable operation. Export manifests remain tracked by the
 separate export work.
 
-The composite MCP entry point is `timeline.edit.preview` followed by
-`timeline.edit.execute`. Preview accepts a base revision and an ordered operation list
-named `operations`, containing the video `timeline.media.add`, `trim-clip`, music
-`timeline.media.add`, and `timeline.title.add` operations. Each operation keeps
+The composite MCP entry point is `editor.timeline.edit.preview` followed by
+`editor.timeline.edit.execute`. Preview accepts an explicit project ID, sequence
+ID, base revision, and an ordered operation list named `operations`, containing
+the video `timeline.media.add`, `trim-clip`, music `timeline.media.add`, and
+`timeline.title.add` operations. Each operation keeps
 its stable IDs, role-specific `targetLane`, timing, and operation-specific
 arguments. Execute accepts only `{ previewToken }`; it returns the single
 transaction ID, before/after snapshots, complete diff, affected ranges, and

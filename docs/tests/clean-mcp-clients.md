@@ -16,7 +16,7 @@ protocol. For each client, the workflow covers:
 
 1. `project.inspect` for a project read;
 2. `speech.analyze` for analysis;
-3. `timeline.edit` for a verified edit;
+3. `editor.timeline.edit` for a verified edit;
 4. `edit.diff` for the resulting diff;
 5. `edit.verify` for post-edit verification; and
 6. `edit.undo` for restoration.
