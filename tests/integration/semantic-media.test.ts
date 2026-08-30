@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createCommandAnalyzers } from "@framekit/final-cut";
 import {
   FixtureAudioAnalyzer,
   FixtureMetadataAnalyzer,
@@ -223,4 +224,11 @@ test("unconfigured analysis returns unavailable statuses without descriptions", 
     ],
   );
   assert.match(understanding.analysis[0]?.reason ?? "", /not configured/);
+});
+
+test("command analyzer factory exposes independent metadata capability", () => {
+  const analyzers = createCommandAnalyzers({ metadataCommand: "/usr/bin/metadata-analyzer" });
+
+  assert.equal(analyzers.metadataAnalyzer?.descriptor?.provider, "command");
+  assert.equal(analyzers.metadataAnalyzer?.descriptor?.id, "command.metadata");
 });

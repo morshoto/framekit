@@ -4,6 +4,8 @@ import type {
   AnalysisInput,
   AudioAnalysis,
   AudioAnalyzer,
+  MetadataAnalysis,
+  MetadataAnalyzer,
   SpeechAnalysis,
   SpeechAnalyzer,
   TimeRange,
@@ -24,20 +26,25 @@ export function createCommandAnalyzers(options: {
   speechCommand?: string;
   audioCommand?: string;
   visualCommand?: string;
+  metadataCommand?: string;
   timeoutMs?: number;
 }): {
   speechAnalyzer?: SpeechAnalyzer;
   audioAnalyzer?: AudioAnalyzer;
   visualAnalyzer?: VisualAnalyzer;
+  metadataAnalyzer?: MetadataAnalyzer;
 } {
   return {
     ...(options.speechCommand ? { speechAnalyzer: new CommandSpeechAnalyzer({ command: options.speechCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.audioCommand ? { audioAnalyzer: new CommandAudioAnalyzer({ command: options.audioCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.visualCommand ? { visualAnalyzer: new CommandVisualAnalyzer({ command: options.visualCommand, timeoutMs: options.timeoutMs }) } : {}),
+    ...(options.metadataCommand ? { metadataAnalyzer: new CommandMetadataAnalyzer({ command: options.metadataCommand, timeoutMs: options.timeoutMs }) } : {}),
   };
 }
 
 export class CommandSpeechAnalyzer implements SpeechAnalyzer {
+  public readonly descriptor = { id: "command.speech", provider: "command" };
+
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
@@ -46,6 +53,8 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
 }
 
 export class CommandAudioAnalyzer implements AudioAnalyzer {
+  public readonly descriptor = { id: "command.audio", provider: "command" };
+
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis> {
@@ -54,10 +63,22 @@ export class CommandAudioAnalyzer implements AudioAnalyzer {
 }
 
 export class CommandVisualAnalyzer implements VisualAnalyzer {
+  public readonly descriptor = { id: "command.visual", provider: "command" };
+
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<VisualAnalysis> {
     return runCommand<VisualAnalysis>(this.options, { ...input, range }, "visual");
+  }
+}
+
+export class CommandMetadataAnalyzer implements MetadataAnalyzer {
+  public readonly descriptor = { id: "command.metadata", provider: "command" };
+
+  public constructor(private readonly options: CommandAnalyzerOptions) {}
+
+  public async analyze(input: AnalysisInput, range?: TimeRange): Promise<MetadataAnalysis> {
+    return runCommand<MetadataAnalysis>(this.options, { ...input, range }, "metadata");
   }
 }
 
@@ -122,6 +143,12 @@ function validateResult(value: unknown, kind: string): void {
   }
   if (kind === "audio") {
     if (!["integratedLufs", "truePeakDb", "silenceMs"].every((key) => typeof record[key] === "number")) throw new Error("audio result requires loudness fields");
+    return;
+  }
+  if (kind === "metadata") {
+    for (const key of ["subjects", "scenes", "environments", "timeOfDay", "moods", "usableRanges"]) {
+      if (record[key] !== undefined && !Array.isArray(record[key])) throw new Error(`metadata ${key} must be an array`);
+    }
     return;
   }
   if (!Array.isArray(record.scenes) || !Array.isArray(record.subjects) || !Array.isArray(record.keyframes)) {
