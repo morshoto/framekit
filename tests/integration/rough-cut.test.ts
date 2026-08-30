@@ -178,6 +178,19 @@ test("rough-cut planner rejects missing, non-video, and overlong shots", () => {
     }],
     shots: [{ occurrenceId: "too-long", mediaId: "short", duration: 3 }],
   }), /ROUGH_CUT_DURATION_EXCEEDS_SOURCE/);
+
+  assert.throws(() => planRoughCut(before, {
+    baseRevision: before.revision,
+    imports: [{
+      type: "media.import",
+      mediaId: " ",
+      source: "/fixtures/blank-id.mov",
+      mediaKind: "video",
+      duration: 2,
+      sourceDigest: "sha256:blank-id",
+    }],
+    shots: [{ occurrenceId: "existing-shot", mediaId: "existing-media" }],
+  }), /INVALID_OPERATION: imported media requires/);
 });
 
 function constructionRuntime(transitionKinds = ["asset-clip"]) {
