@@ -270,7 +270,7 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
     assert.equal(payload.capabilities.schemaVersion, 1);
     assert.equal(payload.capabilities.families.native.selectionWrite.available, true);
     assert.equal(payload.capabilities.families.native.selectionWrite.backend, "final-cut-accessibility");
-    assert.equal(payload.capabilities.families.native.clipInsertion.available, true);
+    assert.equal(payload.capabilities.families.native.clipInsertion.available, false);
     assert.equal(payload.capabilities.families.native.projectCreation.available, false);
     assert.equal(payload.capabilities.families.native.clipMovement.available, false);
     assert.equal(payload.capabilities.families.publishing.projectCreation.available, true);

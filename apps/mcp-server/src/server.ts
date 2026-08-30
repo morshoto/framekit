@@ -309,7 +309,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
           titlePlacement: Boolean(native?.titlePlacement),
           timelineFocus: Boolean(native?.timelineFocus),
           projectCreation: false,
-          clipInsertion: Boolean(native?.mediaAppend || native?.mediaInsert),
+          clipInsertion: false,
           clipMovement: false,
         },
         publishing: Boolean(options.projectPublisher),
