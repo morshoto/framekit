@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ProjectSnapshot } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 import { AgentVideoRuntime, planRoughCut } from "@framekit/runtime";
 import type { RoughCutPlanRequest, WorkflowOperation } from "@framekit/runtime";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function emptyProject(): ProjectSnapshot {
   return {
@@ -300,4 +303,47 @@ test("unsupported construction capabilities fail before preview mutation", async
 
   await assert.rejects(active.previewEdit({ baseRevision: before.revision, operations: constructionOperations() }), /CAPABILITY_UNAVAILABLE/);
   assert.deepEqual(await active.inspectProject(), before);
+});
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { type?: string; text?: unknown } | undefined;
+  assert.equal(first?.type, "text");
+  assert.equal(typeof first?.text, "string");
+  return first?.text as string;
+}
+
+test("MCP exposes read-only rough-cut planning and a guarded preview", async () => {
+  const active = runtime();
+  const server = createMcpServer(active);
+  const client = new Client({ name: "rough-cut-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.some((tool) => tool.name === "rough-cut.plan"));
+    assert.ok(tools.tools.some((tool) => tool.name === "rough-cut.preview"));
+
+    const before = await active.inspectProject();
+    const argumentsValue = request(before.revision);
+    const planned = JSON.parse(textFrom(await client.callTool({
+      name: "rough-cut.plan",
+      arguments: { ...argumentsValue },
+    })));
+    assert.equal(planned.operations.length, 4);
+    assert.equal(planned.duration, 12);
+    assert.deepEqual(await active.inspectProject(), before);
+
+    const preview = JSON.parse(textFrom(await client.callTool({
+      name: "rough-cut.preview",
+      arguments: { ...argumentsValue },
+    })));
+    assert.match(preview.previewToken, /^preview-/);
+    assert.deepEqual(preview.plan.operations, planned.operations);
+    assert.deepEqual(await active.inspectProject(), before);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
