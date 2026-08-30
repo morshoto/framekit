@@ -43,6 +43,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate release package
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.tagpr-tag }}
+        run: node scripts/validate-release-contract.mjs
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:

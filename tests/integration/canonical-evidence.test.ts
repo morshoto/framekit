@@ -121,8 +121,8 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       operation: "edit.undo",
       status: "VERIFIED",
       restored: true,
-      beforeDigest: "before-digest",
-      restoredDigest: "before-digest",
+      beforeDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      restoredDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       restoredRevision: { id: "rev-12", sequence: 12, timestamp: "2026-08-26T10:00:03.000Z" },
     },
     sanitization: {
@@ -218,6 +218,26 @@ test("canonical headed evidence rejects metadata-only capability claims", () => 
       osVersion: "Darwin Kernel Version 25.5.0",
     }),
     /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: canonical-write capability is required/,
+  );
+});
+
+test("canonical headed evidence rejects malformed digest values", () => {
+  const malformedDigestRun = structuredClone(rawRun);
+  const privateDigest = { source: "/Users/private/secret-footage.mov" };
+  Reflect.set(malformedDigestRun.digests, "before", privateDigest);
+  Reflect.set(malformedDigestRun.digests, "restored", privateDigest);
+
+  assert.throws(
+    () => sanitizeCanonicalEvidence(malformedDigestRun, {
+      framekitVersion: "0.1.0",
+      finalCutVersion: "10.7.1",
+      gitCommit: "0123456789abcdef0123456789abcdef01234567",
+      nodeVersion: "v22.15.0",
+      platform: "darwin",
+      architecture: "arm64",
+      osVersion: "Darwin Kernel Version 25.5.0",
+    }),
+    /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: before digest must be a 64-character SHA-256 hexadecimal string/,
   );
 });
 
@@ -400,7 +420,10 @@ const rawRun = {
     rawDiagnostics: "raw crash dump",
   },
   restored: snapshot("Interview", baseRevision("rev-12", 12, "2026-08-26T10:00:03.000Z")),
-  digests: { before: "before-digest", restored: "before-digest" },
+  digests: {
+    before: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    restored: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  },
   transactionId: "transaction-secret",
 };
 
