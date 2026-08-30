@@ -43,11 +43,28 @@ test("generic MCP Skill surface discovers both release workflows", async () => {
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "skill.list"));
     assert.ok(tools.tools.some((tool) => tool.name === "skill.inspect"));
+    assert.ok(tools.tools.some((tool) => tool.name === "skill.preview"));
+    assert.ok(tools.tools.some((tool) => tool.name === "skill.execute"));
     const listed = await client.callTool({ name: "skill.list", arguments: {} });
     const content = listed.content as Array<{ type: string; text?: string }>;
     const payload = JSON.parse(content[0]?.text ?? "null") as Array<{ id: string; version: number }>;
     assert.deepEqual(payload.map((skill) => skill.id), ["filler-removal", "dialogue-normalization"]);
     assert.ok(payload.every((skill) => skill.version === 1));
+
+    const inspected = await client.callTool({
+      name: "skill.inspect",
+      arguments: { skill: "dialogue-normalization" },
+    });
+    const inspectedContent = inspected.content as Array<{ type: string; text?: string }>;
+    const dialogueSkill = JSON.parse(inspectedContent[0]?.text ?? "null") as { previewTool: string; executeTool: string };
+    assert.deepEqual(dialogueSkill, {
+      id: "dialogue-normalization",
+      version: 1,
+      description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
+      previewTool: "dialogue.normalization.preview",
+      executeTool: "dialogue.normalization.execute",
+      requires: ["canonical timeline read", "dialogue audio analysis", "set-gain", "rollback"],
+    });
   } finally {
     await client.close();
     await server.close();
