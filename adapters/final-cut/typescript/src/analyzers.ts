@@ -146,8 +146,17 @@ function validateResult(value: unknown, kind: string): void {
     return;
   }
   if (kind === "metadata") {
-    for (const key of ["subjects", "scenes", "environments", "timeOfDay", "moods", "usableRanges"]) {
-      if (record[key] !== undefined && !Array.isArray(record[key])) throw new Error(`metadata ${key} must be an array`);
+    for (const key of ["subjects", "scenes", "environments", "timeOfDay", "moods"]) {
+      if (record[key] !== undefined && (!Array.isArray(record[key]) || record[key].some((value) => !isSemanticTag(value)))) {
+        throw new Error(`metadata ${key} must contain typed tags`);
+      }
+    }
+    if (record.usableRanges !== undefined
+      && (!Array.isArray(record.usableRanges) || record.usableRanges.some((value) => !isTimeRange(value)))) {
+      throw new Error("metadata usableRanges must contain valid time ranges");
+    }
+    if (record.confidence !== undefined && !isFiniteNumber(record.confidence)) {
+      throw new Error("metadata confidence must be numeric");
     }
     return;
   }
@@ -164,4 +173,32 @@ function isSpeechWord(value: unknown): boolean {
     && typeof word.end === "number"
     && typeof word.confidence === "number"
     && (word.filler === undefined || typeof word.filler === "boolean");
+}
+
+function isSemanticTag(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const tag = value as Record<string, unknown>;
+  return typeof tag.value === "string" && isFiniteNumber(tag.confidence);
+}
+
+function isTimeRange(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const range = value as Record<string, unknown>;
+  return isFiniteNumber(range.start)
+    && isFiniteNumber(range.end)
+    && range.start >= 0
+    && range.end > range.start
+    && isOptionalRationalTime(range.startTime)
+    && isOptionalRationalTime(range.durationTime);
+}
+
+function isOptionalRationalTime(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const time = value as Record<string, unknown>;
+  return typeof time.value === "string" && typeof time.timescale === "string";
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
