@@ -1,4 +1,5 @@
 import type { EditTransaction } from "./editing.js";
+import type { EditTarget } from "./editing.js";
 
 export interface VerificationPolicy {
   requireExpectedChange?: boolean;
@@ -17,6 +18,7 @@ export interface VerificationCheck {
 export interface VerificationReport {
   passed: boolean;
   checks: VerificationCheck[];
+  target?: EditTarget;
 }
 
 export interface VerificationEngine {

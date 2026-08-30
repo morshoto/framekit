@@ -19,6 +19,7 @@ export interface EditorAdapter {
 export interface EditorPort extends EditorAdapter {
   getIdentity(): Promise<EditorIdentity>;
   getCapabilities(): Promise<RuntimeCapabilities>;
+  getManagedArtifact?(): Promise<ManagedArtifact>;
   readProject(): Promise<ProjectSnapshot>;
   restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void>;
   listAssets?(query?: AssetSearchQuery): Promise<EditorAsset[]>;
@@ -30,6 +31,12 @@ export interface EditorPort extends EditorAdapter {
   captureFrame?(position: RationalTime, expectedRevision: ContextRevision): Promise<CapturedFrameSource>;
   previewTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<ProjectSnapshot>;
   applyTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<void>;
+}
+
+export interface ManagedArtifact {
+  id: string;
+  path: string;
+  format: "fcpxml";
 }
 
 export interface LiveEditorStatePort {

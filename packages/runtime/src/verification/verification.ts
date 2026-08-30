@@ -85,7 +85,11 @@ export class DefaultVerificationEngine implements VerificationEngine {
       });
     }
 
-    return { passed: checks.every((check) => check.passed), checks };
+    return {
+      passed: checks.every((check) => check.passed),
+      checks,
+      ...(transaction.target ? { target: structuredClone(transaction.target) } : {}),
+    };
   }
 }
 

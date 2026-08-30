@@ -3,10 +3,15 @@ import { diffSnapshots } from "../timeline/snapshot-diff.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 import type { EditorPort } from "../domain/ports.js";
 import type {
+  ArtifactEditTarget,
+  ArtifactEditTargetInput,
   CompositeEditPreview,
   CompositeEditRequest,
   EditOperation,
+  EditTarget,
   EditTransaction,
+  EditorTimelineEditTarget,
+  EditorTimelineEditTargetInput,
   WorkflowOperation,
 } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
@@ -32,16 +37,47 @@ export class EditService {
 
   public async edit(operation: EditOperation, policy: VerificationPolicy = {}): Promise<EditTransaction> {
     const before = await this.project.inspectProject();
+    const capabilities = await this.adapter.getCapabilities();
+    const target = await this.defaultTarget(before, capabilities);
+    return this.editWithTarget(operation, policy, target, before, capabilities);
+  }
+
+  public async editArtifact(
+    targetInput: ArtifactEditTargetInput,
+    operation: EditOperation,
+    policy: VerificationPolicy = {},
+  ): Promise<EditTransaction> {
+    const target = await this.artifactTarget(targetInput);
+    return this.editWithTarget(operation, policy, target);
+  }
+
+  public async editTimeline(
+    targetInput: EditorTimelineEditTargetInput,
+    operation: EditOperation,
+    policy: VerificationPolicy = {},
+  ): Promise<EditTransaction> {
+    const target = this.timelineTarget(targetInput);
+    if (!operation.baseRevision) throw new Error("INVALID_TIMELINE_TARGET: baseRevision is required");
+    return this.editWithTarget(operation, policy, target);
+  }
+
+  private async editWithTarget(
+    operation: EditOperation,
+    policy: VerificationPolicy,
+    target: EditTarget,
+    existingBefore?: ProjectSnapshot,
+    existingCapabilities?: Awaited<ReturnType<EditorPort["getCapabilities"]>>,
+  ): Promise<EditTransaction> {
+    const before = existingBefore ?? await this.project.inspectProject();
+    const capabilities = existingCapabilities ?? await this.adapter.getCapabilities();
+    this.assertTarget(target, before);
     if (operation.baseRevision && !sameRevision(operation.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: operation base revision does not match current editor state");
     }
 
-    const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.editor.timelineWrite && !capabilities.editor.timelineArtifactWrite) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
-    }
+    this.assertSurfaceCapability(target, capabilities.editor);
     if (!capabilities.editor.timelineSnapshotRead || !capabilities.editor.readAfterWrite || !capabilities.editor.rollback) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation requires snapshot, read-after-write, and rollback");
+      throw new Error(`CAPABILITY_UNAVAILABLE: ${target.kind === "artifact" ? "artifact" : "editor timeline"} mutation requires snapshot, read-after-write, and rollback`);
     }
     const appliedRevision = await this.adapter.apply(operation, before.revision);
     let attemptedAfter: ProjectSnapshot;
@@ -58,6 +94,7 @@ export class EditService {
     }
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
+      target: structuredClone(target),
       operation,
       intent: operation.type,
       planned: [operation],
@@ -78,7 +115,10 @@ export class EditService {
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
-      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+      transaction.verification = {
+        ...(await this.verificationEngine.verify(transaction, policy)),
+        target: structuredClone(target),
+      };
     } catch (verificationError) {
       try {
         await this.adapter.restore(before, attemptedAfter.revision);
@@ -102,11 +142,41 @@ export class EditService {
 
   public async previewEdit(request: CompositeEditRequest): Promise<CompositeEditPreview> {
     const before = await this.project.inspectProject();
+    const capabilities = await this.adapter.getCapabilities();
+    const target = await this.defaultTarget(before, capabilities);
+    return this.previewEditWithTarget(request, target, before, capabilities);
+  }
+
+  public async previewArtifactEdit(
+    targetInput: ArtifactEditTargetInput,
+    request: CompositeEditRequest,
+  ): Promise<CompositeEditPreview> {
+    const target = await this.artifactTarget(targetInput);
+    return this.previewEditWithTarget(request, target);
+  }
+
+  public async previewTimelineEdit(
+    targetInput: EditorTimelineEditTargetInput,
+    request: CompositeEditRequest,
+  ): Promise<CompositeEditPreview> {
+    const target = this.timelineTarget(targetInput);
+    return this.previewEditWithTarget(request, target);
+  }
+
+  private async previewEditWithTarget(
+    request: CompositeEditRequest,
+    target: EditTarget,
+    existingBefore?: ProjectSnapshot,
+    existingCapabilities?: Awaited<ReturnType<EditorPort["getCapabilities"]>>,
+  ): Promise<CompositeEditPreview> {
+    const before = existingBefore ?? await this.project.inspectProject();
+    const capabilities = existingCapabilities ?? await this.adapter.getCapabilities();
+    this.assertTarget(target, before);
     if (!sameRevision(request.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
     }
     if (request.operations.length === 0) throw new Error("INVALID_OPERATION: composite edit requires operations");
-    await this.assertCompositeCapabilities(request.operations);
+    await this.assertCompositeCapabilities(request.operations, target.kind, capabilities.editor);
     if (!this.adapter.previewTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
     }
@@ -114,6 +184,7 @@ export class EditService {
     const previewToken = `preview-${randomUUID()}`;
     const preview: CompositeEditPreview = {
       previewToken,
+      target: structuredClone(target),
       baseRevision: structuredClone(before.revision),
       operations: structuredClone(request.operations),
       expectedDiff: diffSnapshots(before, expectedAfter),
@@ -144,7 +215,8 @@ export class EditService {
     if (!sameRevision(preview.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
     }
-    await this.assertCompositeCapabilities(preview.operations);
+    this.assertTarget(preview.target, before);
+    await this.assertCompositeCapabilities(preview.operations, preview.target.kind);
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
     }
@@ -164,6 +236,7 @@ export class EditService {
     const attemptedAfter = await this.project.inspectProject();
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
+      target: structuredClone(preview.target),
       intent: "composite-edit",
       planned: structuredClone(preview.operations),
       applied: structuredClone(preview.operations),
@@ -183,7 +256,10 @@ export class EditService {
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
-      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+      transaction.verification = {
+        ...(await this.verificationEngine.verify(transaction, policy)),
+        target: structuredClone(preview.target),
+      };
     } catch (verificationError) {
       try {
         await this.adapter.restore(before, attemptedAfter.revision);
@@ -237,8 +313,12 @@ export class EditService {
     }
   }
 
-  private async assertCompositeCapabilities(operations: WorkflowOperation[]): Promise<void> {
-    const capabilities = (await this.adapter.getCapabilities()).editor;
+  private async assertCompositeCapabilities(
+    operations: WorkflowOperation[],
+    targetKind?: EditTarget["kind"],
+    existingCapabilities?: Awaited<ReturnType<EditorPort["getCapabilities"]>>["editor"],
+  ): Promise<void> {
+    const capabilities = existingCapabilities ?? (await this.adapter.getCapabilities()).editor;
     if (!capabilities.compositeTransactions || !capabilities.readAfterWrite || !capabilities.rollback) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transactions");
     }
@@ -252,8 +332,76 @@ export class EditService {
       && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");
     }
-    if (operations.some((operation) => operation.type !== "media.import")
-      && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
+    if (operations.some((operation) => operation.type !== "media.import")) {
+      if (targetKind === "artifact" && !capabilities.timelineArtifactWrite) {
+        throw new Error("CAPABILITY_UNAVAILABLE: artifact mutation");
+      }
+      if (targetKind === "editor.timeline" && !capabilities.timelineWrite) {
+        throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
+      }
+      if (!targetKind && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
+        throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
+      }
+    }
+  }
+
+  private async defaultTarget(
+    before: ProjectSnapshot,
+    capabilities: Awaited<ReturnType<EditorPort["getCapabilities"]>>,
+  ): Promise<EditTarget> {
+    if (capabilities.editor.timelineArtifactWrite && !capabilities.editor.timelineWrite) {
+      if (!this.adapter.getManagedArtifact) {
+        throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
+      }
+      return this.artifactDescriptor(await this.adapter.getManagedArtifact());
+    }
+    return {
+      kind: "editor.timeline",
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+    };
+  }
+
+  private async artifactTarget(input: ArtifactEditTargetInput): Promise<ArtifactEditTarget> {
+    if (!input.artifactPath.trim()) throw new Error("INVALID_ARTIFACT_TARGET: artifactPath is required");
+    if (!this.adapter.getManagedArtifact) {
+      throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
+    }
+    const managed = await this.adapter.getManagedArtifact();
+    if (managed.path !== input.artifactPath) {
+      throw new Error(`TARGET_MISMATCH: requested artifact ${input.artifactPath} is not managed by this adapter`);
+    }
+    return this.artifactDescriptor(managed);
+  }
+
+  private artifactDescriptor(artifact: { id: string; path: string }): ArtifactEditTarget {
+    return { kind: "artifact", artifactId: artifact.id, artifactPath: artifact.path };
+  }
+
+  private timelineTarget(input: EditorTimelineEditTargetInput): EditorTimelineEditTarget {
+    if (!input.projectId.trim() || !input.sequenceId.trim()) {
+      throw new Error("INVALID_TIMELINE_TARGET: projectId and sequenceId are required");
+    }
+    return { kind: "editor.timeline", projectId: input.projectId, sequenceId: input.sequenceId };
+  }
+
+  private assertTarget(target: EditTarget, snapshot: ProjectSnapshot): void {
+    if (target.kind === "editor.timeline"
+      && (target.projectId !== snapshot.projectId || target.sequenceId !== snapshot.timeline.id)) {
+      throw new Error(
+        `TARGET_MISMATCH: requested ${target.projectId}/${target.sequenceId} while ${snapshot.projectId}/${snapshot.timeline.id} is active`,
+      );
+    }
+  }
+
+  private assertSurfaceCapability(
+    target: EditTarget,
+    capabilities: Awaited<ReturnType<EditorPort["getCapabilities"]>>["editor"],
+  ): void {
+    if (target.kind === "artifact" && !capabilities.timelineArtifactWrite) {
+      throw new Error("CAPABILITY_UNAVAILABLE: artifact mutation");
+    }
+    if (target.kind === "editor.timeline" && !capabilities.timelineWrite) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
     }
   }
