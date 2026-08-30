@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply pull-request labels from the branch name and changed files."""
+"""Apply pull-request labels from the title, branch name, and changed files."""
 
 from __future__ import annotations
 
@@ -11,13 +11,61 @@ from collections.abc import Iterable
 from typing import Any
 
 
+RELEASE_CATEGORY_BY_TITLE_KIND = {
+    "feat": "Release: Features",
+    "feature": "Release: Features",
+    "fix": "Release: Fixes",
+    "bug": "Release: Fixes",
+    "revert": "Release: Fixes",
+    "refactor": "Release: Improvements",
+    "improvement": "Release: Improvements",
+    "style": "Release: Improvements",
+    "perf": "Release: Performance",
+    "docs": "Release: Documentation",
+    "doc": "Release: Documentation",
+    "test": "Release: Tests",
+    "chore": "Release: Chores",
+    "build": "Release: Chores",
+    "ci": "Release: Chores",
+    "design": "Release: Design",
+}
+
+
+def release_category_label(pull_request_title: str) -> str | None:
+    """Return a release-note label for a conventional or legacy title prefix."""
+
+    conventional_match = re.match(
+        r"^\s*(?P<kind>feat|feature|fix|bug|revert|refactor|style|perf|docs|doc|test|chore|build|ci|design)"
+        r"(?:\([^)]*\))?!?:",
+        pull_request_title,
+        re.IGNORECASE,
+    )
+    if conventional_match:
+        return RELEASE_CATEGORY_BY_TITLE_KIND[conventional_match.group("kind").lower()]
+
+    bracket_match = re.match(r"^\s*\[\s*(?P<kind>[^]]+?)\s*\]", pull_request_title)
+    if bracket_match:
+        kind = bracket_match.group("kind").strip().lower()
+        return RELEASE_CATEGORY_BY_TITLE_KIND.get(kind)
+
+    return None
+
+
 def has_suffix(filename: str, suffixes: set[str]) -> bool:
     lower_name = filename.lower()
     return any(lower_name.endswith(suffix) for suffix in suffixes)
 
 
-def labels_for_pull_request(head_ref: str, changed_files: Iterable[str]) -> set[str]:
+def labels_for_pull_request(
+    head_ref: str,
+    changed_files: Iterable[str],
+    pull_request_title: str = "",
+) -> set[str]:
     labels: set[str] = set()
+
+    release_label = release_category_label(pull_request_title)
+    if release_label:
+        labels.add(release_label)
 
     if re.match(r"^(hotfix|fix)", head_ref):
         labels.add("Problem: Bug")
@@ -94,8 +142,9 @@ def main() -> None:
     repository = os.environ["REPOSITORY"]
     pr_number = os.environ["PR_NUMBER"]
     head_ref = os.environ["HEAD_REF"]
+    pull_request_title = os.environ.get("PR_TITLE", "")
     changed_files = changed_files_for_pull_request(token, repository, pr_number)
-    labels = labels_for_pull_request(head_ref, changed_files)
+    labels = labels_for_pull_request(head_ref, changed_files, pull_request_title)
 
     if not labels:
         print("No labels matched.")
