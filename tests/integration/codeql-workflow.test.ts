@@ -75,6 +75,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
 
   assert.match(workflow, /xcodebuild/);
   assert.match(workflow, /-scheme FramekitFinalCutWorkflowExtension/);
+  assert.match(workflow, /-destination 'platform=macOS,name=Any Mac'/);
   assert.match(workflow, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
   assert.match(workflow, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
   assert.match(workflow, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
@@ -83,6 +84,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(workflow, /LD_RUNPATH_SEARCH_PATHS=/);
   assert.match(workflow, /OTHER_LDFLAGS=/);
   assert.doesNotMatch(workflow, /xcrun swiftc/);
+  assert.doesNotMatch(workflow, /-destination 'platform=macOS,arch=arm64'/);
   assert.doesNotMatch(workflow, /-emit-module/);
   assert.doesNotMatch(workflow, /ProExtensionHostShim/);
   assert.doesNotMatch(workflow, /Final Cut Pro\.app/);
