@@ -132,7 +132,9 @@ export function resolveEditingRoute(
     };
   }
 
-  if (context.connection.state !== "ready") {
+  const offlineArtifactEdit = request.operation === "timeline.edit"
+    && context.editor?.capabilities.editor.timelineArtifactWrite === true;
+  if (context.connection.state !== "ready" && !offlineArtifactEdit) {
     return {
       operation: request.operation,
       status: "unavailable",

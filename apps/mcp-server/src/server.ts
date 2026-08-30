@@ -275,16 +275,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       fallback: z.enum(["none", "external-renderer"]).optional().default("none"),
     },
   }, async ({ operation, fallback }) => {
-    const connection = await connectionStatus(options);
-    if (connection.state !== "ready") {
-      return jsonResult(resolveEditingRoute({ operation, fallback }, { connection }));
-    }
-    const editor = await inspectMcpEditor(runtime, options);
-    const context: EditorRoutingContext = {
-      connection,
-      editor,
-      ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
-    };
+    const context = await editingRouteContext(runtime, options);
     return jsonResult(resolveEditingRoute({ operation, fallback }, context));
   });
 
@@ -728,15 +719,26 @@ async function requireEditingRoute(
   options: McpServerOptions,
   operation: EditingRouteOperation,
 ): Promise<void> {
+  const route = resolveEditingRoute({ operation }, await editingRouteContext(runtime, options));
+  if (route.status !== "editor-selected") {
+    throw new Error(`${route.reason.code}: ${route.reason.message}`);
+  }
+}
+
+async function editingRouteContext(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+): Promise<EditorRoutingContext> {
   const connection = await connectionStatus(options);
-  const editor = connection.state === "ready" ? await inspectMcpEditor(runtime, options) : undefined;
-  const context: EditorRoutingContext = {
+  let editor: Awaited<ReturnType<typeof inspectMcpEditor>> | undefined;
+  try {
+    editor = await inspectMcpEditor(runtime, options);
+  } catch {
+    editor = undefined;
+  }
+  return {
     connection,
     ...(editor ? { editor } : {}),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
   };
-  const route = resolveEditingRoute({ operation }, context);
-  if (route.status !== "editor-selected") {
-    throw new Error(`${route.reason.code}: ${route.reason.message}`);
-  }
 }
