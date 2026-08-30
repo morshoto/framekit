@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime, planDurationPolicy } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 test("duration planning recommends a shorter strong edit for ten minutes of requested time and four minutes of footage", () => {
   const plan = planDurationPolicy({
@@ -92,4 +95,39 @@ test("runtime duration planning is read-only and reports the observed actual dur
 
   assert.equal(plan.durationReport.actualDurationSeconds, 120);
   assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("MCP exposes an explicit duration planning contract", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "mcp-duration-policy-project",
+    projectName: "MCP Duration Policy Fixture",
+    timelineId: "mcp-duration-policy-timeline",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "duration-policy-mcp-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    const tool = tools.tools.find((candidate) => candidate.name === "editing.duration.plan");
+    assert.ok(tool);
+    assert.deepEqual(tool.inputSchema.required, ["requestedDurationSeconds", "footage"]);
+
+    const result = await client.callTool({
+      name: "editing.duration.plan",
+      arguments: {
+        requestedDurationSeconds: 600,
+        footage: [{ id: "footage", durationSeconds: 240 }],
+      },
+    });
+    assert.equal(result.isError, undefined);
+    const content = result.content as Array<{ type?: string; text?: string }>;
+    assert.equal(JSON.parse(content[0]!.text!).selectedAction, "deliver-shorter-strong-edit");
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
