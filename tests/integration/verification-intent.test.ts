@@ -12,7 +12,7 @@ import {
 } from "../fixtures/semantic-audio.js";
 
 function createRuntime(
-  audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number },
+  audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number; analyzedDurationSeconds?: number },
   visual?: { scenes: Array<{ id: string; start: number; end: number; label?: string; confidence?: number }>; subjects: Array<{ id: string; label: string; confidence: number }>; keyframes: [] },
   mediaDuration: number | null = 10,
 ) {
@@ -160,7 +160,7 @@ test("semantic verification fails closed when a requested analyzer is unavailabl
 });
 
 test("semantic audibility does not infer success without duration evidence", async () => {
-  const runtime = createRuntime({ ...VALID_AUDIO_FIXTURE, audibleSamples: undefined }, undefined, null);
+  const runtime = createRuntime({ ...VALID_AUDIO_FIXTURE, audibleSamples: undefined, analyzedDurationSeconds: undefined }, undefined, null);
 
   const transaction = await runtime.edit(
     { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
@@ -173,6 +173,80 @@ test("semantic audibility does not infer success without duration evidence", asy
   const check = transaction.verification?.checks.find((candidate) => candidate.name === "audio-audibility");
   assert.equal(check?.status, "unavailable");
   assert.equal(check?.reason, "AUDIO_ANALYZER_UNAVAILABLE");
+});
+
+test("semantic audibility prefers analyzed duration over asset duration", async () => {
+  const runtime = createRuntime({
+    ...SILENT_AUDIO_FIXTURE,
+    audibleSamples: undefined,
+    silenceMs: 2_000,
+    analyzedDurationSeconds: 1,
+  });
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    { assertions: [{ type: "audio-audibility", mediaId: "rain" }] },
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-audibility")?.reason, "AUDIO_NOT_AUDIBLE");
+});
+
+test("semantic audibility accepts analyzed duration without asset duration", async () => {
+  const runtime = createRuntime({ ...VALID_AUDIO_FIXTURE, audibleSamples: undefined }, undefined, null);
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    { assertions: [{ type: "audio-audibility", mediaId: "rain" }] },
+  );
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-audibility")?.status, "passed");
+});
+
+test("semantic verification distinguishes missing media from missing analysis", async () => {
+  const runtime = createRuntime(VALID_AUDIO_FIXTURE);
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    { assertions: [{ type: "audio-loudness", mediaId: "missing", targetLufs: -18 }] },
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-loudness")?.reason, "MEDIA_NOT_FOUND");
+});
+
+test("runtime rejects invalid semantic assertion values before mutation", async () => {
+  const runtime = createRuntime(VALID_AUDIO_FIXTURE);
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.edit(
+      { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+      { assertions: [{ type: "audio-loudness", mediaId: "rain", targetLufs: -18, toleranceDb: Number.POSITIVE_INFINITY }] },
+    ),
+    /INVALID_VERIFICATION_POLICY/,
+  );
+  const after = await runtime.inspectProject();
+  assert.deepEqual(after.timeline, before.timeline);
+  assert.deepEqual(after.media, before.media);
+});
+
+test("edit verification uses one immutable policy snapshot", async () => {
+  const runtime = createRuntime(SILENT_AUDIO_FIXTURE);
+  const policy = { assertions: [{ type: "audio-audibility" as const, mediaId: "rain", minAudibleSamples: 1 }] };
+  const edit = runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    policy,
+  );
+  policy.assertions = [];
+
+  const transaction = await edit;
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.deepEqual(transaction.verificationPolicy, {
+    assertions: [{ type: "audio-audibility", mediaId: "rain", minAudibleSamples: 1 }],
+  });
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-audibility")?.reason, "AUDIO_NOT_AUDIBLE");
 });
 
 test("composite previews retain semantic policies through verified execution", async () => {
