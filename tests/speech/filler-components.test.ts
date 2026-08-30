@@ -139,6 +139,24 @@ test("detector records vocabulary-only and low-confidence evidence", () => {
   assert.deepEqual(candidates[0]?.reasonCodes, ["VOCABULARY_MATCH", "BELOW_CONFIDENCE_THRESHOLD"]);
 });
 
+test("detector normalizes repeated trailing punctuation", () => {
+  const candidates = new FillerDetector({ vocabulary: ["uh"] }).detect({
+    previewId: "preview-punctuation",
+    analysis: {
+      words: [{ text: "uh!!!", start: 5.4, end: 5.7, confidence: 0.99 }],
+    },
+    targetRange: { start: 10, end: 13 },
+    occurrence: {
+      occurrenceId: "occurrence-punctuation",
+      sourceRange: { start: 5, end: 8 },
+      sequenceRange: { start: 10, end: 13 },
+    },
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.evidence.vocabularyMatch, true);
+});
+
 test("fixture speech analysis preserves range-bound VAD and protected evidence", async () => {
   const input = {
     project: {} as AnalysisInput["project"],
