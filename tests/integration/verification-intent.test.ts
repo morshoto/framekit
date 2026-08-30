@@ -9,7 +9,7 @@ import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 function createRuntime(
   audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number },
   visual?: { scenes: Array<{ id: string; start: number; end: number; label?: string; confidence?: number }>; subjects: Array<{ id: string; label: string; confidence: number }>; keyframes: [] },
-  mediaDuration: number | undefined = 10,
+  mediaDuration: number | null = 10,
 ) {
   return new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "verification-project",
@@ -21,7 +21,7 @@ function createRuntime(
       mediaId: "rain",
       source: "rain.wav",
       mediaKind: "audio",
-      ...(mediaDuration === undefined ? {} : { duration: mediaDuration }),
+      ...(mediaDuration === null ? {} : { duration: mediaDuration }),
       sourceDigest: "sha256:rain",
       ...(audio ? { audio } : {}),
       ...(visual ? { visual } : {}),
@@ -167,7 +167,7 @@ test("semantic verification fails closed when a requested analyzer is unavailabl
 });
 
 test("semantic audibility does not infer success without duration evidence", async () => {
-  const runtime = createRuntime({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }, undefined, undefined);
+  const runtime = createRuntime({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }, undefined, null);
 
   const transaction = await runtime.edit(
     { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },

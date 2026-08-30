@@ -140,6 +140,18 @@ function verifyAudioAudibility(transaction: EditTransaction, assertion: AudioAud
       detail: `audio analysis is unavailable for media ${assertion.mediaId}`,
     };
   }
+  if (media.audio.audibleSamples === undefined
+    && (media.duration === undefined || !Number.isFinite(media.duration))) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "unavailable",
+      expected,
+      observed: { mediaId: assertion.mediaId, silenceMs: media.audio.silenceMs },
+      reason: "AUDIO_ANALYZER_UNAVAILABLE",
+      detail: `audio analysis for media ${assertion.mediaId} has no duration evidence`,
+    };
+  }
   const observed = {
     mediaId: assertion.mediaId,
     ...(media.audio.audibleSamples !== undefined ? { audibleSamples: media.audio.audibleSamples } : {}),
