@@ -60,13 +60,13 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /analyze-swift:/);
   assert.match(workflow, /name: Analyze \(swift\)/);
   assert.match(workflow, /runs-on: macos-15/);
-  assert.match(workflow, /timeout-minutes: 20/);
+  assert.match(workflow, /timeout-minutes: 25/);
   assert.match(workflow, /languages: swift/);
   assert.match(workflow, /build-mode: manual/);
-  assert.match(workflow, /timeout-minutes: 10/);
+  assert.match(workflow, /timeout-minutes: 15/);
   assert.match(
     workflow,
-    /\n      - name: Build Swift sources for CodeQL extraction\n        timeout-minutes: 10\n        run: \|/,
+    /\n      - name: Build Swift sources for CodeQL extraction\n        timeout-minutes: 15\n        run: \|/,
   );
 });
 
@@ -82,8 +82,8 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(swiftJob, /xcodebuild/);
   assert.match(swiftJob, /-target FramekitFinalCutWorkflowCodeQL/);
   assert.match(swiftJob, /-sdk macosx/);
-  assert.match(swiftJob, /timeout-minutes: 20/);
-  assert.match(swiftJob, /timeout-minutes: 10/);
+  assert.match(swiftJob, /timeout-minutes: 25/);
+  assert.match(swiftJob, /timeout-minutes: 15/);
   assert.match(swiftJob, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
   assert.match(swiftJob, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
   assert.match(swiftJob, /SWIFT_OBJC_INTERFACE_HEADER_NAME=/);
@@ -140,6 +140,6 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   assert.match(documentation, /dedicated static-library\s+target/);
   assert.match(documentation, /integrated Swift\s+driver/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
-  assert.match(documentation, /ten minutes/);
+  assert.match(documentation, /fifteen minutes/);
   assert.match(documentation, /standalone Swift CI/);
 });
