@@ -53,7 +53,7 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
       if (media.mediaId === "filler-media" && fillerAnalysisCalls > 1 && (fillerClip?.duration ?? 4) < 4) {
         return { words: [
           { text: "so", start: 0, end: 0.3, confidence: 0.99 },
-          { text: "yes", start: 0.4, end: 1, confidence: 0.99 },
+          { text: "yes", start: 1.1, end: 1.7, confidence: 0.99 },
         ] };
       }
       return structuredClone(media.speech!);

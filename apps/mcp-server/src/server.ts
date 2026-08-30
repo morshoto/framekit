@@ -330,6 +330,17 @@ const fillerRemovalInputSchema = {
   preservePauseMs: z.number().finite().nonnegative().optional(),
   targetPauseMs: z.number().finite().nonnegative().optional(),
 };
+const dialogueNormalizationInputSchema = {
+  mediaId: z.string().min(1),
+  occurrenceId: z.string().min(1),
+  baseRevision: revisionValueSchema,
+  targetLufs: z.number().finite(),
+  toleranceDb: z.number().finite().nonnegative(),
+  maxTruePeakDb: z.number().finite(),
+  minGainDb: z.number().finite(),
+  maxGainDb: z.number().finite(),
+  minDialogueDurationSeconds: z.number().finite().nonnegative(),
+};
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
   z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
@@ -510,6 +521,31 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Inspect one versioned Framekit Skill and its generic preview and execute tools.",
     inputSchema: { skill: skillIdSchema },
   }, async ({ skill }) => jsonResult(skillManifests.find((manifest) => manifest.id === skill)));
+
+  server.registerTool("skill.preview", {
+    description: "Preview a versioned Framekit Skill through its generic MCP contract without mutating the editor.",
+    inputSchema: {
+      skill: skillIdSchema,
+      arguments: z.record(z.unknown()),
+    },
+  }, async ({ skill, arguments: skillArguments }) => {
+    if (skill === "filler-removal") {
+      return jsonResult(await runtime.previewFillerRemoval(z.object(fillerRemovalInputSchema).parse(skillArguments)));
+    }
+    return jsonResult(await runtime.previewDialogueNormalization(
+      z.object(dialogueNormalizationInputSchema).parse(skillArguments),
+    ));
+  });
+
+  server.registerTool("skill.execute", {
+    description: "Execute one generic Framekit Skill preview token and return its verified or rolled-back transaction.",
+    inputSchema: {
+      skill: skillIdSchema,
+      previewToken: z.string().min(1),
+    },
+  }, async ({ skill, previewToken }) => jsonResult(skill === "filler-removal"
+    ? await runtime.executeFillerRemoval(previewToken)
+    : await runtime.executeDialogueNormalization(previewToken)));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
