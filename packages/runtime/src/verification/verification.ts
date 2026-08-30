@@ -146,7 +146,8 @@ function isConstructionOperation(operation: WorkflowOperation): boolean {
 }
 
 function constructionStateIsValid(transaction: EditTransaction): boolean {
-  return transaction.planned.every((operation, index) => {
+  const expectedClips = expectedConstructionClips(transaction);
+  return transaction.planned.every((operation) => {
     if (operation.type === "media.import") {
       const media = transaction.after.media.find((candidate) => candidate.mediaId === operation.mediaId);
       return media?.source === operation.source
@@ -154,35 +155,14 @@ function constructionStateIsValid(transaction: EditTransaction): boolean {
         && media.duration === operation.duration
         && media.sourceDigest === operation.sourceDigest;
     }
-    if (operation.type === "timeline.media.add") {
-      if (transaction.planned.slice(index + 1).some((later) => changesMediaOccurrence(later, operation.occurrenceId))) {
-        return true;
-      }
-      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
-      return clip?.mediaId === operation.mediaId
-        && clip.start === operation.start
-        && clip.duration === operation.duration
-        && clip.track === timelineTrack(operation.targetLane, clip.track);
-    }
-    if (operation.type === "timeline.media.move") {
-      if (transaction.planned.slice(index + 1).some((later) => changesMediaPosition(later, operation.occurrenceId))) {
-        return true;
-      }
-      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
-      return clip?.start === operation.start
-        && clip.track === timelineTrack(operation.targetLane, clip.track);
-    }
-    if (operation.type === "timeline.media.replace") {
-      if (transaction.planned.slice(index + 1).some((later) => changesMediaReplacement(later, operation.occurrenceId))) {
-        return true;
-      }
-      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
-      return clip?.mediaId === operation.mediaId
-        && (operation.duration === undefined || clip.duration === operation.duration);
-    }
-    if (operation.type === "timeline.media.remove") {
-      return !transaction.after.timeline.clips.some((clip) => clip.id === operation.occurrenceId)
-        && !transaction.after.timeline.storyElements.some((element) => element.id === operation.occurrenceId);
+    if (operation.type === "timeline.media.add"
+      || operation.type === "timeline.media.move"
+      || operation.type === "timeline.media.replace"
+      || operation.type === "timeline.media.remove"
+      || operation.type === "timeline.audio.attach") {
+      const expected = expectedClips.get(operation.occurrenceId);
+      const actual = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
+      return expected === undefined ? actual === undefined : actual !== undefined && sameConstructionClip(actual, expected);
     }
     if (operation.type === "timeline.transition.add") {
       const element = transaction.after.timeline.storyElements.find(({ id }) => id === operation.transitionId);
@@ -191,17 +171,6 @@ function constructionStateIsValid(transaction: EditTransaction): boolean {
         && element.beforeClipId === operation.beforeClipId
         && element.afterClipId === operation.afterClipId
         && element.duration === operation.duration;
-    }
-    if (operation.type === "timeline.audio.attach") {
-      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
-      const target = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.targetClipId);
-      const media = transaction.after.media.find((candidate) => candidate.mediaId === operation.mediaId);
-      const expectedStart = target && target.start + (operation.startOffset ?? 0);
-      const expectedDuration = operation.duration ?? media?.duration;
-      return clip?.mediaId === operation.mediaId
-        && clip.attachedTo === operation.targetClipId
-        && clip.start === expectedStart
-        && clip.duration === expectedDuration;
     }
     if (operation.type === "timeline.audio.mix") {
       const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.clipId);
@@ -224,19 +193,124 @@ function timelineTrack(targetLane: "primary" | number | undefined, fallback: num
   return targetLane === "primary" ? 0 : targetLane ?? fallback;
 }
 
-function changesMediaOccurrence(operation: WorkflowOperation, occurrenceId: string): boolean {
-  return (operation.type === "trim-clip" || operation.type === "rename-clip") && operation.clipId === occurrenceId
-    || operation.type === "timeline.media.move" && operation.occurrenceId === occurrenceId
-    || operation.type === "timeline.media.replace" && operation.occurrenceId === occurrenceId
-    || operation.type === "timeline.media.remove" && operation.occurrenceId === occurrenceId;
+interface ConstructionClipState {
+  mediaId?: string;
+  start: number;
+  duration: number;
+  track: number;
+  attachedTo?: string;
 }
 
-function changesMediaPosition(operation: WorkflowOperation, occurrenceId: string): boolean {
-  return operation.type === "timeline.media.move" && operation.occurrenceId === occurrenceId
-    || operation.type === "timeline.media.remove" && operation.occurrenceId === occurrenceId;
+function expectedConstructionClips(transaction: EditTransaction): Map<string, ConstructionClipState> {
+  const clips = new Map<string, ConstructionClipState>(transaction.before.timeline.clips.map((clip) => [clip.id, {
+    mediaId: clip.mediaId,
+    start: clip.start,
+    duration: clip.duration,
+    track: clip.track,
+    attachedTo: clip.attachedTo,
+  }]));
+  const media = new Map(transaction.before.media.map((item) => [item.mediaId, item]));
+
+  for (const operation of transaction.planned) {
+    if (operation.type === "media.import") {
+      media.set(operation.mediaId, operation);
+      continue;
+    }
+    if (operation.type === "timeline.media.add") {
+      clips.set(operation.occurrenceId, {
+        mediaId: operation.mediaId,
+        start: operation.start,
+        duration: operation.duration,
+        track: timelineTrack(operation.targetLane, 0),
+      });
+      continue;
+    }
+    if (operation.type === "timeline.title.add") {
+      clips.set(operation.occurrenceId, {
+        start: operation.start,
+        duration: operation.duration,
+        track: operation.targetLane,
+      });
+      continue;
+    }
+    if (operation.type === "timeline.media.move") {
+      const clip = clips.get(operation.occurrenceId);
+      if (clip) {
+        clip.start = operation.start;
+        clip.track = timelineTrack(operation.targetLane, clip.track);
+      }
+      continue;
+    }
+    if (operation.type === "timeline.media.replace") {
+      const clip = clips.get(operation.occurrenceId);
+      if (clip) {
+        clip.mediaId = operation.mediaId;
+        if (operation.duration !== undefined) clip.duration = operation.duration;
+      }
+      continue;
+    }
+    if (operation.type === "trim-clip") {
+      const clip = clips.get(operation.clipId);
+      if (clip) {
+        clip.duration = operation.durationTime
+          ? Number(operation.durationTime.value) / Number(operation.durationTime.timescale)
+          : operation.duration;
+      }
+      continue;
+    }
+    if (operation.type === "timeline.audio.attach") {
+      const target = clips.get(operation.targetClipId);
+      const source = media.get(operation.mediaId);
+      const duration = operation.duration ?? source?.duration;
+      if (target && duration !== undefined) {
+        clips.set(operation.occurrenceId, {
+          mediaId: operation.mediaId,
+          start: target.start + (operation.startOffset ?? 0),
+          duration,
+          track: -1,
+          attachedTo: operation.targetClipId,
+        });
+      }
+      continue;
+    }
+    if (operation.type === "timeline.media.remove") {
+      const removedIds = new Set([operation.occurrenceId]);
+      for (const [id, clip] of clips) {
+        if (clip.attachedTo === operation.occurrenceId) removedIds.add(id);
+      }
+      for (const id of removedIds) clips.delete(id);
+      continue;
+    }
+    if (operation.type === "ripple-delete") {
+      applyExpectedRippleDelete(clips, operation.range.start, operation.range.end);
+    }
+  }
+  return clips;
 }
 
-function changesMediaReplacement(operation: WorkflowOperation, occurrenceId: string): boolean {
-  return operation.type === "timeline.media.replace" && operation.occurrenceId === occurrenceId
-    || operation.type === "timeline.media.remove" && operation.occurrenceId === occurrenceId;
+function sameConstructionClip(actual: { mediaId?: string; start: number; duration: number; track: number; attachedTo?: string }, expected: ConstructionClipState): boolean {
+  return actual.mediaId === expected.mediaId
+    && actual.start === expected.start
+    && actual.duration === expected.duration
+    && actual.track === expected.track
+    && actual.attachedTo === expected.attachedTo;
+}
+
+function applyExpectedRippleDelete(clips: Map<string, ConstructionClipState>, start: number, end: number): void {
+  const removedDuration = end - start;
+  for (const [id, clip] of clips) {
+    const clipEnd = clip.start + clip.duration;
+    if (clipEnd <= start) continue;
+    if (clip.start >= end) {
+      clip.start -= removedDuration;
+      continue;
+    }
+    const overlap = Math.min(clipEnd, end) - Math.max(clip.start, start);
+    clip.duration -= overlap;
+    if (clip.duration <= 0) {
+      clips.delete(id);
+    } else {
+      clip.start = clip.start < start ? clip.start : start;
+    }
+  }
 }

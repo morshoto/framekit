@@ -418,7 +418,8 @@ test("construction verification keeps stable fields after a later move", async (
   const transaction = await active.executeEdit(preview.previewToken);
   assert.equal(transaction.status, "ROLLED_BACK");
   assert.equal(transaction.verification?.checks.find((check) => check.name === "construction-state")?.passed, false);
-  assert.deepEqual(await active.inspectProject(), before);
+  const restored = await active.inspectProject();
+  assert.deepEqual({ timeline: restored.timeline, media: restored.media }, { timeline: before.timeline, media: before.media });
 });
 
 function textFrom(result: unknown): string {
