@@ -1,8 +1,8 @@
 ---
 name: ♻️ Improvement
 about: Improve existing behavior, reliability, UX, tests, or documentation
-title: "[Improvement] "
-labels: ""
+title: "[perf] "
+labels: "Type: Performance"
 assignees: ""
 ---
 
