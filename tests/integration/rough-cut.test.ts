@@ -370,6 +370,57 @@ test("media move without a lane preserves the primary storyline", async () => {
   assert.equal(moved?.track, 0);
 });
 
+test("construction verification keeps stable fields after a later move", async () => {
+  const { adapter, runtime: active } = constructionRuntime();
+  const originalApplyTransaction = adapter.applyTransaction.bind(adapter);
+  adapter.applyTransaction = async (operations, expectedRevision) => {
+    await originalApplyTransaction(operations, expectedRevision);
+    const current = await adapter.read();
+    await adapter.restore({
+      ...current,
+      timeline: {
+        ...current.timeline,
+        clips: current.timeline.clips.map((clip) => clip.id === "moving-clip"
+          ? { ...clip, mediaId: "base-a-media" }
+          : clip),
+        storyElements: current.timeline.storyElements.map((element) => element.id === "moving-clip"
+          ? { ...element, mediaId: "base-a-media" }
+          : element),
+      },
+    }, current.revision);
+  };
+
+  const before = await active.inspectProject();
+  const preview = await active.previewEdit({
+    baseRevision: before.revision,
+    operations: [{
+      type: "media.import",
+      mediaId: "moving-media",
+      source: "/fixtures/moving.mov",
+      mediaKind: "video",
+      duration: 2,
+      sourceDigest: "sha256:moving",
+    }, {
+      type: "timeline.media.add",
+      occurrenceId: "moving-clip",
+      mediaId: "moving-media",
+      role: "video",
+      start: 9,
+      duration: 2,
+      targetLane: "primary",
+    }, {
+      type: "timeline.media.move",
+      occurrenceId: "moving-clip",
+      start: 10,
+    }],
+  });
+
+  const transaction = await active.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "construction-state")?.passed, false);
+  assert.deepEqual(await active.inspectProject(), before);
+});
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
