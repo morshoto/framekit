@@ -2,15 +2,26 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-export function validateReleaseContract({ packageManifest, releaseTag }) {
+const expectedRepository = "morshoto/framekit";
+const expectedRepositoryUrl = `https://github.com/${expectedRepository}.git`;
+
+export function validateReleaseContract({ packageManifest, releaseTag, githubRepository }) {
+  const failures = [];
   const expectedVersion = typeof releaseTag === "string" && releaseTag.startsWith("v")
     ? releaseTag.slice(1)
     : "";
 
   if (!expectedVersion || packageManifest?.version !== expectedVersion) {
-    throw new Error(
-      `RELEASE_CONTRACT_INVALID: package version "${packageManifest?.version ?? ""}" does not match release tag "${releaseTag ?? ""}"`,
-    );
+    failures.push(`package version "${packageManifest?.version ?? ""}" does not match release tag "${releaseTag ?? ""}"`);
+  }
+  if (githubRepository !== expectedRepository || packageManifest?.repository?.url !== expectedRepositoryUrl) {
+    failures.push(`repository "${packageManifest?.repository?.url ?? ""}" does not match "${expectedRepositoryUrl}"`);
+  }
+  if (packageManifest?.private !== false || packageManifest?.publishConfig?.access !== "public") {
+    failures.push("package must be public");
+  }
+  if (failures.length > 0) {
+    throw new Error(`RELEASE_CONTRACT_INVALID: ${failures.join("; ")}`);
   }
 }
 
@@ -19,6 +30,7 @@ async function validateCheckedOutPackage() {
   validateReleaseContract({
     packageManifest,
     releaseTag: process.env.RELEASE_TAG,
+    githubRepository: process.env.GITHUB_REPOSITORY,
   });
   process.stdout.write(`Release contract valid for ${packageManifest.name}@${packageManifest.version}\n`);
 }
