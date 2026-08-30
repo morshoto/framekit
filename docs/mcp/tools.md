@@ -1,5 +1,28 @@
 # MCP Tools
 
+## Editor-first routing
+
+For an editing request, follow this order:
+
+1. Call `connection.status` to establish whether the expected editor is
+   connected.
+2. Call `editor.inspect` to read the editor identity and advertised
+   capabilities.
+3. Call `project.inspect` to capture the active project and revision.
+4. Call `editing.route` with the intended operation. Select only a path whose
+   required capabilities are available.
+5. Resolve the request with `editing.intent.resolve` when needed, then call
+   the operation-specific `preview` and `execute` tools.
+6. Observe the result and call `edit.diff` and `edit.verify`.
+
+`editing.route` is read-only. It returns `CAPABILITY_UNAVAILABLE` when the
+connected editor cannot satisfy the requested operation. It selects an
+`external-renderer` path only when the caller explicitly passes
+`fallback: "external-renderer"`; the response includes
+`EXTERNAL_FALLBACK_SELECTED` and a structured cause. A connected editor is
+never silently bypassed, and Framekit does not execute external rendering from
+this routing tool.
+
 ## Common runtime tools
 
 | Tool | Purpose | Backend notes |
@@ -7,6 +30,8 @@
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit operation and affected range | Read-only; ambiguous requests return clarification and no operation; resolved destructive requests set `previewRequired` |
+| `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
+| `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
@@ -58,6 +83,22 @@
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
+
+## Duration planning
+
+`editing.duration.plan` is a read-only planning tool for rough-cut workflows.
+It accepts `requestedDurationSeconds`, a footage inventory with optional usable
+ranges and reusable flags, an optional `hard` or `soft` constraint, and explicit
+permissions for reuse, slow motion, or generated assets. Ambiguous duration
+requests default to a soft constraint. The response identifies the selected
+action, available unique and reusable footage, any reused source ranges, every
+alternative and tradeoff, and `durationReport` with
+`requestedDurationSeconds`, `achievableDurationSeconds`, and
+`actualDurationSeconds`.
+
+The tool never edits the timeline and never silently duplicates, stretches, or
+generates material. Call it before a rough-cut plan or `timeline.edit.preview`,
+then require confirmation for any alternative that changes source treatment.
 
 ## Live Final Cut tools
 
