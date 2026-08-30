@@ -50,7 +50,7 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
 
   assert.match(documentation, /CodeQL Swift extraction/);
   assert.match(documentation, /checked-in `ProExtensionHostShim`/);
-  assert.match(documentation, /does not invoke `build\.sh`/);
-  assert.match(documentation, /five-minute/);
+  assert.match(documentation, /does not invoke[\s\S]*`build\.sh`/);
+  assert.match(documentation, /five minutes/);
   assert.match(documentation, /standalone Swift CI/);
 });
