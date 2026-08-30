@@ -14,6 +14,8 @@ export type SafeCutReasonCode =
   | "LOW_CONFIDENCE"
   | "MISSING_VAD_EVIDENCE"
   | "INVALID_VAD_EVIDENCE"
+  | "INVALID_SILENCE_EVIDENCE"
+  | "INVALID_PROTECTED_EVIDENCE"
   | "AMBIGUOUS_MAPPING"
   | "OVERLAPPING_SPEECH"
   | "PROTECTED_SEGMENT_OVERLAP"
@@ -141,12 +143,12 @@ export class SafeCutResolver {
       request.analysis.silenceSegments ?? vadSegments.filter((segment) => segment.kind === "silence"),
     );
     if (!silenceSegments) {
-      return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_VAD_EVIDENCE"] };
+      return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_SILENCE_EVIDENCE"] };
     }
     evidence.silenceSegments = silenceSegments;
     const protectedSegments = validateSegments(request.analysis.protectedSegments ?? []);
     if (!protectedSegments) {
-      return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_VAD_EVIDENCE"] };
+      return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_PROTECTED_EVIDENCE"] };
     }
     evidence.protectedSegments = protectedSegments;
     if (overlapsAny(protectedSegments, request.candidate.sourceRange)) {
