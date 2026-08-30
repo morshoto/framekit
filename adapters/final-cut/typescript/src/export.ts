@@ -456,6 +456,9 @@ function verifySemanticAssertion(
     if (audio.audibleSamples === undefined && duration === undefined) {
       return unavailableSemanticCheck(assertion.type, expected, "audio analyzer duration evidence is unavailable");
     }
+    if (audio.audibleSamples === undefined && (assertion.minAudibleSamples ?? 1) > 1) {
+      return unavailableSemanticCheck(assertion.type, expected, "audio analyzer sample-count evidence is unavailable");
+    }
     const audible = audio.audibleSamples === undefined
       ? audio.silenceMs < duration! * 1000
       : audio.audibleSamples >= (assertion.minAudibleSamples ?? 1);
