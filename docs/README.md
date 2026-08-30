@@ -14,7 +14,9 @@ Repository-local GitHub agent playbooks are documented in
 - [Compatibility](./COMPATIBILITY.md): verified editor and toolchain support.
 - [MCP](./mcp/README.md): agent-facing protocol and tools.
 - [Rough-cut duration policy](./rough-cut/duration-policy.md): explicit duration tradeoffs and safety defaults.
-- [Tests](./tests/README.md): reproducible checks and evidence, including the [golden workflow corpus](./tests/golden-corpus.md) and [deterministic MCP evaluation](./tests/mcp-evaluation.md).
+- [Tests](./tests/README.md): reproducible checks and evidence, including the [golden workflow corpus](./tests/golden-corpus.md), [deterministic MCP evaluation](./tests/mcp-evaluation.md), and [v0.0.3 release gate](./tests/release-gate.md).
+- [Generic MCP Skills](./mcp/skills.md): versioned Skill discovery and execution.
+- [v0.0.3 release evidence](./release-notes-v0.0.3.md): verified behavior and explicit unsupported boundaries.
 - [Final Cut](./final-cut/README.md): native integration and operations.
 - [Native media insertion breakthrough](./final-cut/native-media-insertion-breakthrough.md):
   verified Browser discovery, focus recovery, modal handling, and live proof.

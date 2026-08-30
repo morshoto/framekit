@@ -33,6 +33,10 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       tools.tools.map((tool) => tool.name).sort(),
       [
         "audio.analyze",
+        "skill.execute",
+        "skill.inspect",
+        "skill.list",
+        "skill.preview",
         "connection.status",
         "context.changes",
         "context.inspect",

@@ -277,11 +277,15 @@ function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, r
 }
 
 function translateRangeAfterDeletes(range: TimeRange, deletes: TimeRange[]): TimeRange {
-  const orderedDeletes = [...deletes].sort((left, right) => left.start - right.start);
+  const orderedDeletes = orderDeletes(deletes);
   return {
     start: translateBoundaryAfterDeletes(range.start, orderedDeletes),
     end: translateBoundaryAfterDeletes(range.end, orderedDeletes),
   };
+}
+
+function orderDeletes(deletes: TimeRange[]): TimeRange[] {
+  return [...deletes].sort((left, right) => left.start - right.start);
 }
 
 function translateBoundaryAfterDeletes(boundary: number, deletes: TimeRange[]): number {
@@ -298,10 +302,11 @@ function translateBoundaryAfterDeletes(boundary: number, deletes: TimeRange[]): 
 }
 
 function translateSpeechWordAfterDeletes(word: SpeechWord, deletes: TimeRange[]): SpeechWord {
+  const orderedDeletes = orderDeletes(deletes);
   return {
     ...word,
-    start: translateBoundaryAfterDeletes(word.start, deletes),
-    end: translateBoundaryAfterDeletes(word.end, deletes),
+    start: translateBoundaryAfterDeletes(word.start, orderedDeletes),
+    end: translateBoundaryAfterDeletes(word.end, orderedDeletes),
   };
 }
 

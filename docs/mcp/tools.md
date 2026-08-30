@@ -278,3 +278,10 @@ mutates the editor. Callers must use that operation-specific native preview tool
 before an execute call; native execute tools accept only their short-lived
 preview tokens. An unrecognized or ambiguous destructive request returns
 `clarification_required` without an operation or preview tool.
+
+## Generic Skills
+
+The versioned Skill surface is `skill.list`, `skill.inspect`, `skill.preview`,
+and `skill.execute`. See [Generic MCP Skills](./skills.md) for the
+`filler-removal` and `dialogue-normalization` contracts. Skills use runtime
+capabilities and never embed Final Cut-specific commands.
