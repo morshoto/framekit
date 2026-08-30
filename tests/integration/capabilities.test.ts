@@ -206,7 +206,7 @@ test("session capabilities identify the composed backend without inheriting nati
   assert.equal(capabilities.schemaVersion, 1);
   assert.equal(capabilities.families?.connection.status.backend, "final-cut-session");
   assert.equal(capabilities.families?.canonicalDocument.read.available, true);
-  assert.equal(capabilities.families?.canonicalDocument.artifactWrite.available, false);
+  assert.equal(capabilities.families?.canonicalDocument.artifactWrite.available, true);
   assert.equal(capabilities.families?.native.selectionWrite.available, false);
 });
 

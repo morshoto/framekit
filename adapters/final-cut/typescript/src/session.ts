@@ -63,12 +63,17 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       && this.options.live?.apply
       && this.options.live.restore
     );
+    const applyProviderCapabilities = hasExplicitDocumentPair
+      ? mutation
+      : liveMutation
+        ? live
+        : snapshot;
     return withCapabilityFamilies({
       editor: {
         projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
         timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead || liveSnapshot),
         timelineWrite: Boolean((hasExplicitDocumentPair && mutation?.editor.timelineWrite) || liveMutation),
-        timelineArtifactWrite: Boolean(hasExplicitDocumentPair && mutation?.editor.timelineArtifactWrite),
+        timelineArtifactWrite: Boolean(applyProviderCapabilities?.editor.timelineArtifactWrite),
         readAfterWrite: Boolean(
           (hasExplicitDocumentPair && snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite)
           || (liveMutation && live?.editor.readAfterWrite)
