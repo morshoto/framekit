@@ -28,6 +28,14 @@ export class DefaultVerificationEngine implements VerificationEngine {
       },
     ];
 
+    if (transaction.planned.some(isConstructionOperation)) {
+      checks.push({
+        name: "construction-state",
+        passed: constructionStateIsValid(transaction),
+        detail: constructionStateDetail(transaction),
+      });
+    }
+
     if (policy.requireExpectedChange !== false) {
       checks.push({
         name: "expected-change",
@@ -124,4 +132,111 @@ function audioStateDetail(transaction: EditTransaction): string {
   return audioStateIsValid(transaction)
     ? "music placement, duration, gain, and fades match the planned audio state"
     : "music placement, duration, gain, or fades do not match the planned audio state";
+}
+
+function isConstructionOperation(operation: WorkflowOperation): boolean {
+  return operation.type === "media.import"
+    || operation.type === "timeline.media.add"
+    || operation.type === "timeline.media.move"
+    || operation.type === "timeline.media.replace"
+    || operation.type === "timeline.media.remove"
+    || operation.type === "timeline.transition.add"
+    || operation.type === "timeline.audio.attach"
+    || operation.type === "timeline.audio.mix";
+}
+
+function constructionStateIsValid(transaction: EditTransaction): boolean {
+  return transaction.planned.every((operation, index) => {
+    if (operation.type === "media.import") {
+      const media = transaction.after.media.find((candidate) => candidate.mediaId === operation.mediaId);
+      return media?.source === operation.source
+        && media.mediaKind === operation.mediaKind
+        && media.duration === operation.duration
+        && media.sourceDigest === operation.sourceDigest;
+    }
+    if (operation.type === "timeline.media.add") {
+      if (transaction.planned.slice(index + 1).some((later) => changesMediaOccurrence(later, operation.occurrenceId))) {
+        return true;
+      }
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
+      return clip?.mediaId === operation.mediaId
+        && clip.start === operation.start
+        && clip.duration === operation.duration
+        && clip.track === timelineTrack(operation.targetLane, clip.track);
+    }
+    if (operation.type === "timeline.media.move") {
+      if (transaction.planned.slice(index + 1).some((later) => changesMediaPosition(later, operation.occurrenceId))) {
+        return true;
+      }
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
+      return clip?.start === operation.start
+        && clip.track === timelineTrack(operation.targetLane, clip.track);
+    }
+    if (operation.type === "timeline.media.replace") {
+      if (transaction.planned.slice(index + 1).some((later) => changesMediaReplacement(later, operation.occurrenceId))) {
+        return true;
+      }
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
+      return clip?.mediaId === operation.mediaId
+        && (operation.duration === undefined || clip.duration === operation.duration);
+    }
+    if (operation.type === "timeline.media.remove") {
+      return !transaction.after.timeline.clips.some((clip) => clip.id === operation.occurrenceId)
+        && !transaction.after.timeline.storyElements.some((element) => element.id === operation.occurrenceId);
+    }
+    if (operation.type === "timeline.transition.add") {
+      const element = transaction.after.timeline.storyElements.find(({ id }) => id === operation.transitionId);
+      return element?.kind === "transition"
+        && element.assetId === operation.assetId
+        && element.beforeClipId === operation.beforeClipId
+        && element.afterClipId === operation.afterClipId
+        && element.duration === operation.duration;
+    }
+    if (operation.type === "timeline.audio.attach") {
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.occurrenceId);
+      const target = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.targetClipId);
+      const media = transaction.after.media.find((candidate) => candidate.mediaId === operation.mediaId);
+      const expectedStart = target && target.start + (operation.startOffset ?? 0);
+      const expectedDuration = operation.duration ?? media?.duration;
+      return clip?.mediaId === operation.mediaId
+        && clip.attachedTo === operation.targetClipId
+        && clip.start === expectedStart
+        && clip.duration === expectedDuration;
+    }
+    if (operation.type === "timeline.audio.mix") {
+      const clip = transaction.after.timeline.clips.find((candidate) => candidate.id === operation.clipId);
+      return clip !== undefined
+        && (operation.gainDb === undefined || clip.gainDb === operation.gainDb)
+        && (operation.fadeIn === undefined || clip.fadeIn === operation.fadeIn)
+        && (operation.fadeOut === undefined || clip.fadeOut === operation.fadeOut);
+    }
+    return true;
+  });
+}
+
+function constructionStateDetail(transaction: EditTransaction): string {
+  return constructionStateIsValid(transaction)
+    ? "imported media and timeline construction operations match the requested state"
+    : "imported media or timeline construction operations do not match the requested state";
+}
+
+function timelineTrack(targetLane: "primary" | number | undefined, fallback: number): number {
+  return targetLane === "primary" ? 0 : targetLane ?? fallback;
+}
+
+function changesMediaOccurrence(operation: WorkflowOperation, occurrenceId: string): boolean {
+  return (operation.type === "trim-clip" || operation.type === "rename-clip") && operation.clipId === occurrenceId
+    || operation.type === "timeline.media.move" && operation.occurrenceId === occurrenceId
+    || operation.type === "timeline.media.replace" && operation.occurrenceId === occurrenceId
+    || operation.type === "timeline.media.remove" && operation.occurrenceId === occurrenceId;
+}
+
+function changesMediaPosition(operation: WorkflowOperation, occurrenceId: string): boolean {
+  return operation.type === "timeline.media.move" && operation.occurrenceId === occurrenceId
+    || operation.type === "timeline.media.remove" && operation.occurrenceId === occurrenceId;
+}
+
+function changesMediaReplacement(operation: WorkflowOperation, occurrenceId: string): boolean {
+  return operation.type === "timeline.media.replace" && operation.occurrenceId === occurrenceId
+    || operation.type === "timeline.media.remove" && operation.occurrenceId === occurrenceId;
 }
