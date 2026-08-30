@@ -34,3 +34,19 @@ test("CodeQL concurrency policy is documented for operators", async () => {
   assert.match(documentation, /one.*running.*one.*pending/i);
   assert.match(documentation, /code-scanning analyses API/i);
 });
+
+test("CodeQL verification documentation records operational metadata", async () => {
+  const documentation = await readRepositoryFile("docs/ci/codeql.md");
+
+  for (const expected of [
+    /^Status:\s+.+$/im,
+    /^Last verified:\s+\d{4}-\d{2}-\d{2}/im,
+    /^Environment:\s+.+$/im,
+    /^Scope:\s+.+$/im,
+    /^Expected result:\s+.+$/im,
+    /^Actual evidence:\s+.+$/im,
+    /^Limitations:\s+.+$/im,
+  ]) {
+    assert.match(documentation, expected);
+  }
+});
