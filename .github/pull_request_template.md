@@ -1,6 +1,6 @@
 <!-- Title naming policy -->
-<!-- Release categories are derived from the title prefix. -->
-<!-- `feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `test:`, `design:`, `chore:` -->
+<!-- Use a concise conventional prefix when useful: `feat:`, `fix:`, `perf:`,
+     `refactor:`, `docs:`, `test:`, `design:`, or `chore:`. -->
 
 - [ ] Request PR review
 - [ ] If you are unable to review, please set it as a [PR draft](https://github.blog/2019-02-14-introducing-draft-pull-requests/) draft.

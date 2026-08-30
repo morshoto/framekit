@@ -17,17 +17,16 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v6
-            - name: Test label rules
-              run: python3 .github/scripts/test_assign_labels.py
-            - name: Apply labels from branch and changed files
-              shell: bash
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HEAD_REF: ${{ github.event.pull_request.head.ref }}
-                  PR_TITLE: ${{ github.event.pull_request.title }}
-              run: python3 .github/scripts/assign_labels.py
+            - name: Apply labels from branch
+              uses: actions/labeler@v6
+              with:
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+                  configuration-path: .github/labels/labeling-branch.yaml
+            - name: Apply labels from changed files
+              uses: actions/labeler@v6
+              with:
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+                  configuration-path: .github/labels/labeling-files.yaml
 
     sync-labels:
         permissions:
