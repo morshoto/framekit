@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { EditorIdentity, RuntimeCapabilities } from "@framekit/runtime";
+import { withCapabilityFamilies } from "@framekit/runtime";
 import { createFinalCutLiveAdapter, DEFAULT_FINAL_CUT_LIVE_SOCKET } from "./live.js";
 
 const execFile = promisify(execFileCallback);
@@ -269,7 +270,10 @@ export class FinalCutConnectionManager {
       editorDetected: true,
       extensionInstalled: true,
       identity: result.identity,
-      capabilities: result.capabilities,
+      capabilities: withCapabilityFamilies(result.capabilities, {
+        backend: result.identity.backend,
+        connectionBackend: result.identity.backend,
+      }),
       lastError: undefined,
     });
     return this.getStatus();

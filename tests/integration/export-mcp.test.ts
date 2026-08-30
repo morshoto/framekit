@@ -34,7 +34,16 @@ test("MCP exposes verified video export and its capability", async () => {
       await writeFile(stagingPathFromScript(script), "fixture video");
       return "started";
     },
-    probe: async () => ({ durationSeconds: 12, width: 1920, height: 1080, frameRate: 30, hasAudio: true }),
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000, analyzedDurationSeconds: 12 },
+      },
+    }),
     sleep: async () => undefined,
   });
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
@@ -64,12 +73,26 @@ test("MCP exposes verified video export and its capability", async () => {
       arguments: {
         outputPath,
         preset: "master",
-        expected: { durationSeconds: 12, width: 1920, height: 1080, frameRate: 30, hasAudio: true },
+        expected: {
+          durationSeconds: 12,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: true,
+          assertions: [
+            { type: "audio-audibility", minAudibleSamples: 1 },
+            { type: "audio-loudness", targetLufs: -18 },
+          ],
+        },
       },
     })));
     assert.equal(result.verified, true);
     assert.equal(result.metadata.outputPath, outputPath);
     assert.equal(result.metadata.hasAudio, true);
+    assert.deepEqual(result.verification.checks.map((check: { name: string }) => check.name), [
+      "audio-audibility",
+      "audio-loudness",
+    ]);
   } finally {
     await client.close();
     await server.close();

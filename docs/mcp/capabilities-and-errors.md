@@ -30,6 +30,53 @@ reports why it was selected but does not invoke an external rendering pipeline.
 Capabilities are machine-readable and backend-specific. A live-only Workflow
 Extension reports:
 
+## Versioned operation-level capabilities
+
+`connection.status` and `editor.inspect` expose `capabilities.schemaVersion: 1`
+and `capabilities.families`. The legacy `editor` and `analyzers` boolean
+namespaces remain in the payload for compatibility. New clients should inspect
+the descriptor for the exact operation they intend to use:
+
+```json
+{
+  "available": false,
+  "backend": "workflow-extension-ipc",
+  "guarantee": "none",
+  "unavailableReason": "canonical timeline writes are unavailable"
+}
+```
+
+The descriptor means:
+
+- `available`: the operation is safe to attempt under the current backend
+  configuration.
+- `backend`: the provider responsible for that operation; it may differ from
+  the editor backend when a session composes FCPXML, Accessibility, publishing,
+  export, or analyzer providers.
+- `guarantee`: the strongest available proof (`observed`, `artifact-write`,
+  `canonical-read`, `canonical-write`, `native-verified`, or `verified`).
+- `unavailableReason`: a stable explanation required for unavailable
+  operations; unavailable operations must fail with `CAPABILITY_UNAVAILABLE`.
+
+The families are:
+
+| Family | Operation examples | Meaning |
+| --- | --- | --- |
+| `connection` | `status` | Bridge connection availability only |
+| `observation` | `timeline`, `media` | Live metadata or canonical observation |
+| `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
+| `native` | `selectionWrite`, `projectCreation`, `clipInsertion`, `clipMovement`, `titlePlacement` | Individual Final Cut Accessibility operations |
+| `publishing` | `projectCreation` | Importing a verified artifact as a new project |
+| `export` | `timeline` | Verified local video export |
+| `analyzers` | `speechTranscribe`, `speechVad`, `audioLoudness`, `visualTrack` | Configured analysis providers |
+
+Native operations are reported individually. An unsupported operation such as
+project creation, clip insertion, or clip movement remains present with
+`available: false` and an `unavailableReason`; a supported title placement or
+media insertion operation does not imply that any other native operation is
+available. `ready` is only a connection state and never implies arbitrary
+editability.
+
 ```json
 {
   "editor": {
@@ -51,7 +98,8 @@ Extension reports:
     "speechTranscribe": false,
     "speechVad": false,
     "audioLoudness": false,
-    "visualTrack": false
+    "visualTrack": false,
+    "metadataDescribe": false
   }
 }
 ```
@@ -70,7 +118,10 @@ reports `timelineSnapshotRead`, `timelineArtifactWrite`, `readAfterWrite`, and
 `rollback` as true. `timelineWrite` remains false because edits update the
 managed FCPXML artifact rather than the open Final Cut timeline. Analyzer flags
 are true only for configured local analyzer commands, and `assetDiscovery` is
-true when the Motion-template registry is available.
+true when the Motion-template registry is available. `metadataDescribe` is
+true only when a metadata provider is configured. Combined media understanding
+reports each missing or failed analyzer as an unavailable status and leaves
+that modality out of the semantic description.
 
 `frameCapture` is true only when the selected editor backend has an actual
 frame-image provider. `timeline.frame.capture` never fabricates an image: it
@@ -110,7 +161,9 @@ with a fixed music gain.
 The `connection.status` MCP tool is available while the live bridge is being
 installed or activated. It returns a state such as `launching`,
 `waiting-for-socket`, `ready`, `needs-user-action`, or `unavailable`, together
-with the detected editor, extension path, socket path, and last error.
+with the detected editor, extension path, socket path, last error, and—when a
+bridge is ready—the versioned capability payload. A `ready` state only means
+that the bridge answered; inspect each operation family before editing.
 
 The MCP process remains available while setup is in progress. Live editor tools
 remain fail-closed until the status becomes `ready`; the server never silently
@@ -146,6 +199,12 @@ capabilities:
 They are disabled unless `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`. Native edits
 operate on the active Final Cut selection/playhead and do not claim a complete
 timeline snapshot or canonical diff.
+
+The operation-level `capabilities.families.native` descriptors are the
+machine-readable form of this surface. They include every supported native
+operation plus explicit entries for unsupported project creation, clip
+insertion, and clip movement. The legacy `native` object above remains for
+compatibility.
 
 `bladeAtPlayhead` splits the current uniquely identified occurrence but does not
 shorten the sequence. `deleteRange` ripple-deletes an explicit rational range

@@ -12,6 +12,118 @@ export interface SpeechWord {
   filler?: boolean;
 }
 
+export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "visual";
+
+export interface SemanticTag {
+  value: string;
+  confidence: number;
+}
+
+export interface MetadataAnalysis {
+  subjects?: SemanticTag[];
+  scenes?: SemanticTag[];
+  environments?: SemanticTag[];
+  timeOfDay?: SemanticTag[];
+  moods?: SemanticTag[];
+  usableRanges?: TimeRange[];
+  confidence?: number;
+}
+
+export interface AnalyzerDescriptor {
+  id: string;
+  provider: string;
+  version?: string;
+}
+
+export interface MediaSourceIdentity {
+  mediaId: string;
+  source: string;
+  sourceDigest?: string;
+  mediaKind?: "video" | "audio";
+  duration?: number;
+}
+
+export function sameMediaSourceIdentity(left: MediaSourceIdentity, right: MediaSourceIdentity): boolean {
+  return left.mediaId === right.mediaId
+    && left.source === right.source
+    && left.sourceDigest === right.sourceDigest
+    && left.mediaKind === right.mediaKind
+    && left.duration === right.duration;
+}
+
+export interface AnalysisProvenance {
+  analyzer: AnalyzerDescriptor;
+  source: MediaSourceIdentity;
+  ranges: TimeRange[];
+}
+
+export interface MediaAnalysisStatus {
+  capability: MediaAnalysisCapability;
+  status: "analyzed" | "available" | "unavailable";
+  provenance?: AnalysisProvenance;
+  reason?: string;
+}
+
+export interface MediaSemanticDescription {
+  subjects: SemanticTag[];
+  scenes: SemanticTag[];
+  environments: SemanticTag[];
+  timeOfDay: SemanticTag[];
+  moods: SemanticTag[];
+  motion?: VisualMotion;
+  usableRanges: TimeRange[];
+  transcript?: string;
+  audio?: {
+    present: boolean;
+    integratedLufs?: number;
+    truePeakDb?: number;
+    silenceMs?: number;
+  };
+}
+
+export interface MediaIndexEntry {
+  sourceIdentity: MediaSourceIdentity;
+  semantic: MediaSemanticDescription;
+  analysis: MediaAnalysisStatus[];
+  analysisRevision?: string;
+}
+
+export interface MediaIndexQuery {
+  query?: string;
+  subject?: string;
+  scene?: string;
+  environment?: string;
+  timeOfDay?: string;
+  mood?: string;
+  motion?: VisualMotion["label"];
+  range?: TimeRange;
+  capabilities?: MediaAnalysisCapability[];
+}
+
+export interface RoughCutPlanRequest extends MediaIndexQuery {
+  maxShots?: number;
+}
+
+export interface RoughCutShot {
+  order: number;
+  sourceIdentity: MediaSourceIdentity;
+  range: TimeRange;
+  confidence: number;
+  matchedProperties: string[];
+  rationale: string;
+}
+
+export interface RoughCutPlan {
+  planner: {
+    id: string;
+    version: number;
+  };
+  revision: ContextRevision;
+  query: RoughCutPlanRequest;
+  shots: RoughCutShot[];
+  warnings: string[];
+}
+
 export interface SpeechAnalysis {
   words: SpeechWord[];
 }
@@ -20,6 +132,8 @@ export interface AudioAnalysis {
   integratedLufs: number;
   truePeakDb: number;
   silenceMs: number;
+  audibleSamples?: number;
+  analyzedDurationSeconds?: number;
 }
 
 export interface VisualScene {
@@ -86,6 +200,9 @@ export interface MediaContext {
   mediaKind?: "video" | "audio";
   duration?: number;
   sourceDigest?: string;
+  metadata?: MetadataAnalysis;
+  analysis?: MediaAnalysisStatus[];
+  semantic?: MediaSemanticDescription;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
   visual?: VisualAnalysis;
@@ -96,9 +213,13 @@ export interface MediaContext {
 export interface MediaUnderstanding {
   mediaId: string;
   source: string;
+  sourceIdentity: MediaSourceIdentity;
+  metadata?: MetadataAnalysis;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
   visual?: VisualAnalysis;
+  semantic: MediaSemanticDescription;
+  analysis: MediaAnalysisStatus[];
   analysisRevision: ContextRevision;
 }
 
@@ -109,12 +230,20 @@ export interface AnalysisInput {
 
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
+  readonly descriptor?: AnalyzerDescriptor;
 }
 
 export interface AudioAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis>;
+  readonly descriptor?: AnalyzerDescriptor;
 }
 
 export interface VisualAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<VisualAnalysis>;
+  readonly descriptor?: AnalyzerDescriptor;
+}
+
+export interface MetadataAnalyzer {
+  analyze(input: AnalysisInput, range?: TimeRange): Promise<MetadataAnalysis>;
+  readonly descriptor?: AnalyzerDescriptor;
 }

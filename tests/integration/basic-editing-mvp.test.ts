@@ -51,4 +51,10 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
   assert.match(contract, /rollback/i);
   assert.match(contract, /ordered operation list/i);
   assert.match(contract, /targetLane/);
+  assert.match(contract, /verification\.assertions/);
+  assert.match(contract, /expected versus observed/i);
+  assert.match(contract, /status.*unavailable/i);
+  assert.match(contract, /audio stream.*audible/i);
+  assert.match(contract, /source identity/i);
+  assert.match(contract, /semantic export/i);
 });

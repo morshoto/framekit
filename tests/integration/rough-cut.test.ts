@@ -7,8 +7,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ProjectSnapshot } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
-import { AgentVideoRuntime, planRoughCut } from "@framekit/runtime";
-import type { RoughCutPlanRequest, WorkflowOperation } from "@framekit/runtime";
+import { AgentVideoRuntime, planRoughCutConstruction } from "@framekit/runtime";
+import type { RoughCutConstructionPlanRequest, WorkflowOperation } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function emptyProject(): ProjectSnapshot {
@@ -49,7 +49,7 @@ function emptyProject(): ProjectSnapshot {
   };
 }
 
-function request(baseRevision: ProjectSnapshot["revision"]): RoughCutPlanRequest {
+function request(baseRevision: ProjectSnapshot["revision"]): RoughCutConstructionPlanRequest {
   return {
     baseRevision,
     imports: [
@@ -90,8 +90,8 @@ function runtime() {
 
 test("rough-cut planner emits deterministic imports and sequential primary shots", () => {
   const before = emptyProject();
-  const first = planRoughCut(before, request(before.revision));
-  const second = planRoughCut(before, request(before.revision));
+  const first = planRoughCutConstruction(before, request(before.revision));
+  const second = planRoughCutConstruction(before, request(before.revision));
 
   assert.deepEqual(first, second);
   assert.deepEqual(first.operations, [
@@ -139,7 +139,7 @@ test("runtime rough-cut planning is read-only and binds the base revision", asyn
   const active = runtime();
   const before = await active.inspectProject();
 
-  const plan = await active.planRoughCut(request(before.revision));
+  const plan = await active.planRoughCutConstruction(request(before.revision));
 
   assert.equal(plan.baseRevision.id, before.revision.id);
   assert.deepEqual(await active.inspectProject(), before);
@@ -148,12 +148,12 @@ test("runtime rough-cut planning is read-only and binds the base revision", asyn
 test("rough-cut planner rejects missing, non-video, and overlong shots", () => {
   const before = emptyProject();
 
-  assert.throws(() => planRoughCut(before, {
+  assert.throws(() => planRoughCutConstruction(before, {
     baseRevision: before.revision,
     shots: [{ occurrenceId: "missing", mediaId: "not-found" }],
   }), /MEDIA_NOT_FOUND/);
 
-  assert.throws(() => planRoughCut(before, {
+  assert.throws(() => planRoughCutConstruction(before, {
     baseRevision: before.revision,
     imports: [{
       type: "media.import",
@@ -166,7 +166,7 @@ test("rough-cut planner rejects missing, non-video, and overlong shots", () => {
     shots: [{ occurrenceId: "audio-shot", mediaId: "audio-only" }],
   }), /ROUGH_CUT_VIDEO_REQUIRED/);
 
-  assert.throws(() => planRoughCut(before, {
+  assert.throws(() => planRoughCutConstruction(before, {
     baseRevision: before.revision,
     imports: [{
       type: "media.import",
@@ -179,7 +179,7 @@ test("rough-cut planner rejects missing, non-video, and overlong shots", () => {
     shots: [{ occurrenceId: "too-long", mediaId: "short", duration: 3 }],
   }), /ROUGH_CUT_DURATION_EXCEEDS_SOURCE/);
 
-  assert.throws(() => planRoughCut(before, {
+  assert.throws(() => planRoughCutConstruction(before, {
     baseRevision: before.revision,
     imports: [{
       type: "media.import",
@@ -440,13 +440,13 @@ test("MCP exposes read-only rough-cut planning and a guarded preview", async () 
   try {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     const tools = await client.listTools();
-    assert.ok(tools.tools.some((tool) => tool.name === "rough-cut.plan"));
-    assert.ok(tools.tools.some((tool) => tool.name === "rough-cut.preview"));
+    assert.ok(tools.tools.some((tool) => tool.name === "rough-cut.construction.plan"));
+    assert.ok(tools.tools.some((tool) => tool.name === "rough-cut.construction.preview"));
 
     const before = await active.inspectProject();
     const argumentsValue = request(before.revision);
     const planned = JSON.parse(textFrom(await client.callTool({
-      name: "rough-cut.plan",
+      name: "rough-cut.construction.plan",
       arguments: { ...argumentsValue },
     })));
     assert.equal(planned.operations.length, 4);
@@ -454,7 +454,7 @@ test("MCP exposes read-only rough-cut planning and a guarded preview", async () 
     assert.deepEqual(await active.inspectProject(), before);
 
     const preview = JSON.parse(textFrom(await client.callTool({
-      name: "rough-cut.preview",
+      name: "rough-cut.construction.preview",
       arguments: { ...argumentsValue },
     })));
     assert.match(preview.previewToken, /^preview-/);
@@ -482,7 +482,7 @@ test("rough-cut construction contract documents lifecycle and backend boundaries
   ]) {
     assert.match(contract, new RegExp("`" + operation + "`"));
   }
-  for (const stage of ["rough-cut.plan", "rough-cut.preview", "timeline.edit.execute", "edit.diff", "edit.verify", "edit.undo"]) {
+  for (const stage of ["rough-cut.construction.plan", "rough-cut.construction.preview", "timeline.edit.execute", "edit.diff", "edit.verify", "edit.undo"]) {
     assert.match(contract, new RegExp("`" + stage + "`"));
   }
   assert.match(contract, /CAPABILITY_UNAVAILABLE/);

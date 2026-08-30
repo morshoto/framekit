@@ -4,7 +4,7 @@ import type { Marker, ProjectSnapshot } from "./project.js";
 
 import type { TimelineDiff } from "./diff.js";
 
-import type { VerificationReport } from "./verification.js";
+import type { VerificationPolicy, VerificationReport } from "./verification.js";
 
 export type EditOperation =
   | {
@@ -90,6 +90,7 @@ export interface MusicAddRequest {
     dialogueClipIds?: string[];
     reductionDb?: number;
   };
+  verification?: VerificationPolicy;
 }
 
 export interface AddTitleOperation {
@@ -162,6 +163,7 @@ export type WorkflowOperation = EditOperation
 export interface CompositeEditRequest {
   baseRevision: ContextRevision;
   operations: WorkflowOperation[];
+  verification?: VerificationPolicy;
 }
 
 export interface CompositeEditPreview {
@@ -171,6 +173,7 @@ export interface CompositeEditPreview {
   expectedDiff: TimelineDiff;
   warnings: string[];
   expiresAt: string;
+  verification?: VerificationPolicy;
 }
 
 export interface EditTransaction {
@@ -184,6 +187,7 @@ export interface EditTransaction {
   after: ProjectSnapshot;
   attemptedAfter: ProjectSnapshot;
   diff: TimelineDiff;
+  verificationPolicy?: VerificationPolicy;
   verification?: VerificationReport;
   status: "APPLIED" | "VERIFIED" | "FAILED" | "ROLLED_BACK" | "ACCEPTED";
 }

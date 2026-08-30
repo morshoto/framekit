@@ -17,6 +17,7 @@ import { MediaAnalysisService } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
+import { assertValidVerificationPolicy } from "../verification/verification.js";
 
 export class EditService {
   private readonly editPreviews = new Map<string, CompositeEditPreview>();
@@ -31,6 +32,8 @@ export class EditService {
   ) {}
 
   public async edit(operation: EditOperation, policy: VerificationPolicy = {}): Promise<EditTransaction> {
+    const verificationPolicy = structuredClone(policy);
+    assertValidVerificationPolicy(verificationPolicy);
     const before = await this.project.inspectProject();
     if (operation.baseRevision && !sameRevision(operation.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: operation base revision does not match current editor state");
@@ -67,6 +70,7 @@ export class EditService {
       after: attemptedAfter,
       attemptedAfter,
       diff: diffSnapshots(before, attemptedAfter),
+      verificationPolicy,
       status: "APPLIED",
     };
     try {
@@ -78,7 +82,7 @@ export class EditService {
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
-      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+      transaction.verification = await this.verificationEngine.verify(transaction, verificationPolicy);
     } catch (verificationError) {
       try {
         await this.adapter.restore(before, attemptedAfter.revision);
@@ -101,6 +105,8 @@ export class EditService {
   }
 
   public async previewEdit(request: CompositeEditRequest): Promise<CompositeEditPreview> {
+    const verification = structuredClone(request.verification ?? {});
+    assertValidVerificationPolicy(verification);
     const before = await this.project.inspectProject();
     if (!sameRevision(request.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
@@ -119,6 +125,7 @@ export class EditService {
       expectedDiff: diffSnapshots(before, expectedAfter),
       warnings: [],
       expiresAt: new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
+      verification,
     };
     this.pruneEditPreviews();
     const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews) && this.options.maxActivePreviews! > 0
@@ -134,6 +141,8 @@ export class EditService {
   }
 
   public async executeEdit(previewToken: string, policy: VerificationPolicy = {}): Promise<EditTransaction> {
+    const requestedPolicy = structuredClone(policy);
+    assertValidVerificationPolicy(requestedPolicy);
     const preview = this.editPreviews.get(previewToken);
     if (!preview) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used preview ${previewToken}`);
     this.editPreviews.delete(previewToken);
@@ -148,6 +157,10 @@ export class EditService {
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
     }
+    const verificationPolicy = Object.keys(requestedPolicy).length > 0
+      ? { ...structuredClone(preview.verification ?? {}), ...requestedPolicy }
+      : structuredClone(preview.verification ?? {});
+    assertValidVerificationPolicy(verificationPolicy);
     try {
       await this.adapter.applyTransaction(preview.operations, before.revision);
     } catch (error) {
@@ -172,6 +185,7 @@ export class EditService {
       after: attemptedAfter,
       attemptedAfter,
       diff: diffSnapshots(before, attemptedAfter),
+      verificationPolicy,
       status: "APPLIED",
     };
     try {
@@ -183,7 +197,7 @@ export class EditService {
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
-      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+      transaction.verification = await this.verificationEngine.verify(transaction, verificationPolicy);
     } catch (verificationError) {
       try {
         await this.adapter.restore(before, attemptedAfter.revision);

@@ -72,6 +72,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.native.trim-to-duration.execute",
         "editor.native.trim-to-duration.preview",
         "editor.native.undo",
+        "media.index",
         "media.inspect",
         "media.search",
         "media.understand",
@@ -81,8 +82,9 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "project.inspect",
         "project.list",
         "project.select",
+        "rough-cut.construction.plan",
+        "rough-cut.construction.preview",
         "rough-cut.plan",
-        "rough-cut.preview",
         "speech.analyze",
         "speech.filler.remove.execute",
         "speech.filler.remove.preview",
@@ -99,7 +101,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     );
     const timelineEditTool = tools.tools.find((tool) => tool.name === "timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "range", "reason", "timelineId", "type",
+      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "range", "reason", "timelineId", "type", "verification",
     ]);
     assert.deepEqual(timelineEditTool?.inputSchema.required, ["type"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");

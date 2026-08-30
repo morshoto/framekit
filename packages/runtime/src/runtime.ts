@@ -14,14 +14,18 @@ import type {
   EditorLiveState,
   EditorPort,
   MediaContext,
+  MediaIndexEntry,
+  MediaIndexQuery,
+  RoughCutPlan as SemanticRoughCutPlan,
+  RoughCutPlanRequest as SemanticRoughCutPlanRequest,
   MediaUnderstanding,
   MusicAddRequest,
   ProjectCatalog,
   ProjectSelection,
   ProjectSnapshot,
-  RoughCutPlan,
-  RoughCutPlanRequest,
-  RoughCutPreview,
+  RoughCutConstructionPlan,
+  RoughCutConstructionPlanRequest,
+  RoughCutConstructionPreview,
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
@@ -32,7 +36,7 @@ import type {
   DurationPolicyPlan,
   DurationPolicyRequest,
 } from "./domain/index.js";
-import { planRoughCut as buildRoughCutPlan } from "./domain/rough-cut.js";
+import { planRoughCutConstruction as buildRoughCutConstructionPlan } from "./domain/rough-cut.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
 import { ContextService } from "./context/context-service.js";
@@ -79,12 +83,16 @@ export class AgentVideoRuntime {
     return this.projects.inspectTimeline();
   }
 
-  public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
-    return buildRoughCutPlan(await this.projects.inspectProject(), request);
+  public async planRoughCutConstruction(
+    request: RoughCutConstructionPlanRequest,
+  ): Promise<RoughCutConstructionPlan> {
+    return buildRoughCutConstructionPlan(await this.projects.inspectProject(), request);
   }
 
-  public async previewRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPreview> {
-    const plan = await this.planRoughCut(request);
+  public async previewRoughCutConstruction(
+    request: RoughCutConstructionPlanRequest,
+  ): Promise<RoughCutConstructionPreview> {
+    const plan = await this.planRoughCutConstruction(request);
     const preview = await this.edits.previewEdit({ baseRevision: plan.baseRevision, operations: plan.operations });
     return { ...preview, plan };
   }
@@ -179,6 +187,14 @@ export class AgentVideoRuntime {
 
   public async searchMedia(query: string): Promise<MediaContext[]> {
     return this.media.searchMedia(query);
+  }
+
+  public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
+    return this.media.indexMedia(query);
+  }
+
+  public async planRoughCut(request: SemanticRoughCutPlanRequest): Promise<SemanticRoughCutPlan> {
+    return this.media.planRoughCut(request);
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

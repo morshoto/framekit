@@ -4,7 +4,7 @@ import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineFrameCapture, VisualAnalysis } from "../domain/media.js";
-import { withCanonicalTimelineMode } from "../capabilities.js";
+import { withCapabilityFamilies } from "../capabilities.js";
 import { isWithinClip, parseRational, rationalDifferenceSeconds } from "../timeline/rational-time.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 
@@ -99,17 +99,19 @@ export class ProjectService {
   }
 
   public async inspectEditor() {
-    const capabilities = withCanonicalTimelineMode(await this.adapter.getCapabilities());
+    const identity = await this.adapter.getIdentity();
+    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(), { backend: identity.backend });
+    const analyzers = {
+      ...capabilities.analyzers,
+      speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
+      audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
+      visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
+      metadataDescribe: capabilities.analyzers.metadataDescribe || Boolean(this.options.metadataAnalyzer),
+    };
     return {
-      identity: await this.adapter.getIdentity(),
+      identity,
       capabilities: {
-        ...capabilities,
-        analyzers: {
-          ...capabilities.analyzers,
-          speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
-          audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
-          visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
-        },
+        ...withCapabilityFamilies({ ...capabilities, analyzers }, { backend: identity.backend }),
       },
     };
   }

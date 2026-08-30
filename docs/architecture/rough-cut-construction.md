@@ -8,10 +8,10 @@ verification. An adapter owns the actual editor or artifact mutation.
 ## Lifecycle
 
 1. Inspect the active project and capture its `baseRevision`.
-2. Call `rough-cut.plan` with ordered shots and optional video imports. This is
+2. Call `rough-cut.construction.plan` with ordered shots and optional video imports. This is
    read-only and emits deterministic `media.import` and primary-storyline
    `timeline.media.add` operations.
-3. Call `rough-cut.preview` to validate capabilities, simulate the ordered
+3. Call `rough-cut.construction.preview` to validate capabilities, simulate the ordered
    operations, and return a short-lived preview token plus expected diff. The
    project and revision remain unchanged.
 4. Call `timeline.edit.execute` with the token. The adapter applies the whole
@@ -61,9 +61,9 @@ canonical snapshot and atomic construction port.
 
 ## Creating and publishing projects
 
-`rough-cut.plan` and `rough-cut.preview` construct a canonical workflow for the
-selected target. They never silently replace the currently open Final Cut
-project. A verified artifact can be published as a new project through
+`rough-cut.construction.plan` and `rough-cut.construction.preview` construct a
+canonical workflow for the selected target. They never silently replace the
+currently open Final Cut project. A verified artifact can be published as a new project through
 `timeline.publish.new-project`, which requires a verified transaction and the
 configured `FinalCutProjectPublisher`. The publisher imports a temporary copy
 of the FCPXML artifact, verifies the resulting project identity when live state

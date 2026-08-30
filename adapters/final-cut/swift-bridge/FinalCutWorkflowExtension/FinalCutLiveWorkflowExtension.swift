@@ -89,9 +89,78 @@ private struct AnalyzerCapabilities: Codable {
     let visualTrack: Bool
 }
 
+private struct CapabilityDescriptor: Codable {
+    let available: Bool
+    let backend: String
+    let guarantee: String
+    let unavailableReason: String?
+}
+
+private struct ConnectionCapabilities: Codable {
+    let status: CapabilityDescriptor
+}
+
+private struct ObservationCapabilities: Codable {
+    let timeline: CapabilityDescriptor
+    let media: CapabilityDescriptor
+}
+
+private struct CanonicalDocumentCapabilities: Codable {
+    let read: CapabilityDescriptor
+    let write: CapabilityDescriptor
+    let artifactWrite: CapabilityDescriptor
+}
+
+private struct NativeCapabilities: Codable {
+    let selectionWrite: CapabilityDescriptor
+    let undo: CapabilityDescriptor
+    let mediaLibrarySearch: CapabilityDescriptor
+    let mediaImport: CapabilityDescriptor
+    let mediaSelection: CapabilityDescriptor
+    let mediaAppendSelected: CapabilityDescriptor
+    let timelineOccurrenceLocate: CapabilityDescriptor
+    let bladeAtPlayhead: CapabilityDescriptor
+    let deleteRange: CapabilityDescriptor
+    let trimToDuration: CapabilityDescriptor
+    let mediaAppend: CapabilityDescriptor
+    let mediaInsert: CapabilityDescriptor
+    let titlePlacement: CapabilityDescriptor
+    let timelineFocus: CapabilityDescriptor
+    let projectCreation: CapabilityDescriptor
+    let clipInsertion: CapabilityDescriptor
+    let clipMovement: CapabilityDescriptor
+}
+
+private struct PublishingCapabilities: Codable {
+    let projectCreation: CapabilityDescriptor
+}
+
+private struct ExportCapabilities: Codable {
+    let timeline: CapabilityDescriptor
+}
+
+private struct AnalyzerFamilyCapabilities: Codable {
+    let speechTranscribe: CapabilityDescriptor
+    let speechVad: CapabilityDescriptor
+    let audioLoudness: CapabilityDescriptor
+    let visualTrack: CapabilityDescriptor
+}
+
+private struct CapabilityFamilies: Codable {
+    let connection: ConnectionCapabilities
+    let observation: ObservationCapabilities
+    let canonicalDocument: CanonicalDocumentCapabilities
+    let native: NativeCapabilities
+    let publishing: PublishingCapabilities
+    let `export`: ExportCapabilities
+    let analyzers: AnalyzerFamilyCapabilities
+}
+
 private struct RuntimeCapabilities: Codable {
     let editor: EditorCapabilities
     let analyzers: AnalyzerCapabilities
+    let schemaVersion: Int
+    let families: CapabilityFamilies
 }
 
 private struct Identity: Codable {
@@ -118,6 +187,67 @@ private struct BridgeResponse: Codable {
     let ok: Bool
     let result: BridgeResult?
     let error: BridgeError?
+}
+
+private func availableCapability(backend: String, guarantee: String) -> CapabilityDescriptor {
+    CapabilityDescriptor(available: true, backend: backend, guarantee: guarantee, unavailableReason: nil)
+}
+
+private func unavailableCapability(backend: String, operation: String) -> CapabilityDescriptor {
+    CapabilityDescriptor(
+        available: false,
+        backend: backend,
+        guarantee: "none",
+        unavailableReason: "\(operation) is unavailable"
+    )
+}
+
+private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
+    let liveBackend = "workflow-extension-ipc"
+    let nativeBackend = "final-cut-accessibility"
+    return CapabilityFamilies(
+        connection: ConnectionCapabilities(status: availableCapability(backend: liveBackend, guarantee: "observed")),
+        observation: ObservationCapabilities(
+            timeline: availableCapability(backend: liveBackend, guarantee: "observed"),
+            media: unavailableCapability(backend: liveBackend, operation: "media observation")
+        ),
+        canonicalDocument: CanonicalDocumentCapabilities(
+            read: unavailableCapability(backend: liveBackend, operation: "canonical timeline reads"),
+            write: unavailableCapability(backend: liveBackend, operation: "canonical timeline writes"),
+            artifactWrite: unavailableCapability(backend: liveBackend, operation: "canonical artifact writes")
+        ),
+        native: NativeCapabilities(
+            selectionWrite: unavailableCapability(backend: nativeBackend, operation: "native selection write"),
+            undo: unavailableCapability(backend: nativeBackend, operation: "native undo"),
+            mediaLibrarySearch: unavailableCapability(backend: nativeBackend, operation: "native media library search"),
+            mediaImport: unavailableCapability(backend: nativeBackend, operation: "native media import"),
+            mediaSelection: unavailableCapability(backend: nativeBackend, operation: "native media selection"),
+            mediaAppendSelected: unavailableCapability(backend: nativeBackend, operation: "native selected media append"),
+            timelineOccurrenceLocate: unavailableCapability(backend: nativeBackend, operation: "native timeline occurrence locate"),
+            bladeAtPlayhead: unavailableCapability(backend: nativeBackend, operation: "native blade at playhead"),
+            deleteRange: unavailableCapability(backend: nativeBackend, operation: "native range deletion"),
+            trimToDuration: unavailableCapability(backend: nativeBackend, operation: "native duration trim"),
+            mediaAppend: unavailableCapability(backend: nativeBackend, operation: "native media append"),
+            mediaInsert: unavailableCapability(backend: nativeBackend, operation: "native media insert"),
+            titlePlacement: unavailableCapability(backend: nativeBackend, operation: "native title placement"),
+            timelineFocus: unavailableCapability(backend: nativeBackend, operation: "native timeline focus"),
+            projectCreation: unavailableCapability(backend: nativeBackend, operation: "native project creation"),
+            clipInsertion: unavailableCapability(backend: nativeBackend, operation: "native clip insertion"),
+            clipMovement: unavailableCapability(backend: nativeBackend, operation: "native clip movement")
+        ),
+        publishing: PublishingCapabilities(
+            projectCreation: unavailableCapability(backend: "fcpxml-publisher", operation: "new project publishing")
+        ),
+        export: ExportCapabilities(
+            timeline: unavailableCapability(backend: "final-cut-native-export", operation: "timeline export")
+        ),
+        analyzers: AnalyzerFamilyCapabilities(
+            speechTranscribe: unavailableCapability(backend: liveBackend, operation: "speech transcription"),
+            speechVad: unavailableCapability(backend: liveBackend, operation: "speech VAD"),
+            audioLoudness: unavailableCapability(backend: liveBackend, operation: "audio loudness analysis"),
+            visualTrack: unavailableCapability(backend: liveBackend, operation: "visual analysis")
+        )
+    )
 }
 
 private final class UnixJSONServer {
@@ -312,7 +442,9 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
             editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false),
-            analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false)
+            analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
+            schemaVersion: 1,
+            families: metadataOnlyCapabilityFamilies()
         )
         switch request.method {
         case "capabilities":

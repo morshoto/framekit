@@ -1,6 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
+import {
+  AgentVideoRuntime,
+  resolveEditingIntent,
+  withCapabilityFamilies,
+  type RuntimeCapabilities,
+  type TimelineFrameCapture,
+} from "@framekit/runtime";
 import type {
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
@@ -27,6 +33,20 @@ const rationalTimeSchema = z.object({
 const rangeSchema = z.object({
   start: z.number().nonnegative(),
   end: z.number().positive(),
+});
+const mediaIndexQuerySchema = z.object({
+  query: z.string().optional(),
+  subject: z.string().optional(),
+  scene: z.string().optional(),
+  environment: z.string().optional(),
+  timeOfDay: z.string().optional(),
+  mood: z.string().optional(),
+  motion: z.enum(["static", "low", "medium", "high"]).optional(),
+  range: rangeSchema.optional(),
+  capabilities: z.array(z.enum(["metadata", "speech", "audio", "visual"])).optional(),
+});
+const roughCutPlanSchema = mediaIndexQuerySchema.extend({
+  maxShots: z.number().int().positive().optional(),
 });
 const durationRangeSchema = z.object({
   startSeconds: z.number().finite().nonnegative(),
@@ -79,7 +99,7 @@ const roughCutShotSchema = z.object({
   mediaId: z.string().min(1),
   duration: z.number().positive().optional(),
 });
-const roughCutPlanInputSchema = {
+const roughCutConstructionPlanInputSchema = {
   baseRevision: revisionValueSchema,
   imports: z.array(roughCutImportSchema).optional(),
   shots: z.array(roughCutShotSchema).min(1),
@@ -91,6 +111,66 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const verificationAssertionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("audio-audibility"),
+    mediaId: z.string().min(1),
+    minAudibleSamples: z.number().int().positive().optional(),
+    maxSilenceMs: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-coverage"),
+    mediaId: z.string().min(1),
+    start: z.number().finite().nonnegative(),
+    duration: z.number().finite().positive(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-loudness"),
+    mediaId: z.string().min(1),
+    targetLufs: z.number().finite(),
+    toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-source"),
+    mediaId: z.string().min(1),
+    sourceDigest: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("visual-content"),
+    mediaId: z.string().min(1),
+    label: z.string().min(1),
+    labelKind: z.enum(["scene", "subject"]).optional(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("duration"),
+    target: z.literal("timeline"),
+    expectedSeconds: z.number().finite().nonnegative(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    target: z.enum(["audio", "video"]),
+    expected: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("structure"),
+    requirement: z.enum(["media-present", "occurrence-present", "operation-present"]),
+    mediaId: z.string().min(1).optional(),
+    occurrenceId: z.string().min(1).optional(),
+    operationType: z.string().min(1).optional(),
+  }),
+]);
+const verificationPolicySchema = z.object({
+  requireExpectedChange: z.boolean().optional(),
+  maxTruePeakDb: z.number().finite().optional(),
+  requireSpeechContinuity: z.boolean().optional(),
+  targetLufs: z.number().finite().optional(),
+  loudnessToleranceDb: z.number().finite().nonnegative().optional(),
+  assertions: z.array(verificationAssertionSchema).optional(),
+}).strict();
 const editToolInputSchema = z.object({
   type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
   clipId: z.string().min(1).optional(),
@@ -103,6 +183,7 @@ const editToolInputSchema = z.object({
   reason: z.string().optional(),
   marker: markerSchema.optional(),
   baseRevision: revisionSchema,
+  verification: verificationPolicySchema.optional(),
 }).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
@@ -226,6 +307,7 @@ const musicAddInputSchema = {
   fadeIn: z.number().nonnegative().optional(),
   fadeOut: z.number().nonnegative().optional(),
   ducking: musicDuckingSchema.optional(),
+  verification: verificationPolicySchema.optional(),
 };
 const fillerRemovalInputSchema = {
   baseRevision: revisionValueSchema,
@@ -251,6 +333,39 @@ const nativeTitlePreviewSchema = {
   start: rationalTimeSchema.optional(),
   duration: rationalTimeSchema,
 };
+const exportAssertionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("audio-audibility"),
+    minAudibleSamples: z.number().int().positive().optional(),
+    maxSilenceMs: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-coverage"),
+    expectedSeconds: z.number().finite().positive(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-loudness"),
+    targetLufs: z.number().finite(),
+    toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-source"),
+    sourceDigest: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("visual-content"),
+    label: z.string().min(1),
+    labelKind: z.enum(["scene", "subject"]).optional(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    target: z.enum(["audio", "video"]),
+    expected: z.boolean(),
+  }),
+]);
 const exportExpectationSchema = z.object({
   durationSeconds: z.number().positive().optional(),
   durationToleranceSeconds: z.number().nonnegative().optional(),
@@ -259,6 +374,7 @@ const exportExpectationSchema = z.object({
   frameRate: z.number().positive().optional(),
   frameRateTolerance: z.number().nonnegative().optional(),
   hasAudio: z.boolean().optional(),
+  assertions: z.array(exportAssertionSchema).optional(),
 }).optional();
 const nativeEditToolInputSchema = z.object({
   type: z.enum([
@@ -277,6 +393,33 @@ function jsonResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
   };
+}
+
+function normalizeConnectionStatus(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const status = value as Record<string, unknown>;
+  if (!isRuntimeCapabilities(status.capabilities)) return value;
+  const identity = status.identity && typeof status.identity === "object"
+    ? status.identity as { backend?: unknown }
+    : undefined;
+  const backend = typeof identity?.backend === "string" ? identity.backend : undefined;
+  return {
+    ...status,
+    capabilities: withCapabilityFamilies(status.capabilities, {
+      ...(backend ? { backend, connectionBackend: backend } : {}),
+      connection: status.state === "ready",
+    }),
+  };
+}
+
+function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const capabilities = value as Record<string, unknown>;
+  return isRecord(capabilities.editor) && isRecord(capabilities.analyzers);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function frameResult(value: TimelineFrameCapture) {
@@ -321,7 +464,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
-  }, async () => jsonResult(await connectionStatus(options)));
+  }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
@@ -657,6 +800,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { query: z.string() },
   }, async ({ query }) => jsonResult(await runtime.searchMedia(query)));
 
+  server.registerTool("media.index", {
+    description: "Query analyzed media by semantic properties, source identity, capabilities, and usable ranges.",
+    inputSchema: mediaIndexQuerySchema.shape,
+  }, async (query) => jsonResult(await runtime.indexMedia(query)));
+
   server.registerTool("visual.analyze", {
     description: "Analyze scenes, subjects, motion, and keyframes for one media item.",
     inputSchema: {
@@ -669,6 +817,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Return combined speech, audio, and visual understanding for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
   }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
+
+  server.registerTool("rough-cut.plan", {
+    description: "Create a deterministic, explainable, read-only shot plan from analyzed media; does not mutate the timeline.",
+    inputSchema: roughCutPlanSchema.shape,
+  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
 
   server.registerTool("editor.assets", {
     description: "Search editor-native transitions, effects, titles, generators, and templates.",
@@ -696,18 +849,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: editToolInputSchema,
   }, async (input) => {
     await requireEditingRoute(runtime, options, "timeline.edit");
-    return jsonResult(await runtime.edit(editOperationSchema.parse(input)));
+    return jsonResult(await runtime.edit(editOperationSchema.parse(input), input.verification ?? {}));
   });
 
-  server.registerTool("rough-cut.plan", {
-    description: "Build a deterministic ordered rough-cut plan without changing the active project.",
-    inputSchema: roughCutPlanInputSchema,
-  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
+  server.registerTool("rough-cut.construction.plan", {
+    description: "Build a deterministic ordered rough-cut construction plan without changing the active project.",
+    inputSchema: roughCutConstructionPlanInputSchema,
+  }, async (request) => jsonResult(await runtime.planRoughCutConstruction(request)));
 
-  server.registerTool("rough-cut.preview", {
+  server.registerTool("rough-cut.construction.preview", {
     description: "Preview a deterministic rough cut with capability and revision checks before execution.",
-    inputSchema: roughCutPlanInputSchema,
-  }, async (request) => jsonResult(await runtime.previewRoughCut(request)));
+    inputSchema: roughCutConstructionPlanInputSchema,
+  }, async (request) => jsonResult(await runtime.previewRoughCutConstruction(request)));
 
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
@@ -729,6 +882,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
+      verification: verificationPolicySchema.optional(),
     },
   }, async (request) => {
     await requireEditingRoute(runtime, options, "timeline.edit");
@@ -801,17 +955,48 @@ async function connectionStatus(options: McpServerOptions): Promise<McpConnectio
 
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
+  const native = options.nativeEditor?.capabilities();
+  const publishingAvailable = Boolean(options.projectPublisher && (
+    typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
+  ));
+  const exportAvailable = Boolean(options.videoExporter?.isAvailable());
   return {
     ...inspected,
-    capabilities: {
+    capabilities: withCapabilityFamilies({
       ...inspected.capabilities,
       editor: {
         ...inspected.capabilities.editor,
-        timelinePublishNewProject: Boolean(options.projectPublisher?.isAvailable()),
-        videoExport: Boolean(options.videoExporter?.isAvailable()),
+        timelinePublishNewProject: publishingAvailable,
+        videoExport: exportAvailable,
       },
-    },
-    ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+    }, {
+      backend: inspected.identity.backend,
+      nativeBackend: "final-cut-accessibility",
+      native: {
+        selectionWrite: Boolean(native?.selectionEdit),
+        undo: Boolean(native?.undo),
+        mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
+        mediaImport: Boolean(native?.mediaImport),
+        mediaSelection: Boolean(native?.mediaSelection),
+        mediaAppendSelected: Boolean(native?.mediaAppendSelected),
+        timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
+        bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
+        deleteRange: Boolean(native?.deleteRange),
+        trimToDuration: Boolean(native?.trimToDuration),
+        mediaAppend: Boolean(native?.mediaAppend),
+        mediaInsert: Boolean(native?.mediaInsert),
+        titlePlacement: Boolean(native?.titlePlacement),
+        timelineFocus: Boolean(native?.timelineFocus),
+        projectCreation: false,
+        clipInsertion: false,
+        clipMovement: false,
+      },
+      publishing: publishingAvailable,
+      publishingBackend: "fcpxml-publisher",
+      export: exportAvailable,
+      exportBackend: "final-cut-native-export",
+    }),
+    ...(native ? { native } : {}),
   };
 }
 

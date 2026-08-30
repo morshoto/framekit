@@ -3,19 +3,19 @@ import type { CompositeEditPreview, ImportMediaOperation, WorkflowOperation } fr
 import type { MediaContext } from "./media.js";
 import type { ProjectSnapshot } from "./project.js";
 
-export interface RoughCutShot {
+export interface RoughCutConstructionShot {
   occurrenceId: string;
   mediaId: string;
   duration?: number;
 }
 
-export interface RoughCutPlanRequest {
+export interface RoughCutConstructionPlanRequest {
   baseRevision: ContextRevision;
   imports?: ImportMediaOperation[];
-  shots: RoughCutShot[];
+  shots: RoughCutConstructionShot[];
 }
 
-export interface RoughCutPlan {
+export interface RoughCutConstructionPlan {
   projectId: string;
   timelineId: string;
   baseRevision: ContextRevision;
@@ -23,12 +23,15 @@ export interface RoughCutPlan {
   duration: number;
 }
 
-export interface RoughCutPreview extends CompositeEditPreview {
-  plan: RoughCutPlan;
+export interface RoughCutConstructionPreview extends CompositeEditPreview {
+  plan: RoughCutConstructionPlan;
 }
 
 /** Build a deterministic primary-storyline workflow without mutating a project. */
-export function planRoughCut(snapshot: ProjectSnapshot, request: RoughCutPlanRequest): RoughCutPlan {
+export function planRoughCutConstruction(
+  snapshot: ProjectSnapshot,
+  request: RoughCutConstructionPlanRequest,
+): RoughCutConstructionPlan {
   assertRevision(snapshot.revision, request.baseRevision);
   if (request.shots.length === 0) throw new Error("INVALID_ROUGH_CUT: at least one shot is required");
 
