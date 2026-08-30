@@ -275,3 +275,36 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /clipInsertion/);
   assert.match(documentation, /clipMovement/);
 });
+
+test("MCP connection status normalizes injected capability payloads", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Connection Capability Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    connectionStatus: () => ({
+      state: "ready",
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities: metadataOnlyCapabilities,
+    }),
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "connection-capabilities-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "connection.status", arguments: {} });
+    const payload = JSON.parse(textFrom(result));
+
+    assert.equal(payload.capabilities.schemaVersion, 1);
+    assert.equal(payload.capabilities.families.connection.status.available, true);
+    assert.equal(payload.capabilities.families.canonicalDocument.write.available, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
