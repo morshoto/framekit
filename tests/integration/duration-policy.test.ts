@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planDurationPolicy } from "@framekit/runtime";
+import { AgentVideoRuntime, planDurationPolicy } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 test("duration planning recommends a shorter strong edit for ten minutes of requested time and four minutes of footage", () => {
   const plan = planDurationPolicy({
@@ -71,4 +72,24 @@ test("duration planning never silently selects slow motion or generated assets",
   assert.deepEqual(plan.reusedRanges, []);
   assert.equal(plan.alternatives.find((alternative) => alternative.kind === "slow-motion")?.status, "requires-confirmation");
   assert.equal(plan.alternatives.find((alternative) => alternative.kind === "generated-interstitial")?.status, "requires-confirmation");
+});
+
+test("runtime duration planning is read-only and reports the observed actual duration", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "duration-policy-project",
+    projectName: "Duration Policy Fixture",
+    timelineId: "duration-policy-timeline",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-1", name: "Footage", start: 0, duration: 120, track: 1 }],
+  }));
+  const before = await runtime.inspectProject();
+
+  const plan = runtime.planDuration({
+    requestedDurationSeconds: 180,
+    actualDurationSeconds: 120,
+    footage: [{ id: "footage", durationSeconds: 120 }],
+  });
+
+  assert.equal(plan.durationReport.actualDurationSeconds, 120);
+  assert.deepEqual(await runtime.inspectProject(), before);
 });
