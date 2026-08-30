@@ -56,7 +56,7 @@ jobs:
   analyze-swift:
     name: Analyze (swift)
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -69,7 +69,7 @@ jobs:
           build-mode: manual
 
       - name: Build Swift sources for CodeQL extraction
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           xcodebuild \
             -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \

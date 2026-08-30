@@ -38,7 +38,7 @@ The build disables the
 integrated Swift driver, generated Objective-C headers, compiler caches, and
 private framework/linker paths. It does not invoke `build.sh` or link the
 private host framework.
-The CodeQL job and extraction step are limited to twenty and ten minutes.
+The CodeQL job and extraction step are limited to twenty-five and fifteen minutes.
 The standalone Swift CI workflow remains the native gate for Xcode project
 validation and type-checking.
 
