@@ -85,6 +85,7 @@ jobs:
             FRAMEWORK_SEARCH_PATHS= \
             LD_RUNPATH_SEARCH_PATHS= \
             OTHER_LDFLAGS= \
+            ARCHS="$(uname -m)" \
             build
 
       - name: Analyze with CodeQL
