@@ -76,7 +76,6 @@ jobs:
             -scheme FramekitFinalCutWorkflowExtension \
             -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/framekit-codeql-derived" \
-            -destination 'platform=macOS,arch=arm64' \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             COMPILATION_CACHE_ENABLE_CACHING=NO \
@@ -86,7 +85,6 @@ jobs:
             FRAMEWORK_SEARCH_PATHS= \
             LD_RUNPATH_SEARCH_PATHS= \
             OTHER_LDFLAGS= \
-            ARCHS=arm64 \
             build
 
       - name: Analyze with CodeQL
