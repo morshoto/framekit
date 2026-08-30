@@ -88,6 +88,17 @@ The existing `timeline.edit` path is the deterministic transaction seam. The
 preview token API is a required extension of this contract; it must not weaken
 the existing transaction, diff, or fail-closed behavior.
 
+Verification intent is carried in `verification.assertions` on direct edits,
+composite previews, and music operations. Each assertion produces a
+machine-readable check with `expected`, `observed`, and a failure `reason`.
+Supported intent includes audio audibility, audio coverage, loudness, source
+identity, visual content, duration, stream presence, and structural presence.
+An audio stream is not evidence that audio is audible: an audibility analyzer
+must report audible samples or bounded silence. A source identity assertion may
+also require the expected source digest so a valid but wrong file cannot pass.
+When a requested analyzer is missing, the check reports `status: "unavailable"`
+and the transaction fails closed; it is never treated as a pass.
+
 The MVP also requires an explicit placement contract for the media it adds:
 
 - `timeline.media.add` accepts a stable `mediaId`, `role` (`video` or `music`),
@@ -132,6 +143,15 @@ The current live MCP implementation exposes `timeline.export` with explicit
 The richer transaction-bound export manifest described above remains a tracked
 MVP contract gap.
 
+Semantic export assertions are supplied under `expected.assertions`. A
+configured semantic export analyzer may provide audio analysis, visual labels,
+and source identity alongside the mechanical probe. The export verification
+report preserves expected versus observed values for every assertion. If the
+semantic analyzer is unavailable or an assertion fails, export reports a
+machine-readable failure and replaces no existing output; the staging file is
+removed. The default `ffprobe` path remains mechanical-only and must not claim
+semantic success without configured evidence.
+
 ### 6. Verify the output
 
 Call `edit.diff` and `edit.verify` for the transaction, then validate the
@@ -141,9 +161,10 @@ export manifest and output digest. The required verification tiers are:
   references resolve; duration and ordering invariants hold.
 - Media signal: the output is readable, has the requested audio streams, has
   no true-peak violation, and satisfies any configured loudness policy.
-- Affected-range perceptual: the exported ranges render and contain the
-  requested title and audio/video content. Full-video analysis is out of scope
-  for this MVP.
+- Affected-range semantic: configured assertions prove audio audibility,
+  coverage, loudness, source identity, and requested visual content. Full-video
+  perceptual analysis without a configured analyzer is out of scope for this
+  MVP and must be reported as unavailable.
 
 `edit.undo` must restore the pre-edit snapshot for a completed transaction.
 The transaction is scoped to its original project and sequence; if another
