@@ -105,6 +105,34 @@ test("live adapters reject canonical reads when explicit targeting is unavailabl
   await assert.rejects(adapter.readProject(), /CAPABILITY_UNAVAILABLE: live Final Cut canonical snapshot targeting/);
 });
 
+test("sessions fail closed when live snapshots lack canonical target guarantees", async () => {
+  const capabilities: RuntimeCapabilities = {
+    ...canonicalReadCapabilities,
+    editor: {
+      ...canonicalReadCapabilities.editor,
+      projectCatalogRead: false,
+      projectSelection: false,
+    },
+  };
+  let readCalls = 0;
+  const live = {
+    getIdentity: async () => ({ name: "Final Cut Pro", version: "test", backend: "incomplete-live-ipc" }),
+    getCapabilities: async () => capabilities,
+    readProject: async () => {
+      readCalls += 1;
+      return structuredClone(canonicalSnapshot);
+    },
+    readLiveState: async () => {
+      throw new Error("not used");
+    },
+    liveChangesSince: async () => [],
+  };
+  const session = new FinalCutSessionAdapter({ live });
+
+  await assert.rejects(session.readProject(), /CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider/);
+  assert.equal(readCalls, 0);
+});
+
 const canonicalReadCapabilities: RuntimeCapabilities = {
   editor: {
     projectRead: true,
