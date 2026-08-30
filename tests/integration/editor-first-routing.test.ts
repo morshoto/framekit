@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
+import { FinalCutProjectPublisher } from "@framekit/final-cut";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -211,6 +212,102 @@ test("MCP routing reports unavailable editors and explicit external fallback rea
     assert.equal(fallback.status, "external-fallback-selected");
     assert.equal(fallback.reason.code, "EXTERNAL_FALLBACK_SELECTED");
     assert.equal(fallback.reason.cause.code, "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP edit handlers fail closed without a successful current route", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Routing Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    connectionStatus: () => ({
+      state: "unavailable",
+      lastError: { code: "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE", message: "socket missing" },
+    }),
+  });
+  const client = new Client({ name: "editor-first-handler-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const before = await runtime.inspectProject();
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.edit" },
+    })));
+    assert.equal(route.status, "unavailable");
+
+    const results = await Promise.all([
+      client.callTool({
+        name: "timeline.edit",
+        arguments: { type: "rename-clip", clipId: "missing", name: "Should not run" },
+      }),
+      client.callTool({
+        name: "timeline.edit.preview",
+        arguments: {
+          baseRevision: before.revision,
+          operations: [{ type: "rename-clip", clipId: "missing", name: "Should not run" }],
+        },
+      }),
+      client.callTool({
+        name: "timeline.edit.execute",
+        arguments: { previewToken: "preview-unavailable" },
+      }),
+    ]);
+
+    for (const result of results) {
+      assert.equal(result.isError, true);
+      assert.match(textFrom(result), /EDITOR_UNAVAILABLE/);
+    }
+    assert.deepEqual(await runtime.inspectProject(), before);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP does not advertise or invoke disabled project publishing", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Routing Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: false,
+      sourcePath: "/tmp/disabled-project.fcpxml",
+    }),
+  });
+  const client = new Client({ name: "publisher-capability-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.timelinePublishNewProject, false);
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.publish.new-project" },
+    })));
+    assert.equal(route.status, "unavailable");
+    assert.equal(route.reason.code, "CAPABILITY_UNAVAILABLE");
+
+    const publish = await client.callTool({
+      name: "timeline.publish.new-project",
+      arguments: { transactionId: "missing-transaction" },
+    });
+    assert.equal(publish.isError, true);
+    assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
   } finally {
     await client.close();
     await server.close();
