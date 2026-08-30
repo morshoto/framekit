@@ -7,7 +7,33 @@ export interface AudioAudibilityAssertion {
   maxSilenceMs?: number;
 }
 
-export type VerificationAssertion = AudioAudibilityAssertion;
+export interface AudioCoverageAssertion {
+  type: "audio-coverage";
+  mediaId: string;
+  start: number;
+  duration: number;
+  toleranceSeconds?: number;
+}
+
+export interface AudioLoudnessAssertion {
+  type: "audio-loudness";
+  mediaId: string;
+  targetLufs: number;
+  toleranceDb?: number;
+}
+
+export interface AudioSourceAssertion {
+  type: "audio-source";
+  mediaId: string;
+  sourceDigest?: string;
+  source?: string;
+}
+
+export type VerificationAssertion =
+  | AudioAudibilityAssertion
+  | AudioCoverageAssertion
+  | AudioLoudnessAssertion
+  | AudioSourceAssertion;
 
 export interface VerificationPolicy {
   requireExpectedChange?: boolean;

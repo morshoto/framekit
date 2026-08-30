@@ -1,10 +1,14 @@
 import type { EditTransaction, WorkflowOperation } from "../domain/editing.js";
 import type {
   AudioAudibilityAssertion,
+  AudioCoverageAssertion,
+  AudioLoudnessAssertion,
+  AudioSourceAssertion,
   VerificationCheck,
   VerificationEngine,
   VerificationPolicy,
   VerificationReport,
+  VerificationAssertion,
 } from "../domain/verification.js";
 
 export class DefaultVerificationEngine implements VerificationEngine {
@@ -92,7 +96,14 @@ export class DefaultVerificationEngine implements VerificationEngine {
   }
 }
 
-function verifyAssertion(transaction: EditTransaction, assertion: AudioAudibilityAssertion): VerificationCheck {
+function verifyAssertion(transaction: EditTransaction, assertion: VerificationAssertion): VerificationCheck {
+  if (assertion.type === "audio-coverage") return verifyAudioCoverage(transaction, assertion);
+  if (assertion.type === "audio-loudness") return verifyAudioLoudness(transaction, assertion);
+  if (assertion.type === "audio-source") return verifyAudioSource(transaction, assertion);
+  return verifyAudioAudibility(transaction, assertion);
+}
+
+function verifyAudioAudibility(transaction: EditTransaction, assertion: AudioAudibilityAssertion): VerificationCheck {
   const expected = {
     mediaId: assertion.mediaId,
     minAudibleSamples: assertion.minAudibleSamples ?? 1,
@@ -144,6 +155,128 @@ function verifyAssertion(transaction: EditTransaction, assertion: AudioAudibilit
       : audible
         ? `expected silence at or below ${assertion.maxSilenceMs}ms, observed ${media.audio.silenceMs}ms`
         : "expected audible audio samples, observed none",
+  };
+}
+
+function verifyAudioCoverage(transaction: EditTransaction, assertion: AudioCoverageAssertion): VerificationCheck {
+  const toleranceSeconds = assertion.toleranceSeconds ?? 0;
+  const expected = {
+    mediaId: assertion.mediaId,
+    start: assertion.start,
+    duration: assertion.duration,
+    toleranceSeconds,
+  };
+  const intervals = transaction.attemptedAfter.timeline.clips
+    .filter((clip) => clip.mediaId === assertion.mediaId)
+    .map((clip) => ({
+      start: Math.max(assertion.start, clip.start),
+      end: Math.min(assertion.start + assertion.duration, clip.start + clip.duration),
+    }))
+    .filter((range) => range.end > range.start)
+    .sort((left, right) => left.start - right.start);
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const interval of intervals) {
+    const previous = ranges[ranges.length - 1];
+    if (previous && interval.start <= previous.end) previous.end = Math.max(previous.end, interval.end);
+    else ranges.push({ ...interval });
+  }
+  const observed = {
+    mediaId: assertion.mediaId,
+    ranges,
+    start: ranges[0]?.start ?? null,
+    end: ranges.at(-1)?.end ?? null,
+    duration: ranges.reduce((total, range) => total + range.end - range.start, 0),
+  };
+  const passed = ranges.length === 1
+    && observed.start !== null
+    && observed.start <= assertion.start + toleranceSeconds
+    && observed.end !== null
+    && observed.end >= assertion.start + assertion.duration - toleranceSeconds;
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(passed ? {} : { reason: "AUDIO_COVERAGE_INCOMPLETE" }),
+    detail: passed
+      ? `observed continuous audio coverage for media ${assertion.mediaId}`
+      : `expected ${assertion.duration}s of continuous audio coverage, observed ${observed.duration}s`,
+  };
+}
+
+function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudnessAssertion): VerificationCheck {
+  const toleranceDb = assertion.toleranceDb ?? 0.5;
+  const expected = {
+    mediaId: assertion.mediaId,
+    targetLufs: assertion.targetLufs,
+    toleranceDb,
+  };
+  const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
+  if (!media?.audio) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "unavailable",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "AUDIO_ANALYZER_UNAVAILABLE",
+      detail: `audio analysis is unavailable for media ${assertion.mediaId}`,
+    };
+  }
+  const observed = media.audio.integratedLufs;
+  const passed = Math.abs(observed - assertion.targetLufs) <= toleranceDb;
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(passed ? {} : { reason: "AUDIO_LOUDNESS_OUT_OF_RANGE" }),
+    detail: passed
+      ? `observed ${observed} LUFS within ${toleranceDb} dB of ${assertion.targetLufs} LUFS`
+      : `expected ${assertion.targetLufs} LUFS ±${toleranceDb} dB, observed ${observed} LUFS`,
+  };
+}
+
+function verifyAudioSource(transaction: EditTransaction, assertion: AudioSourceAssertion): VerificationCheck {
+  const expected = {
+    mediaId: assertion.mediaId,
+    ...(assertion.sourceDigest !== undefined ? { sourceDigest: assertion.sourceDigest } : {}),
+    ...(assertion.source !== undefined ? { source: assertion.source } : {}),
+  };
+  const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
+  const observed = media
+    ? {
+      mediaId: assertion.mediaId,
+      ...(media.sourceDigest !== undefined ? { sourceDigest: media.sourceDigest } : {}),
+      source: media.source,
+    }
+    : { mediaId: assertion.mediaId };
+  if (!media) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed,
+      reason: "MEDIA_NOT_FOUND",
+      detail: `expected source media ${assertion.mediaId}, but it was not observed`,
+    };
+  }
+  const passed = (assertion.sourceDigest === undefined || media.sourceDigest === assertion.sourceDigest)
+    && (assertion.source === undefined || media.source === assertion.source)
+    && (assertion.sourceDigest !== undefined || assertion.source !== undefined);
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(passed ? {} : { reason: "AUDIO_SOURCE_MISMATCH" }),
+    detail: passed
+      ? `observed the expected source identity for media ${assertion.mediaId}`
+      : `expected source identity for media ${assertion.mediaId}, but the observed identity differed`,
   };
 }
 
