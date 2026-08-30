@@ -359,6 +359,41 @@ function validateExpectation(expectation: FinalCutVideoExportExpectation | undef
     && (!Number.isFinite(expectation.frameRateTolerance) || expectation.frameRateTolerance < 0)) {
     throw new Error("INVALID_EXPORT: frameRateTolerance must be a non-negative finite number");
   }
+  for (const assertion of expectation.assertions ?? []) validateExportAssertion(assertion);
+}
+
+function validateExportAssertion(assertion: FinalCutVideoExportAssertion): void {
+  if (assertion.type === "audio-audibility") {
+    if (assertion.minAudibleSamples !== undefined
+      && (!Number.isInteger(assertion.minAudibleSamples) || assertion.minAudibleSamples <= 0)) {
+      throw new Error("INVALID_EXPORT: minAudibleSamples must be a positive integer");
+    }
+    if (assertion.maxSilenceMs !== undefined
+      && (!Number.isFinite(assertion.maxSilenceMs) || assertion.maxSilenceMs < 0)) {
+      throw new Error("INVALID_EXPORT: maxSilenceMs must be a non-negative finite number");
+    }
+  }
+  if (assertion.type === "audio-coverage"
+    && (!Number.isFinite(assertion.expectedSeconds) || assertion.expectedSeconds <= 0
+      || assertion.toleranceSeconds !== undefined
+      && (!Number.isFinite(assertion.toleranceSeconds) || assertion.toleranceSeconds < 0))) {
+    throw new Error("INVALID_EXPORT: audio coverage must use positive finite duration and non-negative tolerance");
+  }
+  if (assertion.type === "audio-loudness"
+    && (!Number.isFinite(assertion.targetLufs)
+      || assertion.toleranceDb !== undefined
+      && (!Number.isFinite(assertion.toleranceDb) || assertion.toleranceDb < 0))) {
+    throw new Error("INVALID_EXPORT: audio loudness must use finite target and non-negative tolerance");
+  }
+  if (assertion.type === "audio-source" && assertion.sourceDigest === undefined && assertion.source === undefined) {
+    throw new Error("INVALID_EXPORT: audio-source assertion requires sourceDigest or source");
+  }
+  if (assertion.type === "visual-content"
+    && (assertion.label.trim().length === 0
+      || assertion.minConfidence !== undefined
+      && (!Number.isFinite(assertion.minConfidence) || assertion.minConfidence < 0 || assertion.minConfidence > 1))) {
+    throw new Error("INVALID_EXPORT: visual content must use a label and confidence between 0 and 1");
+  }
 }
 
 function verifyMetadata(metadata: FinalCutVideoMetadata, expectation?: FinalCutVideoExportExpectation): VerificationReport {
@@ -415,9 +450,14 @@ function verifySemanticAssertion(
     };
     const audio = metadata.semantic?.audio;
     if (!audio) return unavailableSemanticCheck(assertion.type, expected, "audio analyzer output is unavailable");
-    const duration = audio.analyzedDurationSeconds ?? metadata.durationSeconds;
+    const duration = Number.isFinite(audio.analyzedDurationSeconds) && audio.analyzedDurationSeconds! > 0
+      ? audio.analyzedDurationSeconds
+      : undefined;
+    if (audio.audibleSamples === undefined && duration === undefined) {
+      return unavailableSemanticCheck(assertion.type, expected, "audio analyzer duration evidence is unavailable");
+    }
     const audible = audio.audibleSamples === undefined
-      ? audio.silenceMs < duration * 1000
+      ? audio.silenceMs < duration! * 1000
       : audio.audibleSamples >= (assertion.minAudibleSamples ?? 1);
     const silenceWithinLimit = assertion.maxSilenceMs === undefined || audio.silenceMs <= assertion.maxSilenceMs;
     const passed = audible && silenceWithinLimit;
@@ -431,7 +471,11 @@ function verifySemanticAssertion(
         silenceMs: audio.silenceMs,
       },
       ...(passed ? {} : { reason: audible ? "AUDIO_SILENCE_EXCEEDED" : "AUDIO_NOT_AUDIBLE" }),
-      detail: passed ? "observed audible audio in the exported file" : "expected audible audio samples, observed none",
+      detail: passed
+        ? "observed audible audio in the exported file"
+        : audible
+          ? `expected at most ${assertion.maxSilenceMs}ms of silence, observed ${audio.silenceMs}ms`
+          : "expected audible audio samples, observed none",
     };
   }
   if (assertion.type === "audio-coverage") {
@@ -441,7 +485,12 @@ function verifySemanticAssertion(
     };
     const audio = metadata.semantic?.audio;
     if (!audio) return unavailableSemanticCheck(assertion.type, expected, "audio analyzer output is unavailable");
-    const observed = audio.analyzedDurationSeconds ?? metadata.durationSeconds;
+    const observed = Number.isFinite(audio.analyzedDurationSeconds) && audio.analyzedDurationSeconds! > 0
+      ? audio.analyzedDurationSeconds
+      : undefined;
+    if (observed === undefined) {
+      return unavailableSemanticCheck(assertion.type, expected, "audio analyzer duration evidence is unavailable");
+    }
     const passed = observed >= assertion.expectedSeconds - (assertion.toleranceSeconds ?? 0);
     return {
       name: assertion.type,
@@ -485,6 +534,9 @@ function verifySemanticAssertion(
       ...(metadata.semantic?.sourceDigest !== undefined ? { sourceDigest: metadata.semantic.sourceDigest } : {}),
       ...(metadata.semantic?.source !== undefined ? { source: metadata.semantic.source } : {}),
     };
+    if (Object.keys(observed).length === 0) {
+      return unavailableSemanticCheck(assertion.type, expected, "exported source identity evidence is unavailable");
+    }
     const passed = (assertion.sourceDigest !== undefined && observed.sourceDigest === assertion.sourceDigest
       || assertion.source !== undefined && observed.source === assertion.source)
       && (assertion.sourceDigest === undefined || observed.sourceDigest === assertion.sourceDigest)
