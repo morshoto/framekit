@@ -4,11 +4,15 @@ import type {
   AudioCoverageAssertion,
   AudioLoudnessAssertion,
   AudioSourceAssertion,
+  DurationAssertion,
+  StreamAssertion,
+  StructureAssertion,
   VerificationCheck,
   VerificationEngine,
   VerificationPolicy,
   VerificationReport,
   VerificationAssertion,
+  VisualContentAssertion,
 } from "../domain/verification.js";
 
 export class DefaultVerificationEngine implements VerificationEngine {
@@ -100,6 +104,10 @@ function verifyAssertion(transaction: EditTransaction, assertion: VerificationAs
   if (assertion.type === "audio-coverage") return verifyAudioCoverage(transaction, assertion);
   if (assertion.type === "audio-loudness") return verifyAudioLoudness(transaction, assertion);
   if (assertion.type === "audio-source") return verifyAudioSource(transaction, assertion);
+  if (assertion.type === "visual-content") return verifyVisualContent(transaction, assertion);
+  if (assertion.type === "duration") return verifyDuration(transaction, assertion);
+  if (assertion.type === "stream") return verifyStream(transaction, assertion);
+  if (assertion.type === "structure") return verifyStructure(transaction, assertion);
   return verifyAudioAudibility(transaction, assertion);
 }
 
@@ -277,6 +285,130 @@ function verifyAudioSource(transaction: EditTransaction, assertion: AudioSourceA
     detail: passed
       ? `observed the expected source identity for media ${assertion.mediaId}`
       : `expected source identity for media ${assertion.mediaId}, but the observed identity differed`,
+  };
+}
+
+function verifyVisualContent(transaction: EditTransaction, assertion: VisualContentAssertion): VerificationCheck {
+  const labelKind = assertion.labelKind ?? "subject";
+  const expected = {
+    mediaId: assertion.mediaId,
+    label: assertion.label,
+    labelKind,
+    ...(assertion.minConfidence !== undefined ? { minConfidence: assertion.minConfidence } : {}),
+  };
+  const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
+  if (!media) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "MEDIA_NOT_FOUND",
+      detail: `expected visual media ${assertion.mediaId}, but it was not observed`,
+    };
+  }
+  if (!media.visual) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "unavailable",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "VISUAL_ANALYZER_UNAVAILABLE",
+      detail: `visual analysis is unavailable for media ${assertion.mediaId}`,
+    };
+  }
+  const candidates = labelKind === "scene"
+    ? media.visual.scenes.filter((scene) => scene.label !== undefined).map((scene) => ({
+      label: scene.label!,
+      confidence: scene.confidence ?? 0,
+    }))
+    : media.visual.subjects.map((subject) => ({ label: subject.label, confidence: subject.confidence }));
+  const matching = candidates.find((candidate) => candidate.label.toLowerCase() === assertion.label.toLowerCase());
+  const passed = matching !== undefined && matching.confidence >= (assertion.minConfidence ?? 0);
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed: { mediaId: assertion.mediaId, matches: candidates },
+    ...(passed ? {} : { reason: "VISUAL_CONTENT_NOT_FOUND" }),
+    detail: passed
+      ? `observed ${labelKind} content ${assertion.label} in media ${assertion.mediaId}`
+      : `expected ${labelKind} content ${assertion.label} in media ${assertion.mediaId}`,
+  };
+}
+
+function verifyDuration(transaction: EditTransaction, assertion: DurationAssertion): VerificationCheck {
+  const toleranceSeconds = assertion.toleranceSeconds ?? 0;
+  const expected = {
+    target: assertion.target,
+    expectedSeconds: assertion.expectedSeconds,
+    toleranceSeconds,
+  };
+  const observed = transaction.attemptedAfter.timeline.duration;
+  const passed = Math.abs(observed - assertion.expectedSeconds) <= toleranceSeconds;
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(passed ? {} : { reason: "DURATION_MISMATCH" }),
+    detail: passed
+      ? `observed timeline duration ${observed}s`
+      : `expected timeline duration ${assertion.expectedSeconds}s ±${toleranceSeconds}s, observed ${observed}s`,
+  };
+}
+
+function verifyStream(transaction: EditTransaction, assertion: StreamAssertion): VerificationCheck {
+  const observed = transaction.attemptedAfter.timeline.clips.some((clip) => {
+    const media = clip.mediaId
+      ? transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === clip.mediaId)
+      : undefined;
+    if (assertion.target === "audio") return media?.mediaKind === "audio" || media?.audio !== undefined;
+    return media?.mediaKind === "video" || media === undefined;
+  });
+  const passed = observed === assertion.expected;
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected: { target: assertion.target, expected: assertion.expected },
+    observed,
+    ...(passed ? {} : { reason: "STREAM_PRESENCE_MISMATCH" }),
+    detail: passed
+      ? `observed ${assertion.target} stream presence ${observed}`
+      : `expected ${assertion.target} stream presence ${assertion.expected}, observed ${observed}`,
+  };
+}
+
+function verifyStructure(transaction: EditTransaction, assertion: StructureAssertion): VerificationCheck {
+  const expected = {
+    requirement: assertion.requirement,
+    ...(assertion.mediaId !== undefined ? { mediaId: assertion.mediaId } : {}),
+    ...(assertion.occurrenceId !== undefined ? { occurrenceId: assertion.occurrenceId } : {}),
+    ...(assertion.operationType !== undefined ? { operationType: assertion.operationType } : {}),
+  };
+  let observed = false;
+  if (assertion.requirement === "media-present" && assertion.mediaId !== undefined) {
+    observed = transaction.attemptedAfter.media.some((media) => media.mediaId === assertion.mediaId);
+  }
+  if (assertion.requirement === "occurrence-present" && assertion.occurrenceId !== undefined) {
+    observed = transaction.attemptedAfter.timeline.clips.some((clip) => clip.id === assertion.occurrenceId);
+  }
+  if (assertion.requirement === "operation-present" && assertion.operationType !== undefined) {
+    observed = transaction.planned.some((operation) => operation.type === assertion.operationType);
+  }
+  return {
+    name: assertion.type,
+    passed: observed,
+    status: observed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(observed ? {} : { reason: "STRUCTURE_EXPECTATION_NOT_MET" }),
+    detail: observed ? "observed the expected project structure" : "expected project structure was not observed",
   };
 }
 

@@ -29,11 +29,44 @@ export interface AudioSourceAssertion {
   source?: string;
 }
 
+export interface VisualContentAssertion {
+  type: "visual-content";
+  mediaId: string;
+  label: string;
+  labelKind?: "scene" | "subject";
+  minConfidence?: number;
+}
+
+export interface DurationAssertion {
+  type: "duration";
+  target: "timeline";
+  expectedSeconds: number;
+  toleranceSeconds?: number;
+}
+
+export interface StreamAssertion {
+  type: "stream";
+  target: "audio" | "video";
+  expected: boolean;
+}
+
+export interface StructureAssertion {
+  type: "structure";
+  requirement: "media-present" | "occurrence-present" | "operation-present";
+  mediaId?: string;
+  occurrenceId?: string;
+  operationType?: string;
+}
+
 export type VerificationAssertion =
   | AudioAudibilityAssertion
   | AudioCoverageAssertion
   | AudioLoudnessAssertion
-  | AudioSourceAssertion;
+  | AudioSourceAssertion
+  | VisualContentAssertion
+  | DurationAssertion
+  | StreamAssertion
+  | StructureAssertion;
 
 export interface VerificationPolicy {
   requireExpectedChange?: boolean;
