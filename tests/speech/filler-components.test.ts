@@ -92,6 +92,31 @@ test("candidate IDs are stable within a preview and change across previews", () 
   assert.notEqual(first[0]?.id, other[0]?.id);
 });
 
+test("candidate IDs stay stable when an analysis window adds unrelated words", () => {
+  const detector = new FillerDetector({ vocabulary: ["um", "uh"], confidenceThreshold: 0.9 });
+  const occurrence = {
+    occurrenceId: "occurrence-window",
+    sourceRange: { start: 5, end: 8 },
+    sequenceRange: { start: 10, end: 13 },
+  };
+  const original = detector.detect({
+    previewId: "preview-window",
+    analysis,
+    targetRange: { start: 10, end: 13 },
+    occurrence,
+  })[0]!;
+  const expanded = detector.detect({
+    previewId: "preview-window",
+    analysis: {
+      words: [{ text: "intro", start: 4, end: 4.2, confidence: 0.99 }, ...analysis.words],
+    },
+    targetRange: { start: 10, end: 13 },
+    occurrence,
+  })[0]!;
+
+  assert.equal(expanded.id, original.id);
+});
+
 test("detector records vocabulary-only and low-confidence evidence", () => {
   const detector = new FillerDetector({ vocabulary: ["uh"], confidenceThreshold: 0.9 });
   const candidates = detector.detect({
@@ -275,6 +300,26 @@ test("resolver distinguishes malformed VAD evidence from missing VAD", () => {
 
   assert.equal(decision.status, "SKIPPED");
   assert.deepEqual(decision.reasonCodes, ["INVALID_VAD_EVIDENCE"]);
+});
+
+test("resolver identifies malformed silence and protected evidence", () => {
+  const malformedSilence = new SafeCutResolver().resolve(resolverRequest({
+    analysis: {
+      ...analysisWithVAD,
+      silenceSegments: [{ start: 5.7, end: 5.6, kind: "silence" }],
+    } as SpeechAnalysis,
+  }));
+  assert.equal(malformedSilence.status, "SKIPPED");
+  assert.deepEqual(malformedSilence.reasonCodes, ["INVALID_SILENCE_EVIDENCE"]);
+
+  const malformedProtected = new SafeCutResolver().resolve(resolverRequest({
+    analysis: {
+      ...analysisWithVAD,
+      protectedSegments: [{ start: 6.2, end: 6.1, kind: "breath" }],
+    } as SpeechAnalysis,
+  }));
+  assert.equal(malformedProtected.status, "SKIPPED");
+  assert.deepEqual(malformedProtected.reasonCodes, ["INVALID_PROTECTED_EVIDENCE"]);
 });
 
 test("resolver rejects VAD segments that overlap across speech and silence", () => {
@@ -463,4 +508,44 @@ test("resolver aligns non-integral word bounds inside surrounding silence", () =
     startTime: { value: "52", timescale: "5" },
     durationTime: { value: "7", timescale: "30" },
   });
+});
+
+test("resolver skips cuts that would clip untranscribed speech", () => {
+  const detector = new FillerDetector({ vocabulary: ["um"] });
+  const words = [
+    { text: "So", start: 5, end: 5.3, confidence: 0.99 },
+    { text: "um", start: 5.36, end: 5.6, confidence: 0.99, filler: true },
+    { text: "okay", start: 6, end: 6.3, confidence: 0.99 },
+  ];
+  const occurrence = {
+    occurrenceId: "occurrence-untranscribed",
+    sourceRange: { start: 5, end: 8 },
+    sequenceRange: { start: 10, end: 13 },
+  };
+  const candidate = detector.detect({
+    previewId: "preview-untranscribed",
+    analysis: { words },
+    targetRange: { start: 10, end: 13 },
+    occurrence,
+  })[0]!;
+  const decision = new SafeCutResolver().resolve({
+    candidate,
+    analysis: {
+      words,
+      vadSegments: [
+        { start: 5, end: 5.35, kind: "speech" },
+        { start: 5.35, end: 5.36, kind: "silence" },
+        { start: 5.36, end: 5.6, kind: "speech" },
+        { start: 5.6, end: 6, kind: "silence" },
+        { start: 6, end: 6.3, kind: "speech" },
+      ],
+    } as SpeechAnalysis,
+    targetRange: { start: 10, end: 13 },
+    occurrence,
+    timelineId: "timeline-untranscribed",
+    sequenceFrameDuration: { value: "1", timescale: "30" },
+  });
+
+  assert.equal(decision.status, "SKIPPED");
+  assert.deepEqual(decision.reasonCodes, ["NO_FRAME_ALIGNED_RANGE"]);
 });
