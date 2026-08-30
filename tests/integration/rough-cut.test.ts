@@ -354,6 +354,22 @@ test("media replacement preserves the existing media kind", async () => {
   assert.deepEqual(await active.inspectProject(), before);
 });
 
+test("media move without a lane preserves the primary storyline", async () => {
+  const { runtime: active } = constructionRuntime();
+  const before = await active.inspectProject();
+  const preview = await active.previewEdit({
+    baseRevision: before.revision,
+    operations: [{ type: "timeline.media.move", occurrenceId: "base-a", start: 1 }],
+  });
+
+  assert.deepEqual(await active.inspectProject(), before);
+  const transaction = await active.executeEdit(preview.previewToken);
+  const moved = transaction.after.timeline.clips.find((clip) => clip.id === "base-a");
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(moved?.start, 1);
+  assert.equal(moved?.track, 0);
+});
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
