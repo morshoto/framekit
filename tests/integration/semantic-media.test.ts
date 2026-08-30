@@ -194,3 +194,33 @@ test("MCP exposes semantic indexing and rough-cut planning", async () => {
     await server.close();
   }
 });
+
+test("metadata analyzer capability is machine-readable", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+  });
+
+  const editor = await runtime.inspectEditor();
+
+  assert.equal(editor.capabilities.analyzers.metadataDescribe, true);
+});
+
+test("unconfigured analysis returns unavailable statuses without descriptions", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter);
+
+  const understanding = await runtime.understandMedia("media-semantic-1");
+
+  assert.deepEqual(understanding.semantic.subjects, []);
+  assert.deepEqual(
+    understanding.analysis.map((record) => ({ capability: record.capability, status: record.status })),
+    [
+      { capability: "speech", status: "unavailable" },
+      { capability: "audio", status: "unavailable" },
+      { capability: "visual", status: "unavailable" },
+      { capability: "metadata", status: "unavailable" },
+    ],
+  );
+  assert.match(understanding.analysis[0]?.reason ?? "", /not configured/);
+});
