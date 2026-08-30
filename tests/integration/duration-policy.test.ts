@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -130,4 +132,16 @@ test("MCP exposes an explicit duration planning contract", async () => {
     await client.close();
     await server.close();
   }
+});
+
+test("MCP and rough-cut documentation describe the same duration policy", async () => {
+  const mcpDocumentation = await readFile(resolve("docs/mcp/tools.md"), "utf8");
+  const roughCutDocumentation = await readFile(resolve("docs/rough-cut/duration-policy.md"), "utf8");
+
+  assert.match(mcpDocumentation, /editing\.duration\.plan/);
+  assert.match(mcpDocumentation, /soft constraint/i);
+  assert.match(mcpDocumentation, /actualDurationSeconds/);
+  assert.match(roughCutDocumentation, /ambiguous duration requests default to soft/i);
+  assert.match(roughCutDocumentation, /never silently loops or slows/i);
+  assert.match(roughCutDocumentation, /requested.*achievable.*actual/i);
 });
