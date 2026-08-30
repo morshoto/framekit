@@ -177,15 +177,21 @@ export class SafeCutResolver {
     const minimumSourceStart = previousWord
       ? Math.max(previousWord.end, request.occurrence.sourceRange.start)
       : request.occurrence.sourceRange.start;
+    const precedingSpeechEnd = evidence.speechSegments
+      .filter((segment) => segment.end <= word.start)
+      .reduce((latest, segment) => Math.max(latest, segment.end), minimumSourceStart);
+    const followingSpeechStart = evidence.speechSegments
+      .filter((segment) => segment.start >= sourceEnd)
+      .reduce((earliest, segment) => Math.min(earliest, segment.start), nextStart);
     const sequenceStart = mapSourceToSequence(sourceStart, request.occurrence);
     const sequenceEnd = mapSourceToSequence(sourceEnd, request.occurrence);
     const minimumSequenceStart = Math.max(
-      mapSourceToSequence(minimumSourceStart, request.occurrence),
+      mapSourceToSequence(Math.max(minimumSourceStart, precedingSpeechEnd), request.occurrence),
       request.targetRange.start,
       request.occurrence.sequenceRange.start,
     );
     const maximumSequenceEnd = Math.min(
-      mapSourceToSequence(nextStart, request.occurrence),
+      mapSourceToSequence(Math.min(nextStart, followingSpeechStart), request.occurrence),
       request.targetRange.end,
       request.occurrence.sequenceRange.end,
     );
