@@ -3,7 +3,10 @@ import test from "node:test";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
-function createRuntime(audio: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number }) {
+function createRuntime(
+  audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number },
+  visual?: { scenes: Array<{ id: string; start: number; end: number; label?: string; confidence?: number }>; subjects: Array<{ id: string; label: string; confidence: number }>; keyframes: [] },
+) {
   return new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "verification-project",
     projectName: "Verification Fixture",
@@ -16,7 +19,8 @@ function createRuntime(audio: { integratedLufs: number; truePeakDb: number; sile
       mediaKind: "audio",
       duration: 10,
       sourceDigest: "sha256:rain",
-      audio,
+      ...(audio ? { audio } : {}),
+      ...(visual ? { visual } : {}),
     }],
   }));
 }
@@ -98,4 +102,62 @@ test("semantic audio coverage rejects an ambience shorter than requested", async
   const check = transaction.verification?.checks.find((candidate) => candidate.name === "audio-coverage");
   assert.equal(check?.reason, "AUDIO_COVERAGE_INCOMPLETE");
   assert.deepEqual(check?.expected, { mediaId: "rain", start: 0, duration: 11, toleranceSeconds: 0 });
+});
+
+test("semantic verification checks visual, duration, stream, and structure expectations", async () => {
+  const runtime = createRuntime(
+    { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000 },
+    {
+      scenes: [{ id: "scene-rain", start: 0, end: 10, label: "rain", confidence: 0.99 }],
+      subjects: [],
+      keyframes: [],
+    },
+  );
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    {
+      assertions: [
+        { type: "visual-content", mediaId: "rain", label: "rain", labelKind: "scene", minConfidence: 0.9 },
+        { type: "duration", target: "timeline", expectedSeconds: 10 },
+        { type: "stream", target: "audio", expected: true },
+        { type: "structure", requirement: "occurrence-present", occurrenceId: "rain-clip" },
+        { type: "structure", requirement: "operation-present", operationType: "rename-clip" },
+      ],
+    } as never,
+  );
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(
+    transaction.verification?.checks.slice(-5).map((check) => ({ name: check.name, status: check.status })),
+    [
+      { name: "visual-content", status: "passed" },
+      { name: "duration", status: "passed" },
+      { name: "stream", status: "passed" },
+      { name: "structure", status: "passed" },
+      { name: "structure", status: "passed" },
+    ],
+  );
+});
+
+test("semantic verification fails closed when a requested analyzer is unavailable", async () => {
+  const runtime = createRuntime({
+    integratedLufs: -18,
+    truePeakDb: -3,
+    silenceMs: 120,
+    audibleSamples: 1_000,
+  });
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    {
+      assertions: [{ type: "visual-content", mediaId: "rain", label: "rain" }],
+    } as never,
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  const check = transaction.verification?.checks.find((candidate) => candidate.name === "visual-content");
+  assert.equal(check?.passed, false);
+  assert.equal(check?.status, "unavailable");
+  assert.equal(check?.reason, "VISUAL_ANALYZER_UNAVAILABLE");
 });
