@@ -31,6 +31,7 @@
     "test:final-cut-canonical-headed": "node scripts/final-cut-canonical-headed-e2e.mjs",
     "test:final-cut-filler-headed": "node scripts/final-cut-filler-removal-headed-e2e.mjs",
     "test:watch": "tsx --test --watch tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/golden/*.test.ts",
+    "test:final-cut-disposable-headed": "node scripts/final-cut-disposable-native-headed-e2e.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",
     "framekit": "node ./bin/framekit.mjs",

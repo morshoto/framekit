@@ -5,6 +5,7 @@ export * from "./session.js";
 export * from "./analyzers.js";
 export * from "./assets.js";
 export * from "./native.js";
+export * from "./disposable-native.js";
 export * from "./publisher.js";
 export * from "./export.js";
 export * from "./native-operation.js";

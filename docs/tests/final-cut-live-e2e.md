@@ -157,6 +157,29 @@ no private media paths, raw snapshots, transaction identifiers, credentials,
 or diagnostics. The runner and sanitizer both fail closed when the mutation,
 undo, required tool sequence, or full commit provenance is incomplete.
 
+## Disposable native edit evidence
+
+When the live bridge advertises a canonical read provider and native selection
+editing plus Undo, use the disposable-native runner for the issue-64 proof:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Disposable E2E" \
+FRAMEKIT_FINAL_CUT_E2E_CLIP_ID="final-cut:occurrence:example" \
+pnpm run test:final-cut-disposable-headed \
+  > docs/tests/evidence/$(date +%F)-disposable-native.json
+```
+
+The runner uses the native UI only for the rename, then reads the canonical
+timeline after the write, checks the deterministic target diff, and calls the
+disposable native Undo workflow. It emits an allowlisted summary containing the
+native capability contract, before/after/restored revisions, digests, and the
+five required MCP tool results. It never publishes raw snapshots, media
+sources, operation identifiers, or diagnostics. A metadata-only bridge,
+missing canonical target, stale revision, changed native selection, failed
+read-after-write, or failed restoration stops without claiming evidence. The
+current metadata-only Swift bridge therefore cannot produce this evidence until
+canonical live enumeration is available.
+
 ## Canonical live read evidence
 
 When a live bridge advertises `canonicalTimelineMode: canonical-read` (or the

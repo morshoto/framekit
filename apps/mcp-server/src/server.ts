@@ -1,7 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
-import type { FinalCutProjectPublisher, FinalCutVideoExporter, NativeFinalCutEditor } from "@framekit/final-cut";
+import type {
+  DisposableNativeEditWorkflow,
+  FinalCutProjectPublisher,
+  FinalCutVideoExporter,
+  NativeFinalCutEditor,
+} from "@framekit/final-cut";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -143,6 +148,11 @@ const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set-selected-clip-gain"), gainDb: z.number().finite() }),
   z.object({ type: z.literal("add-marker-at-playhead"), name: z.string().min(1), duration: z.number().nonnegative().optional() }),
 ]);
+const disposableNativePreviewSchema = {
+  clipId: z.string().min(1),
+  name: z.string().min(1),
+  baseRevision: revisionValueSchema.optional(),
+};
 const nativeTitlePreviewSchema = {
   assetId: z.string().min(1),
   text: z.string().trim().min(1),
@@ -196,6 +206,7 @@ function frameResult(value: TimelineFrameCapture) {
 export interface McpServerOptions {
   connectionStatus?: () => unknown;
   nativeEditor?: NativeFinalCutEditor;
+  disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   projectPublisher?: FinalCutProjectPublisher;
   videoExporter?: FinalCutVideoExporter;
 }
@@ -284,6 +295,30 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
     const operation = nativeEditSchema.parse(input);
     return jsonResult(await options.nativeEditor.edit(operation));
+  });
+
+  server.registerTool("editor.native.disposable.preview", {
+    description: "Preview a disposable native Final Cut rename after canonical target, revision, and native preflight checks.",
+    inputSchema: disposableNativePreviewSchema,
+  }, async ({ clipId, name, baseRevision }) => {
+    if (!options.disposableNative) throw new Error("CAPABILITY_UNAVAILABLE: disposable native edit is not configured");
+    return jsonResult(await options.disposableNative.preview({ clipId, name, baseRevision }));
+  });
+
+  server.registerTool("editor.native.disposable.execute", {
+    description: "Execute a disposable native Final Cut edit and return canonical diff, verification, and rollback state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.disposableNative) throw new Error("CAPABILITY_UNAVAILABLE: disposable native edit is not configured");
+    return jsonResult(await options.disposableNative.execute(previewToken));
+  });
+
+  server.registerTool("editor.native.disposable.undo", {
+    description: "Undo a verified disposable native Final Cut edit and verify canonical restoration.",
+    inputSchema: { operationId: z.string().min(1) },
+  }, async ({ operationId }) => {
+    if (!options.disposableNative) throw new Error("CAPABILITY_UNAVAILABLE: disposable native edit is not configured");
+    return jsonResult(await options.disposableNative.undo(operationId));
   });
 
   server.registerTool("editor.native.title.add.preview", {

@@ -37,6 +37,31 @@ const requiredToolResults = [
   ["timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
+const requiredDisposableToolResults = [
+  ["editor.inspect", "passed"],
+  ["project.inspect", "passed"],
+  ["editor.native.disposable.preview", "passed"],
+  ["editor.native.disposable.execute", "VERIFIED"],
+  ["editor.native.disposable.undo", "passed"],
+];
+const nativeCapabilityKeys = [
+  "selectionEdit",
+  "undo",
+  "mediaLibrarySearch",
+  "mediaImport",
+  "mediaSelection",
+  "mediaAppendSelected",
+  "timelineOccurrenceLocate",
+  "bladeAtPlayhead",
+  "deleteRange",
+  "trimToDuration",
+  "mediaAppend",
+  "mediaInsert",
+  "titlePlacement",
+  "timelineFocus",
+  "requiresAccessibility",
+  "requiresFinalCutFrontmost",
+];
 
 export async function evidenceEnvironment(root) {
   const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
@@ -136,6 +161,90 @@ export function sanitizeCanonicalEvidence(run, environment) {
     sanitization: {
       strategy: "allowlisted-summary",
       omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostics"],
+    },
+  };
+}
+
+export function sanitizeDisposableNativeEvidence(run, environment) {
+  assert(run?.passed === true, "headed run did not pass");
+  assert(run.executeStatus === "VERIFIED", "disposable native mutation was not verified");
+  assert(run.editor, "editor identity is missing");
+  assert(run.capabilities, "capability payload is missing");
+  const canonicalMode = run.capabilities.editor?.canonicalTimelineMode;
+  assert(canonicalMode === "canonical-read" || canonicalMode === "canonical-write", "canonical live capability is required");
+  for (const key of ["projectRead", "timelineSnapshotRead", "readAfterWrite", "projectCatalogRead", "projectSelection"]) {
+    assert(run.capabilities.editor?.[key] === true, `${key} capability is required`);
+  }
+  assert(run.project && run.target, "project or target identity is missing");
+  assert(run.before && run.after && run.restored && run.diff, "canonical snapshots or diff are missing");
+  assert(run.digests?.before && run.digests?.after && run.digests?.restored, "canonical digests are missing");
+  assert(run.digests.before !== run.digests.after, "canonical mutation did not change the pre-edit digest");
+  assert(run.digests.before === run.digests.restored, "restored digest does not match the pre-edit digest");
+  assert(run.restoredVerification?.passed === true, "canonical restoration was not verified");
+
+  const beforeRevision = summarizeRevision(run.before.revision);
+  const afterRevision = summarizeRevision(run.after.revision);
+  const restoredRevision = summarizeRevision(run.restored.revision);
+  assert(afterRevision.sequence > beforeRevision.sequence, "canonical mutation revision did not advance");
+  assert(restoredRevision.sequence > afterRevision.sequence, "canonical restoration revision did not advance");
+
+  const beforeTarget = findTarget(run.before, run.target.occurrenceId);
+  const afterTarget = findTarget(run.after, run.target.occurrenceId);
+  const restoredTarget = findTarget(run.restored, run.target.occurrenceId);
+  assert(beforeTarget && afterTarget && restoredTarget, "target occurrence is missing from a canonical snapshot");
+  assert(beforeTarget.name !== afterTarget.name, "canonical mutation did not change the target occurrence");
+  assert(beforeTarget.name === restoredTarget.name, "restored target occurrence does not match the pre-edit state");
+
+  const modified = Array.isArray(run.diff.modified) ? run.diff.modified : [];
+  const modifiedItemIds = modified.map((change) => change?.itemId).filter(isNonEmptyString);
+  assert(countChanges(run.diff.added) === 0 && countChanges(run.diff.removed) === 0, "disposable diff contains unexpected additions or removals");
+  assert(modified.length === 1 && modifiedItemIds.length === 1 && modifiedItemIds[0] === run.target.occurrenceId, "disposable diff does not identify exactly the target occurrence");
+
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-disposable-mutation",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeCapabilities(run.capabilities),
+    nativeCapabilities: sanitizeNativeCapabilities(run.nativeCapabilities),
+    project: {
+      id: requireString(run.project.id, "project id"),
+      name: requireString(run.project.name, "project name"),
+      sequenceId: requireString(run.project.sequenceId, "sequence id"),
+    },
+    target: {
+      occurrenceId: requireString(run.target.occurrenceId, "occurrence id"),
+      ...(isNonEmptyString(run.target.mediaId) ? { mediaId: run.target.mediaId } : {}),
+    },
+    toolResults: sanitizeToolResultsFor(run.toolResults, requiredDisposableToolResults),
+    mutation: {
+      operation: "rename-selected-clip",
+      status: run.executeStatus,
+      timelineChanged: true,
+      beforeRevision,
+      afterRevision,
+      diff: {
+        addedCount: countChanges(run.diff.added),
+        removedCount: countChanges(run.diff.removed),
+        modifiedCount: modifiedItemIds.length,
+        modifiedItemIds,
+        durationDelta: requireFiniteNumber(run.diff.durationDelta, "duration delta"),
+        affectedRangeCount: countChanges(run.diff.affectedRanges),
+      },
+    },
+    restoration: {
+      operation: "editor.native.disposable.undo",
+      status: "VERIFIED",
+      restored: true,
+      beforeDigest: run.digests.before,
+      restoredDigest: run.digests.restored,
+      restoredRevision,
+    },
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media sources", "raw snapshots", "operation identifiers", "diagnostics"],
     },
   };
 }
@@ -334,11 +443,27 @@ function sanitizeCapabilities(capabilities) {
   };
 }
 
+function sanitizeNativeCapabilities(capabilities) {
+  assert(capabilities, "native capability payload is missing");
+  const native = pickKnown(capabilities, nativeCapabilityKeys);
+  for (const key of nativeCapabilityKeys) {
+    if (native[key] !== undefined) assert(typeof native[key] === "boolean", `${key} native capability must be boolean`);
+  }
+  for (const key of ["selectionEdit", "undo", "timelineFocus"]) {
+    assert(native[key] === true, `${key} native capability is required`);
+  }
+  return native;
+}
+
 function sanitizeToolResults(toolResults) {
+  return sanitizeToolResultsFor(toolResults, requiredToolResults);
+}
+
+function sanitizeToolResultsFor(toolResults, expectedToolResults) {
   assert(Array.isArray(toolResults), "tool results are missing");
-  assert(toolResults.length === requiredToolResults.length, "required tool results are incomplete");
+  assert(toolResults.length === expectedToolResults.length, "required tool results are incomplete");
   return toolResults.map((result, index) => {
-    const [expectedName, expectedStatus] = requiredToolResults[index];
+    const [expectedName, expectedStatus] = expectedToolResults[index];
     const name = requireString(result?.name, "tool name");
     const status = requireString(result?.status, `tool ${name} status`);
     assert(name === expectedName && status === expectedStatus, `tool result ${index + 1} does not match the required headed workflow`);
