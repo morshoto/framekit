@@ -39,8 +39,9 @@ export function planRoughCut(snapshot: ProjectSnapshot, request: RoughCutPlanReq
     if (importedIds.has(media.mediaId) || knownMedia.has(media.mediaId)) {
       throw new Error(`MEDIA_ALREADY_EXISTS: ${media.mediaId}`);
     }
-    if (!media.source.trim() || !media.sourceDigest.trim() || !Number.isFinite(media.duration) || media.duration <= 0) {
-      throw new Error("INVALID_OPERATION: imported media requires source, duration, and digest");
+    if (!media.mediaId.trim() || !media.source.trim() || !media.sourceDigest.trim()
+      || !Number.isFinite(media.duration) || media.duration <= 0) {
+      throw new Error("INVALID_OPERATION: imported media requires mediaId, source, duration, and digest");
     }
     if (media.mediaKind !== "video") {
       throw new Error(`ROUGH_CUT_VIDEO_REQUIRED: ${media.mediaId}`);
