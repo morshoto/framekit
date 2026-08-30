@@ -86,6 +86,56 @@ test("filler planning returns multiple ranges from latest to earliest", () => {
   assert.deepEqual(candidates.map(({ range }) => range.start), [1.2, 0.4]);
 });
 
+test("filler execution translates adjacent speech across multiple removals", async () => {
+  let calls = 0;
+  const words = [
+    { text: "so", start: 0, end: 0.3, confidence: 0.99 },
+    { text: "um", start: 0.6, end: 0.9, confidence: 0.98, filler: true },
+    { text: "we", start: 1, end: 1.4, confidence: 0.99 },
+    { text: "uh", start: 2, end: 2.3, confidence: 0.98, filler: true },
+    { text: "decided", start: 2.4, end: 3, confidence: 0.99 },
+  ];
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ media }) => {
+      calls += 1;
+      if (calls === 1) return { words: structuredClone(words) };
+      const deletes = words.filter((word) => word.filler).map(({ start, end }) => ({ start, end }));
+      return {
+        words: words.filter((word) => !word.filler).map((word) => {
+          const shift = deletes
+            .filter((deletion) => deletion.end <= word.start)
+            .reduce((total, deletion) => total + deletion.end - deletion.start, 0);
+          return { ...word, start: word.start - shift, end: word.end - shift };
+        }),
+      };
+    },
+  };
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-filler-multiple",
+    projectName: "Multiple Filler Fixture",
+    timelineId: "timeline-filler-multiple",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-filler-multiple", mediaId: "media-filler-multiple", name: "Interview", start: 0, duration: 6, track: 0 }],
+    media: [{
+      mediaId: "media-filler-multiple",
+      source: "interview-multiple.wav",
+      speech: { words },
+    }],
+  });
+  const runtime = new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewFillerRemoval({
+    baseRevision: before.revision,
+    range: { start: 0, end: 6 },
+  });
+
+  const transaction = await runtime.executeFillerRemoval(preview.previewToken);
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.verification?.checks.some((check) => check.name === "filler-speech-continuity" && check.passed), true);
+  assert.equal(calls, 2);
+});
+
 test("filler planning rejects malformed speech boundaries", () => {
   assert.throws(
     () => planFillerRemoval([
@@ -153,6 +203,61 @@ test("filler execution reanalyzes continuity and returns a reversible verified t
 
   const restored = await runtime.undo(transaction.id);
   assert.equal(restored.timeline.clips[0]?.duration, 3);
+});
+
+test("filler execution verifies a partial range in the middle of a longer clip", async () => {
+  let calls = 0;
+  const beforeWords = [
+    { text: "before", start: 0.2, end: 0.5, confidence: 0.99 },
+    { text: "um", start: 1.4, end: 1.7, confidence: 0.98, filler: true },
+    { text: "what", start: 2.6, end: 3, confidence: 0.99 },
+    { text: "after", start: 4.2, end: 4.5, confidence: 0.99 },
+  ];
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ project, media }, range) => {
+      calls += 1;
+      const words = calls === 1
+        ? beforeWords
+        : [
+          beforeWords[0]!,
+          { ...beforeWords[2]!, start: 1.9, end: 2.3 },
+          { ...beforeWords[3]!, start: 3.5, end: 3.8 },
+        ];
+      return {
+        words: words.filter((word) => !range || (word.start >= range.start && word.end <= range.end)),
+      };
+    },
+  };
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-filler-partial",
+    projectName: "Partial Filler Fixture",
+    timelineId: "timeline-filler-partial",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-filler-partial", mediaId: "media-filler-partial", name: "Interview", start: 10, duration: 5, track: 0 }],
+    media: [{
+      mediaId: "media-filler-partial",
+      source: "interview-partial.wav",
+      speech: { words: beforeWords },
+    }],
+  });
+  const runtime = new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewFillerRemoval({
+    baseRevision: before.revision,
+    range: { start: 11, end: 14 },
+  });
+
+  const transaction = await runtime.executeFillerRemoval(preview.previewToken);
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.verification?.checks.some((check) => check.name === "filler-speech-continuity" && check.passed), true);
+  assert.ok(Math.abs((transaction.after.timeline.clips[0]?.duration ?? 0) - 4.3) < 0.000001);
+  assert.deepEqual(transaction.after.media[0]?.speech?.words.map(({ text, start, end }) => ({ text, start, end })), [
+    { text: "before", start: 0.2, end: 0.5 },
+    { text: "what", start: 1.9, end: 2.3 },
+    { text: "after", start: 3.5, end: 3.8 },
+  ]);
+  assert.equal(calls, 2);
 });
 
 test("failed filler continuity verification restores the original timeline", async () => {

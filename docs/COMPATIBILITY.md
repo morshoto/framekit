@@ -4,6 +4,19 @@ Phase 0, Phase 1, and Phase 2 are local runtime spikes. Capability declarations 
 authoritative at runtime; unsupported operations must fail with an explicit
 `CAPABILITY_UNAVAILABLE` error.
 
+## v0.0.3 release gate
+
+The repository-owned deterministic corpus verifies both v0.0.3 Skills through
+generic MCP tools. It is fixture evidence, not live editor evidence. The
+current gate reports the FCPXML closed-loop Skill path and the bundled live
+Workflow Extension as unsupported because they do not advertise the complete
+canonical write, read-after-write, analysis, and rollback guarantees.
+
+No fixture result is copied into a live report. A live claim requires a
+disposable headed Final Cut run with before/after state, canonical diff,
+re-analysis, verification, rollback or Undo, Final Cut version, and capability
+payload.
+
 | Adapter | Backend | Project read | Timeline write | Read-after-write | Rollback | Speech/audio | Visual | Frame capture | Native assets |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |

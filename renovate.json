@@ -7,11 +7,17 @@
   "prHourlyLimit": 2,
   "packageRules": [
     {
-      "description": "Group non-major development dependency updates",
+      "description": "Automerge non-major npm development dependency updates",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "dev dependencies"
+      "groupName": "dev dependencies",
+      "automerge": true
+    },
+    {
+      "description": "Automerge lock file maintenance",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "automerge": true
     },
     {
       "description": "Group GitHub Actions updates",

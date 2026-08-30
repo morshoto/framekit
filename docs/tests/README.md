@@ -18,6 +18,8 @@ real Final Cut Pro process.
   registration probes, stdio workflow coverage, and sanitized evidence.
 - [Controlled filler-removal benchmark](./filler-removal-benchmark.md):
   reproducible verification rate, rollback categories, and retained evidence.
+- [v0.0.3 release gate](./release-gate.md): deterministic closed-loop
+  filler-removal and dialogue-normalization Skill evidence.
 - [Final Cut live E2E](./final-cut-live-e2e.md): read-only native bridge test.
 - [Test matrix](./test-matrix.md): scope and evidence by backend.
 - [Evidence](./evidence/2026-08-16-phase-1-live.md): sanitized local run.

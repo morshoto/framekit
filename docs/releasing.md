@@ -51,7 +51,14 @@ pnpm run build
 pnpm run test
 pnpm run check:boundaries
 npm pack --dry-run
+pnpm run release-gate --output-dir artifacts/release-gate/local-run
 ```
+
+For the v0.0.3 release, attach the release gate `report.json` and
+`manifest.json` as evidence. The deterministic fixture gate, FCPXML adapter
+coverage, opt-in live Final Cut evidence, and unsupported capabilities must be
+reported separately. Fixture success does not establish autonomous open-project
+Final Cut support; that claim requires the documented disposable headed run.
 
 The release workflow performs the registry and GitHub release steps on GitHub's
 hosted runner; OIDC authentication cannot be fully reproduced locally.

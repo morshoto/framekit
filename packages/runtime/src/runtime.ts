@@ -50,6 +50,11 @@ import { ProjectService } from "./application/project-service.js";
 import type { RuntimeOptions } from "./application/runtime-options.js";
 import { TransactionStore } from "./application/transaction-store.js";
 import { DurationPolicyService } from "./application/duration-policy-service.js";
+import { DialogueNormalizationService } from "./editing/dialogue-normalization-service.js";
+import type {
+  DialogueNormalizationPreview,
+  DialogueNormalizationRequest,
+} from "./audio/dialogue-normalization.js";
 
 /** Stable runtime façade exposed to the MCP server and editor adapters. */
 export class AgentVideoRuntime {
@@ -60,6 +65,7 @@ export class AgentVideoRuntime {
   private readonly music: MusicService;
   private readonly fillerRemoval: FillerRemovalService;
   private readonly durationPolicy: DurationPolicyService;
+  private readonly dialogueNormalization: DialogueNormalizationService;
 
   public constructor(
     adapter: EditorPort,
@@ -74,6 +80,7 @@ export class AgentVideoRuntime {
     this.edits = new EditService(adapter, this.projects, this.media, verificationEngine, options, transactions);
     this.music = new MusicService(this.projects, this.edits);
     this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
+    this.dialogueNormalization = new DialogueNormalizationService(adapter, this.projects, this.media, this.edits);
     this.durationPolicy = new DurationPolicyService();
   }
 
@@ -187,6 +194,14 @@ export class AgentVideoRuntime {
 
   public async executeFillerRemoval(previewToken: string): Promise<EditTransaction> {
     return this.fillerRemoval.executeFillerRemoval(previewToken);
+  }
+
+  public async previewDialogueNormalization(request: DialogueNormalizationRequest): Promise<DialogueNormalizationPreview> {
+    return this.dialogueNormalization.preview(request);
+  }
+
+  public async executeDialogueNormalization(previewToken: string): Promise<EditTransaction> {
+    return this.dialogueNormalization.execute(previewToken);
   }
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {

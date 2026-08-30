@@ -8,6 +8,7 @@ import type {
   VisualAnalyzer,
   SpeechAnalysis,
   SpeechAnalyzer,
+  SpeechSegment,
   SpeechWord,
   TimeRange,
 } from "@framekit/runtime";
@@ -20,6 +21,9 @@ export class FixtureSpeechAnalyzer implements SpeechAnalyzer {
     if (!speech) throw new Error(`ANALYSIS_FAILED: no speech fixture for ${input.media.mediaId}`);
     return {
       words: filterRange(speech.words, range),
+      ...(speech.vadSegments ? { vadSegments: filterSegments(speech.vadSegments, range) } : {}),
+      ...(speech.silenceSegments ? { silenceSegments: filterSegments(speech.silenceSegments, range) } : {}),
+      ...(speech.protectedSegments ? { protectedSegments: filterSegments(speech.protectedSegments, range) } : {}),
     };
   }
 }
@@ -68,4 +72,11 @@ function filterRange(words: SpeechWord[], range?: TimeRange): SpeechWord[] {
   return words
     .filter((word) => word.end > range.start && word.start < range.end)
     .map((word) => ({ ...word }));
+}
+
+function filterSegments(segments: SpeechSegment[], range?: TimeRange): SpeechSegment[] {
+  if (!range) return segments.map((segment) => ({ ...segment }));
+  return segments
+    .filter((segment) => segment.end > range.start && segment.start < range.end)
+    .map((segment) => ({ ...segment }));
 }

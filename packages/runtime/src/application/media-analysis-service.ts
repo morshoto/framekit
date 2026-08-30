@@ -1,5 +1,6 @@
 import type {
   AudioAnalysis,
+  AudioMeasurement,
   AnalyzerDescriptor,
   MetadataAnalysis,
   MediaContext,
@@ -42,6 +43,45 @@ export class MediaAnalysisService {
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
     return this.options.audioAnalyzer.analyze({ project, media });
+  }
+
+  public async measureAudio(mediaId: string, occurrenceId: string): Promise<AudioMeasurement> {
+    if (!this.options.audioAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
+    const project = await this.project.inspectProject();
+    const clip = project.timeline.clips.find((candidate) => candidate.id === occurrenceId);
+    if (!clip) throw new Error(`OCCURRENCE_NOT_FOUND: ${occurrenceId}`);
+    if (clip.mediaId !== mediaId) {
+      throw new Error(`TARGET_MISMATCH: occurrence ${occurrenceId} does not reference media ${mediaId}`);
+    }
+    const media = findMedia(project, mediaId);
+    const requestedRange = { start: 0, end: clip.duration };
+    const analysis = await this.options.audioAnalyzer.analyze({ project, media }, requestedRange);
+    const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? clip.duration;
+    const valid = analysis.valid !== false
+      && Number.isFinite(analysis.integratedLufs)
+      && Number.isFinite(analysis.truePeakDb)
+      && Number.isFinite(analysis.silenceMs)
+      && Number.isFinite(analyzedDurationSeconds)
+      && analyzedDurationSeconds > 0;
+    return {
+      mediaId,
+      occurrenceId,
+      requestedRange,
+      measuredRange: {
+        start: 0,
+        end: Number.isFinite(analyzedDurationSeconds) ? analyzedDurationSeconds : clip.duration,
+      },
+      revision: project.revision,
+      provider: this.options.audioAnalyzer.descriptor ?? { id: "framekit.audio", provider: "unknown" },
+      dialoguePresent: analysis.dialoguePresent
+        ?? Boolean(media.speech?.words.some((word) => word.filler !== true)),
+      integratedLufs: analysis.integratedLufs,
+      truePeakDb: analysis.truePeakDb,
+      silenceMs: analysis.silenceMs,
+      analyzedDurationSeconds,
+      valid,
+      ...(analysis.invalidReason ? { invalidReason: analysis.invalidReason } : {}),
+    };
   }
 
   public async analyzeVisual(mediaId: string, range?: TimeRange): Promise<VisualAnalysis> {
