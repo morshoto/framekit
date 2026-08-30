@@ -5,6 +5,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import {
+  SILENT_AUDIO_FIXTURE,
+  TOO_QUIET_AUDIO_FIXTURE,
+  VALID_AUDIO_FIXTURE,
+} from "../fixtures/semantic-audio.js";
 
 function createRuntime(
   audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number },
@@ -31,10 +36,7 @@ function createRuntime(
 
 test("semantic audio audibility rejects silent audio with an audio stream", async () => {
   const runtime = createRuntime({
-    integratedLufs: -80,
-    truePeakDb: -80,
-    silenceMs: 10_000,
-    audibleSamples: 0,
+    ...SILENT_AUDIO_FIXTURE,
   });
 
   const transaction = await runtime.edit(
@@ -59,10 +61,7 @@ test("semantic audio audibility rejects silent audio with an audio stream", asyn
 
 test("semantic audio assertions verify coverage, loudness, and source identity", async () => {
   const runtime = createRuntime({
-    integratedLufs: -18,
-    truePeakDb: -3,
-    silenceMs: 120,
-    audibleSamples: 1_000,
+    ...VALID_AUDIO_FIXTURE,
   });
 
   const transaction = await runtime.edit(
@@ -89,10 +88,7 @@ test("semantic audio assertions verify coverage, loudness, and source identity",
 
 test("semantic audio coverage rejects an ambience shorter than requested", async () => {
   const runtime = createRuntime({
-    integratedLufs: -18,
-    truePeakDb: -3,
-    silenceMs: 120,
-    audibleSamples: 1_000,
+    ...VALID_AUDIO_FIXTURE,
   });
 
   const transaction = await runtime.edit(
@@ -110,7 +106,7 @@ test("semantic audio coverage rejects an ambience shorter than requested", async
 
 test("semantic verification checks visual, duration, stream, and structure expectations", async () => {
   const runtime = createRuntime(
-    { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000 },
+    VALID_AUDIO_FIXTURE,
     {
       scenes: [{ id: "scene-rain", start: 0, end: 10, label: "rain", confidence: 0.99 }],
       subjects: [],
@@ -146,10 +142,7 @@ test("semantic verification checks visual, duration, stream, and structure expec
 
 test("semantic verification fails closed when a requested analyzer is unavailable", async () => {
   const runtime = createRuntime({
-    integratedLufs: -18,
-    truePeakDb: -3,
-    silenceMs: 120,
-    audibleSamples: 1_000,
+    ...VALID_AUDIO_FIXTURE,
   });
 
   const transaction = await runtime.edit(
@@ -167,7 +160,7 @@ test("semantic verification fails closed when a requested analyzer is unavailabl
 });
 
 test("semantic audibility does not infer success without duration evidence", async () => {
-  const runtime = createRuntime({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }, undefined, null);
+  const runtime = createRuntime({ ...VALID_AUDIO_FIXTURE, audibleSamples: undefined }, undefined, null);
 
   const transaction = await runtime.edit(
     { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
@@ -184,10 +177,7 @@ test("semantic audibility does not infer success without duration evidence", asy
 
 test("composite previews retain semantic policies through verified execution", async () => {
   const runtime = createRuntime({
-    integratedLufs: -80,
-    truePeakDb: -80,
-    silenceMs: 10_000,
-    audibleSamples: 0,
+    ...SILENT_AUDIO_FIXTURE,
   });
   const before = await runtime.inspectProject();
   const verification = {
@@ -210,10 +200,7 @@ test("composite previews retain semantic policies through verified execution", a
 
 test("MCP carries semantic verification assertions through a timeline edit", async () => {
   const server = createMcpServer(createRuntime({
-    integratedLufs: -80,
-    truePeakDb: -80,
-    silenceMs: 10_000,
-    audibleSamples: 0,
+    ...SILENT_AUDIO_FIXTURE,
   }));
   const client = new Client({ name: "verification-intent-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -245,4 +232,41 @@ test("MCP carries semantic verification assertions through a timeline edit", asy
     await client.close();
     await server.close();
   }
+});
+
+test("semantic loudness rejects a deterministic too-quiet ambience", async () => {
+  const runtime = createRuntime(TOO_QUIET_AUDIO_FIXTURE);
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    {
+      assertions: [{ type: "audio-loudness", mediaId: "rain", targetLufs: -18, toleranceDb: 0.5 }],
+    },
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  const check = transaction.verification?.checks.find((candidate) => candidate.name === "audio-loudness");
+  assert.equal(check?.reason, "AUDIO_LOUDNESS_OUT_OF_RANGE");
+  assert.equal(check?.observed, -42);
+});
+
+test("music previews retain semantic policies until execution", async () => {
+  const runtime = createRuntime(SILENT_AUDIO_FIXTURE);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewMusic({
+    baseRevision: before.revision,
+    occurrenceId: "rain-music-copy",
+    mediaId: "rain",
+    placement: "append",
+    duration: 10,
+    targetLane: -2,
+    verification: { assertions: [{ type: "audio-audibility", mediaId: "rain" }] },
+  });
+
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-audibility")?.reason, "AUDIO_NOT_AUDIBLE");
+  const after = await runtime.inspectProject();
+  assert.deepEqual(after.timeline, before.timeline);
+  assert.deepEqual(after.media, before.media);
 });
