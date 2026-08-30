@@ -161,3 +161,29 @@ test("semantic verification fails closed when a requested analyzer is unavailabl
   assert.equal(check?.status, "unavailable");
   assert.equal(check?.reason, "VISUAL_ANALYZER_UNAVAILABLE");
 });
+
+test("composite previews retain semantic policies through verified execution", async () => {
+  const runtime = createRuntime({
+    integratedLufs: -80,
+    truePeakDb: -80,
+    silenceMs: 10_000,
+    audibleSamples: 0,
+  });
+  const before = await runtime.inspectProject();
+  const verification = {
+    assertions: [{ type: "audio-audibility", mediaId: "rain", minAudibleSamples: 1 }],
+  };
+
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: [{ type: "set-gain", clipId: "rain-clip", gainDb: -6 }],
+    verification,
+  } as never);
+
+  assert.deepEqual((preview as never as { verification?: unknown }).verification, verification);
+  const transaction = await runtime.executeEdit(preview.previewToken);
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.deepEqual(transaction.verificationPolicy, verification);
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-audibility")?.reason, "AUDIO_NOT_AUDIBLE");
+});
