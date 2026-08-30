@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -346,4 +348,27 @@ test("MCP exposes read-only rough-cut planning and a guarded preview", async () 
     await client.close();
     await server.close();
   }
+});
+
+test("rough-cut construction contract documents lifecycle and backend boundaries", async () => {
+  const contract = await readFile(resolve("docs/architecture/rough-cut-construction.md"), "utf8");
+
+  assert.match(contract, /^# Rough-Cut Project Construction/m);
+  for (const operation of [
+    "timeline.media.add",
+    "timeline.media.move",
+    "timeline.media.replace",
+    "timeline.media.remove",
+    "timeline.transition.add",
+    "timeline.audio.attach",
+    "timeline.audio.mix",
+  ]) {
+    assert.match(contract, new RegExp("`" + operation + "`"));
+  }
+  for (const stage of ["rough-cut.plan", "rough-cut.preview", "timeline.edit.execute", "edit.diff", "edit.verify", "edit.undo"]) {
+    assert.match(contract, new RegExp("`" + stage + "`"));
+  }
+  assert.match(contract, /CAPABILITY_UNAVAILABLE/);
+  assert.match(contract, /timeline\.publish\.new-project/);
+  assert.match(contract, /does not replace the active project/i);
 });
