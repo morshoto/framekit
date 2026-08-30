@@ -33,9 +33,13 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
 
   assert.match(workflow, /xcrun swiftc/);
   assert.match(workflow, /-D FRAMEKIT_CODEQL/);
-  assert.match(workflow, /-typecheck/);
+  assert.match(workflow, /run: \|/);
+  assert.match(workflow, /mkdir -p "\$RUNNER_TEMP\/framekit-codeql"/);
+  assert.match(workflow, /-emit-module/);
+  assert.match(workflow, /-emit-module-path "\$RUNNER_TEMP\/framekit-codeql\/FramekitWorkflowExtension\.swiftmodule"/);
   assert.match(workflow, /FinalCutLiveWorkflowExtension\.swift/);
   assert.match(workflow, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
+  assert.doesNotMatch(workflow, /-typecheck/);
   assert.doesNotMatch(workflow, /ProExtensionHostShim/);
   assert.doesNotMatch(workflow, /Final Cut Pro\.app/);
   assert.doesNotMatch(workflow, /ProExtensionHost\.framework/);
@@ -66,6 +70,7 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   const documentation = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
 
   assert.match(documentation, /CodeQL Swift extraction/);
+  assert.match(documentation, /manual\s+`xcrun swiftc -emit-module`/);
   assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
   assert.match(documentation, /five minutes/);
