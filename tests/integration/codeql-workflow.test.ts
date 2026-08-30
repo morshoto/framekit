@@ -60,13 +60,13 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /analyze-swift:/);
   assert.match(workflow, /name: Analyze \(swift\)/);
   assert.match(workflow, /runs-on: macos-15/);
-  assert.match(workflow, /timeout-minutes: 15/);
+  assert.match(workflow, /timeout-minutes: 20/);
   assert.match(workflow, /languages: swift/);
   assert.match(workflow, /build-mode: manual/);
-  assert.match(workflow, /timeout-minutes: 5/);
+  assert.match(workflow, /timeout-minutes: 10/);
   assert.match(
     workflow,
-    /\n      - name: Build Swift sources for CodeQL extraction\n        timeout-minutes: 5\n        run: \|/,
+    /\n      - name: Build Swift sources for CodeQL extraction\n        timeout-minutes: 10\n        run: \|/,
   );
 });
 
@@ -131,6 +131,6 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
   assert.match(documentation, /integrated Swift\s+driver/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
-  assert.match(documentation, /five minutes/);
+  assert.match(documentation, /ten minutes/);
   assert.match(documentation, /standalone Swift CI/);
 });
