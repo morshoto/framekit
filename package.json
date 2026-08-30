@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:package": "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json",
-    "test": "tsx --test tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/golden/*.test.ts",
+    "test": "tsx --test tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/speech/*.test.ts tests/golden/*.test.ts",
     "test:filler-removal": "tsx --test tests/filler-removal/*.test.ts",
     "benchmark:filler-removal": "tsx scripts/run-filler-removal-benchmark.ts",
     "test:golden": "tsx --test tests/golden/*.test.ts",
