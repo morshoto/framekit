@@ -60,6 +60,46 @@
     "description": "Requests a minor SemVer release bump, such as v0.0.1 to v0.1.0."
   },
   {
+    "name": "Release: Features",
+    "color": "A2EEEF",
+    "description": "Release-note category for feat and feature PRs."
+  },
+  {
+    "name": "Release: Fixes",
+    "color": "B60205",
+    "description": "Release-note category for fix, bug, and revert PRs."
+  },
+  {
+    "name": "Release: Improvements",
+    "color": "F9D0C4",
+    "description": "Release-note category for refactor, improvement, and style PRs."
+  },
+  {
+    "name": "Release: Performance",
+    "color": "FBCA04",
+    "description": "Release-note category for perf PRs."
+  },
+  {
+    "name": "Release: Documentation",
+    "color": "0052CC",
+    "description": "Release-note category for docs PRs."
+  },
+  {
+    "name": "Release: Tests",
+    "color": "0E8A16",
+    "description": "Release-note category for test PRs."
+  },
+  {
+    "name": "Release: Chores",
+    "color": "D4C5F9",
+    "description": "Release-note category for chore, build, and CI PRs."
+  },
+  {
+    "name": "Release: Design",
+    "color": "FEF2C0",
+    "description": "Release-note category for design PRs."
+  },
+  {
     "name": "Close: Duplicate",
     "color": "D4C5F9",
     "description": ""
