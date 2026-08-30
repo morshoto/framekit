@@ -330,6 +330,33 @@ test("MCP connection status normalizes injected capability payloads", async () =
   }
 });
 
+test("MCP connection status preserves malformed capabilities without throwing", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Malformed Connection Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    connectionStatus: () => ({ state: "ready", capabilities: {} }),
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "malformed-connection-capabilities-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "connection.status", arguments: {} });
+    const payload = JSON.parse(textFrom(result));
+
+    assert.deepEqual(payload, { state: "ready", capabilities: {} });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("Workflow Extension capability payload defines the versioned family contract", async () => {
   const swift = await readFile(join(
     process.cwd(),

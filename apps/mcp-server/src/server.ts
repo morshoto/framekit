@@ -196,18 +196,28 @@ function jsonResult(value: unknown) {
 function normalizeConnectionStatus(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const status = value as Record<string, unknown>;
-  if (!status.capabilities || typeof status.capabilities !== "object") return value;
+  if (!isRuntimeCapabilities(status.capabilities)) return value;
   const identity = status.identity && typeof status.identity === "object"
     ? status.identity as { backend?: unknown }
     : undefined;
   const backend = typeof identity?.backend === "string" ? identity.backend : undefined;
   return {
     ...status,
-    capabilities: withCapabilityFamilies(status.capabilities as RuntimeCapabilities, {
+    capabilities: withCapabilityFamilies(status.capabilities, {
       ...(backend ? { backend, connectionBackend: backend } : {}),
       connection: status.state === "ready",
     }),
   };
+}
+
+function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const capabilities = value as Record<string, unknown>;
+  return isRecord(capabilities.editor) && isRecord(capabilities.analyzers);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function frameResult(value: TimelineFrameCapture) {
