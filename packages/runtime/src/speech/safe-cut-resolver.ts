@@ -119,9 +119,12 @@ export class SafeCutResolver {
     if (previousWord) evidence.previousWord = { ...previousWord };
     if (nextWord) evidence.nextWord = { ...nextWord };
 
+    if (!request.analysis.vadSegments) {
+      return { ...base, status: "SKIPPED", reasonCodes: ["MISSING_VAD_EVIDENCE"] };
+    }
     const vadSegments = validateSegments(request.analysis.vadSegments);
     if (!vadSegments) {
-      return { ...base, status: "SKIPPED", reasonCodes: ["MISSING_VAD_EVIDENCE"] };
+      return { ...base, status: "SKIPPED", reasonCodes: ["INVALID_VAD_EVIDENCE"] };
     }
     evidence.speechSegments = vadSegments.filter((segment) => segment.kind === "speech");
     if (hasOverlappingSpeech(vadSegments) || hasOverlappingWords(words)) {
@@ -240,7 +243,11 @@ function validateSegments(segments: SpeechSegment[] | undefined): SpeechSegment[
   if (!segments) return undefined;
   const ordered = segments.map((segment) => ({ ...segment })).sort((left, right) => left.start - right.start || left.end - right.end);
   for (const segment of ordered) {
-    if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) || segment.start < 0 || segment.end <= segment.start) {
+    if (!Number.isFinite(segment.start)
+      || !Number.isFinite(segment.end)
+      || segment.start < 0
+      || segment.end <= segment.start
+      || !["speech", "silence", "breath", "laughter", "noise"].includes(segment.kind)) {
       return undefined;
     }
   }

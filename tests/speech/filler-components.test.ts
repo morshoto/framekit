@@ -90,6 +90,28 @@ test("candidate IDs are stable within a preview and change across previews", () 
   assert.notEqual(first[0]?.id, other[0]?.id);
 });
 
+test("detector records vocabulary-only and low-confidence evidence", () => {
+  const detector = new FillerDetector({ vocabulary: ["uh"], confidenceThreshold: 0.9 });
+  const candidates = detector.detect({
+    previewId: "preview-policy",
+    analysis: {
+      words: [{ text: "uh", start: 5.4, end: 5.7, confidence: 0.5 }],
+    },
+    targetRange: { start: 10, end: 13 },
+    occurrence: {
+      occurrenceId: "occurrence-policy",
+      sourceRange: { start: 5, end: 8 },
+      sequenceRange: { start: 10, end: 13 },
+    },
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.evidence.analyzerMarkedFiller, false);
+  assert.equal(candidates[0]?.evidence.vocabularyMatch, true);
+  assert.equal(candidates[0]?.eligible, false);
+  assert.deepEqual(candidates[0]?.reasonCodes, ["VOCABULARY_MATCH", "BELOW_CONFIDENCE_THRESHOLD"]);
+});
+
 test("resolver auto-applies a bounded frame-aligned cut with pause preservation", () => {
   const candidate = detect()[0]!;
   const resolver = new SafeCutResolver({ preservePauseMs: 700, targetPauseMs: 500 });
@@ -200,6 +222,28 @@ test("resolver skips overlapping speech and protected segments", () => {
   const protectedDecision = new SafeCutResolver().resolve(protectedRequest);
   assert.equal(protectedDecision.status, "SKIPPED");
   assert.deepEqual(protectedDecision.reasonCodes, ["PROTECTED_SEGMENT_OVERLAP"]);
+
+  const protectedPauseRequest = resolverRequest({
+    analysis: {
+      ...analysisWithVAD,
+      protectedSegments: [{ start: 5.95, end: 6.15, kind: "laughter" }],
+    } as SpeechAnalysis,
+  });
+  const protectedPauseDecision = new SafeCutResolver().resolve(protectedPauseRequest);
+  assert.equal(protectedPauseDecision.status, "SKIPPED");
+  assert.deepEqual(protectedPauseDecision.reasonCodes, ["PROTECTED_SEGMENT_OVERLAP"]);
+});
+
+test("resolver distinguishes malformed VAD evidence from missing VAD", () => {
+  const decision = new SafeCutResolver().resolve(resolverRequest({
+    analysis: {
+      ...analysisWithVAD,
+      vadSegments: [{ start: 5.4, end: 5.3, kind: "speech" }],
+    } as SpeechAnalysis,
+  }));
+
+  assert.equal(decision.status, "SKIPPED");
+  assert.deepEqual(decision.reasonCodes, ["INVALID_VAD_EVIDENCE"]);
 });
 
 test("resolver keeps every range inside target and occurrence bounds", () => {
