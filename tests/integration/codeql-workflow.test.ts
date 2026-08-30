@@ -78,6 +78,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(workflow, /-sdk macosx/);
   assert.match(workflow, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
   assert.match(workflow, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
+  assert.match(workflow, /ARCHS="\$\(uname -m\)"/);
   assert.match(workflow, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
   assert.match(workflow, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
   assert.match(workflow, /FRAMEWORK_SEARCH_PATHS=/);
