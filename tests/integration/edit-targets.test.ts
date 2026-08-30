@@ -152,3 +152,20 @@ test("MCP publishing requires the verified artifact target and returns the creat
     await server.close();
   }
 });
+
+test("MCP reports disabled artifact publishing as unavailable", async () => {
+  const server = createMcpServer(new AgentVideoRuntime(fixtureAdapter()), {
+    projectPublisher: new FinalCutProjectPublisher({ sourcePath: "/tmp/managed.fcpxml" }),
+  });
+  const client = new Client({ name: "disabled-publish-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
