@@ -275,6 +275,7 @@ test("fixture construction supports move, replace, remove, transitions, and atta
   const audio = after.timeline.clips.find((clip) => clip.id === "voice-occurrence");
 
   assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "construction-state")?.passed, true);
   assert.equal(moved?.start, 5);
   assert.equal(replaced?.mediaId, "replacement-media");
   assert.equal(replaced?.duration, 3);
