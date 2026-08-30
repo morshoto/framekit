@@ -23,8 +23,25 @@ import type {
 
 type XmlNode = Record<string, any>;
 type OrderedXml = XmlNode[];
+type TimelineEntry = {
+  kind: string;
+  node: XmlNode;
+  path: string;
+  startTime: RationalTime;
+  durationTime: RationalTime;
+};
 
-const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "audio", "video"]);
+const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "mc-clip", "audio", "video"]);
+const TIMELINE_KINDS = new Set([
+  ...CLIP_KINDS,
+  "gap",
+  "title",
+  "transition",
+  "caption",
+  "marker",
+  "audition",
+  "live-drawing",
+]);
 
 /**
  * FCPXML document interchange adapter. It edits the artifact on disk; it does
@@ -93,15 +110,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const projectId = stableProjectId(project);
     const sequenceName = String(attribute(sequenceNode ?? {}, "name") ?? projectName);
     const timelineId = stableTimelineId(project, sequenceNode);
-    const elements = storyEntries(spine);
+    const elements = timelineEntries(spine);
     const storyElements = elements
-      .map(({ kind, node }, index) => ({ kind, element: this.storyElementFromXml(node, kind, index, timelineId) }))
+      .map((entry) => ({ kind: entry.kind, element: this.storyElementFromXml(entry, timelineId) }))
       .filter(({ kind }) => kind !== "marker" && kind !== "caption")
       .map(({ element }) => element);
     const clips = elements
-      .map(({ kind, node }, index) => ({ kind, node, index }))
       .filter(({ kind }) => CLIP_KINDS.has(kind))
-      .map(({ kind, node, index }) => this.clipFromXml(node, kind, index, timelineId));
+      .map((entry) => this.clipFromXml(entry, timelineId));
     const durationValue = attribute(sequence, "duration")
       ?? formatSeconds(Math.max(0, ...storyElements.map((element) => element.start + element.duration)));
     return {
@@ -114,8 +130,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         durationTime: parseRational(durationValue),
         clips,
         storyElements,
-        markers: this.markersFromXml(spine),
-        captions: this.captionsFromXml(spine),
+        markers: this.markersFromXml(elements),
+        captions: this.captionsFromXml(elements),
       },
       media: this.mediaFromResources(),
       revision: this.revision(),
@@ -244,48 +260,45 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     return findElement(this.xml ?? [], "project") ?? {};
   }
 
-  private storyElementFromXml(node: XmlNode, kind: string, index: number, timelineId: string): StoryElement {
-    const startValue = attribute(node, "offset") ?? attribute(node, "start") ?? "0s";
-    const durationValue = attribute(node, "duration") ?? "0s";
+  private storyElementFromXml(entry: TimelineEntry, timelineId: string): StoryElement {
+    const { node, kind, path, startTime, durationTime } = entry;
     return {
-      id: this.instanceId(node, kind, index, timelineId),
+      id: this.instanceId(node, kind, path, timelineId),
       kind,
-      start: parseSeconds(startValue),
-      duration: parseSeconds(durationValue),
-      startTime: parseRational(startValue),
-      durationTime: parseRational(durationValue),
+      start: rationalSeconds(startTime),
+      duration: rationalSeconds(durationTime),
+      startTime,
+      durationTime,
       ...(attribute(node, "lane") !== undefined ? { lane: Number(attribute(node, "lane")) } : {}),
       ...(attribute(node, "ref") !== undefined ? { mediaId: String(attribute(node, "ref")) } : {}),
     };
   }
 
-  private clipFromXml(node: XmlNode, kind: string, index: number, timelineId: string): Clip {
-    const startValue = attribute(node, "offset") ?? attribute(node, "start") ?? "0s";
-    const durationValue = attribute(node, "duration") ?? "0s";
+  private clipFromXml(entry: TimelineEntry, timelineId: string): Clip {
+    const { node, kind, path, startTime, durationTime } = entry;
     const gain = firstChild(node, "adjust-volume");
     return {
-      id: this.instanceId(node, kind, index, timelineId),
+      id: this.instanceId(node, kind, path, timelineId),
       mediaId: attribute(node, "ref") === undefined ? undefined : String(attribute(node, "ref")),
-      name: String(attribute(node, "name") ?? attribute(node, "ref") ?? `Clip ${index + 1}`),
-      start: parseSeconds(startValue),
-      duration: parseSeconds(durationValue),
+      name: String(attribute(node, "name") ?? attribute(node, "ref") ?? `Clip ${path.includes(".") ? path : path + 1}`),
+      start: rationalSeconds(startTime),
+      duration: rationalSeconds(durationTime),
       track: Number(attribute(node, "lane") ?? 0),
-      startTime: parseRational(startValue),
-      durationTime: parseRational(durationValue),
+      startTime,
+      durationTime,
       ...(gain ? { gainDb: parseDb(attribute(gain, "amount") ?? "0dB") } : {}),
     };
   }
 
-  private instanceId(node: XmlNode, kind: string, index: number, timelineId: string): string {
+  private instanceId(node: XmlNode, kind: string, path: string, timelineId: string): string {
     const explicit = attribute(node, "id") ?? attribute(node, "uid");
-    return String(explicit ?? `${timelineId}:spine:${index}:${kind}`);
+    return String(explicit ?? `${timelineId}:spine:${path}:${kind}`);
   }
 
   private findClipNode(spine: XmlNode, clipId: string, timelineId: string): XmlNode | undefined {
-    return storyEntries(spine)
-      .map(({ kind, node }, index) => ({ kind, node, index }))
+    return timelineEntries(spine)
       .filter(({ kind }) => CLIP_KINDS.has(kind))
-      .find(({ kind, node, index }) => this.instanceId(node, kind, index, timelineId) === clipId)
+      .find(({ kind, node, path }) => this.instanceId(node, kind, path, timelineId) === clipId)
       ?.node;
   }
 
@@ -298,44 +311,40 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     appendChild(node, "adjust-volume", { ":@": { "@_amount": formatDb(gainDb) } });
   }
 
-  private markersFromXml(spine: XmlNode): Marker[] {
-    return storyEntries(spine)
+  private markersFromXml(elements: TimelineEntry[]): Marker[] {
+    return elements
       .filter(({ kind }) => kind === "marker")
-      .map(({ node }, index) => {
-        const start = attribute(node, "start") ?? "0s";
-        const duration = attribute(node, "duration") ?? "0s";
+      .map(({ node, startTime, durationTime }, index) => {
         return {
           id: String(attribute(node, "id") ?? `marker-${index + 1}`),
-          start: parseSeconds(start),
-          duration: parseSeconds(duration),
-          startTime: parseRational(start),
-          durationTime: parseRational(duration),
+          start: rationalSeconds(startTime),
+          duration: rationalSeconds(durationTime),
+          startTime,
+          durationTime,
           name: String(attribute(node, "value") ?? attribute(node, "name") ?? `Marker ${index + 1}`),
         };
       });
   }
 
-  private captionsFromXml(spine: XmlNode): Caption[] {
-    return storyEntries(spine)
+  private captionsFromXml(elements: TimelineEntry[]): Caption[] {
+    return elements
       .filter(({ kind }) => kind === "caption")
-      .map(({ node }, index) => {
-        const start = attribute(node, "start") ?? "0s";
-        const duration = attribute(node, "duration") ?? "0s";
+      .map(({ node, startTime, durationTime }, index) => {
         return {
           id: String(attribute(node, "id") ?? `caption-${index + 1}`),
-          start: parseSeconds(start),
-          duration: parseSeconds(duration),
-          startTime: parseRational(start),
-          durationTime: parseRational(duration),
+          start: rationalSeconds(startTime),
+          duration: rationalSeconds(durationTime),
+          startTime,
+          durationTime,
           text: String(attribute(node, "text") ?? attribute(node, "name") ?? ""),
         };
       });
   }
 
   private updateSequenceDuration(sequence: XmlNode, spine: XmlNode): void {
-    const duration = Math.max(0, ...storyEntries(spine)
+    const duration = Math.max(0, ...timelineEntries(spine)
       .filter(({ kind }) => kind !== "marker" && kind !== "caption")
-      .map(({ node }) => parseSeconds(attribute(node, "offset") ?? attribute(node, "start") ?? "0s") + parseSeconds(attribute(node, "duration") ?? "0s")));
+      .map(({ startTime, durationTime }) => rationalSeconds(startTime) + rationalSeconds(durationTime)));
     setAttribute(sequence, "duration", formatSeconds(duration));
   }
 
@@ -379,6 +388,30 @@ function storyEntries(node: XmlNode): Array<{ kind: string; node: XmlNode }> {
       : []);
 }
 
+function timelineEntries(spine: XmlNode): TimelineEntry[] {
+  const entries: TimelineEntry[] = [];
+
+  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string): void => {
+    storyEntries(node).forEach(({ kind, node: child }, index) => {
+      const path = parentPath.length === 0 ? String(index) : `${parentPath}.${index}`;
+      const localStart = parseRational(
+        attribute(child, "offset")
+          ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
+          ?? "0s",
+      );
+      const durationTime = parseRational(attribute(child, "duration") ?? "0s");
+      const startTime = addRational(parentStart, localStart);
+      if (TIMELINE_KINDS.has(kind)) {
+        entries.push({ kind, node: child, path, startTime, durationTime });
+      }
+      visit(child, startTime, path);
+    });
+  };
+
+  visit(spine, { value: "0", timescale: "1" }, "");
+  return entries;
+}
+
 function findElement(nodes: OrderedXml | XmlNode, kind: string): XmlNode | undefined {
   const containers = Array.isArray(nodes) ? nodes : [nodes];
   for (const container of containers) {
@@ -420,12 +453,7 @@ function setAttribute(node: XmlNode, name: string, value: string): void {
 }
 
 function parseSeconds(value: unknown): number {
-  const normalized = String(value).replace(/s$/, "");
-  if (normalized.includes("/")) {
-    const [numerator, denominator] = normalized.split("/").map(Number);
-    return denominator === 0 ? 0 : numerator / denominator;
-  }
-  return Number(normalized) || 0;
+  return rationalSeconds(parseRational(value));
 }
 
 function parseDb(value: unknown): number {
@@ -433,9 +461,53 @@ function parseDb(value: unknown): number {
 }
 
 function parseRational(value: unknown): RationalTime {
+  return rationalTime(rationalParts(value));
+}
+
+function rationalSeconds(value: RationalTime): number {
+  const seconds = Number(value.value) / Number(value.timescale);
+  if (!Number.isFinite(seconds)) throw new Error("FCPXML_INVALID_TIME: rational time is not finite");
+  return seconds;
+}
+
+function rationalParts(value: unknown): { numerator: bigint; denominator: bigint } {
   const normalized = String(value).replace(/s$/, "");
-  const [numerator, denominator = "1"] = normalized.split("/");
-  return { value: numerator, timescale: denominator };
+  const parts = normalized.split("/");
+  if (parts.length > 2) throw new Error(`FCPXML_INVALID_TIME: ${String(value)}`);
+  const [numeratorText, denominatorText = "1"] = parts;
+  if (!/^-?\d+$/.test(numeratorText) || !/^\d+$/.test(denominatorText)) {
+    throw new Error(`FCPXML_INVALID_TIME: ${String(value)}`);
+  }
+  const numerator = BigInt(numeratorText);
+  const denominator = BigInt(denominatorText);
+  if (denominator <= 0n) throw new Error(`FCPXML_INVALID_TIME: ${String(value)}`);
+  return { numerator, denominator };
+}
+
+function rationalTime(parts: { numerator: bigint; denominator: bigint }): RationalTime {
+  const divisor = greatestCommonDivisor(parts.numerator, parts.denominator);
+  return {
+    value: String(parts.numerator / divisor),
+    timescale: String(parts.denominator / divisor),
+  };
+}
+
+function addRational(left: RationalTime, right: RationalTime): RationalTime {
+  return rationalTime({
+    numerator: BigInt(left.value) * BigInt(right.timescale) + BigInt(right.value) * BigInt(left.timescale),
+    denominator: BigInt(left.timescale) * BigInt(right.timescale),
+  });
+}
+
+function greatestCommonDivisor(left: bigint, right: bigint): bigint {
+  let a = left < 0n ? -left : left;
+  let b = right < 0n ? -right : right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a === 0n ? 1n : a;
 }
 
 function formatRational(value: RationalTime): string {

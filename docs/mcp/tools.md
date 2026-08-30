@@ -39,6 +39,8 @@
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path or a canonical-capable live Final Cut bridge |
+| `speech.filler.remove.preview` | Analyze a selected canonical timeline range and preview high-confidence filler removal with safe rational ranges | Requires speech analysis, canonical timeline snapshot/write, read-after-write, and rollback |
+| `speech.filler.remove.execute` | Execute a filler-removal preview, re-analyze adjacent speech, verify the diff, and return a verified or rolled-back transaction | Requires the same canonical live write guarantees; use `edit.undo` for a later explicit reversal |
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |

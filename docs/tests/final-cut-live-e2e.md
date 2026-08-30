@@ -110,6 +110,24 @@ revision and duration return to their pre-edit values. It fails
 closed if the project name does not match or if the overlay cannot be
 minimized.
 
+The overlay Accessibility probe reports stable recovery diagnostics:
+
+- `FINAL_CUT_E2E_ACCESSIBILITY_PERMISSION_REQUIRED`: grant Accessibility
+  permission to the headed test host in System Settings > Privacy & Security >
+  Accessibility.
+- `FINAL_CUT_E2E_FINAL_CUT_PROCESS_MISSING`: open Final Cut Pro and the Framekit
+  Workflow Extension.
+- `FINAL_CUT_E2E_OVERLAY_WRONG_PROCESS`: open the Framekit extension from
+  Window > Extensions > Framekit so its window is hosted by Final Cut Pro.
+- `FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING`: open the Framekit extension in Final
+  Cut Pro.
+- `FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE`: make the Framekit window visible and
+  retry.
+
+These diagnostics are intentionally actionable and do not expose private paths
+or media. The runner remains fail-closed if Accessibility cannot verify the
+overlay before the native preflight.
+
 ## Canonical live provider evidence
 
 When a live bridge advertises `canonicalTimelineMode: canonical-write`, open a
@@ -161,6 +179,29 @@ missing canonical target, stale revision, changed native selection, failed
 read-after-write, or failed restoration stops without claiming evidence. The
 current metadata-only Swift bridge therefore cannot produce this evidence until
 canonical live enumeration is available.
+
+## Canonical live read evidence
+
+When a live bridge advertises `canonicalTimelineMode: canonical-read` (or the
+read-capable `canonical-write` mode), the read-only evidence runner verifies the
+active project and sequence catalog against `project.inspect` without selecting
+a project or calling any mutation tool:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut:sequence:example" \
+pnpm run test:final-cut-canonical-read-headed \
+  > docs/tests/evidence/$(date +%F)-canonical-live-read.json
+```
+
+The sequence variable is optional only when the bridge reports an unambiguous
+active sequence. The sanitized document records the full commit, target
+identity, revision, exact-coordinate coverage, and counts of clips, ordered
+story elements, media references, markers, and captions; it never includes raw
+snapshots or media sources. Metadata-only bridges fail before `project.inspect`.
+The bundled Workflow Extension remains metadata-only because the public host API
+does not expose complete timeline enumeration; this runner becomes a passing
+gate only after a real enumeration-capable bridge is installed.
 
 ## Optional native UI validation
 
