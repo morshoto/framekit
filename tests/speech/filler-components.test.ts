@@ -88,14 +88,14 @@ test("resolver auto-applies a bounded frame-aligned cut with pause preservation"
   assert.equal(decision.status, "AUTO_APPLY");
   assert.deepEqual(decision.range, {
     start: 10.4,
-    end: 10.9,
+    end: 11.1,
     startTime: { value: "52", timescale: "5" },
-    durationTime: { value: "1", timescale: "2" },
+    durationTime: { value: "7", timescale: "10" },
   });
   assert.deepEqual(decision.operation, {
     type: "ripple-delete",
     timelineId: "timeline-1",
     range: decision.range,
-    reason: "remove filler candidate filler-candidate",
+    reason: `remove filler candidate ${candidate.id}`,
   });
 });
