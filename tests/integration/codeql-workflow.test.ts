@@ -72,6 +72,7 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
 
 test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml");
   const swiftJob = workflow.match(
     /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
   )?.[0];
@@ -79,7 +80,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.ok(swiftJob, "Swift CodeQL job should be present");
 
   assert.match(swiftJob, /xcodebuild/);
-  assert.match(swiftJob, /-target FramekitFinalCutWorkflowExtension/);
+  assert.match(swiftJob, /-target FramekitFinalCutWorkflowCodeQL/);
   assert.match(swiftJob, /-sdk macosx/);
   assert.match(swiftJob, /timeout-minutes: 20/);
   assert.match(swiftJob, /timeout-minutes: 10/);
@@ -101,6 +102,8 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.doesNotMatch(swiftJob, /ProExtensionHost\.framework/);
   assert.doesNotMatch(swiftJob, /\/tmp\/framekit-finalcut-frameworks/);
   assert.doesNotMatch(swiftJob, /build\.sh/);
+  assert.match(project, /FramekitFinalCutWorkflowCodeQL:/);
+  assert.match(project, /type: library\.static/);
 });
 
 test("CodeQL substitutes host declarations without changing the native import", async () => {
