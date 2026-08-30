@@ -33,7 +33,7 @@ manual `xcodebuild` step builds the extension with the checked-in
 shim enabled only by `FRAMEKIT_CODEQL`. The build disables the integrated Swift
 driver, compiler caches, and private framework/linker paths. It does not invoke
 `build.sh` or link the private host framework.
-The CodeQL job and extraction step are limited to fifteen and five minutes.
+The CodeQL job and extraction step are limited to twenty and ten minutes.
 The standalone Swift CI workflow remains the native gate for Xcode project
 validation and type-checking.
 
