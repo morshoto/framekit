@@ -1,4 +1,4 @@
-import type { RuntimeCapabilities } from "./domain/types.js";
+import type { RuntimeCapabilities } from "./domain/capabilities.js";
 
 export type CanonicalTimelineMode = "metadata-only" | "canonical-read" | "canonical-write";
 

@@ -257,6 +257,47 @@ test("composite execute is single-use and rolls back timeline and media after fa
   await assert.rejects(runtime.executeEdit(preview.previewToken), /PREVIEW_TOKEN_INVALID/);
 });
 
+test("composite execute restores canonical state when verification throws", async () => {
+  const throwingVerification: VerificationEngine = {
+    verify: async () => { throw new Error("FIXTURE_VERIFICATION_ERROR"); },
+  };
+  const { runtime } = createCompositeRuntime({ verificationEngine: throwingVerification });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+
+  await assert.rejects(
+    runtime.executeEdit(preview.previewToken),
+    /VERIFICATION_FAILED: canonical state was restored.*FIXTURE_VERIFICATION_ERROR/,
+  );
+  assert.deepEqual(projectContent(await runtime.inspectProject()), projectContent(before));
+});
+
+test("composite execute rejects a failed-verification rollback that does not restore canonical state", async () => {
+  const failingVerification: VerificationEngine = {
+    verify: async () => ({
+      passed: false,
+      checks: [{ name: "fixture-failure", passed: false, detail: "forced verification failure" }],
+    }),
+  };
+  const { adapter, runtime } = createCompositeRuntime({ verificationEngine: failingVerification });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+  adapter.restore = async () => {};
+
+  await assert.rejects(runtime.executeEdit(preview.previewToken), /ROLLBACK_FAILED/);
+});
+
+test("composite execute rejects an analysis rollback that does not restore canonical state", async () => {
+  const { adapter, runtime } = createCompositeRuntime({
+    speechAnalyzer: { analyze: async () => { throw new Error("FIXTURE_ANALYSIS_ERROR"); } },
+  });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+  adapter.restore = async () => {};
+
+  await assert.rejects(runtime.executeEdit(preview.previewToken), /ROLLBACK_FAILED/);
+});
+
 test("composite execute compensates for an adapter failure after a partial write", async () => {
   const { adapter, runtime } = createCompositeRuntime();
   const before = await runtime.inspectProject();

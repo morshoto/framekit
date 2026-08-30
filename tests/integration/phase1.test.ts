@@ -373,6 +373,55 @@ test("post-write verification invokes analyzers for affected ranges", async () =
   assert.ok(audioCalls > 0);
 });
 
+test("post-write verification passes clip intersections in media-relative coordinates", async () => {
+  const ranges = {
+    speech: [] as Array<{ start: number; end: number }>,
+    audio: [] as Array<{ start: number; end: number }>,
+    visual: [] as Array<{ start: number; end: number }>,
+  };
+  const editor = new InMemoryEditorAdapter({
+    projectId: "project-analysis-range",
+    projectName: "Analysis Range Fixture",
+    timelineId: "timeline-analysis-range",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-analysis", mediaId: "media-analysis", name: "Interview", start: 10, duration: 5, track: 1 }],
+    media: [{ mediaId: "media-analysis", source: "interview.mov" }],
+  });
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: { analyze: async (_input, range) => {
+      if (range) ranges.speech.push(range);
+      return { words: [] };
+    } },
+    audioAnalyzer: { analyze: async (_input, range) => {
+      if (range) ranges.audio.push(range);
+      return { integratedLufs: -18, truePeakDb: -3, silenceMs: 0 };
+    } },
+    visualAnalyzer: { analyze: async (_input, range) => {
+      if (range) ranges.visual.push(range);
+      return { scenes: [], subjects: [], keyframes: [] };
+    } },
+  });
+
+  await runtime.edit({
+    type: "add-marker",
+    timelineId: "timeline-analysis-range",
+    marker: { id: "marker-analysis", start: 8, duration: 4, name: "Review" },
+  });
+
+  assert.deepEqual(ranges, {
+    speech: [{ start: 0, end: 2 }],
+    audio: [{ start: 0, end: 2 }],
+    visual: [{ start: 0, end: 2 }],
+  });
+});
+
+test("missing live context reports the Framekit capability name", async () => {
+  await assert.rejects(
+    new AgentVideoRuntime(fixtureAdapter()).inspectLiveEditor(),
+    /CAPABILITY_UNAVAILABLE: live Framekit editor state/,
+  );
+});
+
 test("Phase 1 provides context changes and speech/audio analysis ports", async () => {
   const runtime = new AgentVideoRuntime(fixtureAdapter(), {
     speechAnalyzer: new FixtureSpeechAnalyzer(),

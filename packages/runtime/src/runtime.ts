@@ -1,997 +1,180 @@
-import { randomUUID } from "node:crypto";
 import { ContextEngine } from "./context/context-engine.js";
-import { diffSnapshots } from "./diff/diff.js";
 import type {
   AgentContext,
-  AudioAnalysis,
-  AudioAnalyzer,
   AssetSearchQuery,
-  ContextDiff,
-  ContextRevision,
+  AudioAnalysis,
   CompositeEditPreview,
   CompositeEditRequest,
+  ContextDiff,
+  ContextRevision,
   EditOperation,
   EditTransaction,
-  EditorPort,
   EditorAsset,
   EditorChange,
   EditorLiveState,
-  RationalTime,
-  LiveEditorStatePort,
+  EditorPort,
   MediaContext,
   MediaUnderstanding,
   MusicAddRequest,
-  ProjectSnapshot,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSnapshot,
+  RationalTime,
   SpeechAnalysis,
-  SpeechAnalyzer,
-  SpeechWord,
   TimelineDiff,
   TimelineFrameCapture,
   TimeRange,
-  VisualAnalysis,
-  VisualAnalyzer,
-  VerificationEngine,
-  VerificationCheck,
   VerificationPolicy,
-  WorkflowOperation,
-} from "./domain/types.js";
+  VisualAnalysis,
+} from "./domain/index.js";
+import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
-import { withCanonicalTimelineMode } from "./capabilities.js";
-import { canonicalSnapshotDigest } from "./snapshot-digest.js";
-import {
-  planFillerRemoval,
-  type FillerRemovalPreview,
-  type FillerRemovalRequest,
-  type FillerRemovalTarget,
-} from "./speech/filler-removal.js";
+import { ContextService } from "./context/context-service.js";
+import { EditService } from "./editing/edit-service.js";
+import { FillerRemovalService } from "./editing/filler-removal-service.js";
+import { MediaAnalysisService } from "./application/media-analysis-service.js";
+import { MusicService } from "./editing/music-service.js";
+import { ProjectService } from "./application/project-service.js";
+import type { RuntimeOptions } from "./application/runtime-options.js";
+import { TransactionStore } from "./application/transaction-store.js";
 
+/** Stable runtime façade exposed to the MCP server and editor adapters. */
 export class AgentVideoRuntime {
-  private readonly transactions = new Map<string, EditTransaction>();
-  private readonly editPreviews = new Map<string, CompositeEditPreview>();
-  private readonly fillerPreviews = new Map<string, FillerRemovalPreviewRecord>();
-  private readonly verificationEngine: VerificationEngine;
-  private readonly context: ContextEngine;
+  private readonly projects: ProjectService;
+  private readonly contexts: ContextService;
+  private readonly media: MediaAnalysisService;
+  private readonly edits: EditService;
+  private readonly music: MusicService;
+  private readonly fillerRemoval: FillerRemovalService;
 
   public constructor(
-    private readonly adapter: EditorPort,
-    private readonly options: {
-      speechAnalyzer?: SpeechAnalyzer;
-      audioAnalyzer?: AudioAnalyzer;
-      visualAnalyzer?: VisualAnalyzer;
-      verificationEngine?: VerificationEngine;
-      now?: () => number;
-      previewTtlMs?: number;
-      maxActivePreviews?: number;
-    } = {},
+    adapter: EditorPort,
+    options: RuntimeOptions = {},
   ) {
-    this.context = new ContextEngine(adapter);
-    this.verificationEngine = options.verificationEngine ?? new DefaultVerificationEngine();
+    const context = new ContextEngine(adapter);
+    const verificationEngine = options.verificationEngine ?? new DefaultVerificationEngine();
+    const transactions = new TransactionStore();
+    this.projects = new ProjectService(adapter, context, options);
+    this.contexts = new ContextService(adapter, context);
+    this.media = new MediaAnalysisService(this.projects, context, options);
+    this.edits = new EditService(adapter, this.projects, this.media, verificationEngine, options, transactions);
+    this.music = new MusicService(this.projects, this.edits);
+    this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
   }
 
   public async inspectProject(): Promise<ProjectSnapshot> {
-    return this.context.inspectProject();
+    return this.projects.inspectProject();
   }
 
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
-    const project = await this.inspectProject();
-    return project.timeline;
+    return this.projects.inspectTimeline();
   }
 
   public async captureFrame(
     position: RationalTime,
     options: { analyze?: boolean } = {},
   ): Promise<TimelineFrameCapture> {
-    const exactPosition = parseRational(position, "INVALID_TIMELINE_POSITION");
-    const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.editor.frameCapture || !this.adapter.captureFrame) {
-      throw new Error("CAPABILITY_UNAVAILABLE: timeline frame capture");
-    }
-    if (options.analyze && !this.options.visualAnalyzer) {
-      throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
-    }
-    const project = await this.inspectProject();
-    const source = await this.adapter.captureFrame(position, project.revision);
-    const clip = project.timeline.clips
-      .filter((candidate) => isWithinClip(exactPosition, candidate.startTime, candidate.durationTime))
-      .sort((left, right) => right.track - left.track)[0];
-    let analysis: VisualAnalysis | undefined;
-    if (options.analyze) {
-      const media = clip?.mediaId
-        ? project.media.find((candidate) => candidate.mediaId === clip.mediaId)
-        : undefined;
-      if (!clip || !media) {
-        throw new Error("CAPABILITY_UNAVAILABLE: visual analysis requires media at the captured position");
-      }
-      const mediaTime = rationalDifferenceSeconds(
-        exactPosition,
-        parseRational(clip.startTime, "INVALID_PROJECT_STATE"),
-      );
-      analysis = await this.options.visualAnalyzer!.analyze(
-        { project, media },
-        { start: mediaTime, end: mediaTime },
-      );
-    }
-    return {
-      image: structuredClone(source.image),
-      position: { ...position },
-      timecode: source.timecode,
-      project: { id: project.projectId, name: project.projectName },
-      sequence: { id: project.timeline.id, name: project.timeline.name },
-      ...(clip ? {
-        clip: {
-          id: clip.id,
-          ...(clip.mediaId ? { mediaId: clip.mediaId } : {}),
-          name: clip.name,
-          startTime: { ...clip.startTime },
-          durationTime: { ...clip.durationTime },
-          track: clip.track,
-        },
-      } : {}),
-      ...(analysis ? { analysis } : {}),
-    };
+    return this.projects.captureFrame(position, options);
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
-    const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.editor.projectCatalogRead || !this.adapter.listProjects) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project catalog");
-    }
-    return this.adapter.listProjects();
+    return this.projects.listProjects();
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
-    const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project selection");
-    }
-    if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
-    if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
-      throw new Error("INVALID_PROJECT_SELECTION: sequenceId cannot be empty");
-    }
-    return this.adapter.selectProject(selection);
+    return this.projects.selectProject(selection);
   }
 
   public async inspectEditor() {
-    const capabilities = withCanonicalTimelineMode(await this.adapter.getCapabilities());
-    return {
-      identity: await this.adapter.getIdentity(),
-      capabilities: {
-        ...capabilities,
-        analyzers: {
-          ...capabilities.analyzers,
-          speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
-          audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
-          visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
-        },
-      },
-    };
+    return this.projects.inspectEditor();
   }
 
   public async inspectContext(): Promise<AgentContext> {
     const editor = await this.inspectEditor();
-    return this.context.inspectContext(editor.capabilities);
+    return this.contexts.inspectContext(editor.capabilities);
   }
 
   public async inspectLiveEditor(): Promise<EditorLiveState> {
-    const liveAdapter = this.liveAdapter();
-    return liveAdapter.readLiveState();
+    return this.contexts.inspectLiveEditor();
   }
 
   public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<EditorChange[]> {
-    const liveAdapter = this.liveAdapter();
-    return liveAdapter.liveChangesSince(revision, waitMs);
+    return this.contexts.liveChangesSince(revision, waitMs);
   }
 
   public async edit(operation: EditOperation, policy: VerificationPolicy = {}): Promise<EditTransaction> {
-    const before = await this.inspectProject();
-    if (operation.baseRevision && !sameRevision(operation.baseRevision, before.revision)) {
-      throw new Error("STALE_CONTEXT: operation base revision does not match current editor state");
-    }
-
-    const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.editor.timelineWrite && !capabilities.editor.timelineArtifactWrite) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
-    }
-    if (
-      !capabilities.editor.timelineSnapshotRead
-      || !capabilities.editor.readAfterWrite
-      || !capabilities.editor.rollback
-    ) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation requires snapshot, read-after-write, and rollback");
-    }
-    const appliedRevision = await this.adapter.apply(operation, before.revision);
-    let attemptedAfter: ProjectSnapshot;
-    try {
-      attemptedAfter = await this.inspectProject();
-    } catch (readError) {
-      try {
-        await this.adapter.restore(before, appliedRevision);
-        this.assertRestored(before, await this.inspectProject());
-      } catch (rollbackError) {
-        throw new Error(`READ_AFTER_WRITE_FAILED: compensating rollback failed (${String(readError)}; ${String(rollbackError)})`);
-      }
-      throw new Error(`READ_AFTER_WRITE_FAILED: canonical state was restored (${String(readError)})`);
-    }
-    const diff = diffSnapshots(before, attemptedAfter);
-    const transaction: EditTransaction = {
-      id: `txn-${randomUUID()}`,
-      operation,
-      intent: operation.type,
-      planned: [operation],
-      applied: [operation],
-      baseRevision: before.revision,
-      before,
-      after: attemptedAfter,
-      attemptedAfter,
-      diff,
-      status: "APPLIED",
-    };
-    try {
-      transaction.attemptedAfter = await this.reanalyzeAffectedRanges(transaction);
-      transaction.after = transaction.attemptedAfter;
-    } catch (error) {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      this.assertRestored(before, await this.inspectProject());
-      throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
-    }
-    try {
-      transaction.verification = await this.verificationEngine.verify(transaction, policy);
-    } catch (verificationError) {
-      try {
-        await this.adapter.restore(before, attemptedAfter.revision);
-        this.assertRestored(before, await this.inspectProject());
-      } catch (rollbackError) {
-        throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
-      }
-      throw new Error(`VERIFICATION_FAILED: canonical state was restored (${String(verificationError)})`);
-    }
-    if (transaction.verification.passed) {
-      transaction.status = "VERIFIED";
-    } else {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      transaction.after = await this.inspectProject();
-      this.assertRestored(before, transaction.after);
-      transaction.status = "ROLLED_BACK";
-    }
-    this.transactions.set(transaction.id, transaction);
-    return transaction;
+    return this.edits.edit(operation, policy);
   }
 
   public async previewEdit(request: CompositeEditRequest): Promise<CompositeEditPreview> {
-    const before = await this.inspectProject();
-    if (!sameRevision(request.baseRevision, before.revision)) {
-      throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
-    }
-    if (request.operations.length === 0) throw new Error("INVALID_OPERATION: composite edit requires operations");
-    await this.assertCompositeCapabilities(request.operations);
-    if (!this.adapter.previewTransaction) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
-    }
-    const expectedAfter = await this.adapter.previewTransaction(request.operations, before.revision);
-    const previewToken = `preview-${randomUUID()}`;
-    const preview: CompositeEditPreview = {
-      previewToken,
-      baseRevision: structuredClone(before.revision),
-      operations: structuredClone(request.operations),
-      expectedDiff: diffSnapshots(before, expectedAfter),
-      warnings: [],
-      expiresAt: new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
-    };
-    this.pruneEditPreviews();
-    const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews)
-      && this.options.maxActivePreviews! > 0
-      ? this.options.maxActivePreviews!
-      : 128;
-    while (this.editPreviews.size >= maxActivePreviews) {
-      const oldestToken = this.editPreviews.keys().next().value;
-      if (oldestToken === undefined) break;
-      this.editPreviews.delete(oldestToken);
-    }
-    this.editPreviews.set(previewToken, preview);
-    return structuredClone(preview);
+    return this.edits.previewEdit(request);
   }
 
   public async executeEdit(previewToken: string, policy: VerificationPolicy = {}): Promise<EditTransaction> {
-    const preview = this.editPreviews.get(previewToken);
-    if (!preview) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used preview ${previewToken}`);
-    this.editPreviews.delete(previewToken);
-    if (this.now() > Date.parse(preview.expiresAt)) {
-      throw new Error("PREVIEW_TOKEN_EXPIRED: composite edit preview has expired");
-    }
-    const before = await this.inspectProject();
-    if (!sameRevision(preview.baseRevision, before.revision)) {
-      throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
-    }
-    await this.assertCompositeCapabilities(preview.operations);
-    if (!this.adapter.applyTransaction) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
-    }
-    try {
-      await this.adapter.applyTransaction(preview.operations, before.revision);
-    } catch (error) {
-      const partiallyApplied = await this.inspectProject();
-      if (!sameRevision(partiallyApplied.revision, before.revision)) {
-        try {
-          await this.adapter.restore(before, partiallyApplied.revision);
-        } catch (rollbackError) {
-          throw new Error(`TRANSACTION_FAILED: ${String(error)}; rollback failed: ${String(rollbackError)}`);
-        }
-      }
-      throw new Error(`TRANSACTION_FAILED: ${String(error)}; transaction was rolled back`);
-    }
-    const attemptedAfter = await this.inspectProject();
-    const transaction: EditTransaction = {
-      id: `txn-${randomUUID()}`,
-      intent: "composite-edit",
-      planned: structuredClone(preview.operations),
-      applied: structuredClone(preview.operations),
-      baseRevision: before.revision,
-      before,
-      after: attemptedAfter,
-      attemptedAfter,
-      diff: diffSnapshots(before, attemptedAfter),
-      status: "APPLIED",
-    };
-    try {
-      transaction.attemptedAfter = await this.reanalyzeAffectedRanges(transaction);
-      transaction.after = transaction.attemptedAfter;
-    } catch (error) {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
-    }
-    transaction.verification = await this.verificationEngine.verify(transaction, policy);
-    if (transaction.verification.passed) {
-      transaction.status = "VERIFIED";
-    } else {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      transaction.after = await this.inspectProject();
-      transaction.status = "ROLLED_BACK";
-    }
-    this.transactions.set(transaction.id, transaction);
-    return transaction;
+    return this.edits.executeEdit(previewToken, policy);
   }
 
   public async previewMusic(request: MusicAddRequest): Promise<CompositeEditPreview> {
-    if (request.ducking?.enabled) {
-      throw new Error("CAPABILITY_UNAVAILABLE: dialogue ducking");
-    }
-    const before = await this.inspectProject();
-    const operations: WorkflowOperation[] = [];
-    const hasMediaId = request.mediaId !== undefined;
-    const hasImport = request.import !== undefined;
-    if (hasMediaId === hasImport) {
-      throw new Error("INVALID_OPERATION: music requires exactly one mediaId or import source");
-    }
-    if (!Number.isInteger(request.targetLane) || request.targetLane === 0) {
-      throw new Error("INVALID_OPERATION: music requires a non-primary target lane");
-    }
-    if (request.placement === "append" && request.start !== undefined) {
-      throw new Error("INVALID_OPERATION: appended music cannot specify a start position");
-    }
-    const mediaId = request.import?.mediaId ?? request.mediaId!;
-    if (request.import) {
-      operations.push({
-        type: "media.import",
-        mediaId: request.import.mediaId,
-        source: request.import.source,
-        mediaKind: "audio",
-        duration: request.import.duration,
-        sourceDigest: request.import.sourceDigest,
-      });
-    }
-    const media = before.media.find((candidate) => candidate.mediaId === mediaId);
-    const duration = request.duration ?? request.import?.duration ?? media?.duration;
-    const sourceDuration = request.import?.duration ?? media?.duration;
-    if (duration === undefined) {
-      throw new Error("INVALID_OPERATION: music duration is required when media duration is unavailable");
-    }
-    if (!Number.isFinite(duration) || duration <= 0) {
-      throw new Error("INVALID_OPERATION: music duration must be positive");
-    }
-    if (sourceDuration !== undefined && duration > sourceDuration) {
-      throw new Error("INVALID_OPERATION: music duration exceeds the source duration");
-    }
-    const start = request.placement === "append" ? before.timeline.duration : request.start;
-    if (start === undefined || !Number.isFinite(start) || start < 0) {
-      throw new Error("INVALID_OPERATION: inserted music requires a non-negative start position");
-    }
-    operations.push({
-      type: "timeline.media.add",
-      occurrenceId: request.occurrenceId,
-      mediaId,
-      role: "music",
-      start,
-      duration,
-      targetLane: request.targetLane,
-    });
-    if (request.gainDb !== undefined) {
-      if (!Number.isFinite(request.gainDb)) throw new Error("INVALID_OPERATION: music gain must be finite");
-      operations.push({ type: "set-gain", clipId: request.occurrenceId, gainDb: request.gainDb });
-    }
-    if (request.fadeIn !== undefined || request.fadeOut !== undefined) {
-      const fadeIn = request.fadeIn ?? 0;
-      const fadeOut = request.fadeOut ?? 0;
-      if (!Number.isFinite(fadeIn) || !Number.isFinite(fadeOut) || fadeIn < 0 || fadeOut < 0 || fadeIn + fadeOut > duration) {
-        throw new Error("INVALID_OPERATION: music fades must be non-negative and fit within the music duration");
-      }
-      operations.push({
-        type: "timeline.audio.fades",
-        clipId: request.occurrenceId,
-        fadeIn,
-        fadeOut,
-      });
-    }
-    return this.previewEdit({ baseRevision: request.baseRevision, operations });
+    return this.music.previewMusic(request);
   }
 
   public async previewFillerRemoval(request: FillerRemovalRequest): Promise<FillerRemovalPreview> {
-    const before = await this.inspectProject();
-    if (!sameRevision(request.baseRevision, before.revision)) {
-      throw new Error("STALE_CONTEXT: filler preview base revision does not match current editor state");
-    }
-    await this.assertFillerCapabilities();
-    const selectedRange = validateFillerSelection(request.range);
-    const candidates: FillerRemovalTarget[] = [];
-    const expectedWordsByClip = new Map<string, SpeechWord[]>();
-    const selectedClips = before.timeline.clips.filter((clip) =>
-      clip.mediaId && rangesOverlap(clip.start, clip.start + clip.duration, selectedRange.start, selectedRange.end),
-    );
-    const selectedMediaIds = new Set<string>();
-    for (const clip of selectedClips) {
-      if (clip.mediaId && selectedMediaIds.has(clip.mediaId)) {
-        throw new Error("CAPABILITY_UNAVAILABLE: filler removal cannot verify repeated timeline occurrences of the same media item");
-      }
-      if (clip.mediaId) selectedMediaIds.add(clip.mediaId);
-    }
-    for (const clip of selectedClips) {
-      if (!clip.mediaId) continue;
-      const media = before.media.find((candidate) => candidate.mediaId === clip.mediaId);
-      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${clip.mediaId}`);
-      const localRange = {
-        start: Math.max(0, selectedRange.start - clip.start),
-        end: Math.min(clip.duration, selectedRange.end - clip.start),
-      };
-      if (localRange.end <= localRange.start) continue;
-      const speech = await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange);
-      expectedWordsByClip.set(clip.id, structuredClone(speech.words));
-      for (const candidate of planFillerRemoval(speech.words, localRange, request)) {
-        candidates.push({
-          ...candidate,
-          clipId: clip.id,
-          mediaId: clip.mediaId,
-          sourceRange: structuredClone(candidate.range),
-          range: translateClipRange(clip.startTime, clip.start, candidate.range),
-        });
-      }
-    }
-    if (candidates.length === 0) {
-      throw new Error("NO_FILLERS_FOUND: no high-confidence filler words in selected range");
-    }
-    candidates.sort((left, right) => right.range.start - left.range.start);
-    const operations: EditOperation[] = candidates.map((candidate) => ({
-      type: "ripple-delete",
-      timelineId: before.timeline.id,
-      range: structuredClone(candidate.range),
-      reason: `remove high-confidence filler word: ${candidate.word.text}`,
-    }));
-    const previewToken = `filler-preview-${randomUUID()}`;
-    const expiresAt = new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString();
-    const expectedDiff = this.adapter.previewTransaction
-      ? diffSnapshots(before, await this.adapter.previewTransaction(operations, before.revision))
-      : undefined;
-    const preview: FillerRemovalPreview = {
-      previewToken,
-      baseRevision: structuredClone(before.revision),
-      range: structuredClone(selectedRange),
-      candidates: structuredClone(candidates),
-      operations: structuredClone(operations),
-      ...(expectedDiff ? { expectedDiff } : {}),
-      warnings: expectedDiff ? [] : ["The selected canonical editor has no non-mutating preview provider; the diff will be observed after execution."],
-      expiresAt,
-    };
-    this.pruneFillerPreviews();
-    const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews)
-      && this.options.maxActivePreviews! > 0
-      ? this.options.maxActivePreviews!
-      : 128;
-    while (this.fillerPreviews.size >= maxActivePreviews) {
-      const oldestToken = this.fillerPreviews.keys().next().value;
-      if (oldestToken === undefined) break;
-      this.fillerPreviews.delete(oldestToken);
-    }
-    this.fillerPreviews.set(previewToken, {
-      preview,
-      expectedWordsByClip,
-    });
-    return structuredClone(preview);
+    return this.fillerRemoval.previewFillerRemoval(request);
   }
 
   public async executeFillerRemoval(previewToken: string): Promise<EditTransaction> {
-    const record = this.fillerPreviews.get(previewToken);
-    if (!record) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used filler preview ${previewToken}`);
-    this.fillerPreviews.delete(previewToken);
-    if (this.now() > Date.parse(record.preview.expiresAt)) {
-      throw new Error("PREVIEW_TOKEN_EXPIRED: filler removal preview has expired");
-    }
-    const before = await this.inspectProject();
-    if (!sameRevision(record.preview.baseRevision, before.revision)) {
-      throw new Error("STALE_CONTEXT: filler preview base revision does not match current editor state");
-    }
-    await this.assertFillerCapabilities();
-    let current = before;
-    let currentRevision = before.revision;
-    try {
-      for (const operation of record.preview.operations) {
-        currentRevision = await this.adapter.apply(operation, currentRevision);
-        current = await this.inspectProject();
-        if (!sameRevision(current.revision, currentRevision)) {
-          throw new Error("READ_AFTER_WRITE_FAILED: editor returned an unexpected filler-removal revision");
-        }
-      }
-      const transaction: EditTransaction = {
-        id: `txn-${randomUUID()}`,
-        intent: "remove-filler-words",
-        planned: structuredClone(record.preview.operations),
-        applied: structuredClone(record.preview.operations),
-        baseRevision: before.revision,
-        before,
-        after: current,
-        attemptedAfter: current,
-        diff: diffSnapshots(before, current),
-        status: "APPLIED",
-      };
-      transaction.attemptedAfter = await this.reanalyzeFillerTargets(transaction, record);
-      transaction.after = transaction.attemptedAfter;
-      const structuralVerification = await this.verificationEngine.verify(transaction, { requireExpectedChange: true });
-      const continuity = verifyFillerSpeechContinuity(transaction, record);
-      transaction.verification = {
-        passed: structuralVerification.passed && continuity.passed,
-        checks: [...structuralVerification.checks, continuity],
-      };
-      if (transaction.verification.passed) {
-        transaction.status = "VERIFIED";
-      } else {
-        await this.adapter.restore(before, current.revision);
-        transaction.after = await this.inspectProject();
-        this.assertRestored(before, transaction.after);
-        transaction.status = "ROLLED_BACK";
-      }
-      this.transactions.set(transaction.id, transaction);
-      return transaction;
-    } catch (error) {
-      let partiallyApplied: ProjectSnapshot;
-      try {
-        partiallyApplied = await this.inspectProject();
-      } catch (readError) {
-        throw new Error(`FILLER_REMOVAL_FAILED: ${String(error)}; rollback failed: ${String(readError)}`);
-      }
-      if (!sameRevision(partiallyApplied.revision, before.revision)) {
-        try {
-          await this.adapter.restore(before, partiallyApplied.revision);
-          this.assertRestored(before, await this.inspectProject());
-        } catch (rollbackError) {
-          throw new Error(`FILLER_REMOVAL_FAILED: ${String(error)}; rollback failed: ${String(rollbackError)}`);
-        }
-      }
-      throw new Error(`FILLER_REMOVAL_FAILED: ${String(error)}`);
-    }
+    return this.fillerRemoval.executeFillerRemoval(previewToken);
   }
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
-    return this.context.changesSince(revision);
+    return this.contexts.changesSince(revision);
   }
 
   public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
-    return this.context.contextChangesSince(revision, waitMs);
+    return this.contexts.contextChangesSince(revision, waitMs);
   }
 
   public async analyzeSpeech(mediaId: string): Promise<SpeechAnalysis> {
-    if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
-    const project = await this.inspectProject();
-    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
-    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
-    return this.options.speechAnalyzer.analyze({ project, media });
+    return this.media.analyzeSpeech(mediaId);
   }
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
-    if (!this.options.audioAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
-    const project = await this.inspectProject();
-    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
-    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
-    return this.options.audioAnalyzer.analyze({ project, media });
+    return this.media.analyzeAudio(mediaId);
   }
 
   public async analyzeVisual(mediaId: string, range?: TimeRange): Promise<VisualAnalysis> {
-    if (!this.options.visualAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
-    const project = await this.inspectProject();
-    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
-    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
-    return this.options.visualAnalyzer.analyze({ project, media }, range);
+    return this.media.analyzeVisual(mediaId, range);
   }
 
   public async understandMedia(mediaId: string): Promise<MediaUnderstanding> {
-    const project = await this.inspectProject();
-    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
-    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
-    const input = { project, media };
-    const [speech, audio, visual] = await Promise.all([
-      this.options.speechAnalyzer?.analyze(input),
-      this.options.audioAnalyzer?.analyze(input),
-      this.options.visualAnalyzer?.analyze(input),
-    ]);
-    if (!speech && !audio && !visual) {
-      throw new Error("CAPABILITY_UNAVAILABLE: media understanding");
-    }
-    const understanding: MediaUnderstanding = {
-      mediaId: media.mediaId,
-      source: media.source,
-      ...(speech ? { speech } : {}),
-      ...(audio ? { audio } : {}),
-      ...(visual ? { visual } : {}),
-      analysisRevision: project.revision,
-    };
-    this.context.attachMediaUnderstanding(understanding);
-    return structuredClone(understanding);
+    return this.media.understandMedia(mediaId);
   }
 
   public async inspectMedia(mediaId: string): Promise<MediaContext> {
-    const project = await this.inspectProject();
-    const media = project.media.find((candidate) => candidate.mediaId === mediaId);
-    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
-    return media;
+    return this.media.inspectMedia(mediaId);
   }
 
   public async searchMedia(query: string): Promise<MediaContext[]> {
-    const project = await this.inspectProject();
-    const normalized = query.trim().toLowerCase();
-    return project.media.filter((media) =>
-      media.mediaId.toLowerCase().includes(normalized) || media.source.toLowerCase().includes(normalized),
-    );
+    return this.media.searchMedia(query);
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
-    const capabilities = await this.adapter.getCapabilities();
-    if (!capabilities.editor.assetDiscovery || !this.adapter.listAssets) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor assets");
-    }
-    const assets = await this.context.listAssets(query);
-    return assets.filter((asset) => matchesAssetQuery(asset, query));
+    return this.projects.listAssets(query);
   }
 
   public getDiff(transactionId: string): TimelineDiff {
-    const transaction = this.getTransaction(transactionId);
-    return transaction.diff;
+    return this.edits.getDiff(transactionId);
   }
 
   public getTransaction(transactionId: string): EditTransaction {
-    const transaction = this.transactions.get(transactionId);
-    if (!transaction) {
-      throw new Error(`TRANSACTION_NOT_FOUND: ${transactionId}`);
-    }
-    return transaction;
+    return this.edits.getTransaction(transactionId);
   }
 
   public async verifyTransaction(transactionId: string): Promise<NonNullable<EditTransaction["verification"]>> {
-    return this.getTransaction(transactionId).verification!;
+    return this.edits.verifyTransaction(transactionId);
   }
 
   public async undo(transactionId: string): Promise<ProjectSnapshot> {
-    const transaction = this.getTransaction(transactionId);
-    const current = await this.inspectProject();
-    if (
-      current.projectId !== transaction.before.projectId
-      || current.timeline.id !== transaction.before.timeline.id
-    ) {
-      throw new Error(
-        `TARGET_MISMATCH: cannot undo ${transaction.before.projectId}/${transaction.before.timeline.id} while ${current.projectId}/${current.timeline.id} is active`,
-      );
-    }
-    await this.adapter.restore(transaction.before, current.revision);
-    const restored = await this.inspectProject();
-    this.assertRestored(transaction.before, restored);
-    return restored;
+    return this.edits.undo(transactionId);
   }
-
-  private assertRestored(expected: ProjectSnapshot, actual: ProjectSnapshot): void {
-    if (canonicalSnapshotDigest(expected) !== canonicalSnapshotDigest(actual)) {
-      throw new Error("ROLLBACK_FAILED: restored canonical digest does not match pre-edit state");
-    }
-  }
-
-  private liveAdapter(): LiveEditorStatePort {
-    const candidate = this.adapter as Partial<LiveEditorStatePort>;
-    if (typeof candidate.readLiveState !== "function" || typeof candidate.liveChangesSince !== "function") {
-      throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
-    }
-    return candidate as LiveEditorStatePort;
-  }
-
-  private async assertCompositeCapabilities(operations: WorkflowOperation[]): Promise<void> {
-    const capabilities = (await this.adapter.getCapabilities()).editor;
-    if (!capabilities.compositeTransactions || !capabilities.readAfterWrite || !capabilities.rollback) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transactions");
-    }
-    if (operations.some((operation) => operation.type === "media.import") && !capabilities.mediaImport) {
-      throw new Error("CAPABILITY_UNAVAILABLE: media import");
-    }
-    if (operations.some((operation) => operation.type === "timeline.media.add") && !capabilities.mediaPlacement) {
-      throw new Error("CAPABILITY_UNAVAILABLE: timeline media placement");
-    }
-    if (operations.some((operation) => operation.type === "timeline.title.add")
-      && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
-      throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");
-    }
-    if (operations.some((operation) => operation.type !== "media.import")
-      && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
-    }
-  }
-
-  private async assertFillerCapabilities(): Promise<void> {
-    if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
-    const capabilities = (await this.adapter.getCapabilities()).editor;
-    if (!capabilities.timelineSnapshotRead || !capabilities.timelineWrite
-      || !capabilities.readAfterWrite || !capabilities.rollback) {
-      throw new Error("CAPABILITY_UNAVAILABLE: filler removal requires canonical timeline write, read-after-write, and rollback");
-    }
-  }
-
-  private now(): number {
-    return this.options.now?.() ?? Date.now();
-  }
-
-  private pruneEditPreviews(): void {
-    const now = this.now();
-    for (const [previewToken, preview] of this.editPreviews) {
-      if (now > Date.parse(preview.expiresAt)) this.editPreviews.delete(previewToken);
-    }
-  }
-
-  private pruneFillerPreviews(): void {
-    const now = this.now();
-    for (const [previewToken, record] of this.fillerPreviews) {
-      if (now > Date.parse(record.preview.expiresAt)) this.fillerPreviews.delete(previewToken);
-    }
-  }
-
-  private async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
-    const mediaIds = new Set(transaction.diff.affectedRanges.flatMap((range) =>
-      transaction.attemptedAfter.timeline.clips
-        .filter((clip) => clip.start < range.end && clip.start + clip.duration > range.start)
-        .flatMap((clip) => clip.mediaId ? [clip.mediaId] : []),
-    ));
-    if (mediaIds.size === 0) return transaction.attemptedAfter;
-    const next = structuredClone(transaction.attemptedAfter);
-    for (const mediaId of mediaIds) {
-      const media = next.media.find((candidate) => candidate.mediaId === mediaId);
-      if (!media) continue;
-      const ranges = transaction.diff.affectedRanges.filter((range) =>
-        next.timeline.clips.some((clip) => clip.mediaId === mediaId && clip.start < range.end && clip.start + clip.duration > range.start),
-      );
-      const input = { project: next, media };
-      if (this.options.speechAnalyzer) {
-        const analyses = await Promise.all(ranges.map((range) => this.options.speechAnalyzer!.analyze(input, range)));
-        media.speech = { words: analyses.flatMap((analysis) => analysis.words) };
-      }
-      if (this.options.audioAnalyzer) {
-        const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
-        if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
-      }
-      if (this.options.visualAnalyzer) {
-        const analyses = await Promise.all(ranges.map((range) => this.options.visualAnalyzer!.analyze(input, range)));
-        media.visual = {
-          scenes: analyses.flatMap((analysis) => analysis.scenes),
-          subjects: analyses.flatMap((analysis) => analysis.subjects),
-          keyframes: analyses.flatMap((analysis) => analysis.keyframes),
-          motion: analyses[analyses.length - 1]?.motion,
-        };
-      }
-      if (this.options.speechAnalyzer || this.options.audioAnalyzer || this.options.visualAnalyzer) {
-        for (const candidate of next.media) {
-          if (candidate.mediaId === mediaId) candidate.analysisRevision = next.revision.id;
-        }
-      }
-    }
-    return next;
-  }
-
-  private async reanalyzeFillerTargets(
-    transaction: EditTransaction,
-    record: FillerRemovalPreviewRecord,
-  ): Promise<ProjectSnapshot> {
-    const next = structuredClone(transaction.attemptedAfter);
-    const targets = new Map(record.preview.candidates.map((candidate) => [candidate.clipId, candidate]));
-    for (const clipId of targets.keys()) {
-      const beforeClip = transaction.before.timeline.clips.find((clip) => clip.id === clipId);
-      const afterClip = next.timeline.clips.find((clip) => clip.id === clipId);
-      if (!beforeClip || !afterClip || !beforeClip.mediaId) {
-        throw new Error(`ANALYSIS_FAILED: filler target clip ${clipId} disappeared after the edit`);
-      }
-      const media = next.media.find((candidate) => candidate.mediaId === beforeClip.mediaId);
-      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${beforeClip.mediaId}`);
-      const speech = await this.options.speechAnalyzer!.analyze(
-        { project: next, media },
-        { start: 0, end: afterClip.duration },
-      );
-      media.speech = speech;
-      media.analysisRevision = next.revision.id;
-    }
-    return next;
-  }
-}
-
-interface FillerRemovalPreviewRecord {
-  preview: FillerRemovalPreview;
-  expectedWordsByClip: Map<string, SpeechWord[]>;
-}
-
-function validateFillerSelection(range: TimeRange): TimeRange {
-  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)
-    || range.start < 0 || range.end <= range.start) {
-    throw new Error("INVALID_OPERATION: filler selection range must be positive");
-  }
-  return {
-    start: range.start,
-    end: range.end,
-    ...(range.startTime ? { startTime: { ...range.startTime } } : {}),
-    ...(range.durationTime ? { durationTime: { ...range.durationTime } } : {}),
-  };
-}
-
-function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {
-  return leftStart < rightEnd && leftEnd > rightStart;
-}
-
-function translateClipRange(
-  clipStartTime: RationalTime,
-  clipStart: number,
-  sourceRange: TimeRange,
-): TimeRange {
-  if (!sourceRange.startTime || !sourceRange.durationTime) {
-    throw new Error("ANALYSIS_INVALID: filler range is missing rational timing");
-  }
-  return {
-    start: clipStart + sourceRange.start,
-    end: clipStart + sourceRange.end,
-    startTime: addRationalTimes(clipStartTime, sourceRange.startTime),
-    durationTime: { ...sourceRange.durationTime },
-  };
-}
-
-function addRationalTimes(left: RationalTime, right: RationalTime): RationalTime {
-  const leftParts = parseRational(left, "ANALYSIS_INVALID");
-  const rightParts = parseRational(right, "ANALYSIS_INVALID");
-  return normalizeRational(
-    leftParts.value * rightParts.timescale + rightParts.value * leftParts.timescale,
-    leftParts.timescale * rightParts.timescale,
-  );
-}
-
-function normalizeRational(value: bigint, timescale: bigint): RationalTime {
-  const divisor = greatestCommonDivisor(value < 0n ? -value : value, timescale);
-  return { value: String(value / divisor), timescale: String(timescale / divisor) };
-}
-
-function greatestCommonDivisor(left: bigint, right: bigint): bigint {
-  while (right !== 0n) {
-    const remainder = left % right;
-    left = right;
-    right = remainder;
-  }
-  return left || 1n;
-}
-
-function verifyFillerSpeechContinuity(
-  transaction: EditTransaction,
-  record: FillerRemovalPreviewRecord,
-): VerificationCheck {
-  for (const [clipId, beforeWords] of record.expectedWordsByClip) {
-    const beforeClip = transaction.before.timeline.clips.find((clip) => clip.id === clipId);
-    const afterClip = transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === clipId);
-    const mediaId = beforeClip?.mediaId;
-    const actualWords = mediaId
-      ? transaction.attemptedAfter.media.find((media) => media.mediaId === mediaId)?.speech?.words
-      : undefined;
-    if (!beforeClip || !afterClip || !actualWords) {
-      return {
-        name: "filler-speech-continuity",
-        passed: false,
-        detail: `post-edit speech analysis is unavailable for filler target clip ${clipId}`,
-      };
-    }
-    const candidates = record.preview.candidates.filter((candidate) => candidate.clipId === clipId);
-    const expectedWords = beforeWords
-      .filter((word) => !candidates.some((candidate) => sameSpeechWord(candidate.word, word)))
-      .map((word) => {
-        const removedBefore = candidates
-          .filter((candidate) => candidate.sourceRange.end <= word.start)
-          .reduce((total, candidate) => total + (candidate.sourceRange.end - candidate.sourceRange.start), 0);
-        return { ...word, start: word.start - removedBefore, end: word.end - removedBefore };
-      });
-    if (expectedWords.length !== actualWords.length) {
-      return {
-        name: "filler-speech-continuity",
-        passed: false,
-        detail: `post-edit transcript has ${actualWords.length} words; expected ${expectedWords.length} adjacent words after filler removal`,
-      };
-    }
-    for (let index = 0; index < expectedWords.length; index += 1) {
-      const expected = expectedWords[index]!;
-      const actual = actualWords[index]!;
-      if (expected.text.trim().toLowerCase() !== actual.text.trim().toLowerCase()
-        || Math.abs(expected.start - actual.start) > 0.02
-        || Math.abs(expected.end - actual.end) > 0.02
-        || actual.end > afterClip.duration + 0.02) {
-        return {
-          name: "filler-speech-continuity",
-          passed: false,
-          detail: `post-edit transcript boundary ${index + 1} does not preserve adjacent speech around the removed fillers`,
-        };
-      }
-    }
-  }
-  return {
-    name: "filler-speech-continuity",
-    passed: true,
-    detail: "post-edit speech re-analysis preserves adjacent words and clip bounds",
-  };
-}
-
-function sameSpeechWord(left: SpeechWord, right: SpeechWord): boolean {
-  return left.text === right.text && left.start === right.start && left.end === right.end;
-}
-
-function matchesAssetQuery(asset: EditorAsset, query?: AssetSearchQuery): boolean {
-  if (!query) return true;
-  const normalized = query.query?.trim().toLowerCase();
-  if (normalized && ![asset.id, asset.name, asset.vendor].some((value) => value.toLowerCase().includes(normalized))) return false;
-  if (query.kind && asset.kind !== query.kind) return false;
-  if (query.vendor && asset.vendor.toLowerCase() !== query.vendor.trim().toLowerCase()) return false;
-  return true;
-}
-
-function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
-  return left.id === right.id && left.sequence === right.sequence;
-}
-
-interface RationalParts {
-  value: bigint;
-  timescale: bigint;
-}
-
-function parseRational(time: RationalTime, errorCode: string): RationalParts {
-  if (!/^-?\d+$/.test(time.value) || !/^\d+$/.test(time.timescale)) {
-    throw new Error(`${errorCode}: rational time requires integer value and timescale`);
-  }
-  const value = BigInt(time.value);
-  const timescale = BigInt(time.timescale);
-  if (timescale <= 0n) throw new Error(`${errorCode}: rational timescale must be positive`);
-  return { value, timescale };
-}
-
-function isWithinClip(
-  position: RationalParts,
-  startTime: RationalTime,
-  durationTime: RationalTime,
-): boolean {
-  const start = parseRational(startTime, "INVALID_PROJECT_STATE");
-  const duration = parseRational(durationTime, "INVALID_PROJECT_STATE");
-  if (duration.value < 0n) throw new Error("INVALID_PROJECT_STATE: clip duration cannot be negative");
-  const startsBeforeOrAtPosition = start.value * position.timescale <= position.value * start.timescale;
-  const endValue = start.value * duration.timescale + duration.value * start.timescale;
-  const endTimescale = start.timescale * duration.timescale;
-  const positionBeforeEnd = position.value * endTimescale < endValue * position.timescale;
-  return startsBeforeOrAtPosition && positionBeforeEnd;
-}
-
-function rationalDifferenceSeconds(left: RationalParts, right: RationalParts): number {
-  const numerator = left.value * right.timescale - right.value * left.timescale;
-  const denominator = left.timescale * right.timescale;
-  const seconds = Number(numerator) / Number(denominator);
-  if (!Number.isFinite(seconds)) {
-    throw new Error("INVALID_TIMELINE_POSITION: relative media time is outside the supported analysis range");
-  }
-  return seconds;
 }

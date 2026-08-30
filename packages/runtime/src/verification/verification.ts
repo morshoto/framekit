@@ -1,11 +1,10 @@
+import type { EditTransaction, WorkflowOperation } from "../domain/editing.js";
 import type {
-  EditTransaction,
   VerificationCheck,
   VerificationEngine,
   VerificationPolicy,
   VerificationReport,
-  WorkflowOperation,
-} from "../domain/types.js";
+} from "../domain/verification.js";
 
 export class DefaultVerificationEngine implements VerificationEngine {
   public async verify(transaction: EditTransaction, policy: VerificationPolicy): Promise<VerificationReport> {

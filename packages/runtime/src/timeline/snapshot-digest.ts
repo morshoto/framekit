@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ProjectSnapshot } from "./domain/types.js";
+import type { ProjectSnapshot } from "../domain/project.js";
 
 /** Digest canonical editor content while deliberately excluding observation revisions and analysis. */
 export function canonicalSnapshotDigest(snapshot: ProjectSnapshot): string {

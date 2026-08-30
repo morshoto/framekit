@@ -1,4 +1,4 @@
-import type { RationalTime } from "../domain/types.js";
+import type { RationalTime } from "../domain/primitives.js";
 
 export type EditingIntentOperation =
   | {

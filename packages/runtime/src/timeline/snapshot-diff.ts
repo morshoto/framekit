@@ -1,13 +1,7 @@
-import type {
-  Caption,
-  Clip,
-  Marker,
-  MediaContext,
-  ProjectSnapshot,
-  StoryElement,
-  TimeRange,
-  TimelineDiff,
-} from "../domain/types.js";
+import type { Caption, Clip, Marker, ProjectSnapshot, StoryElement } from "../domain/project.js";
+import type { MediaContext } from "../domain/media.js";
+import type { TimeRange } from "../domain/primitives.js";
+import type { TimelineDiff } from "../domain/diff.js";
 
 function withoutId<T extends { id: string }>(value: T): Omit<T, "id"> {
   const { id: _id, ...content } = value;

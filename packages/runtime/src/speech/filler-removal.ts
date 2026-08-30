@@ -1,11 +1,7 @@
-import type {
-  ContextRevision,
-  EditOperation,
-  RationalTime,
-  SpeechWord,
-  TimeRange,
-  TimelineDiff,
-} from "../domain/types.js";
+import type { ContextRevision, RationalTime, TimeRange } from "../domain/primitives.js";
+import type { EditOperation } from "../domain/editing.js";
+import type { SpeechWord } from "../domain/media.js";
+import type { TimelineDiff } from "../domain/diff.js";
 
 export const DEFAULT_FILLER_CONFIDENCE = 0.92;
 export const DEFAULT_PRESERVE_PAUSE_MS = 700;
