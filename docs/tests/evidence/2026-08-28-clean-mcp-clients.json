@@ -59,7 +59,7 @@
         "tools": [
           { "name": "project.inspect", "status": "passed" },
           { "name": "speech.analyze", "status": "passed" },
-          { "name": "timeline.edit", "status": "VERIFIED" },
+          { "name": "editor.timeline.edit", "status": "VERIFIED" },
           { "name": "edit.diff", "status": "passed" },
           { "name": "edit.verify", "status": "passed" },
           { "name": "edit.undo", "status": "passed" }
@@ -116,7 +116,7 @@
         "tools": [
           { "name": "project.inspect", "status": "passed" },
           { "name": "speech.analyze", "status": "passed" },
-          { "name": "timeline.edit", "status": "VERIFIED" },
+          { "name": "editor.timeline.edit", "status": "VERIFIED" },
           { "name": "edit.diff", "status": "passed" },
           { "name": "edit.verify", "status": "passed" },
           { "name": "edit.undo", "status": "passed" }

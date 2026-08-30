@@ -35,18 +35,22 @@
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
+| `artifact.inspect` | Identify the managed FCPXML artifact | FCPXML-backed session; unsupported backends fail closed |
+| `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
+| `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
+| `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
+| `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
+| `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
+| `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
+| `editor.timeline.edit.execute` | Execute one live timeline preview token and verify the timeline transaction | Requires an unexpired, single-use live timeline preview token |
 | `timeline.inspect` | Canonical timeline snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
-| `timeline.edit` | Supported Phase 0 edits | Fixture/FCPXML artifact path or a canonical-capable live Final Cut bridge |
 | `speech.filler.remove.preview` | Analyze a selected canonical timeline range and preview high-confidence filler removal with safe rational ranges | Requires speech analysis, canonical timeline snapshot/write, read-after-write, and rollback |
 | `speech.filler.remove.execute` | Execute a filler-removal preview, re-analyze adjacent speech, verify the diff, and return a verified or rolled-back transaction | Requires the same canonical live write guarantees; use `edit.undo` for a later explicit reversal |
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
-| `timeline.edit.preview` | Validate an ordered Basic Editing MVP workflow and return a short-lived token plus expected diff | Deterministic fixture; non-mutating and capability-gated |
-| `timeline.edit.execute` | Execute one composite preview exactly once, verify it, and return the transaction | Deterministic fixture; stale, expired, reused, or unsupported previews fail before mutation |
-| `timeline.publish.new-project` | Import a verified FCPXML artifact as a new project | Requires verified `transactionId`, FCPXML path, and native writes; never replaces the active project |
 | `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, and audio presence | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
@@ -74,6 +78,28 @@ When `FRAMEKIT_FCPXML_PATH` is configured, canonical tools use that artifact
 while `editor.live.*` continues to report the actual open Final Cut state; the
 artifact provider does not inherit canonical-write capability from the live
 state provider.
+
+## Editing surface contracts
+
+The three editing surfaces have separate targets and guarantees:
+
+- `artifact.edit` requires the managed artifact identity from `artifact.inspect`
+  and the exact `artifactPath`. Its revision, read-after-write, diff, and undo
+  refer to that FCPXML artifact only; it does not claim to update the open Final
+  Cut project.
+- `editor.timeline.edit` requires the explicit `projectId`, `sequenceId`, and
+  `baseRevision` from the live/canonical snapshot. Its read-after-write,
+  verification, diff, and undo refer to that live timeline only. It fails closed
+  when canonical live-write capability is unavailable or the target changes.
+- `artifact.publish` requires the verified artifact `transactionId`, matching
+  `artifactPath`, and `confirm: true`. It is a create/import operation, not an
+  edit of the active project. The result identifies `sourceTarget`,
+  `createdTarget`, and `activeProject` before/after; it reports
+  `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
+  guessing.
+
+The old generic `timeline.edit` and `timeline.publish.new-project` names are not
+registered MCP tools. Callers must select the target-specific surface.
 
 `project.list` and `project.select` use stable IDs supplied by the selected
 backend. The current Workflow Extension exposes only the active project and
@@ -106,7 +132,7 @@ explicit non-negative `start`. Music always targets an explicit non-primary
 numeric `targetLane`.
 
 The preview is non-mutating and returns the same short-lived token contract as
-`timeline.edit.preview`. Optional `gainDb`, `fadeIn`, and `fadeOut` values are
+`editor.timeline.edit.preview`. Optional `gainDb`, `fadeIn`, and `fadeOut` values are
 included in the planned workflow and checked after execution. Execute with
 `music.add.execute`, inspect the returned verification and diff, and undo with
 `edit.undo` using the returned transaction ID.
@@ -123,7 +149,8 @@ those capabilities.
 
 ## Composite editing transactions
 
-`timeline.edit.preview` accepts the canonical `baseRevision` and a non-empty,
+`editor.timeline.edit.preview` accepts the explicit live timeline target,
+canonical `baseRevision`, and a non-empty,
 ordered `operations` array. The workflow operation discriminants are
 `media.import`, `timeline.media.add`, `timeline.audio.fades`, the existing edit
 operation names such as `trim-clip`, and `timeline.title.add`. Video placement
@@ -132,7 +159,7 @@ Preview validates the
 entire sequence against a simulated snapshot and does not change the project,
 media registry, or revision.
 
-`timeline.edit.execute` accepts only the returned `previewToken`. Tokens expire
+`editor.timeline.edit.execute` accepts only the returned `previewToken`. Tokens expire
 after 30 seconds by default and are consumed on the first execute attempt.
 Execution rechecks capabilities and the base revision, then applies the ordered
 operations through one adapter transaction. Verification failure or a partial

@@ -85,7 +85,7 @@ than the open Final Cut timeline.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
-through the existing `project.inspect`, `timeline.edit`, `edit.diff`, and
+through the existing `project.inspect`, `editor.timeline.edit`, `edit.diff`, and
 `edit.undo` MCP tools only when `canonicalTimelineMode` is `canonical-read` or
 `canonical-write`. The bundled Workflow Extension cannot currently supply
 those methods and fails them with `CAPABILITY_UNAVAILABLE`.
@@ -278,8 +278,9 @@ capability.
 
 ## Full timeline publishing
 
-When `FRAMEKIT_FCPXML_PATH` is configured, `timeline.edit` continues to modify
-and verify the managed FCPXML artifact. With native writes also enabled,
-call `timeline.publish.new-project` with the verified edit `transactionId` to
-import that artifact as a new Final Cut project. It does not replace the active
-project automatically.
+When `FRAMEKIT_FCPXML_PATH` is configured, `artifact.edit` modifies and verifies
+the managed FCPXML artifact. With native writes also enabled, call
+`artifact.publish` with the verified edit `transactionId`, matching
+`artifactPath`, and `confirm: true` to import that artifact as a new Final Cut
+project. The result identifies the created project and active project before
+and after; it does not replace the active project automatically.

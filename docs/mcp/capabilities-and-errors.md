@@ -169,9 +169,13 @@ closed with `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`. `editor.native.inspect` and
 focus tool changes application focus only; it does not select a project or
 mutate timeline content, and it never clicks the Framekit close button.
 
-`timelinePublishNewProject` is reported separately from `timelineWrite`. It
-means a verified FCPXML artifact can be imported as a new Final Cut project;
-it does not mean the currently open timeline is directly writable.
+`artifact.publish` is reported separately from `timelineWrite`. It accepts a
+verified artifact transaction, matching `artifactPath`, and `confirm: true` to
+import a new Final Cut project. Its result identifies the source artifact,
+created project/sequence, and active project before/after; it does not mean the
+currently open timeline is directly writable. Missing confirmation fails with
+`PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
+`PUBLISH_TARGET_MISMATCH`.
 
 `videoExport` is reported separately from canonical timeline capabilities. It is
 true only when the live server has enabled the guarded native Final Cut export

@@ -64,7 +64,7 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 Then verify `project.inspect`, `timeline.inspect`, `context.inspect`,
-`timeline.edit`, `edit.diff`, `edit.verify`, and `edit.undo`. Configure local
+`editor.timeline.edit`, `edit.diff`, `edit.verify`, and `edit.undo`. Configure local
 JSON analyzers and Motion-template roots separately when testing media analysis
 and `editor.assets`.
 
@@ -150,7 +150,7 @@ verified revision/diff summaries, and matching pre-edit/restored digests. It
 proves that the open canonical timeline changed through the verified target
 diff and advancing revision, then proves restoration through the matching
 canonical digest. If the bridge is metadata-only or canonical-read, it fails
-before calling `timeline.edit`.
+before calling `editor.timeline.edit`.
 
 Before attaching the JSON to a release or pull request, review that it contains
 no private media paths, raw snapshots, transaction identifiers, credentials,

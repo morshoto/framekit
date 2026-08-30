@@ -18,6 +18,22 @@ metadata-only until a real Final Cut bridge can enumerate and mutate the open
 timeline and pass the headed evidence gate documented in
 [`docs/tests/final-cut-live-e2e.md`](tests/final-cut-live-e2e.md).
 
+## Editing surface semantics
+
+The editing surfaces are deliberately target-specific. Callers choose the
+surface before mutation and must be able to identify the object that will be
+changed.
+
+| Surface | Target | Revision | Read-after-write | Undo | Resulting project state |
+| --- | --- | --- | --- | --- | --- |
+| `artifact.edit` | Managed FCPXML artifact ID and path | Artifact snapshot revision | Reads the same artifact after the write | Restores the artifact transaction | Updates the FCPXML artifact; it does not claim to change the open Final Cut project |
+| `artifact.publish` | Verified artifact path and source transaction | Verified source transaction plus `confirm: true` | Reports the created project/sequence and active project before/after | Does not undo the imported project through artifact undo | Creates/imports a new Final Cut project and never silently replaces the active project |
+| `editor.timeline.edit` | Explicit active project ID and sequence ID | Required live base revision | Reads the identified live timeline after the write | Restores the identified live timeline transaction | Changes the selected live project only when canonical live-write capability is available |
+
+An artifact edit and a live timeline edit are not interchangeable, even when
+they describe the same project name. An ambiguous or unsupported target fails
+closed before mutation.
+
 ## Verified local environment
 
 The live Workflow Extension path was verified on 2026-08-16 with:
@@ -63,8 +79,10 @@ separately as `titlePlacement` and never upgrades the live Workflow Extension's
 canonical timeline capabilities.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
-`timelinePublishNewProject` allows a verified artifact to be imported as a new
-Final Cut project. The active project is never replaced automatically.
+`artifact.publish` accepts a verified artifact transaction, its managed
+`artifactPath`, and explicit `confirm: true` before importing a new Final Cut
+project. It reports the created project target and active project before/after;
+the active project is never replaced automatically.
 
 With native writes enabled, the live server also exposes `timeline.export` for
 rendering the active Final Cut timeline to a local video file. This separate

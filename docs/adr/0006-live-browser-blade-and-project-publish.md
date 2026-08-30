@@ -29,7 +29,7 @@ missing permissions, unavailable selection, or failed post-command verification.
 
 - `timelineWrite` remains false for the live Workflow Extension backend.
 - Live Browser and Blade tools are distinct from canonical `media.search` and
-  `timeline.edit`.
+  `editor.timeline.edit`.
 - A full publish produces a new project rather than silently changing the
   active project.
 - Headed Final Cut validation is required for UI behavior; deterministic tests
