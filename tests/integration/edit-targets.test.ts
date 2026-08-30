@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -56,6 +56,22 @@ test("editor timeline edits bind the active project, sequence, and verification 
   assert.equal((await runtime.inspectProject()).timeline.clips[0]?.name, "Live rename");
 });
 
+test("timeline targets normalize padded project and sequence identities", async () => {
+  const runtime = new AgentVideoRuntime(fixtureAdapter());
+  const before = await runtime.inspectProject();
+
+  const transaction = await runtime.editTimeline(
+    { projectId: " project-live ", sequenceId: " sequence-live " },
+    { type: "rename-clip", clipId: "clip-1", name: "Normalized rename", baseRevision: before.revision },
+  );
+
+  assert.deepEqual(transaction.target, {
+    kind: "editor.timeline",
+    projectId: "project-live",
+    sequenceId: "sequence-live",
+  });
+});
+
 test("artifact edits mutate only the identified FCPXML artifact", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-edit-targets-"));
   const artifactPath = join(directory, "managed.fcpxml");
@@ -97,6 +113,13 @@ test("artifact edits mutate only the identified FCPXML artifact", async () => {
     /TARGET_MISMATCH/,
   );
   assert.match(await readFile(artifactPath, "utf8"), /name="Artifact rename"/);
+
+  const relativeTransaction = await runtime.editArtifact(
+    relative(process.cwd(), artifactPath),
+    { type: "rename-clip", clipId: "clip-artifact", name: "Relative artifact rename" },
+  );
+  if (relativeTransaction.target?.kind !== "artifact") throw new Error("expected artifact target");
+  assert.equal(relativeTransaction.target.artifactPath, artifactPath);
 });
 
 test("MCP publishing requires the verified artifact target and returns the created target", async () => {

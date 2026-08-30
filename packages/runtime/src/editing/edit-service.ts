@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolve as resolvePath } from "node:path";
 import { diffSnapshots } from "../timeline/snapshot-diff.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 import type { EditorPort } from "../domain/ports.js";
@@ -372,7 +373,7 @@ export class EditService {
       throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
     }
     const managed = await this.adapter.getManagedArtifact();
-    if (managed.path !== input.artifactPath) {
+    if (resolvePath(managed.path) !== resolvePath(input.artifactPath.trim())) {
       throw new Error(`TARGET_MISMATCH: requested artifact ${input.artifactPath} is not managed by this adapter`);
     }
     return this.artifactDescriptor(managed);
@@ -388,10 +389,12 @@ export class EditService {
   }
 
   private timelineTarget(input: EditorTimelineEditTargetInput): EditorTimelineEditTarget {
-    if (!input.projectId.trim() || !input.sequenceId.trim()) {
+    const projectId = input.projectId.trim();
+    const sequenceId = input.sequenceId.trim();
+    if (!projectId || !sequenceId) {
       throw new Error("INVALID_TIMELINE_TARGET: projectId and sequenceId are required");
     }
-    return { kind: "editor.timeline", projectId: input.projectId, sequenceId: input.sequenceId };
+    return { kind: "editor.timeline", projectId, sequenceId };
   }
 
   private assertTarget(target: EditTarget, snapshot: ProjectSnapshot): void {
