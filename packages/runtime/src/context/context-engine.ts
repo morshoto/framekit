@@ -123,9 +123,11 @@ export class ContextEngine {
       if (!understanding || understanding.source !== media.source) return media;
       return {
         ...media,
+        metadata: understanding.metadata,
         speech: understanding.speech,
         audio: understanding.audio,
         visual: understanding.visual,
+        analysis: understanding.analysis,
         analysisRevision: understanding.analysisRevision.id,
       };
     });

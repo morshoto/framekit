@@ -1,7 +1,12 @@
 import type {
   AudioAnalysis,
+  AnalyzerDescriptor,
+  MetadataAnalysis,
   MediaContext,
+  MediaAnalysisCapability,
+  MediaAnalysisStatus,
   MediaUnderstanding,
+  MediaSourceIdentity,
   SpeechAnalysis,
   VisualAnalysis,
 } from "../domain/media.js";
@@ -49,15 +54,24 @@ export class MediaAnalysisService {
       this.options.audioAnalyzer?.analyze(input),
       this.options.visualAnalyzer?.analyze(input),
     ]);
-    if (!speech && !audio && !visual) {
-      throw new Error("CAPABILITY_UNAVAILABLE: media understanding");
-    }
+    const metadata = this.options.metadataAnalyzer
+      ? await this.options.metadataAnalyzer.analyze(input)
+      : undefined;
+    const sourceIdentity = sourceIdentityOf(media);
     const understanding: MediaUnderstanding = {
       mediaId: media.mediaId,
       source: media.source,
+      sourceIdentity,
+      ...(metadata ? { metadata } : {}),
       ...(speech ? { speech } : {}),
       ...(audio ? { audio } : {}),
       ...(visual ? { visual } : {}),
+      analysis: [
+        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech)),
+        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio)),
+        analysisStatus("visual", this.options.visualAnalyzer, sourceIdentity, Boolean(visual)),
+        analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentity, Boolean(metadata), metadata?.usableRanges),
+      ],
       analysisRevision: project.revision,
     };
     this.context.attachMediaUnderstanding(understanding);
@@ -127,6 +141,40 @@ export class MediaAnalysisService {
     }
     return next;
   }
+}
+
+function sourceIdentityOf(media: MediaContext): MediaSourceIdentity {
+  return {
+    mediaId: media.mediaId,
+    source: media.source,
+    ...(media.sourceDigest ? { sourceDigest: media.sourceDigest } : {}),
+    ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
+    ...(media.duration !== undefined ? { duration: media.duration } : {}),
+  };
+}
+
+function analysisStatus(
+  capability: MediaAnalysisCapability,
+  analyzer: { descriptor?: AnalyzerDescriptor } | undefined,
+  source: MediaSourceIdentity,
+  analyzed: boolean,
+  ranges: import("../domain/primitives.js").TimeRange[] = [],
+): MediaAnalysisStatus {
+  if (!analyzer) {
+    return { capability, status: "unavailable", reason: `${capability} analyzer is not configured` };
+  }
+  if (!analyzed) {
+    return { capability, status: "available", reason: `${capability} analysis is not attached` };
+  }
+  return {
+    capability,
+    status: "analyzed",
+    provenance: {
+      analyzer: analyzer.descriptor ?? { id: `framekit.${capability}`, provider: "unknown" },
+      source,
+      ranges: structuredClone(ranges),
+    },
+  };
 }
 
 function findMedia(project: ProjectSnapshot, mediaId: string): MediaContext {
