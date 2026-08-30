@@ -237,7 +237,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async () => jsonResult(await connectionStatus(options)));
 
   server.registerTool("project.inspect", {
-    description: "Read the current canonical project snapshot.",
+    description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
   }, async () => jsonResult(await runtime.inspectProject()));
 
   server.registerTool("project.list", {
@@ -609,7 +609,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("timeline.edit", {
-    description: "Apply one supported edit and return read-after-write plus its diff.",
+    description: "Apply one supported edit after editing.route confirms the required capabilities; return read-after-write plus its diff.",
     inputSchema: editToolInputSchema,
   }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input))));
 
@@ -629,7 +629,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
   server.registerTool("timeline.edit.preview", {
-    description: "Validate and preview one ordered, atomic Basic Editing MVP workflow without mutating the project.",
+    description: "Validate and preview one ordered, atomic Basic Editing MVP workflow after editing.route confirms capabilities; do not mutate the project.",
     inputSchema: {
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
@@ -637,7 +637,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (request) => jsonResult(await runtime.previewEdit(request)));
 
   server.registerTool("timeline.edit.execute", {
-    description: "Execute one short-lived composite edit preview token exactly once and verify the transaction.",
+    description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
