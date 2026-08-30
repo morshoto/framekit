@@ -96,6 +96,18 @@ test("FCPXML publisher requires explicit confirmation before automation", async 
   assert.equal(called, false);
 });
 
+test("FCPXML publisher names the supported runtime configuration when disabled", async () => {
+  const publisher = new FinalCutProjectPublisher({
+    sourcePath: "/tmp/project.fcpxml",
+  });
+
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn-disabled",
+    artifactPath: "/tmp/project.fcpxml",
+    confirm: true,
+  }), /FRAMEKIT_EDITOR.*FRAMEKIT_FCPXML_PATH.*FRAMEKIT_FINAL_CUT_SOCKET/);
+});
+
 test("FCPXML publisher rejects an artifact path outside its managed source", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-target-"));
   const sourcePath = join(directory, "project.fcpxml");
