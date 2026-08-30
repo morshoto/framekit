@@ -180,7 +180,7 @@ test("rough-cut planner rejects missing, non-video, and overlong shots", () => {
   }), /ROUGH_CUT_DURATION_EXCEEDS_SOURCE/);
 });
 
-function constructionRuntime() {
+function constructionRuntime(transitionKinds = ["asset-clip"]) {
   const adapter = new InMemoryEditorAdapter({
     projectId: "project-construction",
     projectName: "Construction Fixture",
@@ -202,7 +202,7 @@ function constructionRuntime() {
       name: "Cross Dissolve",
       vendor: "Framekit Fixture",
       metadata: {},
-      compatibility: { timelineKinds: ["asset-clip"] },
+      compatibility: { timelineKinds: transitionKinds },
     }],
   });
   return { adapter, runtime: new AgentVideoRuntime(adapter) };
@@ -304,6 +304,17 @@ test("unsupported construction capabilities fail before preview mutation", async
   });
 
   await assert.rejects(active.previewEdit({ baseRevision: before.revision, operations: constructionOperations() }), /CAPABILITY_UNAVAILABLE/);
+  assert.deepEqual(await active.inspectProject(), before);
+});
+
+test("incompatible transition assets fail before preview mutation", async () => {
+  const { runtime: active } = constructionRuntime(["title"]);
+  const before = await active.inspectProject();
+
+  await assert.rejects(active.previewEdit({
+    baseRevision: before.revision,
+    operations: [constructionOperations()[2]!],
+  }), /TRANSITION_ASSET_INCOMPATIBLE/);
   assert.deepEqual(await active.inspectProject(), before);
 });
 
