@@ -4,6 +4,8 @@ import type {
   AnalysisInput,
   AudioAnalysis,
   AudioAnalyzer,
+  MetadataAnalysis,
+  MetadataAnalyzer,
   SpeechAnalysis,
   SpeechAnalyzer,
   TimeRange,
@@ -24,20 +26,25 @@ export function createCommandAnalyzers(options: {
   speechCommand?: string;
   audioCommand?: string;
   visualCommand?: string;
+  metadataCommand?: string;
   timeoutMs?: number;
 }): {
   speechAnalyzer?: SpeechAnalyzer;
   audioAnalyzer?: AudioAnalyzer;
   visualAnalyzer?: VisualAnalyzer;
+  metadataAnalyzer?: MetadataAnalyzer;
 } {
   return {
     ...(options.speechCommand ? { speechAnalyzer: new CommandSpeechAnalyzer({ command: options.speechCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.audioCommand ? { audioAnalyzer: new CommandAudioAnalyzer({ command: options.audioCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.visualCommand ? { visualAnalyzer: new CommandVisualAnalyzer({ command: options.visualCommand, timeoutMs: options.timeoutMs }) } : {}),
+    ...(options.metadataCommand ? { metadataAnalyzer: new CommandMetadataAnalyzer({ command: options.metadataCommand, timeoutMs: options.timeoutMs }) } : {}),
   };
 }
 
 export class CommandSpeechAnalyzer implements SpeechAnalyzer {
+  public readonly descriptor = { id: "command.speech", provider: "command" };
+
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
@@ -46,6 +53,8 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
 }
 
 export class CommandAudioAnalyzer implements AudioAnalyzer {
+  public readonly descriptor = { id: "command.audio", provider: "command" };
+
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis> {
@@ -54,10 +63,22 @@ export class CommandAudioAnalyzer implements AudioAnalyzer {
 }
 
 export class CommandVisualAnalyzer implements VisualAnalyzer {
+  public readonly descriptor = { id: "command.visual", provider: "command" };
+
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<VisualAnalysis> {
     return runCommand<VisualAnalysis>(this.options, { ...input, range }, "visual");
+  }
+}
+
+export class CommandMetadataAnalyzer implements MetadataAnalyzer {
+  public readonly descriptor = { id: "command.metadata", provider: "command" };
+
+  public constructor(private readonly options: CommandAnalyzerOptions) {}
+
+  public async analyze(input: AnalysisInput, range?: TimeRange): Promise<MetadataAnalysis> {
+    return runCommand<MetadataAnalysis>(this.options, { ...input, range }, "metadata");
   }
 }
 
@@ -124,6 +145,21 @@ function validateResult(value: unknown, kind: string): void {
     if (!["integratedLufs", "truePeakDb", "silenceMs"].every((key) => typeof record[key] === "number")) throw new Error("audio result requires loudness fields");
     return;
   }
+  if (kind === "metadata") {
+    for (const key of ["subjects", "scenes", "environments", "timeOfDay", "moods"]) {
+      if (record[key] !== undefined && (!Array.isArray(record[key]) || record[key].some((value) => !isSemanticTag(value)))) {
+        throw new Error(`metadata ${key} must contain typed tags`);
+      }
+    }
+    if (record.usableRanges !== undefined
+      && (!Array.isArray(record.usableRanges) || record.usableRanges.some((value) => !isTimeRange(value)))) {
+      throw new Error("metadata usableRanges must contain valid time ranges");
+    }
+    if (record.confidence !== undefined && !isFiniteNumber(record.confidence)) {
+      throw new Error("metadata confidence must be numeric");
+    }
+    return;
+  }
   if (!Array.isArray(record.scenes) || !Array.isArray(record.subjects) || !Array.isArray(record.keyframes)) {
     throw new Error("visual result requires scenes, subjects, and keyframes");
   }
@@ -137,4 +173,32 @@ function isSpeechWord(value: unknown): boolean {
     && typeof word.end === "number"
     && typeof word.confidence === "number"
     && (word.filler === undefined || typeof word.filler === "boolean");
+}
+
+function isSemanticTag(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const tag = value as Record<string, unknown>;
+  return typeof tag.value === "string" && isFiniteNumber(tag.confidence);
+}
+
+function isTimeRange(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const range = value as Record<string, unknown>;
+  return isFiniteNumber(range.start)
+    && isFiniteNumber(range.end)
+    && range.start >= 0
+    && range.end > range.start
+    && isOptionalRationalTime(range.startTime)
+    && isOptionalRationalTime(range.durationTime);
+}
+
+function isOptionalRationalTime(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const time = value as Record<string, unknown>;
+  return typeof time.value === "string" && typeof time.timescale === "string";
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }

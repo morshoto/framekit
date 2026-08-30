@@ -40,9 +40,84 @@ export interface AnalyzerCapabilities {
   speechVad: boolean;
   audioLoudness: boolean;
   visualTrack: boolean;
+  metadataDescribe?: boolean;
+}
+
+export const CAPABILITY_SCHEMA_VERSION = 1 as const;
+
+export type CapabilityGuarantee =
+  | "none"
+  | "observed"
+  | "artifact-write"
+  | "canonical-read"
+  | "canonical-write"
+  | "native-verified"
+  | "verified";
+
+export interface CapabilityDescriptor {
+  available: boolean;
+  backend: string;
+  guarantee: CapabilityGuarantee;
+  unavailableReason?: string;
+}
+
+export type NativeCapabilityOperation =
+  | "selectionWrite"
+  | "undo"
+  | "mediaLibrarySearch"
+  | "mediaImport"
+  | "mediaSelection"
+  | "mediaAppendSelected"
+  | "timelineOccurrenceLocate"
+  | "bladeAtPlayhead"
+  | "deleteRange"
+  | "trimToDuration"
+  | "mediaAppend"
+  | "mediaInsert"
+  | "titlePlacement"
+  | "timelineFocus"
+  | "projectCreation"
+  | "clipInsertion"
+  | "clipMovement";
+
+export interface CapabilityFamilies {
+  connection: {
+    status: CapabilityDescriptor;
+  };
+  observation: {
+    timeline: CapabilityDescriptor;
+    media: CapabilityDescriptor;
+  };
+  canonicalDocument: {
+    read: CapabilityDescriptor;
+    write: CapabilityDescriptor;
+    artifactWrite: CapabilityDescriptor;
+  };
+  native: Record<NativeCapabilityOperation, CapabilityDescriptor>;
+  publishing: {
+    projectCreation: CapabilityDescriptor;
+  };
+  export: {
+    timeline: CapabilityDescriptor;
+  };
+  analyzers: {
+    speechTranscribe: CapabilityDescriptor;
+    speechVad: CapabilityDescriptor;
+    audioLoudness: CapabilityDescriptor;
+    visualTrack: CapabilityDescriptor;
+  };
 }
 
 export interface RuntimeCapabilities {
   editor: EditorCapabilities;
   analyzers: AnalyzerCapabilities;
+  /** Present in the versioned operation-level capability contract. */
+  schemaVersion?: typeof CAPABILITY_SCHEMA_VERSION;
+  /** Present in the versioned operation-level capability contract. */
+  families?: CapabilityFamilies;
+}
+
+export interface VersionedRuntimeCapabilities extends RuntimeCapabilities {
+  schemaVersion: typeof CAPABILITY_SCHEMA_VERSION;
+  families: CapabilityFamilies;
 }

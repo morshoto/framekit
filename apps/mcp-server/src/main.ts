@@ -14,7 +14,7 @@ import {
   createNativeOperationLease,
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
-import { FixtureAudioAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
+import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
 
@@ -36,6 +36,12 @@ const fixture = new InMemoryEditorAdapter({
       subjects: [{ id: "subject-1", label: "person", confidence: 0.99, start: 0, end: 10 }],
       motion: { score: 0.12, label: "low" },
       keyframes: [{ time: 1, source: "interview.wav", labels: ["person", "interview"] }],
+    },
+    metadata: {
+      environments: [{ value: "studio", confidence: 0.91 }],
+      timeOfDay: [{ value: "day", confidence: 0.88 }],
+      moods: [{ value: "focused", confidence: 0.86 }],
+      usableRanges: [{ start: 0, end: 10 }],
     },
   }],
   assets: [{
@@ -94,12 +100,14 @@ const analyzers = liveMode
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       visualCommand: process.env.FRAMEKIT_VISUAL_ANALYZER,
+      metadataCommand: process.env.FRAMEKIT_METADATA_ANALYZER,
       timeoutMs: parseTimeout(process.env.FRAMEKIT_ANALYZER_TIMEOUT_MS),
     })
   : {
       speechAnalyzer: new FixtureSpeechAnalyzer(),
       audioAnalyzer: new FixtureAudioAnalyzer(),
       visualAnalyzer: new FixtureVisualAnalyzer(),
+      metadataAnalyzer: new FixtureMetadataAnalyzer(),
     };
 
 const runtime = new AgentVideoRuntime(editor, analyzers);
