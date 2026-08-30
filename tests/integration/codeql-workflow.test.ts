@@ -72,27 +72,34 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
 
 test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const swiftJob = workflow.match(
+    /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
+  )?.[0];
 
-  assert.match(workflow, /xcodebuild/);
-  assert.match(workflow, /-target FramekitFinalCutWorkflowExtension/);
-  assert.match(workflow, /-sdk macosx/);
-  assert.match(workflow, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
-  assert.match(workflow, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
-  assert.match(workflow, /ARCHS="\$\(uname -m\)"/);
-  assert.match(workflow, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
-  assert.match(workflow, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
-  assert.match(workflow, /FRAMEWORK_SEARCH_PATHS=/);
-  assert.match(workflow, /LD_RUNPATH_SEARCH_PATHS=/);
-  assert.match(workflow, /OTHER_LDFLAGS=/);
-  assert.doesNotMatch(workflow, /xcrun swiftc/);
-  assert.doesNotMatch(workflow, /-scheme FramekitFinalCutWorkflowExtension/);
-  assert.doesNotMatch(workflow, /-destination/);
-  assert.doesNotMatch(workflow, /-emit-module/);
-  assert.doesNotMatch(workflow, /ProExtensionHostShim/);
-  assert.doesNotMatch(workflow, /Final Cut Pro\.app/);
-  assert.doesNotMatch(workflow, /ProExtensionHost\.framework/);
-  assert.doesNotMatch(workflow, /\/tmp\/framekit-finalcut-frameworks/);
-  assert.doesNotMatch(workflow, /build\.sh/);
+  assert.ok(swiftJob, "Swift CodeQL job should be present");
+
+  assert.match(swiftJob, /xcodebuild/);
+  assert.match(swiftJob, /-target FramekitFinalCutWorkflowExtension/);
+  assert.match(swiftJob, /-sdk macosx/);
+  assert.match(swiftJob, /timeout-minutes: 20/);
+  assert.match(swiftJob, /timeout-minutes: 10/);
+  assert.match(swiftJob, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
+  assert.match(swiftJob, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
+  assert.match(swiftJob, /ARCHS="\$\(uname -m\)"/);
+  assert.match(swiftJob, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
+  assert.match(swiftJob, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
+  assert.match(swiftJob, /FRAMEWORK_SEARCH_PATHS=/);
+  assert.match(swiftJob, /LD_RUNPATH_SEARCH_PATHS=/);
+  assert.match(swiftJob, /OTHER_LDFLAGS=/);
+  assert.doesNotMatch(swiftJob, /xcrun swiftc/);
+  assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
+  assert.doesNotMatch(swiftJob, /-destination/);
+  assert.doesNotMatch(swiftJob, /-emit-module/);
+  assert.doesNotMatch(swiftJob, /ProExtensionHostShim/);
+  assert.doesNotMatch(swiftJob, /Final Cut Pro\.app/);
+  assert.doesNotMatch(swiftJob, /ProExtensionHost\.framework/);
+  assert.doesNotMatch(swiftJob, /\/tmp\/framekit-finalcut-frameworks/);
+  assert.doesNotMatch(swiftJob, /build\.sh/);
 });
 
 test("CodeQL substitutes host declarations without changing the native import", async () => {
