@@ -157,6 +157,12 @@ test("MCP exposes editor-first instructions, descriptions, and routing decisions
     assert.match(routeTool.description ?? "", /capabilit/i);
     assert.match(routeTool.description ?? "", /external/i);
     assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["fallback", "operation"]);
+    for (const name of ["project.inspect", "timeline.edit", "timeline.edit.preview", "timeline.edit.execute"]) {
+      const tool = tools.tools.find((candidate) => candidate.name === name);
+      assert.ok(tool, `${name} must be registered`);
+      assert.match(tool.description ?? "", /editing\.route/);
+      assert.match(tool.description ?? "", /capabilit/i);
+    }
 
     const route = JSON.parse(textFrom(await client.callTool({
       name: "editing.route",
