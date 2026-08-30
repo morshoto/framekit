@@ -176,6 +176,27 @@ test("live capability responses retain metadata-only provenance", async () => {
   assert.equal(capabilities.families?.native.clipMovement.available, false);
 });
 
+test("live capability normalization preserves native backend provenance", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request) => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+        capabilities: withCapabilityFamilies(metadataOnlyCapabilities, {
+          backend: "workflow-extension-ipc",
+          nativeBackend: "final-cut-accessibility",
+        }),
+      },
+    }),
+  });
+
+  const capabilities = await adapter.getCapabilities();
+
+  assert.equal(capabilities.families?.native.selectionWrite.backend, "final-cut-accessibility");
+});
+
 test("session capabilities identify the composed backend without inheriting native writes", async () => {
   const session = new FinalCutSessionAdapter({
     snapshot: new FcpxmlDocumentAdapter("/tmp/project.fcpxml"),

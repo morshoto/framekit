@@ -129,7 +129,7 @@ export function withCapabilityFamilies(
         "canonical artifact writes are unavailable",
       ),
     },
-    native: nativeFamily(native, options.nativeBackend ?? backend),
+    native: nativeFamily(native, options.nativeBackend ?? previous?.native.selectionWrite.backend ?? backend),
     publishing: {
       projectCreation: descriptorFrom(
         options.publishing ?? previous?.publishing.projectCreation ?? false,
