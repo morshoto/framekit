@@ -7,6 +7,7 @@ Repository-local GitHub agent playbooks are documented in
 
 - [Getting started](./getting-started.md): development setup, MCP, and Final Cut connection.
 - [Releasing](./releasing.md): npm Trusted Publishing and automated GitHub releases.
+- [CodeQL workflow operations](./ci/codeql.md): concurrency and analysis verification.
 - [PRD](./PRD.md): product goals and roadmap.
 - [Test matrix](./tests/test-matrix.md): delivery scope and evidence by backend.
 - [SDD](./SDD.md): architecture and design contracts.
