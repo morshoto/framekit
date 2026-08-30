@@ -308,3 +308,17 @@ test("MCP connection status normalizes injected capability payloads", async () =
     await server.close();
   }
 });
+
+test("Workflow Extension capability payload defines the versioned family contract", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.match(swift, /let schemaVersion: Int/);
+  assert.match(swift, /let families: CapabilityFamilies/);
+  assert.match(swift, /projectCreation: CapabilityDescriptor/);
+  assert.match(swift, /clipInsertion: CapabilityDescriptor/);
+  assert.match(swift, /clipMovement: CapabilityDescriptor/);
+  assert.match(swift, /titlePlacement: CapabilityDescriptor/);
+});
