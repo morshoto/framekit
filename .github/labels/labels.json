@@ -50,6 +50,16 @@
     "description": ""
   },
   {
+    "name": "major",
+    "color": "B60205",
+    "description": "Requests a major SemVer release bump, such as v0.1.0 to v1.0.0."
+  },
+  {
+    "name": "minor",
+    "color": "0E8A16",
+    "description": "Requests a minor SemVer release bump, such as v0.0.1 to v0.1.0."
+  },
+  {
     "name": "Close: Duplicate",
     "color": "D4C5F9",
     "description": ""

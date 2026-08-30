@@ -5,4 +5,6 @@
 	releaseBranch = main
 	release = draft
 	changelog = true
+	majorLabels = major
+	minorLabels = minor
 	versionFile = package.json,plugins/framekit/.codex-plugin/plugin.json
