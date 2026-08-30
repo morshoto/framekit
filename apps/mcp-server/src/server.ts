@@ -272,7 +272,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ...inspected.capabilities,
         editor: {
           ...inspected.capabilities.editor,
-          timelinePublishNewProject: Boolean(options.projectPublisher),
+          artifactPublish: Boolean(options.projectPublisher),
           videoExport: Boolean(options.videoExporter?.isAvailable()),
         },
       },

@@ -122,6 +122,9 @@ test("MCP publishing requires the verified artifact target and returns the creat
 
   try {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, true);
+    assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
     const published = await client.callTool({
       name: "artifact.publish",
       arguments: { artifactPath, transactionId: transaction.id, confirm: true },

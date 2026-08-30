@@ -20,7 +20,7 @@ const editorCapabilityKeys = [
   "playheadWrite",
   "frameCapture",
   "playbackControl",
-  "timelinePublishNewProject",
+  "artifactPublish",
   "projectCatalogRead",
   "projectSelection",
   "compositeTransactions",

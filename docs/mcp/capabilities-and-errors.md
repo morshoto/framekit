@@ -45,6 +45,11 @@ managed FCPXML artifact rather than the open Final Cut timeline. Analyzer flags
 are true only for configured local analyzer commands, and `assetDiscovery` is
 true when the Motion-template registry is available.
 
+`artifactPublish` is true only when the MCP server has a configured project
+publisher with native writes enabled. It is separate from both
+`timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
+new project is neither an artifact edit nor an edit of the open timeline.
+
 `frameCapture` is true only when the selected editor backend has an actual
 frame-image provider. `timeline.frame.capture` never fabricates an image: it
 returns `CAPABILITY_UNAVAILABLE` when capture is missing, and does the same for
