@@ -34,7 +34,7 @@ const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness"
 const requiredToolResults = [
   ["editor.inspect", "passed"],
   ["project.inspect", "passed"],
-  ["timeline.edit", "VERIFIED"],
+  ["editor.timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
 const requiredDisposableToolResults = [

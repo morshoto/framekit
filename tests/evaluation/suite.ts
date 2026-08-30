@@ -41,6 +41,12 @@ interface EvaluationScenario {
   steps: EvaluationStep[];
 }
 
+const editorTimelineTarget = {
+  projectId: "project-evaluation",
+  sequenceId: "timeline-evaluation",
+  baseRevision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+};
+
 export interface EvaluationScenarioResult {
   id: string;
   category: EvaluationCategory;
@@ -133,10 +139,10 @@ const scenarios: EvaluationScenario[] = [
     category: "editing",
     support: "supported",
     intent: "Rename the interview clip and verify the change",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
-      arguments: { type: "rename-clip", clipId: "clip-interview", name: "Interview - Clean" },
+      tool: "editor.timeline.edit",
+      arguments: { ...editorTimelineTarget, type: "rename-clip", clipId: "clip-interview", name: "Interview - Clean" },
       expect: { json: { path: "status", equals: "VERIFIED" } },
     }],
   },
@@ -145,10 +151,10 @@ const scenarios: EvaluationScenario[] = [
     category: "editing",
     support: "supported",
     intent: "Trim the b-roll clip to the requested duration",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
-      arguments: { type: "trim-clip", clipId: "clip-broll", duration: 3 },
+      tool: "editor.timeline.edit",
+      arguments: { ...editorTimelineTarget, type: "trim-clip", clipId: "clip-broll", duration: 3 },
       expect: { json: { path: "after.timeline.clips.1.duration", equals: 3 } },
     }],
   },
@@ -157,10 +163,10 @@ const scenarios: EvaluationScenario[] = [
     category: "editing",
     support: "supported",
     intent: "Lower the music bed gain under dialogue",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
-      arguments: { type: "set-gain", clipId: "clip-music", gainDb: -12 },
+      tool: "editor.timeline.edit",
+      arguments: { ...editorTimelineTarget, type: "set-gain", clipId: "clip-music", gainDb: -12 },
       expect: { json: { path: "after.timeline.clips.2.gainDb", equals: -12 } },
     }],
   },
@@ -169,10 +175,10 @@ const scenarios: EvaluationScenario[] = [
     category: "editing",
     support: "supported",
     intent: "Remove an unwanted range and ripple the remaining edit",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
-      arguments: { type: "ripple-delete", timelineId: "timeline-evaluation", range: { start: 1, end: 2 } },
+      tool: "editor.timeline.edit",
+      arguments: { ...editorTimelineTarget, type: "ripple-delete", timelineId: "timeline-evaluation", range: { start: 1, end: 2 } },
       expect: { json: { path: "diff.durationDelta", equals: -1 } },
     }],
   },
@@ -181,10 +187,11 @@ const scenarios: EvaluationScenario[] = [
     category: "editing",
     support: "supported",
     intent: "Add a review marker at a known timeline position",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
+      tool: "editor.timeline.edit",
       arguments: {
+        ...editorTimelineTarget,
         type: "add-marker",
         timelineId: "timeline-evaluation",
         marker: { id: "marker-review", start: 2, duration: 0, name: "Review" },
@@ -260,10 +267,10 @@ const scenarios: EvaluationScenario[] = [
     category: "publishing",
     support: "unavailable",
     intent: "Export the verified edit as a new project",
-    expectedTool: "timeline.publish.new-project",
+    expectedTool: "artifact.publish",
     steps: [{
-      tool: "timeline.publish.new-project",
-      arguments: { transactionId: "txn-not-created" },
+      tool: "artifact.publish",
+      arguments: { artifactPath: "/not-managed.fcpxml", transactionId: "txn-not-created", confirm: true },
       expect: { isError: true, errorIncludes: "CAPABILITY_UNAVAILABLE" },
     }],
   },
@@ -272,10 +279,10 @@ const scenarios: EvaluationScenario[] = [
     category: "failure-path",
     support: "supported",
     intent: "Reject an edit that targets an unknown clip",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
-      arguments: { type: "rename-clip", clipId: "clip-missing", name: "Should Fail" },
+      tool: "editor.timeline.edit",
+      arguments: { ...editorTimelineTarget, type: "rename-clip", clipId: "clip-missing", name: "Should Fail" },
       expect: { isError: true, errorIncludes: "CLIP_NOT_FOUND" },
     }],
   },
@@ -284,10 +291,10 @@ const scenarios: EvaluationScenario[] = [
     category: "failure-path",
     support: "supported",
     intent: "Reject a ripple delete with an invalid range",
-    expectedTool: "timeline.edit",
+    expectedTool: "editor.timeline.edit",
     steps: [{
-      tool: "timeline.edit",
-      arguments: { type: "ripple-delete", timelineId: "timeline-evaluation", range: { start: 4, end: 4 } },
+      tool: "editor.timeline.edit",
+      arguments: { ...editorTimelineTarget, type: "ripple-delete", timelineId: "timeline-evaluation", range: { start: 4, end: 4 } },
       expect: { isError: true },
     }],
   },
@@ -299,8 +306,8 @@ const scenarios: EvaluationScenario[] = [
     expectedTool: "edit.undo",
     steps: [
       {
-        tool: "timeline.edit",
-        arguments: { type: "rename-clip", clipId: "clip-interview", name: "Temporary Name" },
+        tool: "editor.timeline.edit",
+        arguments: { ...editorTimelineTarget, type: "rename-clip", clipId: "clip-interview", name: "Temporary Name" },
         expect: { json: { path: "status", equals: "VERIFIED" } },
         capture: { name: "transactionId", path: "id" },
       },

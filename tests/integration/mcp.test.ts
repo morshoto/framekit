@@ -83,21 +83,27 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "speech.filler.remove.execute",
         "speech.filler.remove.preview",
         "timeline.changes",
-        "timeline.edit",
-        "timeline.edit.execute",
-        "timeline.edit.preview",
+        "artifact.edit",
+        "artifact.edit.execute",
+        "artifact.edit.preview",
+        "artifact.inspect",
+        "artifact.publish",
+        "editor.timeline.edit",
+        "editor.timeline.edit.execute",
+        "editor.timeline.edit.preview",
         "timeline.export",
         "timeline.frame.capture",
         "timeline.inspect",
-        "timeline.publish.new-project",
         "visual.analyze",
-      ],
+      ].sort(),
     );
-    const timelineEditTool = tools.tools.find((tool) => tool.name === "timeline.edit");
+    const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "range", "reason", "timelineId", "type",
+      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "sequenceId", "timelineId", "type",
     ]);
-    assert.deepEqual(timelineEditTool?.inputSchema.required, ["type"]);
+    assert.deepEqual(timelineEditTool?.inputSchema.required?.slice().sort(), ["baseRevision", "projectId", "sequenceId", "type"]);
+    const artifactEditTool = tools.tools.find((tool) => tool.name === "artifact.edit");
+    assert.deepEqual(artifactEditTool?.inputSchema.required?.slice().sort(), ["artifactPath", "baseRevision", "type"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
     assert.deepEqual(Object.keys(nativeEditTool?.inputSchema.properties ?? {}).sort(), ["duration", "edge", "gainDb", "name", "type"]);
     assert.deepEqual(nativeEditTool?.inputSchema.required, ["type"]);
@@ -112,7 +118,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const connection = await client.callTool({ name: "connection.status", arguments: {} });
     assert.equal(JSON.parse(textFrom(connection)).state, "ready");
 
-    const invalidEdit = await client.callTool({ name: "timeline.edit", arguments: { type: "ripple-delete" } });
+    const invalidEdit = await client.callTool({ name: "editor.timeline.edit", arguments: { type: "ripple-delete" } });
     assert.equal(invalidEdit.isError, true);
 
     const media = await client.callTool({ name: "media.inspect", arguments: { mediaId: "media-1" } });
@@ -130,17 +136,31 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(before.timeline.clips[0].name, "Interview");
 
     const edited = await client.callTool({
-      name: "timeline.edit",
-      arguments: { type: "rename-clip", clipId: "clip-1", name: "Interview - Clean" },
+      name: "editor.timeline.edit",
+      arguments: {
+        type: "rename-clip",
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
+        clipId: "clip-1",
+        name: "Interview - Clean",
+        baseRevision: before.revision,
+      },
     });
     const transaction = JSON.parse(textFrom(edited));
+    assert.deepEqual(transaction.target, {
+      kind: "editor.timeline",
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+    });
     assert.equal(transaction.after.timeline.clips[0].name, "Interview - Clean");
     assert.equal(transaction.diff.modified[0].itemId, "clip-1");
     assert.equal(transaction.after.media[0].speech.words.length, 1);
     assert.equal(transaction.after.media[0].visual.scenes.length, 1);
     const staleEdit = await client.callTool({
-      name: "timeline.edit",
+      name: "editor.timeline.edit",
       arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
         type: "rename-clip",
         clipId: "clip-1",
         name: "Stale MCP edit",
@@ -201,11 +221,14 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(JSON.parse(textFrom(verification)).passed, true);
 
     const markerEdit = await client.callTool({
-      name: "timeline.edit",
+      name: "editor.timeline.edit",
       arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
         type: "add-marker",
         timelineId: "timeline-1",
         marker: { id: "marker-1", start: 2, duration: 0, name: "Review" },
+        baseRevision: transaction.after.revision,
       },
     });
     assert.equal(JSON.parse(textFrom(markerEdit)).diff.markerChanges[0].type, "MARKER_ADDED");

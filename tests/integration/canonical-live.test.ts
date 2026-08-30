@@ -919,8 +919,10 @@ test("MCP inspects, edits, diffs, and undoes a canonical live timeline", async (
     const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
 
     const edited = JSON.parse(textFrom(await client.callTool({
-      name: "timeline.edit",
+      name: "editor.timeline.edit",
       arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
         type: "rename-clip",
         clipId: "final-cut:occurrence:one",
         name: "Edited through MCP",
@@ -929,6 +931,11 @@ test("MCP inspects, edits, diffs, and undoes a canonical live timeline", async (
     })));
     assert.equal(edited.status, "VERIFIED");
     assert.equal(edited.after.timeline.clips[0].name, "Edited through MCP");
+    assert.deepEqual(edited.target, {
+      kind: "editor.timeline",
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+    });
 
     const diff = JSON.parse(textFrom(await client.callTool({
       name: "edit.diff",

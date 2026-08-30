@@ -164,8 +164,10 @@ test("MCP composite preview accepts explicit audio fades", async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     const before = await runtime.inspectProject();
     const previewResult = await client.callTool({
-      name: "timeline.edit.preview",
+      name: "editor.timeline.edit.preview",
       arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
         baseRevision: before.revision,
         operations: [{
           type: "timeline.audio.fades",
@@ -181,7 +183,7 @@ test("MCP composite preview accepts explicit audio fades", async () => {
     assert.equal(preview.expectedDiff.modified[0]?.after.fadeOut, 1);
 
     const transaction = JSON.parse(textFrom(await client.callTool({
-      name: "timeline.edit.execute",
+      name: "editor.timeline.edit.execute",
       arguments: { previewToken: preview.previewToken },
     })));
     assert.equal(transaction.status, "VERIFIED");

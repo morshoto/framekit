@@ -59,6 +59,15 @@ const editToolInputSchema = z.object({
   marker: markerSchema.optional(),
   baseRevision: revisionSchema,
 }).strict();
+const artifactEditToolInputSchema = editToolInputSchema.extend({
+  artifactPath: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+}).strict();
+const editorTimelineEditToolInputSchema = editToolInputSchema.extend({
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+}).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
@@ -229,6 +238,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot.",
   }, async () => jsonResult(await runtime.inspectProject()));
+
+  server.registerTool("artifact.inspect", {
+    description: "Identify the managed FCPXML artifact used by artifact.edit and artifact.publish.",
+    inputSchema: {},
+  }, async () => jsonResult(await runtime.inspectArtifact()));
 
   server.registerTool("project.list", {
     description: "List projects and their stable Final Cut sequence identities, including the active target.",
@@ -474,7 +488,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken));
   });
 
-  server.registerTool("timeline.publish.new-project", {
+  server.registerTool("artifact.publish", {
     description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => {
@@ -587,10 +601,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }));
   });
 
-  server.registerTool("timeline.edit", {
-    description: "Apply one supported edit and return read-after-write plus its diff.",
-    inputSchema: editToolInputSchema,
-  }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input))));
+  server.registerTool("artifact.edit", {
+    description: "Edit the identified managed FCPXML artifact and return its artifact target, new revision, read-after-write, and diff.",
+    inputSchema: artifactEditToolInputSchema,
+  }, async (input) => {
+    const { artifactPath, ...operation } = input;
+    return jsonResult(await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation)));
+  });
+
+  server.registerTool("editor.timeline.edit", {
+    description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
+    inputSchema: editorTimelineEditToolInputSchema,
+  }, async (input) => {
+    const { projectId, sequenceId, ...operation } = input;
+    return jsonResult(await runtime.editTimeline(
+      { projectId, sequenceId },
+      editOperationSchema.parse(operation),
+    ));
+  });
 
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
@@ -607,16 +635,35 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
-  server.registerTool("timeline.edit.preview", {
-    description: "Validate and preview one ordered, atomic Basic Editing MVP workflow without mutating the project.",
+  server.registerTool("artifact.edit.preview", {
+    description: "Validate and preview an ordered artifact edit against the identified FCPXML artifact without mutating it.",
     inputSchema: {
+      artifactPath: z.string().trim().min(1),
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
     },
-  }, async (request) => jsonResult(await runtime.previewEdit(request)));
+  }, async ({ artifactPath, baseRevision, operations }) => jsonResult(await runtime.previewArtifactEdit(artifactPath, { baseRevision, operations })));
 
-  server.registerTool("timeline.edit.execute", {
-    description: "Execute one short-lived composite edit preview token exactly once and verify the transaction.",
+  server.registerTool("editor.timeline.edit.preview", {
+    description: "Validate and preview an ordered live timeline edit against the identified active project and sequence without mutating it.",
+    inputSchema: {
+      projectId: z.string().trim().min(1),
+      sequenceId: z.string().trim().min(1),
+      baseRevision: revisionValueSchema,
+      operations: workflowOperationsSchema,
+    },
+  }, async ({ projectId, sequenceId, baseRevision, operations }) => jsonResult(await runtime.previewTimelineEdit(
+    { projectId, sequenceId },
+    { baseRevision, operations },
+  )));
+
+  server.registerTool("artifact.edit.execute", {
+    description: "Execute one short-lived artifact edit preview token exactly once and verify the artifact transaction.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+
+  server.registerTool("editor.timeline.edit.execute", {
+    description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
