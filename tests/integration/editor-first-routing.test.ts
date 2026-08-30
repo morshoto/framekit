@@ -97,6 +97,24 @@ test("routing reports missing capabilities before choosing an editing path", () 
   ]);
 });
 
+test("routing permits an advertised artifact editor without a live connection", () => {
+  const capabilities = structuredClone(canonicalCapabilities);
+  capabilities.editor.timelineWrite = false;
+  capabilities.editor.timelineArtifactWrite = true;
+
+  const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
+    connection: { state: "disconnected" },
+    editor: {
+      identity: { name: "FCPXML Document", version: "FCPXML", backend: "fcpxml-document" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "editor");
+  assert.equal(route.reason.connectionState, "disconnected");
+});
+
 test("routing only selects an external renderer when explicitly requested", () => {
   const route = resolveEditingRoute(
     { operation: "timeline.edit", fallback: "external-renderer" },
