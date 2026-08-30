@@ -114,7 +114,9 @@ test("CodeQL substitutes host declarations without changing the native import", 
   const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj/project.pbxproj");
 
   assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import ProExtensionHost[\s\S]*#endif/);
+  assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import AppKit[\s\S]*#endif/);
   assert.match(shim, /import CoreMedia/);
+  assert.match(shim, /class NSViewController/);
   assert.match(shim, /protocol FCPXTimelineObserver/);
   assert.match(shim, /func ProExtensionHostSingleton/);
   assert.match(project, /FinalCutWorkflowExtensionShim\.swift/);
