@@ -86,6 +86,24 @@ const trimClipSchema = z.object({
 const setGainSchema = z.object({ type: z.literal("set-gain"), clipId: z.string().min(1), gainDb: z.number().finite(), baseRevision: revisionSchema });
 const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
+const roughCutImportSchema = z.object({
+  type: z.literal("media.import"),
+  mediaId: z.string().min(1),
+  source: z.string().min(1),
+  mediaKind: z.literal("video"),
+  duration: z.number().positive(),
+  sourceDigest: z.string().min(1),
+});
+const roughCutShotSchema = z.object({
+  occurrenceId: z.string().min(1),
+  mediaId: z.string().min(1),
+  duration: z.number().positive().optional(),
+});
+const roughCutConstructionPlanInputSchema = {
+  baseRevision: revisionValueSchema,
+  imports: z.array(roughCutImportSchema).optional(),
+  shots: z.array(roughCutShotSchema).min(1),
+};
 const editOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
@@ -185,7 +203,7 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     type: z.literal("timeline.media.add"),
     occurrenceId: z.string().min(1),
     mediaId: z.string().min(1),
-    role: z.enum(["video", "music"]),
+    role: z.enum(["video", "music", "audio"]),
     start: z.number().nonnegative(),
     duration: z.number().positive(),
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
@@ -205,6 +223,45 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     duration: z.number().positive(),
     targetLane: z.number().int().refine((lane) => lane !== 0, "title requires a non-primary lane"),
   }),
+  z.object({
+    type: z.literal("timeline.media.move"),
+    occurrenceId: z.string().min(1),
+    start: z.number().nonnegative(),
+    targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
+  }),
+  z.object({
+    type: z.literal("timeline.media.replace"),
+    occurrenceId: z.string().min(1),
+    mediaId: z.string().min(1),
+    duration: z.number().positive().optional(),
+  }),
+  z.object({
+    type: z.literal("timeline.media.remove"),
+    occurrenceId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("timeline.transition.add"),
+    transitionId: z.string().min(1),
+    assetId: z.string().min(1),
+    beforeClipId: z.string().min(1),
+    afterClipId: z.string().min(1),
+    duration: z.number().positive(),
+  }),
+  z.object({
+    type: z.literal("timeline.audio.attach"),
+    occurrenceId: z.string().min(1),
+    targetClipId: z.string().min(1),
+    mediaId: z.string().min(1),
+    startOffset: z.number().nonnegative().optional(),
+    duration: z.number().positive().optional(),
+  }),
+  z.object({
+    type: z.literal("timeline.audio.mix"),
+    clipId: z.string().min(1),
+    gainDb: z.number().finite().optional(),
+    fadeIn: z.number().nonnegative().optional(),
+    fadeOut: z.number().nonnegative().optional(),
+  }),
 ]);
 const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRefine((operations, context) => {
   operations.forEach((operation, index) => {
@@ -215,6 +272,14 @@ const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRe
     if (operation.type === "timeline.media.add" && operation.role === "music"
       && (typeof operation.targetLane !== "number" || operation.targetLane === 0)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "music requires an explicit non-primary lane" });
+    }
+    if (operation.type === "timeline.media.add" && operation.role === "audio"
+      && (typeof operation.targetLane !== "number" || operation.targetLane === 0)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "audio requires an explicit non-primary lane" });
+    }
+    if (operation.type === "timeline.audio.mix"
+      && operation.gainDb === undefined && operation.fadeIn === undefined && operation.fadeOut === undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: "audio mix requires a gain or fade change" });
     }
   });
 });
@@ -786,6 +851,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     await requireEditingRoute(runtime, options, "timeline.edit");
     return jsonResult(await runtime.edit(editOperationSchema.parse(input), input.verification ?? {}));
   });
+
+  server.registerTool("rough-cut.construction.plan", {
+    description: "Build a deterministic ordered rough-cut construction plan without changing the active project.",
+    inputSchema: roughCutConstructionPlanInputSchema,
+  }, async (request) => jsonResult(await runtime.planRoughCutConstruction(request)));
+
+  server.registerTool("rough-cut.construction.preview", {
+    description: "Preview a deterministic rough cut with capability and revision checks before execution.",
+    inputSchema: roughCutConstructionPlanInputSchema,
+  }, async (request) => jsonResult(await runtime.previewRoughCutConstruction(request)));
 
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",

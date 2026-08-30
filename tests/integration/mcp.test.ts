@@ -82,6 +82,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "project.inspect",
         "project.list",
         "project.select",
+        "rough-cut.construction.plan",
+        "rough-cut.construction.preview",
         "rough-cut.plan",
         "speech.analyze",
         "speech.filler.remove.execute",

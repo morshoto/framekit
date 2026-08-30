@@ -16,13 +16,16 @@ import type {
   MediaContext,
   MediaIndexEntry,
   MediaIndexQuery,
-  RoughCutPlan,
-  RoughCutPlanRequest,
+  RoughCutPlan as SemanticRoughCutPlan,
+  RoughCutPlanRequest as SemanticRoughCutPlanRequest,
   MediaUnderstanding,
   MusicAddRequest,
   ProjectCatalog,
   ProjectSelection,
   ProjectSnapshot,
+  RoughCutConstructionPlan,
+  RoughCutConstructionPlanRequest,
+  RoughCutConstructionPreview,
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
@@ -33,6 +36,7 @@ import type {
   DurationPolicyPlan,
   DurationPolicyRequest,
 } from "./domain/index.js";
+import { planRoughCutConstruction as buildRoughCutConstructionPlan } from "./domain/rough-cut.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
 import { ContextService } from "./context/context-service.js";
@@ -77,6 +81,20 @@ export class AgentVideoRuntime {
 
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     return this.projects.inspectTimeline();
+  }
+
+  public async planRoughCutConstruction(
+    request: RoughCutConstructionPlanRequest,
+  ): Promise<RoughCutConstructionPlan> {
+    return buildRoughCutConstructionPlan(await this.projects.inspectProject(), request);
+  }
+
+  public async previewRoughCutConstruction(
+    request: RoughCutConstructionPlanRequest,
+  ): Promise<RoughCutConstructionPreview> {
+    const plan = await this.planRoughCutConstruction(request);
+    const preview = await this.edits.previewEdit({ baseRevision: plan.baseRevision, operations: plan.operations });
+    return { ...preview, plan };
   }
 
   public async captureFrame(
@@ -175,7 +193,7 @@ export class AgentVideoRuntime {
     return this.media.indexMedia(query);
   }
 
-  public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
+  public async planRoughCut(request: SemanticRoughCutPlanRequest): Promise<SemanticRoughCutPlan> {
     return this.media.planRoughCut(request);
   }
 

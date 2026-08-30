@@ -111,6 +111,12 @@ export class InMemoryEditorAdapter implements EditorPort {
         mediaImport: true,
         mediaPlacement: true,
         titlePlacement: true,
+        clipMove: true,
+        clipReplace: true,
+        clipRemoval: true,
+        transitionPlacement: true,
+        audioAttachment: true,
+        audioMixing: true,
       },
       analyzers: {
         speechTranscribe: false,
@@ -273,6 +279,9 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (operation.type === "timeline.media.add") {
       const media = snapshot.media.find((candidate) => candidate.mediaId === operation.mediaId);
       if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      if (!isMediaCompatible(operation.role, media.mediaKind)) {
+        throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
+      }
       if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
         throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
       }
@@ -309,6 +318,7 @@ export class InMemoryEditorAdapter implements EditorPort {
             durationTime: clip.durationTime,
             lane: clip.track,
             mediaId: clip.mediaId,
+            ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
           }],
         },
       };
@@ -367,6 +377,187 @@ export class InMemoryEditorAdapter implements EditorPort {
         },
       };
     }
+    if (operation.type === "timeline.media.move") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.occurrenceId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.occurrenceId}`);
+      if (!Number.isFinite(operation.start) || operation.start < 0) {
+        throw new Error("INVALID_OPERATION: media move start must be non-negative");
+      }
+      const lane = operation.targetLane ?? (clip.track === 0 ? "primary" : clip.track);
+      if (lane === "primary") {
+        if (clip.role !== undefined && clip.role !== "video") {
+          throw new Error("INVALID_OPERATION: audio and title clips require a non-primary lane");
+        }
+      } else if (!Number.isInteger(lane) || lane === 0) {
+        throw new Error("INVALID_OPERATION: media move requires a valid lane");
+      }
+      return this.updateClip(snapshot, withClipTime({
+        ...clip,
+        start: operation.start,
+        track: lane === "primary" ? 0 : lane,
+        startTime: undefined,
+        durationTime: undefined,
+      }));
+    }
+    if (operation.type === "timeline.media.replace") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.occurrenceId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.occurrenceId}`);
+      const media = snapshot.media.find(({ mediaId }) => mediaId === operation.mediaId);
+      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      const currentMedia = clip.mediaId
+        ? snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId)
+        : undefined;
+      const currentKind = clip.role === "audio" || clip.role === "music"
+        ? "audio"
+        : clip.role === "video" ? "video" : currentMedia?.mediaKind;
+      if (!isMediaCompatible(clip.role, media.mediaKind)
+        || (currentKind !== undefined && media.mediaKind !== undefined && currentKind !== media.mediaKind)) {
+        throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
+      }
+      const duration = operation.duration ?? clip.duration;
+      if (!Number.isFinite(duration) || duration <= 0 || (media.duration !== undefined && duration > media.duration)) {
+        throw new Error("INVALID_OPERATION: replacement duration must fit the source");
+      }
+      return this.updateClip(snapshot, withClipTime({
+        ...clip,
+        mediaId: operation.mediaId,
+        name: media.source.split("/").pop() || media.mediaId,
+        duration,
+        startTime: undefined,
+        durationTime: undefined,
+      }));
+    }
+    if (operation.type === "timeline.media.remove") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.occurrenceId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.occurrenceId}`);
+      const removedIds = new Set([operation.occurrenceId]);
+      snapshot.timeline.clips.forEach((candidate) => {
+        if (candidate.attachedTo === operation.occurrenceId) removedIds.add(candidate.id);
+      });
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: snapshot.timeline.clips.filter((candidate) => !removedIds.has(candidate.id)),
+          storyElements: snapshot.timeline.storyElements.filter((element) =>
+            !removedIds.has(element.id)
+            && !removedIds.has(element.attachedTo ?? "")
+            && !removedIds.has(element.beforeClipId ?? "")
+            && !removedIds.has(element.afterClipId ?? "")),
+        },
+      };
+    }
+    if (operation.type === "timeline.transition.add") {
+      const asset = this.assets.find((candidate) => candidate.id === operation.assetId && candidate.kind === "transition");
+      if (!asset) throw new Error(`TRANSITION_ASSET_NOT_FOUND: ${operation.assetId}`);
+      if (asset.compatibility?.timelineKinds?.includes("asset-clip") !== true) {
+        throw new Error(`TRANSITION_ASSET_INCOMPATIBLE: ${operation.assetId}`);
+      }
+      if (snapshot.timeline.storyElements.some(({ id }) => id === operation.transitionId)
+        || snapshot.timeline.clips.some(({ id }) => id === operation.transitionId)) {
+        throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.transitionId}`);
+      }
+      const before = snapshot.timeline.clips.find(({ id }) => id === operation.beforeClipId);
+      const after = snapshot.timeline.clips.find(({ id }) => id === operation.afterClipId);
+      if (!before || !after) throw new Error("EDIT_POINT_NOT_FOUND: transition clips are required");
+      if (before.track !== after.track || Math.abs((before.start + before.duration) - after.start) > 1e-6) {
+        throw new Error("EDIT_POINT_INVALID: transition clips must meet on one lane");
+      }
+      if (!Number.isFinite(operation.duration) || operation.duration <= 0
+        || operation.duration > Math.min(before.duration, after.duration)) {
+        throw new Error("INVALID_OPERATION: transition duration must fit both clips");
+      }
+      const start = after.start - operation.duration / 2;
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          storyElements: [...snapshot.timeline.storyElements, {
+            id: operation.transitionId,
+            kind: "transition",
+            start,
+            duration: operation.duration,
+            startTime: decimalToRational(start),
+            durationTime: decimalToRational(operation.duration),
+            lane: before.track,
+            assetId: operation.assetId,
+            beforeClipId: operation.beforeClipId,
+            afterClipId: operation.afterClipId,
+          }],
+        },
+      };
+    }
+    if (operation.type === "timeline.audio.attach") {
+      const target = snapshot.timeline.clips.find(({ id }) => id === operation.targetClipId);
+      if (!target) throw new Error(`CLIP_NOT_FOUND: ${operation.targetClipId}`);
+      const media = snapshot.media.find(({ mediaId }) => mediaId === operation.mediaId);
+      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      if (media.mediaKind !== "audio") throw new Error(`AUDIO_MEDIA_REQUIRED: ${operation.mediaId}`);
+      if (snapshot.timeline.clips.some(({ id }) => id === operation.occurrenceId)
+        || snapshot.timeline.storyElements.some(({ id }) => id === operation.occurrenceId)) {
+        throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
+      }
+      const startOffset = operation.startOffset ?? 0;
+      const duration = operation.duration ?? media.duration;
+      if (!Number.isFinite(startOffset) || startOffset < 0 || duration === undefined
+        || !Number.isFinite(duration) || duration <= 0
+        || (media.duration !== undefined && duration > media.duration)
+        || startOffset + duration > target.duration) {
+        throw new Error("INVALID_OPERATION: attached audio must fit within the target clip");
+      }
+      const clip = withClipTime({
+        id: operation.occurrenceId,
+        mediaId: operation.mediaId,
+        name: media.source.split("/").pop() || media.mediaId,
+        start: target.start + startOffset,
+        duration,
+        track: -1,
+        role: "audio",
+        attachedTo: target.id,
+      });
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: [...snapshot.timeline.clips, clip],
+          storyElements: [...snapshot.timeline.storyElements, {
+            id: clip.id,
+            kind: "asset-clip",
+            start: clip.start,
+            duration: clip.duration,
+            startTime: clip.startTime,
+            durationTime: clip.durationTime,
+            lane: clip.track,
+            mediaId: clip.mediaId,
+            attachedTo: clip.attachedTo,
+          }],
+        },
+      };
+    }
+    if (operation.type === "timeline.audio.mix") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+      const media = clip.mediaId ? snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId) : undefined;
+      if (clip.role !== "audio" && clip.role !== "music" && media?.mediaKind !== "audio") {
+        throw new Error("INVALID_OPERATION: audio mix requires an audio clip");
+      }
+      if (operation.gainDb === undefined && operation.fadeIn === undefined && operation.fadeOut === undefined) {
+        throw new Error("INVALID_OPERATION: audio mix requires a gain or fade change");
+      }
+      const fadeIn = operation.fadeIn ?? clip.fadeIn ?? 0;
+      const fadeOut = operation.fadeOut ?? clip.fadeOut ?? 0;
+      if ((operation.gainDb !== undefined && !Number.isFinite(operation.gainDb))
+        || !Number.isFinite(fadeIn) || !Number.isFinite(fadeOut)
+        || fadeIn < 0 || fadeOut < 0 || fadeIn + fadeOut > clip.duration) {
+        throw new Error("INVALID_OPERATION: audio mix values must fit the clip");
+      }
+      return this.updateClip(snapshot, {
+        ...clip,
+        ...(operation.gainDb !== undefined ? { gainDb: operation.gainDb } : {}),
+        fadeIn,
+        fadeOut,
+      });
+    }
     if (operation.type === "ripple-delete") {
       return this.applyRippleDelete(snapshot, operation.timelineId, operation.range.start, operation.range.end);
     }
@@ -413,6 +604,28 @@ export class InMemoryEditorAdapter implements EditorPort {
         clips: snapshot.timeline.clips.map((candidate) => candidate.id === operation.clipId ? updatedClip : candidate),
         storyElements: snapshot.timeline.storyElements.map((element) => element.id === operation.clipId
           ? { ...element, start: updatedClip.start, duration: updatedClip.duration, durationTime: updatedClip.durationTime }
+          : element),
+      },
+    };
+  }
+
+  private updateClip(snapshot: ProjectSnapshot, updatedClip: Clip): ProjectSnapshot {
+    return {
+      ...snapshot,
+      timeline: {
+        ...snapshot.timeline,
+        clips: snapshot.timeline.clips.map((candidate) => candidate.id === updatedClip.id ? updatedClip : candidate),
+        storyElements: snapshot.timeline.storyElements.map((element) => element.id === updatedClip.id
+          ? {
+            ...element,
+            start: updatedClip.start,
+            duration: updatedClip.duration,
+            startTime: updatedClip.startTime,
+            durationTime: updatedClip.durationTime,
+            lane: updatedClip.track,
+            ...(updatedClip.mediaId ? { mediaId: updatedClip.mediaId } : {}),
+            ...(updatedClip.attachedTo ? { attachedTo: updatedClip.attachedTo } : {}),
+          }
           : element),
       },
     };
@@ -543,6 +756,7 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
         durationTime: clip.durationTime,
         lane: clip.track,
         mediaId: clip.mediaId,
+        ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
       })),
       markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
       captions: (fixture.captions ?? []).map((caption) => normalizeCaption(caption)),
@@ -586,4 +800,11 @@ function decimalToRational(value: number): RationalTime {
   const decimals = text.split(".")[1].length;
   const scale = 10 ** decimals;
   return { value: String(Math.round(value * scale)), timescale: String(scale) };
+}
+
+function isMediaCompatible(role: Clip["role"], mediaKind: MediaContext["mediaKind"]): boolean {
+  if (role === "video") return mediaKind === undefined || mediaKind === "video";
+  if (role === "audio" || role === "music") return mediaKind === undefined || mediaKind === "audio";
+  if (role === "title") return false;
+  return true;
 }
