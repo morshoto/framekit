@@ -86,7 +86,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(swiftJob, /timeout-minutes: 10/);
   assert.match(swiftJob, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
   assert.match(swiftJob, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
-  assert.match(swiftJob, /SWIFT_COMPILATION_MODE=wholemodule/);
+  assert.match(swiftJob, /SWIFT_OBJC_INTERFACE_HEADER_NAME=/);
   assert.match(swiftJob, /ARCHS="\$\(uname -m\)"/);
   assert.match(swiftJob, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
   assert.match(swiftJob, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
@@ -104,6 +104,8 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.doesNotMatch(swiftJob, /build\.sh/);
   assert.match(project, /FramekitFinalCutWorkflowCodeQL:/);
   assert.match(project, /type: library\.static/);
+  assert.match(project, /FinalCutLiveWorkflowExtension\.swift/);
+  assert.match(project, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
 });
 
 test("CodeQL substitutes host declarations without changing the native import", async () => {
@@ -133,6 +135,7 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   assert.match(documentation, /CodeQL Swift extraction/);
   assert.match(documentation, /manual\s+`xcodebuild`/);
   assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
+  assert.match(documentation, /dedicated static-library\s+target/);
   assert.match(documentation, /integrated Swift\s+driver/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
   assert.match(documentation, /ten minutes/);
