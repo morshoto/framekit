@@ -2,7 +2,7 @@ import { diffSnapshots } from "../timeline/snapshot-diff.js";
 import type { AgentContext, ContextDiff, EditorChange, EditorLiveState } from "../domain/context.js";
 import type { AssetSearchQuery, EditorPort } from "../domain/ports.js";
 import type { ContextRevision } from "../domain/primitives.js";
-import type { MediaUnderstanding } from "../domain/media.js";
+import { sameMediaSourceIdentity, type MediaUnderstanding } from "../domain/media.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { RuntimeCapabilities } from "../domain/capabilities.js";
 import type { TimelineDiff } from "../domain/diff.js";
@@ -120,7 +120,7 @@ export class ContextEngine {
     const next = structuredClone(snapshot);
     next.media = next.media.map((media) => {
       const understanding = this.mediaUnderstanding.get(media.mediaId);
-      if (!understanding || understanding.source !== media.source) return media;
+      if (!understanding || !sameMediaSourceIdentity(understanding.sourceIdentity, media)) return media;
       return {
         ...media,
         metadata: understanding.metadata,

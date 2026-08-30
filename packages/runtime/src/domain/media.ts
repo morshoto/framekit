@@ -43,6 +43,14 @@ export interface MediaSourceIdentity {
   duration?: number;
 }
 
+export function sameMediaSourceIdentity(left: MediaSourceIdentity, right: MediaSourceIdentity): boolean {
+  return left.mediaId === right.mediaId
+    && left.source === right.source
+    && left.sourceDigest === right.sourceDigest
+    && left.mediaKind === right.mediaKind
+    && left.duration === right.duration;
+}
+
 export interface AnalysisProvenance {
   analyzer: AnalyzerDescriptor;
   source: MediaSourceIdentity;

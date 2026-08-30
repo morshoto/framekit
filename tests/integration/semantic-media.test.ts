@@ -21,6 +21,23 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+class MutableMediaAdapter extends InMemoryEditorAdapter {
+  private mediaPatch: Partial<MediaContext> | undefined;
+
+  public replaceMedia(patch: Partial<MediaContext>): void {
+    this.mediaPatch = patch;
+  }
+
+  public override async readProject() {
+    const snapshot = await super.readProject();
+    if (!this.mediaPatch) return snapshot;
+    return {
+      ...snapshot,
+      media: snapshot.media.map((media) => ({ ...media, ...this.mediaPatch })),
+    };
+  }
+}
+
 function semanticFixture() {
   const usableRange = {
     start: 1,
@@ -48,7 +65,7 @@ function semanticFixture() {
   };
   return {
     usableRange,
-    adapter: new InMemoryEditorAdapter({
+    adapter: new MutableMediaAdapter({
       projectId: "project-semantic",
       projectName: "Semantic Fixture",
       timelineId: "timeline-semantic",
@@ -79,6 +96,27 @@ test("media understanding preserves source identity and analyzer provenance", as
   assert.equal(metadata?.provenance?.analyzer.provider, "fixture");
   assert.deepEqual(metadata?.provenance?.source, understanding.sourceIdentity);
   assert.deepEqual(metadata?.provenance?.ranges, [fixture.usableRange]);
+});
+
+test("media understanding cache rejects changed source identities", async () => {
+  for (const patch of [
+    { sourceDigest: "sha256:replacement" },
+    { sourceDigest: undefined },
+    { mediaKind: "audio" as const },
+    { duration: 13 },
+  ]) {
+    const fixture = semanticFixture();
+    const runtime = new AgentVideoRuntime(fixture.adapter, {
+      metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    });
+
+    await runtime.understandMedia("media-semantic-1");
+    fixture.adapter.replaceMedia(patch);
+
+    const inspected = await runtime.inspectProject();
+    assert.equal(inspected.media[0]?.semantic, undefined, JSON.stringify(patch));
+    assert.equal(inspected.media[0]?.analysis, undefined, JSON.stringify(patch));
+  }
 });
 
 test("media understanding preserves successful results when one analyzer cannot analyze", async () => {
