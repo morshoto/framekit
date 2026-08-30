@@ -1,5 +1,6 @@
 import type { EditTransaction, WorkflowOperation } from "../domain/editing.js";
 import type {
+  AudioAudibilityAssertion,
   VerificationCheck,
   VerificationEngine,
   VerificationPolicy,
@@ -85,8 +86,65 @@ export class DefaultVerificationEngine implements VerificationEngine {
       });
     }
 
+    checks.push(...(policy.assertions ?? []).map((assertion) => verifyAssertion(transaction, assertion)));
+
     return { passed: checks.every((check) => check.passed), checks };
   }
+}
+
+function verifyAssertion(transaction: EditTransaction, assertion: AudioAudibilityAssertion): VerificationCheck {
+  const expected = {
+    mediaId: assertion.mediaId,
+    minAudibleSamples: assertion.minAudibleSamples ?? 1,
+    ...(assertion.maxSilenceMs !== undefined ? { maxSilenceMs: assertion.maxSilenceMs } : {}),
+  };
+  const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
+  if (!media) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "MEDIA_NOT_FOUND",
+      detail: `expected audio media ${assertion.mediaId}, but it was not observed`,
+    };
+  }
+  if (!media.audio) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "unavailable",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "AUDIO_ANALYZER_UNAVAILABLE",
+      detail: `audio analysis is unavailable for media ${assertion.mediaId}`,
+    };
+  }
+  const observed = {
+    mediaId: assertion.mediaId,
+    ...(media.audio.audibleSamples !== undefined ? { audibleSamples: media.audio.audibleSamples } : {}),
+    silenceMs: media.audio.silenceMs,
+  };
+  const minAudibleSamples = assertion.minAudibleSamples ?? 1;
+  const audible = media.audio.audibleSamples === undefined
+    ? media.audio.silenceMs < (media.duration ?? Number.POSITIVE_INFINITY) * 1000
+    : media.audio.audibleSamples >= minAudibleSamples;
+  const silenceWithinLimit = assertion.maxSilenceMs === undefined || media.audio.silenceMs <= assertion.maxSilenceMs;
+  const passed = audible && silenceWithinLimit;
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(passed ? {} : { reason: audible ? "AUDIO_SILENCE_EXCEEDED" : "AUDIO_NOT_AUDIBLE" }),
+    detail: passed
+      ? `observed audible audio for media ${assertion.mediaId}`
+      : audible
+        ? `expected silence at or below ${assertion.maxSilenceMs}ms, observed ${media.audio.silenceMs}ms`
+        : "expected audible audio samples, observed none",
+  };
 }
 
 function audioStateIsValid(transaction: EditTransaction): boolean {

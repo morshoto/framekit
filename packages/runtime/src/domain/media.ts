@@ -20,6 +20,7 @@ export interface AudioAnalysis {
   integratedLufs: number;
   truePeakDb: number;
   silenceMs: number;
+  audibleSamples?: number;
 }
 
 export interface VisualScene {
