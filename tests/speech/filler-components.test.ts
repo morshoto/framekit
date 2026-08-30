@@ -254,3 +254,49 @@ test("resolver skips a range that cannot retain frame-safe boundaries", () => {
   assert.equal(decision.status, "SKIPPED");
   assert.deepEqual(decision.reasonCodes, ["NO_FRAME_ALIGNED_RANGE"]);
 });
+
+test("resolver aligns non-integral word bounds inside surrounding silence", () => {
+  const detector = new FillerDetector({ vocabulary: ["um"] });
+  const words = [
+    { text: "So", start: 5, end: 5.3, confidence: 0.99 },
+    { text: "um", start: 5.405, end: 5.615, confidence: 0.99, filler: true },
+    { text: "okay", start: 6, end: 6.3, confidence: 0.99 },
+  ];
+  const occurrence = {
+    occurrenceId: "occurrence-non-integral",
+    sourceRange: { start: 5, end: 8 },
+    sequenceRange: { start: 10, end: 13 },
+  };
+  const candidate = detector.detect({
+    previewId: "preview-non-integral",
+    analysis: { words },
+    targetRange: { start: 10, end: 13 },
+    occurrence,
+  })[0]!;
+
+  const decision = new SafeCutResolver().resolve({
+    candidate,
+    analysis: {
+      words,
+      vadSegments: [
+        { start: 5, end: 5.3, kind: "speech" },
+        { start: 5.3, end: 5.405, kind: "silence" },
+        { start: 5.405, end: 5.615, kind: "speech" },
+        { start: 5.615, end: 6, kind: "silence" },
+        { start: 6, end: 6.3, kind: "speech" },
+      ],
+    } as SpeechAnalysis,
+    targetRange: { start: 10, end: 13 },
+    occurrence,
+    timelineId: "timeline-non-integral",
+    sequenceFrameDuration: { value: "1", timescale: "30" },
+  });
+
+  assert.equal(decision.status, "AUTO_APPLY");
+  assert.deepEqual(decision.range, {
+    start: 10.4,
+    end: 319 / 30,
+    startTime: { value: "52", timescale: "5" },
+    durationTime: { value: "7", timescale: "30" },
+  });
+});

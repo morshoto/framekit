@@ -162,6 +162,9 @@ export class SafeCutResolver {
       }
     }
     evidence.pauseAfterCutMs = Math.max(0, (nextStart - sourceEnd) * 1000);
+    if (overlapsAny(protectedSegments, { start: word.start, end: sourceEnd })) {
+      return { ...base, status: "SKIPPED", reasonCodes: ["PROTECTED_SEGMENT_OVERLAP"] };
+    }
 
     const sourceStart = word.start;
     const minimumSourceStart = previousWord
@@ -169,38 +172,30 @@ export class SafeCutResolver {
       : request.occurrence.sourceRange.start;
     const sequenceStart = mapSourceToSequence(sourceStart, request.occurrence);
     const sequenceEnd = mapSourceToSequence(sourceEnd, request.occurrence);
-    const boundedStart = Math.max(sequenceStart, request.targetRange.start, request.occurrence.sequenceRange.start);
-    const boundedEnd = Math.min(sequenceEnd, request.targetRange.end, request.occurrence.sequenceRange.end);
-    const alignedStart = floorMultiple(decimalToRational(boundedStart), frame);
-    const alignedEnd = ceilMultiple(decimalToRational(boundedEnd), frame);
+    const minimumSequenceStart = Math.max(
+      mapSourceToSequence(minimumSourceStart, request.occurrence),
+      request.targetRange.start,
+      request.occurrence.sequenceRange.start,
+    );
+    const maximumSequenceEnd = Math.min(
+      mapSourceToSequence(nextStart, request.occurrence),
+      request.targetRange.end,
+      request.occurrence.sequenceRange.end,
+    );
+    const alignedStart = floorMultiple(decimalToRational(sequenceStart), frame);
+    const alignedEnd = ceilMultiple(decimalToRational(sequenceEnd), frame);
     const safeStart = rationalToNumber(alignedStart);
     const safeEnd = rationalToNumber(alignedEnd);
     if (!Number.isFinite(safeStart)
       || !Number.isFinite(safeEnd)
-      || safeStart < boundedStart - 0.000000001
-      || safeEnd > boundedEnd + 0.000000001
       || safeEnd <= safeStart
-      || safeStart < mapSourceToSequence(minimumSourceStart, request.occurrence)
-      || safeStart < request.targetRange.start
-      || safeEnd > request.targetRange.end
-      || safeStart < request.occurrence.sequenceRange.start
-      || safeEnd > request.occurrence.sequenceRange.end
-      || safeEnd > mapSourceToSequence(nextStart, request.occurrence) + 0.000000001
-      || overlapsAny(protectedSegments, {
-        start: sourceStart,
-        end: sourceEnd,
-      })) {
+      || safeStart < minimumSequenceStart - 0.000000001
+      || safeEnd > maximumSequenceEnd + 0.000000001) {
       return { ...base, status: "SKIPPED", reasonCodes: ["NO_FRAME_ALIGNED_RANGE"] };
     }
 
     const range = rangeFromRationals(alignedStart, subtractRationals(alignedEnd, alignedStart));
     evidence.safeRange = structuredClone(range);
-    if (overlapsAny(protectedSegments, {
-      start: sourceStart,
-      end: sourceEnd,
-    })) {
-      return { ...base, status: "SKIPPED", reasonCodes: ["PROTECTED_SEGMENT_OVERLAP"] };
-    }
     initialReasons.push("SAFE_BOUNDARY_RESOLVED");
     if (pauseReason) initialReasons.push("PAUSE_PRESERVED");
     if (!request.candidate.eligible || request.candidate.confidence < request.candidate.confidenceThreshold) {
