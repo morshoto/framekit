@@ -11,6 +11,7 @@ import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
   resolveEditingRoute,
   type EditorRoutingContext,
+  type EditingRouteOperation,
 } from "./routing.js";
 
 const revisionValueSchema = z.object({
@@ -611,7 +612,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("timeline.edit", {
     description: "Apply one supported edit after editing.route confirms the required capabilities; return read-after-write plus its diff.",
     inputSchema: editToolInputSchema,
-  }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input))));
+  }, async (input) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.edit(editOperationSchema.parse(input)));
+  });
 
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
@@ -634,12 +638,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
     },
-  }, async (request) => jsonResult(await runtime.previewEdit(request)));
+  }, async (request) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.previewEdit(request));
+  });
 
   server.registerTool("timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+  }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.executeEdit(previewToken));
+  });
 
   server.registerTool("speech.analyze", {
     description: "Analyze speech words and filler markers for one media item.",
@@ -711,4 +721,22 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     },
     ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
   };
+}
+
+async function requireEditingRoute(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+  operation: EditingRouteOperation,
+): Promise<void> {
+  const connection = await connectionStatus(options);
+  const editor = connection.state === "ready" ? await inspectMcpEditor(runtime, options) : undefined;
+  const context: EditorRoutingContext = {
+    connection,
+    ...(editor ? { editor } : {}),
+    ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
+  };
+  const route = resolveEditingRoute({ operation }, context);
+  if (route.status !== "editor-selected") {
+    throw new Error(`${route.reason.code}: ${route.reason.message}`);
+  }
 }
