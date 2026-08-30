@@ -167,6 +167,18 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
   };
 }
 
+export function renderReleaseGateReport(report: ReleaseGateReport): string {
+  return [
+    "Framekit v0.0.3 closed-loop speech editing release gate",
+    `corpus_version=${report.corpusVersion}`,
+    `deterministic_passed=${report.deterministic.passed}`,
+    `workflows=${report.deterministic.workflows.length}`,
+    `filler_verification_rate=${(report.deterministic.fillerVerificationRate * 100).toFixed(1)}%`,
+    `adapter_backend=${report.adapter.backend}`,
+    `live_status=${report.live.status}`,
+  ].join("\n");
+}
+
 async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWorkflowEvidence> {
   const { runtime, adapter, skillArguments } = createWorkflowRuntime(workflow);
   const server = createMcpServer(runtime);

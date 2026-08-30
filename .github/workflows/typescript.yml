@@ -89,3 +89,14 @@ jobs:
           name: filler-removal-benchmark-${{ github.run_id }}
           path: artifacts/filler-removal/${{ github.run_id }}
           if-no-files-found: warn
+
+      - name: Run v0.0.3 release gate
+        run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
+
+      - name: Upload release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-${{ github.run_id }}
+          path: artifacts/release-gate/${{ github.run_id }}
+          if-no-files-found: warn
