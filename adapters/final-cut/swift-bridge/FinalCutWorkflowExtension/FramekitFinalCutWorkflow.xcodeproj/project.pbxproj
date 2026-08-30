@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		33EA772704D9A05AE9FE87C0 /* ProExtensionHostShim in Resources */ = {isa = PBXBuildFile; fileRef = AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */; };
 		4750FA18026AB67BBC16BC29 /* FinalCutLiveWorkflowExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */; };
+		C0DE10300000000000000001 /* FinalCutWorkflowExtensionShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10300000000000000002 /* FinalCutWorkflowExtensionShim.swift */; };
 		81BE37D2435C97C1E26E9839 /* ContainerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7EC786F1448B2996E0510F /* ContainerApp.swift */; };
 		FB8A39B20AC58439969A8724 /* FramekitFinalCutWorkflowExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E09328E1DA303336F8109727 /* FramekitFinalCutWorkflowExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -45,6 +46,7 @@
 		AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ProExtensionHostShim; sourceTree = SOURCE_ROOT; };
 		E09328E1DA303336F8109727 /* FramekitFinalCutWorkflowExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FramekitFinalCutWorkflowExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalCutLiveWorkflowExtension.swift; sourceTree = "<group>"; };
+		C0DE10300000000000000002 /* FinalCutWorkflowExtensionShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../../../.github/codeql/FinalCutWorkflowExtensionShim.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -52,6 +54,7 @@
 			isa = PBXGroup;
 			children = (
 				FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */,
+				C0DE10300000000000000002 /* FinalCutWorkflowExtensionShim.swift */,
 				AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */,
 				A3E54EED3337F0C79DCD0FDD /* Container */,
 				3C5A9DBD65609D588D2E9E1C /* Products */,
@@ -165,6 +168,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4750FA18026AB67BBC16BC29 /* FinalCutLiveWorkflowExtension.swift in Sources */,
+				C0DE10300000000000000001 /* FinalCutWorkflowExtensionShim.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

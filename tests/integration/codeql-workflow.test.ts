@@ -75,7 +75,6 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
 
   assert.match(workflow, /xcodebuild/);
   assert.match(workflow, /-scheme FramekitFinalCutWorkflowExtension/);
-  assert.match(workflow, /-D FRAMEKIT_CODEQL/);
   assert.match(workflow, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
   assert.match(workflow, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
   assert.match(workflow, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
@@ -83,14 +82,12 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(workflow, /FRAMEWORK_SEARCH_PATHS=/);
   assert.match(workflow, /LD_RUNPATH_SEARCH_PATHS=/);
   assert.match(workflow, /OTHER_LDFLAGS=/);
-  assert.match(workflow, /FinalCutLiveWorkflowExtension\.swift/);
-  assert.match(workflow, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
   assert.doesNotMatch(workflow, /xcrun swiftc/);
   assert.doesNotMatch(workflow, /-emit-module/);
   assert.doesNotMatch(workflow, /ProExtensionHostShim/);
   assert.doesNotMatch(workflow, /Final Cut Pro\.app/);
   assert.doesNotMatch(workflow, /ProExtensionHost\.framework/);
-  assert.doesNotMatch(workflow, /FRAMEWORK_SEARCH_PATHS/);
+  assert.doesNotMatch(workflow, /\/tmp\/framekit-finalcut-frameworks/);
   assert.doesNotMatch(workflow, /build\.sh/);
 });
 
@@ -121,7 +118,7 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   assert.match(documentation, /CodeQL Swift extraction/);
   assert.match(documentation, /manual\s+`xcodebuild`/);
   assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
-  assert.match(documentation, /integrated Swift driver/);
+  assert.match(documentation, /integrated Swift\s+driver/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
   assert.match(documentation, /five minutes/);
   assert.match(documentation, /standalone Swift CI/);

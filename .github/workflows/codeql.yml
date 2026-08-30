@@ -68,19 +68,26 @@ jobs:
           languages: swift
           build-mode: manual
 
-      - name: Type-check Swift sources for CodeQL extraction
+      - name: Build Swift sources for CodeQL extraction
         timeout-minutes: 5
         run: |
-          mkdir -p "$RUNNER_TEMP/framekit-codeql"
-          xcrun swiftc \
-            -D FRAMEKIT_CODEQL \
-            -parse-as-library \
-            -target arm64-apple-macos15.0 \
-            -module-name FramekitWorkflowExtension \
-            -emit-module \
-            -emit-module-path "$RUNNER_TEMP/framekit-codeql/FramekitWorkflowExtension.swiftmodule" \
-            .github/codeql/FinalCutWorkflowExtensionShim.swift \
-            adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
+          xcodebuild \
+            -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
+            -scheme FramekitFinalCutWorkflowExtension \
+            -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/framekit-codeql-derived" \
+            -destination 'platform=macOS,arch=arm64' \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=NO \
+            SWIFT_ENABLE_COMPILE_CACHE=NO \
+            SWIFT_USE_INTEGRATED_DRIVER=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL \
+            FRAMEWORK_SEARCH_PATHS= \
+            LD_RUNPATH_SEARCH_PATHS= \
+            OTHER_LDFLAGS= \
+            ARCHS=arm64 \
+            build
 
       - name: Analyze with CodeQL
         uses: github/codeql-action/analyze@v4

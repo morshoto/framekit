@@ -1,3 +1,4 @@
+#if FRAMEKIT_CODEQL
 import CoreMedia
 import Foundation
 
@@ -42,3 +43,4 @@ class FCPXHost: NSObject {
 func ProExtensionHostSingleton() -> AnyObject {
     FCPXHost()
 }
+#endif
