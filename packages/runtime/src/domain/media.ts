@@ -12,6 +12,15 @@ export interface SpeechWord {
   filler?: boolean;
 }
 
+export type SpeechSegmentKind = "speech" | "silence" | "breath" | "laughter" | "noise";
+
+export interface SpeechSegment {
+  start: number;
+  end: number;
+  kind: SpeechSegmentKind;
+  confidence?: number;
+}
+
 export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "visual";
 
 export interface SemanticTag {
@@ -126,6 +135,9 @@ export interface RoughCutPlan {
 
 export interface SpeechAnalysis {
   words: SpeechWord[];
+  vadSegments?: SpeechSegment[];
+  silenceSegments?: SpeechSegment[];
+  protectedSegments?: SpeechSegment[];
 }
 
 export interface AudioAnalysis {

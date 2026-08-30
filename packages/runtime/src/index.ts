@@ -9,3 +9,5 @@ export * from "./timeline/snapshot-digest.js";
 export * from "./speech/filler-removal.js";
 export * from "./audio/dialogue-normalization.js";
 export type { RuntimeOptions } from "./application/runtime-options.js";
+export * from "./speech/filler-detector.js";
+export * from "./speech/safe-cut-resolver.js";
