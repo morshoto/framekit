@@ -56,6 +56,42 @@ export interface MediaAnalysisStatus {
   reason?: string;
 }
 
+export interface MediaSemanticDescription {
+  subjects: SemanticTag[];
+  scenes: SemanticTag[];
+  environments: SemanticTag[];
+  timeOfDay: SemanticTag[];
+  moods: SemanticTag[];
+  motion?: VisualMotion;
+  usableRanges: TimeRange[];
+  transcript?: string;
+  audio?: {
+    present: boolean;
+    integratedLufs?: number;
+    truePeakDb?: number;
+    silenceMs?: number;
+  };
+}
+
+export interface MediaIndexEntry {
+  sourceIdentity: MediaSourceIdentity;
+  semantic: MediaSemanticDescription;
+  analysis: MediaAnalysisStatus[];
+  analysisRevision?: string;
+}
+
+export interface MediaIndexQuery {
+  query?: string;
+  subject?: string;
+  scene?: string;
+  environment?: string;
+  timeOfDay?: string;
+  mood?: string;
+  motion?: VisualMotion["label"];
+  range?: TimeRange;
+  capabilities?: MediaAnalysisCapability[];
+}
+
 export interface SpeechAnalysis {
   words: SpeechWord[];
 }
@@ -132,6 +168,7 @@ export interface MediaContext {
   sourceDigest?: string;
   metadata?: MetadataAnalysis;
   analysis?: MediaAnalysisStatus[];
+  semantic?: MediaSemanticDescription;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
   visual?: VisualAnalysis;
@@ -147,6 +184,7 @@ export interface MediaUnderstanding {
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
   visual?: VisualAnalysis;
+  semantic: MediaSemanticDescription;
   analysis: MediaAnalysisStatus[];
   analysisRevision: ContextRevision;
 }

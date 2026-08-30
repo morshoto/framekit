@@ -27,6 +27,11 @@ function semanticFixture() {
       moods: [{ value: "focused", confidence: 0.86 }],
       usableRanges: [usableRange],
     },
+    visual: {
+      scenes: [{ id: "scene-1", start: 1, end: 4, label: "interview", confidence: 0.95 }],
+      subjects: [{ id: "subject-1", label: "person", confidence: 0.99, start: 1, end: 4 }],
+      keyframes: [],
+    },
   };
   return {
     usableRange,
@@ -91,4 +96,33 @@ test("media understanding preserves successful results when one analyzer cannot 
   assert.equal(understanding.visual?.subjects[0]?.label, "person");
   assert.equal(audio?.status, "unavailable");
   assert.match(audio?.reason ?? "", /no audio fixture/);
+});
+
+test("semantic media index filters by meaning and usable source ranges", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const matches = await runtime.indexMedia({
+    subject: "person",
+    scene: "interview",
+    environment: "studio",
+    range: { start: 2, end: 3 },
+  });
+
+  assert.equal(matches.length, 1);
+  assert.deepEqual(matches[0]?.sourceIdentity, {
+    mediaId: "media-semantic-1",
+    source: "/fixtures/interview.mov",
+    sourceDigest: "sha256:interview",
+    mediaKind: "video",
+    duration: 12,
+  });
+  assert.equal(matches[0]?.semantic.subjects[0]?.value, "person");
+  assert.deepEqual(matches[0]?.semantic.usableRanges, [fixture.usableRange]);
+  assert.equal((await runtime.indexMedia({ subject: "car" })).length, 0);
+  assert.equal((await runtime.indexMedia({ range: { start: 5, end: 6 } })).length, 0);
 });

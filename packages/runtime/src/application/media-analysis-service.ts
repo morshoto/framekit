@@ -5,6 +5,9 @@ import type {
   MediaContext,
   MediaAnalysisCapability,
   MediaAnalysisStatus,
+  MediaIndexEntry,
+  MediaIndexQuery,
+  MediaSemanticDescription,
   MediaUnderstanding,
   MediaSourceIdentity,
   SpeechAnalysis,
@@ -68,6 +71,7 @@ export class MediaAnalysisService {
       ...(speech ? { speech } : {}),
       ...(audio ? { audio } : {}),
       ...(visual ? { visual } : {}),
+      semantic: semanticFromAnalyses(speech, audio, visual, metadata),
       analysis: [
         analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), [], failureReason(speechResult)),
         analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), [], failureReason(audioResult)),
@@ -91,6 +95,23 @@ export class MediaAnalysisService {
     return project.media.filter((media) =>
       media.mediaId.toLowerCase().includes(normalized) || media.source.toLowerCase().includes(normalized),
     );
+  }
+
+  public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
+    const project = await this.project.inspectProject();
+    return project.media
+      .map((media) => ({
+        sourceIdentity: sourceIdentityOf(media),
+        semantic: media.semantic ?? emptySemanticDescription(),
+        analysis: media.analysis ?? [
+          analysisStatus("speech", this.options.speechAnalyzer, sourceIdentityOf(media), false),
+          analysisStatus("audio", this.options.audioAnalyzer, sourceIdentityOf(media), false),
+          analysisStatus("visual", this.options.visualAnalyzer, sourceIdentityOf(media), false),
+          analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentityOf(media), false),
+        ],
+        ...(media.analysisRevision ? { analysisRevision: media.analysisRevision } : {}),
+      }))
+      .filter((entry) => matchesMediaIndexQuery(entry, query));
   }
 
   public async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
@@ -153,6 +174,80 @@ function sourceIdentityOf(media: MediaContext): MediaSourceIdentity {
     ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
     ...(media.duration !== undefined ? { duration: media.duration } : {}),
   };
+}
+
+function semanticFromAnalyses(
+  speech: SpeechAnalysis | undefined,
+  audio: AudioAnalysis | undefined,
+  visual: VisualAnalysis | undefined,
+  metadata: MetadataAnalysis | undefined,
+): MediaSemanticDescription {
+  return {
+    subjects: [
+      ...(visual?.subjects ?? []).map((subject) => ({ value: subject.label, confidence: subject.confidence })),
+      ...(metadata?.subjects ?? []),
+    ],
+    scenes: [
+      ...(visual?.scenes ?? []).flatMap((scene) => scene.label ? [{ value: scene.label, confidence: scene.confidence ?? 1 }] : []),
+      ...(metadata?.scenes ?? []),
+    ],
+    environments: metadata?.environments ? structuredClone(metadata.environments) : [],
+    timeOfDay: metadata?.timeOfDay ? structuredClone(metadata.timeOfDay) : [],
+    moods: metadata?.moods ? structuredClone(metadata.moods) : [],
+    ...(visual?.motion ? { motion: structuredClone(visual.motion) } : {}),
+    usableRanges: metadata?.usableRanges ? structuredClone(metadata.usableRanges) : [],
+    ...(speech ? { transcript: speech.words.map((word) => word.text).join(" ") } : {}),
+    ...(audio ? {
+      audio: {
+        present: true,
+        integratedLufs: audio.integratedLufs,
+        truePeakDb: audio.truePeakDb,
+        silenceMs: audio.silenceMs,
+      },
+    } : {}),
+  };
+}
+
+function emptySemanticDescription(): MediaSemanticDescription {
+  return {
+    subjects: [],
+    scenes: [],
+    environments: [],
+    timeOfDay: [],
+    moods: [],
+    usableRanges: [],
+  };
+}
+
+function matchesMediaIndexQuery(entry: MediaIndexEntry, query: MediaIndexQuery): boolean {
+  const text = query.query?.trim().toLowerCase();
+  const values = [
+    entry.sourceIdentity.mediaId,
+    entry.sourceIdentity.source,
+    entry.semantic.transcript ?? "",
+    ...entry.semantic.subjects.map((tag) => tag.value),
+    ...entry.semantic.scenes.map((tag) => tag.value),
+    ...entry.semantic.environments.map((tag) => tag.value),
+    ...entry.semantic.timeOfDay.map((tag) => tag.value),
+    ...entry.semantic.moods.map((tag) => tag.value),
+  ].map((value) => value.toLowerCase());
+  if (text && !values.some((value) => value.includes(text))) return false;
+  if (query.subject && !matchesTag(entry.semantic.subjects, query.subject)) return false;
+  if (query.scene && !matchesTag(entry.semantic.scenes, query.scene)) return false;
+  if (query.environment && !matchesTag(entry.semantic.environments, query.environment)) return false;
+  if (query.timeOfDay && !matchesTag(entry.semantic.timeOfDay, query.timeOfDay)) return false;
+  if (query.mood && !matchesTag(entry.semantic.moods, query.mood)) return false;
+  if (query.motion && entry.semantic.motion?.label !== query.motion) return false;
+  if (query.range && !entry.semantic.usableRanges.some((range) => range.end > query.range!.start && range.start < query.range!.end)) return false;
+  if (query.capabilities?.some((capability) => !entry.analysis.some((record) => record.capability === capability && record.status !== "unavailable"))) {
+    return false;
+  }
+  return true;
+}
+
+function matchesTag(tags: Array<{ value: string }>, query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  return tags.some((tag) => tag.value.toLowerCase() === normalized);
 }
 
 function analysisStatus(

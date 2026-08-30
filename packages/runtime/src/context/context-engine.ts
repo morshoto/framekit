@@ -127,6 +127,7 @@ export class ContextEngine {
         speech: understanding.speech,
         audio: understanding.audio,
         visual: understanding.visual,
+        semantic: understanding.semantic,
         analysis: understanding.analysis,
         analysisRevision: understanding.analysisRevision.id,
       };
