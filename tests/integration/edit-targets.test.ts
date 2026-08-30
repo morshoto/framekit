@@ -74,105 +74,113 @@ test("timeline targets normalize padded project and sequence identities", async 
 
 test("artifact edits mutate only the identified FCPXML artifact", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-edit-targets-"));
-  const artifactPath = join(directory, "managed.fcpxml");
-  await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-artifact" name="Artifact Project"><sequence uid="sequence-artifact" duration="1s"><spine><asset-clip id="clip-artifact" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
-  const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
-  const before = await runtime.inspectProject();
+  try {
+    const artifactPath = join(directory, "managed.fcpxml");
+    await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-artifact" name="Artifact Project"><sequence uid="sequence-artifact" duration="1s"><spine><asset-clip id="clip-artifact" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
 
-  assert.deepEqual(await runtime.inspectArtifact(), {
-    id: `fcpxml:${artifactPath}`,
-    path: artifactPath,
-    format: "fcpxml",
-  });
+    assert.deepEqual(await runtime.inspectArtifact(), {
+      id: `fcpxml:${artifactPath}`,
+      path: artifactPath,
+      format: "fcpxml",
+    });
 
-  const transaction = await runtime.editArtifact(
-    artifactPath,
-    { type: "rename-clip", clipId: "clip-artifact", name: "Artifact rename", baseRevision: before.revision },
-  );
+    const transaction = await runtime.editArtifact(
+      artifactPath,
+      { type: "rename-clip", clipId: "clip-artifact", name: "Artifact rename", baseRevision: before.revision },
+    );
 
-  assert.deepEqual(transaction.target, {
-    kind: "artifact",
-    artifactId: `fcpxml:${artifactPath}`,
-    artifactPath,
-  });
-  assert.deepEqual(transaction.verification?.target, transaction.target);
-  assert.match(await readFile(artifactPath, "utf8"), /name="Artifact rename"/);
+    assert.deepEqual(transaction.target, {
+      kind: "artifact",
+      artifactId: `fcpxml:${artifactPath}`,
+      artifactPath,
+    });
+    assert.deepEqual(transaction.verification?.target, transaction.target);
+    assert.match(await readFile(artifactPath, "utf8"), /name="Artifact rename"/);
 
-  await assert.rejects(
-    runtime.editTimeline(
-      { projectId: before.projectId, sequenceId: before.timeline.id },
-      { type: "rename-clip", clipId: "clip-artifact", name: "Must not be live", baseRevision: transaction.after.revision },
-    ),
-    /CAPABILITY_UNAVAILABLE: editor timeline mutation/,
-  );
-  await assert.rejects(
-    runtime.editArtifact(
-      join(directory, "other.fcpxml"),
-      { type: "rename-clip", clipId: "clip-artifact", name: "Must not write", baseRevision: transaction.after.revision },
-    ),
-    /TARGET_MISMATCH/,
-  );
-  assert.match(await readFile(artifactPath, "utf8"), /name="Artifact rename"/);
+    await assert.rejects(
+      runtime.editTimeline(
+        { projectId: before.projectId, sequenceId: before.timeline.id },
+        { type: "rename-clip", clipId: "clip-artifact", name: "Must not be live", baseRevision: transaction.after.revision },
+      ),
+      /CAPABILITY_UNAVAILABLE: editor timeline mutation/,
+    );
+    await assert.rejects(
+      runtime.editArtifact(
+        join(directory, "other.fcpxml"),
+        { type: "rename-clip", clipId: "clip-artifact", name: "Must not write", baseRevision: transaction.after.revision },
+      ),
+      /TARGET_MISMATCH/,
+    );
+    assert.match(await readFile(artifactPath, "utf8"), /name="Artifact rename"/);
 
-  const relativeTransaction = await runtime.editArtifact(
-    relative(process.cwd(), artifactPath),
-    { type: "rename-clip", clipId: "clip-artifact", name: "Relative artifact rename" },
-  );
-  if (relativeTransaction.target?.kind !== "artifact") throw new Error("expected artifact target");
-  assert.equal(relativeTransaction.target.artifactPath, artifactPath);
+    const relativeTransaction = await runtime.editArtifact(
+      relative(process.cwd(), artifactPath),
+      { type: "rename-clip", clipId: "clip-artifact", name: "Relative artifact rename" },
+    );
+    if (relativeTransaction.target?.kind !== "artifact") throw new Error("expected artifact target");
+    assert.equal(relativeTransaction.target.artifactPath, artifactPath);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("MCP publishing requires the verified artifact target and returns the created target", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-publish-"));
-  const artifactPath = join(directory, "managed.fcpxml");
-  await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-artifact" name="Artifact Project"><sequence uid="sequence-artifact" duration="1s"><spine><asset-clip id="clip-artifact" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
-  const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
-  const before = await runtime.inspectProject();
-  const transaction = await runtime.editArtifact(
-    artifactPath,
-    { type: "rename-clip", clipId: "clip-artifact", name: "Published source", baseRevision: before.revision },
-  );
-  const server = createMcpServer(runtime, {
-    projectPublisher: new FinalCutProjectPublisher({
-      enabled: true,
-      sourcePath: artifactPath,
-      waitMs: 0,
-      executor: async () => "imported",
-    }),
-  });
-  const client = new Client({ name: "artifact-publish-test", version: "0.1.0" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
   try {
-    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
-    assert.equal(editor.capabilities.editor.artifactPublish, true);
-    assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
-    const published = await client.callTool({
-      name: "artifact.publish",
-      arguments: { artifactPath, transactionId: transaction.id, confirm: true },
+    const artifactPath = join(directory, "managed.fcpxml");
+    await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-artifact" name="Artifact Project"><sequence uid="sequence-artifact" duration="1s"><spine><asset-clip id="clip-artifact" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
+    const transaction = await runtime.editArtifact(
+      artifactPath,
+      { type: "rename-clip", clipId: "clip-artifact", name: "Published source", baseRevision: before.revision },
+    );
+    const server = createMcpServer(runtime, {
+      projectPublisher: new FinalCutProjectPublisher({
+        enabled: true,
+        sourcePath: artifactPath,
+        waitMs: 0,
+        executor: async () => "imported",
+      }),
     });
-    assert.equal(published.isError, undefined);
-    const result = JSON.parse(textFrom(published));
-    assert.deepEqual(result.sourceTarget, { kind: "artifact", artifactPath });
-    assert.deepEqual(result.createdTarget, { kind: "editor.project", projectName: "Artifact Project" });
+    const client = new Client({ name: "artifact-publish-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const unconfirmed = await client.callTool({
-      name: "artifact.publish",
-      arguments: { artifactPath, transactionId: transaction.id, confirm: false },
-    });
-    assert.equal(unconfirmed.isError, true);
-    assert.match(textFrom(unconfirmed), /PUBLISH_CONFIRMATION_REQUIRED/);
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+      assert.equal(editor.capabilities.editor.artifactPublish, true);
+      assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
+      const published = await client.callTool({
+        name: "artifact.publish",
+        arguments: { artifactPath, transactionId: transaction.id, confirm: true },
+      });
+      assert.equal(published.isError, undefined);
+      const result = JSON.parse(textFrom(published));
+      assert.deepEqual(result.sourceTarget, { kind: "artifact", artifactPath });
+      assert.deepEqual(result.createdTarget, { kind: "editor.project", projectName: "Artifact Project" });
 
-    const wrongTarget = await client.callTool({
-      name: "artifact.publish",
-      arguments: { artifactPath: join(directory, "other.fcpxml"), transactionId: transaction.id, confirm: true },
-    });
-    assert.equal(wrongTarget.isError, true);
-    assert.match(textFrom(wrongTarget), /PUBLISH_TARGET_MISMATCH/);
+      const unconfirmed = await client.callTool({
+        name: "artifact.publish",
+        arguments: { artifactPath, transactionId: transaction.id, confirm: false },
+      });
+      assert.equal(unconfirmed.isError, true);
+      assert.match(textFrom(unconfirmed), /PUBLISH_CONFIRMATION_REQUIRED/);
+
+      const wrongTarget = await client.callTool({
+        name: "artifact.publish",
+        arguments: { artifactPath: join(directory, "other.fcpxml"), transactionId: transaction.id, confirm: true },
+      });
+      assert.equal(wrongTarget.isError, true);
+      assert.match(textFrom(wrongTarget), /PUBLISH_TARGET_MISMATCH/);
+    } finally {
+      await client.close();
+      await server.close();
+    }
   } finally {
-    await client.close();
-    await server.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
