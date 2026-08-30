@@ -45,6 +45,11 @@
     "description": ""
   },
   {
+    "name": "Type: Chore",
+    "color": "0052CC",
+    "description": ""
+  },
+  {
     "name": "tagpr",
     "color": "ededed",
     "description": ""
