@@ -4,6 +4,7 @@ import type { TimeRange } from "../domain/primitives.js";
 
 export const DEFAULT_FILLER_VOCABULARY = ["er", "erm", "hmm", "uh", "um"] as const;
 export const DEFAULT_FILLER_CONFIDENCE_THRESHOLD = 0.92;
+const TRAILING_PUNCTUATION = ".,!?;:";
 
 export type FillerReasonCode =
   | "ANALYZER_MARKED_FILLER"
@@ -166,7 +167,12 @@ function containsRange(container: TimeRange, candidate: TimeRange): boolean {
 }
 
 function normalizeWord(text: string): string {
-  return text.trim().toLocaleLowerCase().replace(/[.,!?;:]+$/u, "");
+  const normalized = text.trim().toLocaleLowerCase();
+  let end = normalized.length;
+  while (end > 0 && TRAILING_PUNCTUATION.includes(normalized.charAt(end - 1))) {
+    end -= 1;
+  }
+  return normalized.slice(0, end);
 }
 
 function stableCandidateId(
