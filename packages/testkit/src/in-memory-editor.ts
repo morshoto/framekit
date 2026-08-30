@@ -19,7 +19,7 @@ import type {
   CapturedFrameSource,
   WorkflowOperation,
 } from "@framekit/runtime";
-import { diffSnapshots } from "@framekit/runtime";
+import { diffSnapshots, withCapabilityFamilies } from "@framekit/runtime";
 
 export interface InMemoryProjectFixture {
   projectId: string;
@@ -92,7 +92,7 @@ export class InMemoryEditorAdapter implements EditorPort {
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {
-    return {
+    return withCapabilityFamilies({
       editor: {
         projectRead: true,
         timelineSnapshotRead: true,
@@ -118,7 +118,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         audioLoudness: false,
         visualTrack: false,
       },
-    };
+    }, { backend: "fixture" });
   }
 
   public async captureFrame(

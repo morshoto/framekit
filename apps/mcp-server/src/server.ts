@@ -1,6 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
+import {
+  AgentVideoRuntime,
+  resolveEditingIntent,
+  withCapabilityFamilies,
+  type RuntimeCapabilities,
+  type TimelineFrameCapture,
+} from "@framekit/runtime";
 import type {
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
@@ -228,6 +234,33 @@ function jsonResult(value: unknown) {
   };
 }
 
+function normalizeConnectionStatus(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const status = value as Record<string, unknown>;
+  if (!isRuntimeCapabilities(status.capabilities)) return value;
+  const identity = status.identity && typeof status.identity === "object"
+    ? status.identity as { backend?: unknown }
+    : undefined;
+  const backend = typeof identity?.backend === "string" ? identity.backend : undefined;
+  return {
+    ...status,
+    capabilities: withCapabilityFamilies(status.capabilities, {
+      ...(backend ? { backend, connectionBackend: backend } : {}),
+      connection: status.state === "ready",
+    }),
+  };
+}
+
+function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const capabilities = value as Record<string, unknown>;
+  return isRecord(capabilities.editor) && isRecord(capabilities.analyzers);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function frameResult(value: TimelineFrameCapture) {
   const { data, mimeType, ...imageMetadata } = value.image;
   return {
@@ -270,7 +303,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
-  }, async () => jsonResult(await connectionStatus(options)));
+  }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
@@ -750,17 +783,48 @@ async function connectionStatus(options: McpServerOptions): Promise<McpConnectio
 
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
+  const native = options.nativeEditor?.capabilities();
+  const publishingAvailable = Boolean(options.projectPublisher && (
+    typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
+  ));
+  const exportAvailable = Boolean(options.videoExporter?.isAvailable());
   return {
     ...inspected,
-    capabilities: {
+    capabilities: withCapabilityFamilies({
       ...inspected.capabilities,
       editor: {
         ...inspected.capabilities.editor,
-        timelinePublishNewProject: Boolean(options.projectPublisher?.isAvailable()),
-        videoExport: Boolean(options.videoExporter?.isAvailable()),
+        timelinePublishNewProject: publishingAvailable,
+        videoExport: exportAvailable,
       },
-    },
-    ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+    }, {
+      backend: inspected.identity.backend,
+      nativeBackend: "final-cut-accessibility",
+      native: {
+        selectionWrite: Boolean(native?.selectionEdit),
+        undo: Boolean(native?.undo),
+        mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
+        mediaImport: Boolean(native?.mediaImport),
+        mediaSelection: Boolean(native?.mediaSelection),
+        mediaAppendSelected: Boolean(native?.mediaAppendSelected),
+        timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
+        bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
+        deleteRange: Boolean(native?.deleteRange),
+        trimToDuration: Boolean(native?.trimToDuration),
+        mediaAppend: Boolean(native?.mediaAppend),
+        mediaInsert: Boolean(native?.mediaInsert),
+        titlePlacement: Boolean(native?.titlePlacement),
+        timelineFocus: Boolean(native?.timelineFocus),
+        projectCreation: false,
+        clipInsertion: false,
+        clipMovement: false,
+      },
+      publishing: publishingAvailable,
+      publishingBackend: "fcpxml-publisher",
+      export: exportAvailable,
+      exportBackend: "final-cut-native-export",
+    }),
+    ...(native ? { native } : {}),
   };
 }
 

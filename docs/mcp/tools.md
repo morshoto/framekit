@@ -86,6 +86,13 @@ this routing tool.
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 
+`editor.inspect` returns a versioned `capabilities` payload. Read
+`capabilities.families.<family>.<operation>.available` before choosing an
+operation; the descriptor also identifies its `backend`, `guarantee`, and
+`unavailableReason`. `connection.status.state: "ready"` only confirms that the
+bridge is connected and does not imply canonical, native, publishing, or export
+support.
+
 ## Duration planning
 
 `editing.duration.plan` is a read-only planning tool for rough-cut workflows.
