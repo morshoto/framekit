@@ -491,7 +491,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => {
-    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
     const verification = await runtime.verifyTransaction(transactionId);
     if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
     return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
@@ -706,7 +706,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       ...inspected.capabilities,
       editor: {
         ...inspected.capabilities.editor,
-        timelinePublishNewProject: Boolean(options.projectPublisher),
+        timelinePublishNewProject: Boolean(options.projectPublisher?.isAvailable()),
         videoExport: Boolean(options.videoExporter?.isAvailable()),
       },
     },
