@@ -3,45 +3,59 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white" alt="Swift 5.9 or newer" />
-  <img src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white" alt="Python 3.13" />
-  <img src="https://img.shields.io/badge/platform-Apple%20Silicon%20macOS-000000?logo=apple&logoColor=white" alt="Apple Silicon macOS" />
+  <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white" alt="Node.js 20 or newer" />
+  <img src="https://img.shields.io/badge/pnpm-11.10.0-F69220?logo=pnpm&logoColor=white" alt="pnpm 11.10.0" />
+  <img src="https://img.shields.io/badge/Final%20Cut%20Pro-macOS-000000?logo=apple&logoColor=white" alt="Final Cut Pro on macOS" />
   <a href="https://discord.gg/Dmp8FSF4vg"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white" alt="Join the Framekit Discord" /></a>
 </p>
 
 # Framekit
 
-Agentic video editing runtime. 
+Agentic video editing runtime and MCP server for Final Cut Pro.
 
-## Installation
+## Get started
 
-Requirements:
+For repository development, you need:
+
+- Node.js 20 or newer;
+- pnpm 11.10.0;
+- Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
+
+The Xcode requirement is only needed for the native Workflow Extension. For the
+pinned Node and shell toolchain, enter the optional Nix shell first:
+
+```sh
+nix develop ./nix
+```
+
+From the repository root, install dependencies and run the deterministic checks:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm run hooks:install
-pnpm run test
 pnpm run build
+pnpm run test
+pnpm run check:boundaries
 ```
 
-## Quick Start
+## Try the local MCP server
 
-The reproducible Node shell and native toolchain contract live under [`nix/`](nix/). Enter it with `nix develop ./nix`, then run `pnpm run xcode:check` before building the Final Cut Workflow Extension.
-
-## MCP server
-
-The local MCP server uses the deterministic in-memory Phase 2 fixture:
+The local MCP server uses a deterministic in-memory fixture and communicates over
+stdio. Start it from the repository root and connect it to an MCP client:
 
 ```sh
 pnpm run mcp
 ```
 
-The default `.env.example` starts the Diffusers visual service without the optional music stack. `Cmd-D` toggles Developer Mode and `Cmd-F` toggles the borderless exhibition presentation.
+See the [MCP tools](./docs/mcp/tools.md) and [MCP documentation](./docs/mcp/README.md)
+for the tool inventory and live-backend setup.
 
 ## Connect Codex to Final Cut
 
-Install the signed Framekit Workflow Extension from the latest release, then
-configure the Framekit marketplace once:
+The Codex plugin provides the MCP integration; the Final Cut Workflow Extension
+is installed separately. Download a signed extension from a
+[Framekit GitHub release](https://github.com/morshoto/framekit/releases) when a
+release asset is available, then configure the Framekit marketplace once:
 
 ```sh
 codex plugin marketplace add morshoto/framekit
@@ -56,12 +70,23 @@ existing Workflow Extension bridge and does not launch, activate, focus, or
 edit Final Cut through macOS UI automation. See the
 [first-run setup and capability boundaries](./docs/final-cut/installation.md).
 
+For local native development, use the checkout's CLI wrapper from the repository
+root:
+
+```sh
+pnpm run xcode:check
+bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
+pnpm run framekit -- connect finalcut --development
+```
+
 ## Further Docs
 
 - [Documentation index](./docs/README.md)
+- [Getting started](./docs/getting-started.md)
 - [Architecture](./docs/ARCHITECTURE.md)
 - [Clean Codex and Claude Code MCP validation](./docs/tests/clean-mcp-clients.md)
 
 ## Development
 
-Contributor setup, including the local pre-commit hook, is documented in [`CONTRIBUTOR.md`](CONTRIBUTOR.md).
+Contributor setup, repository layout, native checks, and the local pre-commit
+hook are documented in [CONTRIBUTING.md](CONTRIBUTING.md).

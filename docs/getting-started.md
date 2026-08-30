@@ -7,8 +7,20 @@ discovery, and the Phase 1 Final Cut runtime.
 
 ## Development setup
 
-Install the JavaScript dependencies and run the deterministic checks from the
-repository root:
+Requirements:
+
+- Node.js 20 or newer;
+- pnpm 11.10.0;
+- Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
+
+For the pinned Node and shell toolchain, enter the optional Nix shell first:
+
+```sh
+nix develop ./nix
+```
+
+Then install the JavaScript dependencies and run the deterministic checks from
+the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -18,11 +30,9 @@ pnpm run build
 pnpm run check:boundaries
 ```
 
-The reproducible Node shell and native toolchain are provided by the
-repository's Nix shell:
+For native work, validate the host Xcode installation:
 
 ```sh
-nix develop ./nix
 pnpm run xcode:check
 ```
 
@@ -78,8 +88,11 @@ variable. The complete provider setup is documented in the
 
 ## Connect Codex to Final Cut
 
-Install the signed Framekit Workflow Extension from a Framekit release. Then
-add the Framekit marketplace once without cloning the repository:
+Install the signed Framekit Workflow Extension from a
+[Framekit GitHub release](https://github.com/morshoto/framekit/releases) when a
+release asset is available. If a release has no extension asset, follow the
+development build steps below. Then add the Framekit marketplace once without
+cloning the repository:
 
 ```sh
 codex plugin marketplace add morshoto/framekit
@@ -104,13 +117,13 @@ For normal repository development mode, build and connect the native extension
 with:
 
 ```sh
-framekit connect finalcut --development
+pnpm run framekit -- connect finalcut --development
 ```
 
 Inspect automatic setup and reconnect progress with:
 
 ```sh
-framekit doctor finalcut --json
+pnpm run framekit -- doctor finalcut --json
 ```
 
 The live bridge uses the per-user socket at

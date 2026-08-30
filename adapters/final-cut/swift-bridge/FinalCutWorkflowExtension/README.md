@@ -6,8 +6,9 @@ the Node MCP process must never attempt to load `ProExtensionHost` itself.
 
 ## Build with full Xcode
 
-Before opening the project, run `npm run xcode:check`. The checked-in native
-baseline is Xcode 16.4 with the macOS 15.5 SDK; see
+From the repository root, before opening the project, run
+`pnpm run xcode:check`. The checked-in native baseline is Xcode 16.4 with the
+macOS 15.5 SDK; see
 [`nix/xcode-version.json`](../../../../nix/xcode-version.json).
 
 The checked-in XcodeGen project supplies the container app, extension target,
@@ -30,7 +31,7 @@ The extension publishes a newline-delimited JSON protocol on
 Framekit connects with:
 
 ```sh
-FRAMEKIT_EDITOR=final-cut-live npm run mcp
+FRAMEKIT_EDITOR=final-cut-live pnpm run mcp
 ```
 
 Set `FRAMEKIT_FINAL_CUT_SOCKET` explicitly when using a non-default socket.
@@ -52,7 +53,8 @@ Project catalog and selection requests are not advertised by this bridge. The
 public host API exposes only the active sequence, so callers receive
 `CAPABILITY_UNAVAILABLE` rather than an inferred project browser.
 
-The local build is ad-hoc signed for development. `framekit connect finalcut`
+The local build is ad-hoc signed for development. From the repository root,
+`pnpm run framekit -- connect finalcut`
 installs the containing app into the user's Applications directory and
 activates Framekit through Final Cut's Extensions menu. Release artifacts must
 be Developer ID signed and notarized before distribution.

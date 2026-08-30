@@ -1,7 +1,7 @@
 # Contributing to Framekit
 
-For first-time setup, including installation of the local pre-commit hook, see
-[`CONTRIBUTOR.md`](CONTRIBUTOR.md).
+For first-time setup, install the local pre-commit hook with
+`pnpm run hooks:install` after installing dependencies.
 
 ## Development setup
 
@@ -15,6 +15,7 @@ Install dependencies and run the standard checks:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm run hooks:install
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
