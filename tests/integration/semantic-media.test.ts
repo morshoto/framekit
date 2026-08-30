@@ -126,3 +126,29 @@ test("semantic media index filters by meaning and usable source ranges", async (
   assert.equal((await runtime.indexMedia({ subject: "car" })).length, 0);
   assert.equal((await runtime.indexMedia({ range: { start: 5, end: 6 } })).length, 0);
 });
+
+test("rough-cut planning returns an explainable read-only shot plan", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  const before = await runtime.inspectProject();
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({ subject: "person", maxShots: 1 });
+  const shot = plan.shots[0];
+
+  assert.equal(plan.revision.id, before.revision.id);
+  assert.equal(plan.shots.length, 1);
+  assert.deepEqual(shot?.sourceIdentity, {
+    mediaId: "media-semantic-1",
+    source: "/fixtures/interview.mov",
+    sourceDigest: "sha256:interview",
+    mediaKind: "video",
+    duration: 12,
+  });
+  assert.deepEqual(shot?.range, fixture.usableRange);
+  assert.deepEqual(shot?.matchedProperties, ["subject:person"]);
+  assert.match(shot?.rationale ?? "", /subject "person"/);
+});

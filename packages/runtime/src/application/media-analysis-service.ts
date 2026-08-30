@@ -8,6 +8,8 @@ import type {
   MediaIndexEntry,
   MediaIndexQuery,
   MediaSemanticDescription,
+  RoughCutPlan,
+  RoughCutPlanRequest,
   MediaUnderstanding,
   MediaSourceIdentity,
   SpeechAnalysis,
@@ -19,6 +21,7 @@ import type { TimeRange } from "../domain/primitives.js";
 import { ContextEngine } from "../context/context-engine.js";
 import { ProjectService } from "./project-service.js";
 import type { RuntimeOptions } from "./runtime-options.js";
+import { planRoughCut } from "../planning/rough-cut.js";
 
 export class MediaAnalysisService {
   public constructor(
@@ -99,6 +102,16 @@ export class MediaAnalysisService {
 
   public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
     const project = await this.project.inspectProject();
+    return this.indexFromProject(project, query);
+  }
+
+  public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
+    const project = await this.project.inspectProject();
+    const { maxShots: _maxShots, ...query } = request;
+    return planRoughCut(this.indexFromProject(project, query), project.revision, request);
+  }
+
+  private indexFromProject(project: ProjectSnapshot, query: MediaIndexQuery): MediaIndexEntry[] {
     return project.media
       .map((media) => ({
         sourceIdentity: sourceIdentityOf(media),

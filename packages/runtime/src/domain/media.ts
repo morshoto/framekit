@@ -92,6 +92,30 @@ export interface MediaIndexQuery {
   capabilities?: MediaAnalysisCapability[];
 }
 
+export interface RoughCutPlanRequest extends MediaIndexQuery {
+  maxShots?: number;
+}
+
+export interface RoughCutShot {
+  order: number;
+  sourceIdentity: MediaSourceIdentity;
+  range: TimeRange;
+  confidence: number;
+  matchedProperties: string[];
+  rationale: string;
+}
+
+export interface RoughCutPlan {
+  planner: {
+    id: string;
+    version: number;
+  };
+  revision: ContextRevision;
+  query: RoughCutPlanRequest;
+  shots: RoughCutShot[];
+  warnings: string[];
+}
+
 export interface SpeechAnalysis {
   words: SpeechWord[];
 }
