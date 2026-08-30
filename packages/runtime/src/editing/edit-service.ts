@@ -67,6 +67,7 @@ export class EditService {
       after: attemptedAfter,
       attemptedAfter,
       diff: diffSnapshots(before, attemptedAfter),
+      verificationPolicy: structuredClone(policy),
       status: "APPLIED",
     };
     try {
@@ -119,6 +120,7 @@ export class EditService {
       expectedDiff: diffSnapshots(before, expectedAfter),
       warnings: [],
       expiresAt: new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
+      verification: structuredClone(request.verification ?? {}),
     };
     this.pruneEditPreviews();
     const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews) && this.options.maxActivePreviews! > 0
@@ -148,6 +150,9 @@ export class EditService {
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
     }
+    const verificationPolicy = Object.keys(policy).length > 0
+      ? { ...structuredClone(preview.verification ?? {}), ...structuredClone(policy) }
+      : structuredClone(preview.verification ?? {});
     try {
       await this.adapter.applyTransaction(preview.operations, before.revision);
     } catch (error) {
@@ -172,6 +177,7 @@ export class EditService {
       after: attemptedAfter,
       attemptedAfter,
       diff: diffSnapshots(before, attemptedAfter),
+      verificationPolicy,
       status: "APPLIED",
     };
     try {
@@ -183,7 +189,7 @@ export class EditService {
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
-      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+      transaction.verification = await this.verificationEngine.verify(transaction, verificationPolicy);
     } catch (verificationError) {
       try {
         await this.adapter.restore(before, attemptedAfter.revision);
