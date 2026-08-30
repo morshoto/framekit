@@ -263,10 +263,10 @@ const scenarios: EvaluationScenario[] = [
     steps: [{ tool: "transition.apply", expect: { toolAvailable: false } }],
   },
   {
-    id: "export-capability",
+    id: "artifact-publish-capability",
     category: "publishing",
     support: "unavailable",
-    intent: "Export the verified edit as a new project",
+    intent: "Publish the verified FCPXML artifact as a new project",
     expectedTool: "artifact.publish",
     steps: [{
       tool: "artifact.publish",
