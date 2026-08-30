@@ -31,9 +31,9 @@ the resulting default-branch behavior still requires a post-merge run.
 Expected result: The workflow completes successfully, and its analysis has a
 nonzero `rules_count` with no unsuccessful-execution error.
 
-Actual evidence: Workflow run `33325756741` completed successfully. Both
+Actual evidence: Workflow run `33327013184` completed successfully. Both
 JavaScript and Swift CodeQL jobs passed. Swift extraction reported `0`
-unresolved AST nodes and `402791` extracted AST nodes, then successfully
+unresolved AST nodes and `410407` extracted AST nodes, then successfully
 uploaded the results. The existing `main` history still contains two zero-rule
 unsuccessful records; this change does not delete them.
 
