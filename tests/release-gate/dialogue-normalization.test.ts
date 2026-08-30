@@ -36,9 +36,11 @@ function createDialogueRuntime(
       speech: { words: [{ text: "hello", start: 0, end: 2, confidence: 0.99 }] },
     }],
   });
+  let audioAnalysisCalls = 0;
   const analyzer: AudioAnalyzer = {
     descriptor: { id: "fixture.dialogue-audio", provider: "fixture", version: "1" },
     analyze: async ({ project }) => {
+      audioAnalysisCalls += 1;
       const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-clip")?.gainDb ?? 0;
       return {
         integratedLufs: (audio.integratedLufs ?? -20) + gain,
@@ -52,6 +54,7 @@ function createDialogueRuntime(
   return {
     adapter,
     runtime: new AgentVideoRuntime(adapter, { audioAnalyzer: analyzer, ...options }),
+    audioAnalysisCalls: () => audioAnalysisCalls,
   };
 }
 
@@ -123,6 +126,31 @@ test("dialogue NO_OP and SKIP previews never issue an edit token", async () => {
   assert.equal(skipped.plan.reasonCodes[0], "SILENCE");
   assert.equal(skipped.previewToken, undefined);
   assert.equal(canonicalSnapshotDigest(await silent.adapter.readProject()), canonicalSnapshotDigest(silentBefore));
+});
+
+test("dialogue preview fails closed before analysis when canonical writes are unavailable", async () => {
+  const { adapter, runtime, audioAnalysisCalls } = createDialogueRuntime();
+  const before = await runtime.inspectProject();
+  const getCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => {
+    const capabilities = await getCapabilities();
+    return {
+      ...capabilities,
+      editor: { ...capabilities.editor, timelineWrite: false },
+    };
+  };
+
+  await assert.rejects(
+    runtime.previewDialogueNormalization({
+      mediaId: "dialogue-media",
+      occurrenceId: "dialogue-clip",
+      baseRevision: before.revision,
+      ...policy,
+    }),
+    /CAPABILITY_UNAVAILABLE: dialogue normalization requires canonical timeline write, read-after-write, and rollback/,
+  );
+  assert.equal(audioAnalysisCalls(), 0);
+  assert.deepEqual(await adapter.readProject(), before);
 });
 
 test("failed dialogue verification rolls back the complete transaction", async () => {
