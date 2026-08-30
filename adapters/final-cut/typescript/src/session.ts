@@ -101,6 +101,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const liveCapabilities = await optionalCapabilities(this.options.live);
     if (
       liveCapabilities?.editor.canonicalTimelineMode !== "metadata-only"
+      && !this.options.mutation
       && liveCapabilities?.editor.timelineSnapshotRead
       && this.options.live?.readProject
     ) {
