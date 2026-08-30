@@ -1,4 +1,4 @@
-import { withCanonicalTimelineMode } from "@framekit/runtime";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditOperation,
@@ -73,12 +73,17 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       && this.options.live?.apply
       && this.options.live.restore
     );
-    return withCanonicalTimelineMode({
+    const applyProviderCapabilities = hasExplicitDocumentPair
+      ? mutation
+      : liveMutation
+        ? live
+        : snapshot;
+    return withCapabilityFamilies({
       editor: {
         projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
         timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead || liveSnapshot),
         timelineWrite: Boolean((hasExplicitDocumentPair && mutation?.editor.timelineWrite) || liveMutation),
-        timelineArtifactWrite: Boolean(hasExplicitDocumentPair && mutation?.editor.timelineArtifactWrite),
+        timelineArtifactWrite: Boolean(applyProviderCapabilities?.editor.timelineArtifactWrite),
         readAfterWrite: Boolean(
           (hasExplicitDocumentPair && snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite)
           || (liveMutation && live?.editor.readAfterWrite)
@@ -99,7 +104,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         audioLoudness: Boolean(snapshot?.analyzers.audioLoudness || mutation?.analyzers.audioLoudness || live?.analyzers.audioLoudness),
         visualTrack: Boolean(snapshot?.analyzers.visualTrack || mutation?.analyzers.visualTrack || live?.analyzers.visualTrack),
       },
-    });
+    }, { backend: "final-cut-session" });
   }
 
   public async read(): Promise<ProjectSnapshot> {

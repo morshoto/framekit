@@ -15,11 +15,18 @@ import type {
   EditorPort,
   ManagedArtifact,
   MediaContext,
+  MediaIndexEntry,
+  MediaIndexQuery,
+  RoughCutPlan as SemanticRoughCutPlan,
+  RoughCutPlanRequest as SemanticRoughCutPlanRequest,
   MediaUnderstanding,
   MusicAddRequest,
   ProjectCatalog,
   ProjectSelection,
   ProjectSnapshot,
+  RoughCutConstructionPlan,
+  RoughCutConstructionPlanRequest,
+  RoughCutConstructionPreview,
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
@@ -28,7 +35,10 @@ import type {
   VerificationPolicy,
   VisualAnalysis,
   EditorTimelineEditTargetInput,
+  DurationPolicyPlan,
+  DurationPolicyRequest,
 } from "./domain/index.js";
+import { planRoughCutConstruction as buildRoughCutConstructionPlan } from "./domain/rough-cut.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
 import { ContextService } from "./context/context-service.js";
@@ -39,6 +49,7 @@ import { MusicService } from "./editing/music-service.js";
 import { ProjectService } from "./application/project-service.js";
 import type { RuntimeOptions } from "./application/runtime-options.js";
 import { TransactionStore } from "./application/transaction-store.js";
+import { DurationPolicyService } from "./application/duration-policy-service.js";
 
 /** Stable runtime façade exposed to the MCP server and editor adapters. */
 export class AgentVideoRuntime {
@@ -48,6 +59,7 @@ export class AgentVideoRuntime {
   private readonly edits: EditService;
   private readonly music: MusicService;
   private readonly fillerRemoval: FillerRemovalService;
+  private readonly durationPolicy: DurationPolicyService;
 
   public constructor(
     adapter: EditorPort,
@@ -62,6 +74,7 @@ export class AgentVideoRuntime {
     this.edits = new EditService(adapter, this.projects, this.media, verificationEngine, options, transactions);
     this.music = new MusicService(this.projects, this.edits);
     this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
+    this.durationPolicy = new DurationPolicyService();
   }
 
   public async inspectProject(): Promise<ProjectSnapshot> {
@@ -74,6 +87,20 @@ export class AgentVideoRuntime {
 
   public async inspectArtifact(): Promise<ManagedArtifact> {
     return this.projects.inspectArtifact();
+  }
+
+  public async planRoughCutConstruction(
+    request: RoughCutConstructionPlanRequest,
+  ): Promise<RoughCutConstructionPlan> {
+    return buildRoughCutConstructionPlan(await this.projects.inspectProject(), request);
+  }
+
+  public async previewRoughCutConstruction(
+    request: RoughCutConstructionPlanRequest,
+  ): Promise<RoughCutConstructionPreview> {
+    const plan = await this.planRoughCutConstruction(request);
+    const preview = await this.edits.previewEdit({ baseRevision: plan.baseRevision, operations: plan.operations });
+    return { ...preview, plan };
   }
 
   public async captureFrame(
@@ -186,12 +213,24 @@ export class AgentVideoRuntime {
     return this.media.understandMedia(mediaId);
   }
 
+  public planDuration(request: DurationPolicyRequest): DurationPolicyPlan {
+    return this.durationPolicy.plan(request);
+  }
+
   public async inspectMedia(mediaId: string): Promise<MediaContext> {
     return this.media.inspectMedia(mediaId);
   }
 
   public async searchMedia(query: string): Promise<MediaContext[]> {
     return this.media.searchMedia(query);
+  }
+
+  public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
+    return this.media.indexMedia(query);
+  }
+
+  public async planRoughCut(request: SemanticRoughCutPlanRequest): Promise<SemanticRoughCutPlan> {
+    return this.media.planRoughCut(request);
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

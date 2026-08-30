@@ -1,5 +1,28 @@
 # MCP Tools
 
+## Editor-first routing
+
+For an editing request, follow this order:
+
+1. Call `connection.status` to establish whether the expected editor is
+   connected.
+2. Call `editor.inspect` to read the editor identity and advertised
+   capabilities.
+3. Call `project.inspect` to capture the active project and revision.
+4. Call `editing.route` with the intended operation. Select only a path whose
+   required capabilities are available.
+5. Resolve the request with `editing.intent.resolve` when needed, then call
+   the operation-specific `preview` and `execute` tools.
+6. Observe the result and call `edit.diff` and `edit.verify`.
+
+`editing.route` is read-only. It returns `CAPABILITY_UNAVAILABLE` when the
+connected editor cannot satisfy the requested operation. It selects an
+`external-renderer` path only when the caller explicitly passes
+`fallback: "external-renderer"`; the response includes
+`EXTERNAL_FALLBACK_SELECTED` and a structured cause. A connected editor is
+never silently bypassed, and Framekit does not execute external rendering from
+this routing tool.
+
 ## Common runtime tools
 
 | Tool | Purpose | Backend notes |
@@ -7,6 +30,8 @@
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit operation and affected range | Read-only; ambiguous requests return clarification and no operation; resolved destructive requests set `previewRequired` |
+| `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
+| `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
@@ -54,14 +79,39 @@
 | `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, and audio presence | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
+| `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
-| `media.understand` | Combined speech, audio, and visual understanding | Configured providers required for Final Cut |
+| `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
+| `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
 | `editor.assets` | Search native editor assets by text, kind, or vendor | Fixture or Motion-template registry |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
+
+`editor.inspect` returns a versioned `capabilities` payload. Read
+`capabilities.families.<family>.<operation>.available` before choosing an
+operation; the descriptor also identifies its `backend`, `guarantee`, and
+`unavailableReason`. `connection.status.state: "ready"` only confirms that the
+bridge is connected and does not imply canonical, native, publishing, or export
+support.
+
+## Duration planning
+
+`editing.duration.plan` is a read-only planning tool for rough-cut workflows.
+It accepts `requestedDurationSeconds`, a footage inventory with optional usable
+ranges and reusable flags, an optional `hard` or `soft` constraint, and explicit
+permissions for reuse, slow motion, or generated assets. Ambiguous duration
+requests default to a soft constraint. The response identifies the selected
+action, available unique and reusable footage, any reused source ranges, every
+alternative and tradeoff, and `durationReport` with
+`requestedDurationSeconds`, `achievableDurationSeconds`, and
+`actualDurationSeconds`.
+
+The tool never edits the timeline and never silently duplicates, stretches, or
+generates material. Call it before a rough-cut plan or `timeline.edit.preview`,
+then require confirmation for any alternative that changes source treatment.
 
 ## Live Final Cut tools
 
@@ -98,8 +148,9 @@ The three editing surfaces have separate targets and guarantees:
   `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
   guessing.
 
-The old generic `timeline.edit` and `timeline.publish.new-project` names are not
-registered MCP tools. Callers must select the target-specific surface.
+The target-specific tools are preferred. The older `timeline.edit` and
+`timeline.publish.new-project` names remain registered as compatibility aliases;
+new callers should select the target-specific surface.
 
 `project.list` and `project.select` use stable IDs supplied by the selected
 backend. The current Workflow Extension exposes only the active project and
@@ -120,6 +171,26 @@ use the explicit `editor.native.media.*` tools because Browser media identity an
 timeline occurrence identity are different. Imported media handles are stable
 for the current native session; timeline occurrence handles remain short-lived
 and bound to the active sequence/playhead state.
+
+## Semantic media understanding
+
+`media.understand` runs the independently configured speech, audio, visual, and
+metadata analyzers for one media item. Its response includes the exact source
+identity (`mediaId`, source, optional digest, kind, and duration), semantic tags,
+usable source ranges, and one machine-readable status per capability. A provider
+failure or missing provider is reported as `unavailable`; successful modalities
+remain available in a partial result, and no description is invented for a
+missing modality.
+
+`media.index` searches the attached, provenance-aware descriptions. Filters can
+match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free text,
+overlapping usable `range`, and required analyzer `capabilities`. Every analyzed
+status carries the analyzer ID/provider and source identity used to produce it.
+
+`rough-cut.plan` consumes the same index and returns deterministic shots sorted
+by media ID and source range. Each shot includes its exact source identity,
+usable range, confidence, matched properties, and rationale. The planner is
+read-only; it produces planning data and does not add clips to a timeline.
 
 ## Music mixing workflow
 
@@ -146,6 +217,30 @@ provider. Live Final Cut Browser search/import/append/insert and selection gain
 remain the separate `editor.native.*` tools; a live-only backend must not be
 treated as a canonical snapshot or composite music provider without advertising
 those capabilities.
+
+## Rough-cut construction workflow
+
+Use `rough-cut.construction.plan` to turn ordered imported or indexed video media into a
+ deterministic primary-storyline operation list. Use `rough-cut.construction.preview` to
+bind that plan to the current project revision and receive the same short-lived
+preview contract as `timeline.edit.preview`. Both tools are read-only.
+
+The ordered workflow can include `timeline.media.add`, `timeline.media.move`,
+`timeline.media.replace`, `timeline.media.remove`, `timeline.transition.add`,
+`timeline.audio.attach`, `timeline.audio.mix`, and `timeline.title.add`.
+Each operation has an explicit editor capability. The runtime checks every
+required capability before calling adapter preview or execution, and reports
+`CAPABILITY_UNAVAILABLE` instead of applying a partial workflow.
+
+Execute a rough-cut preview with `timeline.edit.execute`; then inspect its
+before/after snapshots, `edit.diff`, and `edit.verify`, and undo it with
+`edit.undo`. The deterministic fixture supports this complete loop. Native and
+FCPXML backends remain unavailable for the new composite primitives until they
+advertise atomic preview, execution, read-after-write, and rollback support.
+
+Rough-cut construction does not create or replace the active Final Cut
+project. After a verified artifact exists, `timeline.publish.new-project` is
+the explicit publishing path for importing it as a new project.
 
 ## Composite editing transactions
 

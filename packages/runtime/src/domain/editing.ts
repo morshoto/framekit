@@ -4,7 +4,7 @@ import type { Marker, ProjectSnapshot } from "./project.js";
 
 import type { TimelineDiff } from "./diff.js";
 
-import type { VerificationReport } from "./verification.js";
+import type { VerificationPolicy, VerificationReport } from "./verification.js";
 
 export interface ArtifactEditTarget {
   kind: "artifact";
@@ -76,7 +76,7 @@ export interface AddMediaOperation {
   type: "timeline.media.add";
   occurrenceId: string;
   mediaId: string;
-  role: "video" | "music";
+  role: "video" | "music" | "audio";
   start: number;
   duration: number;
   targetLane?: "primary" | number;
@@ -113,6 +113,7 @@ export interface MusicAddRequest {
     dialogueClipIds?: string[];
     reductionDb?: number;
   };
+  verification?: VerificationPolicy;
 }
 
 export interface AddTitleOperation {
@@ -125,11 +126,67 @@ export interface AddTitleOperation {
   targetLane: number;
 }
 
-export type WorkflowOperation = EditOperation | ImportMediaOperation | AddMediaOperation | SetAudioFadesOperation | AddTitleOperation;
+export interface MoveMediaOperation {
+  type: "timeline.media.move";
+  occurrenceId: string;
+  start: number;
+  targetLane?: "primary" | number;
+}
+
+export interface ReplaceMediaOperation {
+  type: "timeline.media.replace";
+  occurrenceId: string;
+  mediaId: string;
+  duration?: number;
+}
+
+export interface RemoveMediaOperation {
+  type: "timeline.media.remove";
+  occurrenceId: string;
+}
+
+export interface AddTransitionOperation {
+  type: "timeline.transition.add";
+  transitionId: string;
+  assetId: string;
+  beforeClipId: string;
+  afterClipId: string;
+  duration: number;
+}
+
+export interface AttachAudioOperation {
+  type: "timeline.audio.attach";
+  occurrenceId: string;
+  targetClipId: string;
+  mediaId: string;
+  startOffset?: number;
+  duration?: number;
+}
+
+export interface MixAudioOperation {
+  type: "timeline.audio.mix";
+  clipId: string;
+  gainDb?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+}
+
+export type WorkflowOperation = EditOperation
+  | ImportMediaOperation
+  | AddMediaOperation
+  | SetAudioFadesOperation
+  | AddTitleOperation
+  | MoveMediaOperation
+  | ReplaceMediaOperation
+  | RemoveMediaOperation
+  | AddTransitionOperation
+  | AttachAudioOperation
+  | MixAudioOperation;
 
 export interface CompositeEditRequest {
   baseRevision: ContextRevision;
   operations: WorkflowOperation[];
+  verification?: VerificationPolicy;
 }
 
 export interface CompositeEditPreview {
@@ -140,6 +197,7 @@ export interface CompositeEditPreview {
   expectedDiff: TimelineDiff;
   warnings: string[];
   expiresAt: string;
+  verification?: VerificationPolicy;
 }
 
 export interface EditTransaction {
@@ -155,6 +213,7 @@ export interface EditTransaction {
   after: ProjectSnapshot;
   attemptedAfter: ProjectSnapshot;
   diff: TimelineDiff;
+  verificationPolicy?: VerificationPolicy;
   verification?: VerificationReport;
   status: "APPLIED" | "VERIFIED" | "FAILED" | "ROLLED_BACK" | "ACCEPTED";
 }

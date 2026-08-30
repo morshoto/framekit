@@ -21,6 +21,7 @@ import type {
   RuntimeCapabilities,
   StoryElement,
 } from "@framekit/runtime";
+import { withCapabilityFamilies } from "@framekit/runtime";
 
 type XmlNode = Record<string, any>;
 type OrderedXml = XmlNode[];
@@ -81,7 +82,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {
-    return {
+    return withCapabilityFamilies({
       editor: {
         projectRead: true,
         timelineSnapshotRead: true,
@@ -98,7 +99,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         projectSelection: true,
       },
       analyzers: emptyAnalyzerCapabilities(),
-    };
+    }, { backend: "fcpxml-document" });
   }
 
   public async listAssets(): Promise<EditorAsset[]> {

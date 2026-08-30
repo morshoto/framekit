@@ -39,7 +39,9 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "edit.diff",
         "edit.undo",
         "edit.verify",
+        "editing.duration.plan",
         "editing.intent.resolve",
+        "editing.route",
         "editor.assets",
         "editor.inspect",
         "editor.live.changes",
@@ -70,6 +72,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.native.trim-to-duration.execute",
         "editor.native.trim-to-duration.preview",
         "editor.native.undo",
+        "media.index",
         "media.inspect",
         "media.search",
         "media.understand",
@@ -79,10 +82,17 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "project.inspect",
         "project.list",
         "project.select",
+        "rough-cut.construction.plan",
+        "rough-cut.construction.preview",
+        "rough-cut.plan",
         "speech.analyze",
         "speech.filler.remove.execute",
         "speech.filler.remove.preview",
         "timeline.changes",
+        "timeline.edit",
+        "timeline.edit.execute",
+        "timeline.edit.preview",
+        "timeline.publish.new-project",
         "artifact.edit",
         "artifact.edit.execute",
         "artifact.edit.preview",
@@ -99,7 +109,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     );
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "sequenceId", "timelineId", "type",
+      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "sequenceId", "timelineId", "type", "verification",
     ]);
     assert.deepEqual(timelineEditTool?.inputSchema.required?.slice().sort(), ["baseRevision", "projectId", "sequenceId", "type"]);
     const artifactEditTool = tools.tools.find((tool) => tool.name === "artifact.edit");

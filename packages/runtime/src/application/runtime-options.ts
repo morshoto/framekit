@@ -1,5 +1,6 @@
 import type {
   AudioAnalyzer,
+  MetadataAnalyzer,
   SpeechAnalyzer,
   VisualAnalyzer,
 } from "../domain/media.js";
@@ -9,6 +10,7 @@ export interface RuntimeOptions {
   speechAnalyzer?: SpeechAnalyzer;
   audioAnalyzer?: AudioAnalyzer;
   visualAnalyzer?: VisualAnalyzer;
+  metadataAnalyzer?: MetadataAnalyzer;
   verificationEngine?: VerificationEngine;
   now?: () => number;
   previewTtlMs?: number;

@@ -23,6 +23,7 @@ import { MediaAnalysisService } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
+import { assertValidVerificationPolicy } from "../verification/verification.js";
 
 export class EditService {
   private readonly editPreviews = new Map<string, CompositeEditPreview>();
@@ -37,10 +38,12 @@ export class EditService {
   ) {}
 
   public async edit(operation: EditOperation, policy: VerificationPolicy = {}): Promise<EditTransaction> {
+    const verificationPolicy = structuredClone(policy);
+    assertValidVerificationPolicy(verificationPolicy);
     const before = await this.project.inspectProject();
     const capabilities = await this.adapter.getCapabilities();
     const target = await this.defaultTarget(before, capabilities);
-    return this.editWithTarget(operation, policy, target, before, capabilities);
+    return this.editWithTarget(operation, verificationPolicy, target, before, capabilities);
   }
 
   public async editArtifact(
@@ -69,6 +72,8 @@ export class EditService {
     existingBefore?: ProjectSnapshot,
     existingCapabilities?: Awaited<ReturnType<EditorPort["getCapabilities"]>>,
   ): Promise<EditTransaction> {
+    const verificationPolicy = structuredClone(policy);
+    assertValidVerificationPolicy(verificationPolicy);
     const before = existingBefore ?? await this.project.inspectProject();
     const capabilities = existingCapabilities ?? await this.adapter.getCapabilities();
     this.assertTarget(target, before);
@@ -107,6 +112,7 @@ export class EditService {
       after: attemptedAfter,
       attemptedAfter,
       diff: diffSnapshots(before, attemptedAfter),
+      verificationPolicy,
       status: "APPLIED",
     };
     try {
@@ -119,7 +125,7 @@ export class EditService {
     }
     try {
       transaction.verification = {
-        ...(await this.verificationEngine.verify(transaction, policy)),
+        ...(await this.verificationEngine.verify(transaction, verificationPolicy)),
         target: structuredClone(target),
       };
     } catch (verificationError) {
@@ -144,6 +150,8 @@ export class EditService {
   }
 
   public async previewEdit(request: CompositeEditRequest): Promise<CompositeEditPreview> {
+    const verification = structuredClone(request.verification ?? {});
+    assertValidVerificationPolicy(verification);
     const before = await this.project.inspectProject();
     const capabilities = await this.adapter.getCapabilities();
     const target = await this.defaultTarget(before, capabilities);
@@ -172,6 +180,8 @@ export class EditService {
     existingBefore?: ProjectSnapshot,
     existingCapabilities?: Awaited<ReturnType<EditorPort["getCapabilities"]>>,
   ): Promise<CompositeEditPreview> {
+    const verification = structuredClone(request.verification ?? {});
+    assertValidVerificationPolicy(verification);
     const before = existingBefore ?? await this.project.inspectProject();
     const capabilities = existingCapabilities ?? await this.adapter.getCapabilities();
     this.assertTarget(target, before);
@@ -193,6 +203,7 @@ export class EditService {
       expectedDiff: diffSnapshots(before, expectedAfter),
       warnings: [],
       expiresAt: new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
+      verification,
     };
     this.pruneEditPreviews();
     const maxActivePreviews = Number.isInteger(this.options.maxActivePreviews) && this.options.maxActivePreviews! > 0
@@ -208,6 +219,8 @@ export class EditService {
   }
 
   public async executeEdit(previewToken: string, policy: VerificationPolicy = {}): Promise<EditTransaction> {
+    const requestedPolicy = structuredClone(policy);
+    assertValidVerificationPolicy(requestedPolicy);
     const preview = this.editPreviews.get(previewToken);
     if (!preview) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used preview ${previewToken}`);
     this.editPreviews.delete(previewToken);
@@ -223,6 +236,10 @@ export class EditService {
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
     }
+    const verificationPolicy = Object.keys(requestedPolicy).length > 0
+      ? { ...structuredClone(preview.verification ?? {}), ...requestedPolicy }
+      : structuredClone(preview.verification ?? {});
+    assertValidVerificationPolicy(verificationPolicy);
     try {
       await this.adapter.applyTransaction(preview.operations, before.revision);
     } catch (error) {
@@ -250,6 +267,7 @@ export class EditService {
       after: attemptedAfter,
       attemptedAfter,
       diff: diffSnapshots(before, attemptedAfter),
+      verificationPolicy,
       status: "APPLIED",
     };
     try {
@@ -262,7 +280,7 @@ export class EditService {
     }
     try {
       transaction.verification = {
-        ...(await this.verificationEngine.verify(transaction, policy)),
+        ...(await this.verificationEngine.verify(transaction, verificationPolicy)),
         target: structuredClone(preview.target),
       };
     } catch (verificationError) {
@@ -347,6 +365,25 @@ export class EditService {
       if (!targetKind && !capabilities.timelineWrite && !capabilities.timelineArtifactWrite) {
         throw new Error("CAPABILITY_UNAVAILABLE: editor timeline mutation");
       }
+    }
+    if (operations.some((operation) => operation.type === "timeline.media.move") && !capabilities.clipMove) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media move");
+    }
+    if (operations.some((operation) => operation.type === "timeline.media.replace") && !capabilities.clipReplace) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media replace");
+    }
+    if (operations.some((operation) => operation.type === "timeline.media.remove") && !capabilities.clipRemoval) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline media removal");
+    }
+    if (operations.some((operation) => operation.type === "timeline.transition.add")
+      && (!capabilities.transitionPlacement || !capabilities.assetDiscovery)) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline transition placement");
+    }
+    if (operations.some((operation) => operation.type === "timeline.audio.attach") && !capabilities.audioAttachment) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline audio attachment");
+    }
+    if (operations.some((operation) => operation.type === "timeline.audio.mix") && !capabilities.audioMixing) {
+      throw new Error("CAPABILITY_UNAVAILABLE: timeline audio mixing");
     }
   }
 

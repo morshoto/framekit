@@ -33,6 +33,16 @@ test("video exporter uses a supported preset and returns verified output metadat
       hasAudio: true,
       videoCodec: "h264",
       audioCodec: "aac",
+      semantic: {
+        audio: {
+          integratedLufs: -18,
+          truePeakDb: -3,
+          silenceMs: 120,
+          audibleSamples: 1_000,
+          analyzedDurationSeconds: 12,
+        },
+        sourceDigest: "sha256:rain",
+      },
     }),
     waitMs: 50,
     pollMs: 1,
@@ -46,6 +56,13 @@ test("video exporter uses a supported preset and returns verified output metadat
       height: 1080,
       frameRate: 30,
       hasAudio: true,
+      assertions: [
+        { type: "audio-audibility", minAudibleSamples: 1 },
+        { type: "audio-coverage", expectedSeconds: 12 },
+        { type: "audio-loudness", targetLufs: -18, toleranceDb: 0.5 },
+        { type: "audio-source", sourceDigest: "sha256:rain" },
+        { type: "stream", target: "audio", expected: true },
+      ],
     },
   });
 
@@ -60,10 +77,227 @@ test("video exporter uses a supported preset and returns verified output metadat
   assert.equal(result.metadata.hasAudio, true);
   assert.equal(result.metadata.videoCodec, "h264");
   assert.equal(result.metadata.audioCodec, "aac");
+  assert.equal(result.verification.passed, true);
+  assert.deepEqual(result.verification.checks.map((check) => check.name), [
+    "audio-audibility",
+    "audio-coverage",
+    "audio-loudness",
+    "audio-source",
+    "stream",
+  ]);
   assert.match(scripts[0] ?? "", /Export File/);
   assert.match(scripts[0] ?? "", /menu 1 of menu item "Share" of menu "File"/);
   assert.match(scripts[0] ?? "", /whose name starts with "Export File"/);
   assert.match(scripts[0] ?? "", /\.final\.framekit-[0-9a-f-]+\.mp4/);
+});
+
+test("video exporter rejects semantic audio failures before replacing output", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-semantic-failure-"));
+  const outputPath = join(directory, "final.mp4");
+  await writeFile(outputPath, "previous verified video");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    probeAvailable: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "silent replacement");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: { integratedLufs: -42, truePeakDb: -40, silenceMs: 12_000, audibleSamples: 0, analyzedDurationSeconds: 12 },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      overwrite: true,
+      expected: { assertions: [{ type: "audio-loudness", targetLufs: -18 }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_VERIFICATION_FAILED.*expected.*observed/,
+  );
+  assert.equal(await readFile(outputPath, "utf8"), "previous verified video");
+});
+
+test("video exporter reports unavailable semantic analyzers explicitly", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-semantic-unavailable-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "unverified output");
+      return "started";
+    },
+    probe: async () => ({ durationSeconds: 12, width: 1920, height: 1080, frameRate: 30, hasAudio: true }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-audibility" }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+  );
+});
+
+test("video exporter explains silence-limit failures accurately", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-silence-limit-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "too-silent output");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: {
+          integratedLufs: -18,
+          truePeakDb: -3,
+          silenceMs: 500,
+          audibleSamples: 100,
+          analyzedDurationSeconds: 12,
+        },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-audibility", maxSilenceMs: 100 }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_VERIFICATION_FAILED.*expected at most 100ms of silence, observed 500ms/,
+  );
+});
+
+test("video exporter fails closed without analyzed audio duration", async () => {
+  const cases = [
+    {
+      name: "coverage",
+      assertion: { type: "audio-coverage" as const, expectedSeconds: 12 },
+      audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000 },
+    },
+    {
+      name: "audibility",
+      assertion: { type: "audio-audibility" as const },
+      audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 100, audibleSamples: undefined },
+    },
+  ];
+
+  for (const candidate of cases) {
+    const directory = await mkdtemp(join(os.tmpdir(), `framekit-export-duration-${candidate.name}-`));
+    const outputPath = join(directory, "final.mp4");
+    const exporter = new FinalCutVideoExporter({
+      enabled: true,
+      executor: async (script) => {
+        await writeFile(stagingPathFromScript(script), "unverified output");
+        return "started";
+      },
+      probe: async () => ({
+        durationSeconds: 12,
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        hasAudio: true,
+        semantic: { audio: candidate.audio },
+      }),
+      sleep: async () => undefined,
+    });
+
+    await assert.rejects(
+      exporter.exportVideo({ outputPath, preset: "master", expected: { assertions: [candidate.assertion] } }),
+      /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+      candidate.name,
+    );
+  }
+});
+
+test("video exporter fails closed without requested sample-count evidence", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-sample-evidence-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "unverified output");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: {
+          integratedLufs: -18,
+          truePeakDb: -3,
+          silenceMs: 100,
+          audibleSamples: undefined,
+          analyzedDurationSeconds: 12,
+        },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-audibility", minAudibleSamples: 100 }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+  );
+});
+
+test("video exporter classifies missing source evidence as unavailable", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-source-unavailable-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "unidentified output");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000, analyzedDurationSeconds: 12 },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-source", sourceDigest: "sha256:rain" }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+  );
 });
 
 test("video exporter preserves the existing output until a replacement is verified", async () => {
@@ -78,6 +312,12 @@ test("video exporter preserves the existing output until a replacement is verifi
       configure: () => {},
       expected: { width: 0 } as unknown as FinalCutVideoExportRequest["expected"],
       error: /INVALID_EXPORT/,
+    },
+    {
+      name: "invalid source assertion",
+      configure: () => {},
+      expected: { assertions: [{ type: "audio-source" }] },
+      error: /INVALID_EXPORT: audio-source assertion requires sourceDigest or source/,
     },
     {
       name: "native preflight failure",

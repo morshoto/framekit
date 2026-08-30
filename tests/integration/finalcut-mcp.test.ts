@@ -8,7 +8,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CommandAudioAnalyzer } from "@framekit/final-cut";
+import { CommandAudioAnalyzer, CommandMetadataAnalyzer } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -300,6 +300,35 @@ test("local analyzer commands fail closed for unavailable media and invalid outp
   };
   await assert.rejects(analyzer.analyze(input), /ANALYZER_INVALID_OUTPUT/);
   await assert.rejects(analyzer.analyze({ ...input, media: { mediaId: "media-1", source: join(directory, "missing.wav") } }), /ANALYZER_MEDIA_UNAVAILABLE/);
+});
+
+test("metadata analyzer rejects malformed semantic records", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-metadata-analyzer-errors-"));
+  const mediaPath = join(directory, "media.mov");
+  await writeFile(mediaPath, "fixture media");
+  const input = {
+    project: {
+      projectId: "project-1",
+      projectName: "Metadata Analyzer Test",
+      timeline: { id: "timeline-1", name: "Timeline", duration: 1, clips: [], storyElements: [], markers: [], captions: [] },
+      media: [{ mediaId: "media-1", source: mediaPath }],
+      revision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+    },
+    media: { mediaId: "media-1", source: mediaPath },
+  };
+  const invalidOutputs = [
+    { subjects: [{ value: 42, confidence: 0.9 }] },
+    { usableRanges: [{ start: 0, end: "1" }] },
+    { confidence: "high" },
+  ];
+
+  for (const output of invalidOutputs) {
+    const command = await makeAnalyzer(directory, JSON.stringify(output));
+    await assert.rejects(
+      new CommandMetadataAnalyzer({ command }).analyze(input),
+      /ANALYZER_INVALID_OUTPUT/,
+    );
+  }
 });
 
 test("Final Cut live MCP exposes native range contracts and capabilities", async () => {

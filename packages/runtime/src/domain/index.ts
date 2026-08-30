@@ -7,3 +7,5 @@ export * from "./diff.js";
 export * from "./capabilities.js";
 export * from "./ports.js";
 export * from "./verification.js";
+export * from "./rough-cut.js";
+export * from "./duration.js";
