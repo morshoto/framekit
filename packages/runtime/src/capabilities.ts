@@ -38,6 +38,10 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
   if (!previous) return normalized;
   return withCapabilityFamilies(normalized, {
     backend: previous.connection.status.backend,
+    nativeBackend: previous.native.selectionWrite.backend,
+    publishingBackend: previous.publishing.projectCreation.backend,
+    exportBackend: previous.export.timeline.backend,
+    analyzerBackend: previous.analyzers.speechTranscribe.backend,
     connection: previous.connection.status,
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
@@ -47,6 +51,11 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
 
 export interface CapabilityFamilyOptions {
   backend?: string;
+  connectionBackend?: string;
+  nativeBackend?: string;
+  publishingBackend?: string;
+  exportBackend?: string;
+  analyzerBackend?: string;
   connection?: boolean | CapabilityDescriptor;
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
@@ -80,14 +89,14 @@ export function withCapabilityFamilies(
     connection: {
       status: descriptorFrom(
         options.connection ?? previous?.connection.status ?? true,
-        backend,
+        options.connectionBackend ?? backend,
         "observed",
         "editor connection is unavailable",
       ),
     },
     observation: {
       timeline: descriptorFrom(
-        editor.timelineSnapshotRead,
+        editor.timelineSnapshotRead || editor.liveStateRead,
         backend,
         editor.timelineSnapshotRead ? "canonical-read" : "observed",
         "timeline observation is unavailable",
@@ -120,11 +129,11 @@ export function withCapabilityFamilies(
         "canonical artifact writes are unavailable",
       ),
     },
-    native: nativeFamily(native, backend),
+    native: nativeFamily(native, options.nativeBackend ?? backend),
     publishing: {
       projectCreation: descriptorFrom(
         options.publishing ?? previous?.publishing.projectCreation ?? false,
-        backend,
+        options.publishingBackend ?? backend,
         "verified",
         "new project publishing is unavailable",
       ),
@@ -132,16 +141,16 @@ export function withCapabilityFamilies(
     export: {
       timeline: descriptorFrom(
         options.export ?? previous?.export.timeline ?? false,
-        backend,
+        options.exportBackend ?? backend,
         "verified",
         "timeline export is unavailable",
       ),
     },
     analyzers: {
-      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, backend, "speech transcription"),
-      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, backend, "speech VAD"),
-      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, backend, "audio loudness analysis"),
-      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, backend, "visual analysis"),
+      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, options.analyzerBackend ?? backend, "speech transcription"),
+      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, options.analyzerBackend ?? backend, "speech VAD"),
+      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, options.analyzerBackend ?? backend, "audio loudness analysis"),
+      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, options.analyzerBackend ?? backend, "visual analysis"),
     },
   };
   return { ...normalized, families };

@@ -1,8 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FcpxmlDocumentAdapter, FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
-import { withCapabilityFamilies } from "@framekit/runtime";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import {
+  FcpxmlDocumentAdapter,
+  FinalCutConnectionManager,
+  FinalCutLiveAdapter,
+  FinalCutSessionAdapter,
+} from "@framekit/final-cut";
+import type { NativeFinalCutEditor } from "@framekit/final-cut";
+import { AgentVideoRuntime, withCapabilityFamilies } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.ok(first);
+  assert.equal(typeof first.text, "string");
+  return first.text as string;
+}
 
 const metadataOnlyCapabilities = {
   editor: {
@@ -146,4 +164,77 @@ test("session capabilities identify the composed backend without inheriting nati
   assert.equal(capabilities.families?.canonicalDocument.read.available, true);
   assert.equal(capabilities.families?.canonicalDocument.artifactWrite.available, false);
   assert.equal(capabilities.families?.native.selectionWrite.available, false);
+});
+
+test("ready connection status carries versioned capabilities without implying writes", async () => {
+  const manager = new FinalCutConnectionManager({
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities: metadataOnlyCapabilities,
+    }),
+  });
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.capabilities?.schemaVersion, 1);
+  assert.equal(status.capabilities?.families?.connection.status.available, true);
+  assert.equal(status.capabilities?.families?.canonicalDocument.write.available, false);
+});
+
+test("MCP editor inspection exposes native, publishing, export, and analyzer families", async () => {
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      mediaAppendSelected: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      mediaAppend: true,
+      mediaInsert: true,
+      titlePlacement: true,
+      timelineFocus: true,
+      requiresAccessibility: true,
+      requiresFinalCutFrontmost: true,
+    }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Capability Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    nativeEditor,
+    projectPublisher: {} as never,
+    videoExporter: { isAvailable: () => true } as never,
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "capabilities-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "editor.inspect", arguments: {} });
+    const payload = JSON.parse(textFrom(result));
+
+    assert.equal(payload.capabilities.schemaVersion, 1);
+    assert.equal(payload.capabilities.families.native.selectionWrite.available, true);
+    assert.equal(payload.capabilities.families.native.selectionWrite.backend, "final-cut-accessibility");
+    assert.equal(payload.capabilities.families.native.clipInsertion.available, true);
+    assert.equal(payload.capabilities.families.native.projectCreation.available, false);
+    assert.equal(payload.capabilities.families.native.clipMovement.available, false);
+    assert.equal(payload.capabilities.families.publishing.projectCreation.available, true);
+    assert.equal(payload.capabilities.families.publishing.projectCreation.backend, "fcpxml-publisher");
+    assert.equal(payload.capabilities.families.export.timeline.available, true);
+    assert.equal(payload.capabilities.families.export.timeline.backend, "final-cut-native-export");
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });

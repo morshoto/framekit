@@ -1,6 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AgentVideoRuntime, resolveEditingIntent, type TimelineFrameCapture } from "@framekit/runtime";
+import {
+  AgentVideoRuntime,
+  resolveEditingIntent,
+  withCapabilityFamilies,
+  type TimelineFrameCapture,
+} from "@framekit/runtime";
 import type {
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
@@ -247,17 +252,44 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Read editor identity and machine-readable Phase 2 capabilities.",
   }, async () => {
     const inspected = await runtime.inspectEditor();
+    const native = options.nativeEditor?.capabilities();
     return jsonResult({
       ...inspected,
-      capabilities: {
+      capabilities: withCapabilityFamilies({
         ...inspected.capabilities,
         editor: {
           ...inspected.capabilities.editor,
           timelinePublishNewProject: Boolean(options.projectPublisher),
           videoExport: Boolean(options.videoExporter?.isAvailable()),
         },
-      },
-      ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+      }, {
+        backend: inspected.identity.backend,
+        nativeBackend: "final-cut-accessibility",
+        native: {
+          selectionWrite: Boolean(native?.selectionEdit),
+          undo: Boolean(native?.undo),
+          mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
+          mediaImport: Boolean(native?.mediaImport),
+          mediaSelection: Boolean(native?.mediaSelection),
+          mediaAppendSelected: Boolean(native?.mediaAppendSelected),
+          timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
+          bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
+          deleteRange: Boolean(native?.deleteRange),
+          trimToDuration: Boolean(native?.trimToDuration),
+          mediaAppend: Boolean(native?.mediaAppend),
+          mediaInsert: Boolean(native?.mediaInsert),
+          titlePlacement: Boolean(native?.titlePlacement),
+          timelineFocus: Boolean(native?.timelineFocus),
+          projectCreation: false,
+          clipInsertion: Boolean(native?.mediaAppend || native?.mediaInsert),
+          clipMovement: false,
+        },
+        publishing: Boolean(options.projectPublisher),
+        publishingBackend: "fcpxml-publisher",
+        export: Boolean(options.videoExporter?.isAvailable()),
+        exportBackend: "final-cut-native-export",
+      }),
+      ...(native ? { native } : {}),
     });
   });
 
