@@ -78,6 +78,10 @@ export class MusicService {
         fadeOut,
       });
     }
-    return this.edits.previewEdit({ baseRevision: request.baseRevision, operations });
+    return this.edits.previewEdit({
+      baseRevision: request.baseRevision,
+      operations,
+      verification: request.verification,
+    });
   }
 }

@@ -93,6 +93,66 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const verificationAssertionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("audio-audibility"),
+    mediaId: z.string().min(1),
+    minAudibleSamples: z.number().int().positive().optional(),
+    maxSilenceMs: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-coverage"),
+    mediaId: z.string().min(1),
+    start: z.number().finite().nonnegative(),
+    duration: z.number().finite().positive(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-loudness"),
+    mediaId: z.string().min(1),
+    targetLufs: z.number().finite(),
+    toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-source"),
+    mediaId: z.string().min(1),
+    sourceDigest: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("visual-content"),
+    mediaId: z.string().min(1),
+    label: z.string().min(1),
+    labelKind: z.enum(["scene", "subject"]).optional(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("duration"),
+    target: z.literal("timeline"),
+    expectedSeconds: z.number().finite().nonnegative(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    target: z.enum(["audio", "video"]),
+    expected: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("structure"),
+    requirement: z.enum(["media-present", "occurrence-present", "operation-present"]),
+    mediaId: z.string().min(1).optional(),
+    occurrenceId: z.string().min(1).optional(),
+    operationType: z.string().min(1).optional(),
+  }),
+]);
+const verificationPolicySchema = z.object({
+  requireExpectedChange: z.boolean().optional(),
+  maxTruePeakDb: z.number().finite().optional(),
+  requireSpeechContinuity: z.boolean().optional(),
+  targetLufs: z.number().finite().optional(),
+  loudnessToleranceDb: z.number().finite().nonnegative().optional(),
+  assertions: z.array(verificationAssertionSchema).optional(),
+}).strict();
 const editToolInputSchema = z.object({
   type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
   clipId: z.string().min(1).optional(),
@@ -105,6 +165,7 @@ const editToolInputSchema = z.object({
   reason: z.string().optional(),
   marker: markerSchema.optional(),
   baseRevision: revisionSchema,
+  verification: verificationPolicySchema.optional(),
 }).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
@@ -181,6 +242,7 @@ const musicAddInputSchema = {
   fadeIn: z.number().nonnegative().optional(),
   fadeOut: z.number().nonnegative().optional(),
   ducking: musicDuckingSchema.optional(),
+  verification: verificationPolicySchema.optional(),
 };
 const fillerRemovalInputSchema = {
   baseRevision: revisionValueSchema,
@@ -206,6 +268,39 @@ const nativeTitlePreviewSchema = {
   start: rationalTimeSchema.optional(),
   duration: rationalTimeSchema,
 };
+const exportAssertionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("audio-audibility"),
+    minAudibleSamples: z.number().int().positive().optional(),
+    maxSilenceMs: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-coverage"),
+    expectedSeconds: z.number().finite().positive(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-loudness"),
+    targetLufs: z.number().finite(),
+    toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-source"),
+    sourceDigest: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("visual-content"),
+    label: z.string().min(1),
+    labelKind: z.enum(["scene", "subject"]).optional(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    target: z.enum(["audio", "video"]),
+    expected: z.boolean(),
+  }),
+]);
 const exportExpectationSchema = z.object({
   durationSeconds: z.number().positive().optional(),
   durationToleranceSeconds: z.number().nonnegative().optional(),
@@ -214,6 +309,7 @@ const exportExpectationSchema = z.object({
   frameRate: z.number().positive().optional(),
   frameRateTolerance: z.number().nonnegative().optional(),
   hasAudio: z.boolean().optional(),
+  assertions: z.array(exportAssertionSchema).optional(),
 }).optional();
 const nativeEditToolInputSchema = z.object({
   type: z.enum([
@@ -688,7 +784,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: editToolInputSchema,
   }, async (input) => {
     await requireEditingRoute(runtime, options, "timeline.edit");
-    return jsonResult(await runtime.edit(editOperationSchema.parse(input)));
+    return jsonResult(await runtime.edit(editOperationSchema.parse(input), input.verification ?? {}));
   });
 
   server.registerTool("music.add", {
@@ -711,6 +807,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
+      verification: verificationPolicySchema.optional(),
     },
   }, async (request) => {
     await requireEditingRoute(runtime, options, "timeline.edit");
