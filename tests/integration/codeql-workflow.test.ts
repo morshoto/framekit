@@ -24,7 +24,7 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /timeout-minutes: 5/);
   assert.match(
     workflow,
-    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 5\n        run: >-/,
+    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 5\n        run: \|/,
   );
 });
 

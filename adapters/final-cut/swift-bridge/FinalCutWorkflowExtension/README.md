@@ -28,7 +28,7 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 ## CodeQL Swift extraction
 
 The CodeQL workflow keeps Swift analysis separate from the native build. Its
-manual `xcrun swiftc -typecheck` step analyzes
+manual `xcrun swiftc -emit-module` step analyzes
 `FinalCutLiveWorkflowExtension.swift` against the checked-in
 `.github/codeql/FinalCutWorkflowExtensionShim.swift`, a pure-Swift declaration
 shim that does not import the private `ProExtensionHost` module. It does not

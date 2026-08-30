@@ -69,14 +69,17 @@ jobs:
 
       - name: Type-check Swift sources for CodeQL extraction
         timeout-minutes: 5
-        run: >-
-          xcrun swiftc
-          -D FRAMEKIT_CODEQL
-          -typecheck
-          -parse-as-library
-          -target arm64-apple-macos15.0
-          .github/codeql/FinalCutWorkflowExtensionShim.swift
-          adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
+        run: |
+          mkdir -p "$RUNNER_TEMP/framekit-codeql"
+          xcrun swiftc \
+            -D FRAMEKIT_CODEQL \
+            -parse-as-library \
+            -target arm64-apple-macos15.0 \
+            -module-name FramekitWorkflowExtension \
+            -emit-module \
+            -emit-module-path "$RUNNER_TEMP/framekit-codeql/FramekitWorkflowExtension.swiftmodule" \
+            .github/codeql/FinalCutWorkflowExtensionShim.swift \
+            adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
 
       - name: Analyze with CodeQL
         uses: github/codeql-action/analyze@v4
