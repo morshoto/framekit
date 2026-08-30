@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { validateReleaseContract } from "../../scripts/validate-release-contract.mjs";
 
-const validatorModulePath = "../../scripts/validate-release-contract.mjs";
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const canonicalManifest = {
@@ -20,8 +20,7 @@ const canonicalManifest = {
   },
 };
 
-test("release preflight accepts the canonical package and matching tag", async () => {
-  const { validateReleaseContract } = await import(validatorModulePath);
+test("release preflight accepts the canonical package and matching tag", () => {
   assert.doesNotThrow(() => validateReleaseContract({
     packageManifest: canonicalManifest,
     releaseTag: "v0.1.1",
@@ -29,8 +28,7 @@ test("release preflight accepts the canonical package and matching tag", async (
   }));
 });
 
-test("release preflight rejects a tag that differs from package version", async () => {
-  const { validateReleaseContract } = await import(validatorModulePath);
+test("release preflight rejects a tag that differs from package version", () => {
   assert.throws(
     () => validateReleaseContract({
       packageManifest: canonicalManifest,
@@ -41,8 +39,7 @@ test("release preflight rejects a tag that differs from package version", async 
   );
 });
 
-test("release preflight rejects a package repository mismatch", async () => {
-  const { validateReleaseContract } = await import(validatorModulePath);
+test("release preflight rejects a package repository mismatch", () => {
   assert.throws(
     () => validateReleaseContract({
       packageManifest: {
@@ -59,8 +56,7 @@ test("release preflight rejects a package repository mismatch", async () => {
   );
 });
 
-test("release preflight rejects a package that is not publicly publishable", async () => {
-  const { validateReleaseContract } = await import(validatorModulePath);
+test("release preflight rejects a package that is not publicly publishable", () => {
   assert.throws(
     () => validateReleaseContract({
       packageManifest: {

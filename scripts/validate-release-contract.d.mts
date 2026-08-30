@@ -1,7 +1,7 @@
 export interface ReleasePackageManifest {
   version?: unknown;
   private?: unknown;
-  repository?: { url?: unknown };
+  repository?: { type?: unknown; url?: unknown };
   publishConfig?: { access?: unknown };
   [key: string]: unknown;
 }
