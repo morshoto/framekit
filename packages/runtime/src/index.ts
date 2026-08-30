@@ -3,6 +3,7 @@ export * from "./runtime.js";
 export * from "./timeline/snapshot-diff.js";
 export * from "./verification/verification.js";
 export * from "./editing/intent.js";
+export * from "./editing/duration-policy.js";
 export * from "./capabilities.js";
 export * from "./timeline/snapshot-digest.js";
 export * from "./speech/filler-removal.js";
