@@ -121,8 +121,8 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       operation: "edit.undo",
       status: "VERIFIED",
       restored: true,
-      beforeDigest: "before-digest",
-      restoredDigest: "before-digest",
+      beforeDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      restoredDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       restoredRevision: { id: "rev-12", sequence: 12, timestamp: "2026-08-26T10:00:03.000Z" },
     },
     sanitization: {
@@ -420,7 +420,10 @@ const rawRun = {
     rawDiagnostics: "raw crash dump",
   },
   restored: snapshot("Interview", baseRevision("rev-12", 12, "2026-08-26T10:00:03.000Z")),
-  digests: { before: "before-digest", restored: "before-digest" },
+  digests: {
+    before: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    restored: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  },
   transactionId: "transaction-secret",
 };
 
