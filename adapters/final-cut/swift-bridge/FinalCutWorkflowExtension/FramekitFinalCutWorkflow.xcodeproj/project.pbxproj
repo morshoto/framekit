@@ -7,31 +7,32 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		33EA772704D9A05AE9FE87C0 /* ProExtensionHostShim in Resources */ = {isa = PBXBuildFile; fileRef = AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */; };
-		4750FA18026AB67BBC16BC29 /* FinalCutLiveWorkflowExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */; };
-		C0DE10300000000000000001 /* FinalCutWorkflowExtensionShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10300000000000000002 /* FinalCutWorkflowExtensionShim.swift */; };
-		81BE37D2435C97C1E26E9839 /* ContainerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7EC786F1448B2996E0510F /* ContainerApp.swift */; };
-		FB8A39B20AC58439969A8724 /* FramekitFinalCutWorkflowExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E09328E1DA303336F8109727 /* FramekitFinalCutWorkflowExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		74327856567AA52B112088A8 /* FinalCutLiveWorkflowExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = D081BFA21625579CB9C60DFE /* FinalCutLiveWorkflowExtension.swift */; };
+		9410B675BCED714A2321C31B /* FinalCutWorkflowExtensionShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E4250CBFD8C7C89905AAD02 /* FinalCutWorkflowExtensionShim.swift */; };
+		959F4ABF3F755362DC97914E /* FramekitFinalCutWorkflowExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 91FDA432029452C54820DC4A /* FramekitFinalCutWorkflowExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		967AA2589577CD9C54E1286F /* ProExtensionHostShim in Resources */ = {isa = PBXBuildFile; fileRef = 87408435A95B2B78C0B93AEB /* ProExtensionHostShim */; };
+		9750AE8F0BDBCDF6369BDDC6 /* ContainerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D5D76FC20B99D7DFD11E038 /* ContainerApp.swift */; };
+		A900CB64642E66AF43B85269 /* FinalCutLiveWorkflowExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = D081BFA21625579CB9C60DFE /* FinalCutLiveWorkflowExtension.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		DDC1FF4E679059444B52BD6E /* PBXContainerItemProxy */ = {
+		10A3060F392255ADB105ADF7 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = 3EE7229095F4E7E9009036FA /* Project object */;
+			containerPortal = ECAC6C945D08514F07A1AA4E /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = AA8DBB46D98CA8A43A1F9C50;
+			remoteGlobalIDString = 9347A1BD2241A989B370925C;
 			remoteInfo = FramekitFinalCutWorkflowExtension;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		37B6F70EC22966915BB4B0E2 /* Embed Foundation Extensions */ = {
+		B25ECBEB3016087E515F41AF /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				FB8A39B20AC58439969A8724 /* FramekitFinalCutWorkflowExtension.appex in Embed Foundation Extensions */,
+				959F4ABF3F755362DC97914E /* FramekitFinalCutWorkflowExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -39,75 +40,66 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		02934DD27114CEE17E5731EC /* Container.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Container.entitlements; sourceTree = "<group>"; };
-		0A7EC786F1448B2996E0510F /* ContainerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContainerApp.swift; sourceTree = "<group>"; };
-		242E0D0323DCF4DC632E44F4 /* FramekitFinalCutWorkflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FramekitFinalCutWorkflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		9D8FCF869BDB6FE0A93FA683 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ProExtensionHostShim; sourceTree = SOURCE_ROOT; };
-		E09328E1DA303336F8109727 /* FramekitFinalCutWorkflowExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FramekitFinalCutWorkflowExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalCutLiveWorkflowExtension.swift; sourceTree = "<group>"; };
-		C0DE10300000000000000002 /* FinalCutWorkflowExtensionShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../../../.github/codeql/FinalCutWorkflowExtensionShim.swift; sourceTree = SOURCE_ROOT; };
+		6E4250CBFD8C7C89905AAD02 /* FinalCutWorkflowExtensionShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FinalCutWorkflowExtensionShim.swift; path = ../../../../.github/codeql/FinalCutWorkflowExtensionShim.swift; sourceTree = "<group>"; };
+		87408435A95B2B78C0B93AEB /* ProExtensionHostShim */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ProExtensionHostShim; sourceTree = SOURCE_ROOT; };
+		89096F1D7FF9A4C5C99ADF1A /* libFramekitFinalCutWorkflowCodeQL.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libFramekitFinalCutWorkflowCodeQL.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		91FDA432029452C54820DC4A /* FramekitFinalCutWorkflowExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FramekitFinalCutWorkflowExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9D5D76FC20B99D7DFD11E038 /* ContainerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContainerApp.swift; sourceTree = "<group>"; };
+		A595801334F4A1EA633030FE /* Container.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Container.entitlements; sourceTree = "<group>"; };
+		B1DA645FD0776278AB18AC36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D081BFA21625579CB9C60DFE /* FinalCutLiveWorkflowExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalCutLiveWorkflowExtension.swift; sourceTree = "<group>"; };
+		FF570581D4C70712EB7E8E92 /* FramekitFinalCutWorkflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FramekitFinalCutWorkflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
-		3B44E11F411F1B3A2B4CC671 = {
+		96469447ECB6C7E676232D6E /* CodeQL */ = {
 			isa = PBXGroup;
 			children = (
-				FB435DB9EF4D0CFE8719A531 /* FinalCutLiveWorkflowExtension.swift */,
-				C0DE10300000000000000002 /* FinalCutWorkflowExtensionShim.swift */,
-				AB6FF5DB32CEDB512ED11145 /* ProExtensionHostShim */,
-				A3E54EED3337F0C79DCD0FDD /* Container */,
-				3C5A9DBD65609D588D2E9E1C /* Products */,
+				6E4250CBFD8C7C89905AAD02 /* FinalCutWorkflowExtensionShim.swift */,
 			);
+			name = CodeQL;
 			sourceTree = "<group>";
 		};
-		3C5A9DBD65609D588D2E9E1C /* Products */ = {
+		98A2EF9B044A107A1E4F4EB0 /* Container */ = {
 			isa = PBXGroup;
 			children = (
-				242E0D0323DCF4DC632E44F4 /* FramekitFinalCutWorkflow.app */,
-				E09328E1DA303336F8109727 /* FramekitFinalCutWorkflowExtension.appex */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		A3E54EED3337F0C79DCD0FDD /* Container */ = {
-			isa = PBXGroup;
-			children = (
-				02934DD27114CEE17E5731EC /* Container.entitlements */,
-				0A7EC786F1448B2996E0510F /* ContainerApp.swift */,
-				9D8FCF869BDB6FE0A93FA683 /* Info.plist */,
+				A595801334F4A1EA633030FE /* Container.entitlements */,
+				9D5D76FC20B99D7DFD11E038 /* ContainerApp.swift */,
+				B1DA645FD0776278AB18AC36 /* Info.plist */,
 			);
 			path = Container;
+			sourceTree = "<group>";
+		};
+		9A63C43CDB19090C15C26D12 = {
+			isa = PBXGroup;
+			children = (
+				D081BFA21625579CB9C60DFE /* FinalCutLiveWorkflowExtension.swift */,
+				87408435A95B2B78C0B93AEB /* ProExtensionHostShim */,
+				96469447ECB6C7E676232D6E /* CodeQL */,
+				98A2EF9B044A107A1E4F4EB0 /* Container */,
+				A783034CED75DF1DC8E44236 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A783034CED75DF1DC8E44236 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FF570581D4C70712EB7E8E92 /* FramekitFinalCutWorkflow.app */,
+				91FDA432029452C54820DC4A /* FramekitFinalCutWorkflowExtension.appex */,
+				89096F1D7FF9A4C5C99ADF1A /* libFramekitFinalCutWorkflowCodeQL.a */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		76D0C261DEEDA61156AD5C23 /* FramekitFinalCutWorkflow */ = {
+		9347A1BD2241A989B370925C /* FramekitFinalCutWorkflowExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = E7DC9B84F5F185983B001876 /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflow" */;
+			buildConfigurationList = F3D64E08B3D56C3FC0D9AD97 /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflowExtension" */;
 			buildPhases = (
-				DA2E89A0A3B62D75C52F8A5C /* Sources */,
-				37B6F70EC22966915BB4B0E2 /* Embed Foundation Extensions */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				D3E587DFE4D1554817AA41FF /* PBXTargetDependency */,
-			);
-			name = FramekitFinalCutWorkflow;
-			packageProductDependencies = (
-			);
-			productName = FramekitFinalCutWorkflow;
-			productReference = 242E0D0323DCF4DC632E44F4 /* FramekitFinalCutWorkflow.app */;
-			productType = "com.apple.product-type.application";
-		};
-		AA8DBB46D98CA8A43A1F9C50 /* FramekitFinalCutWorkflowExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 731EE41603D1CD9ECE5DF9EA /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflowExtension" */;
-			buildPhases = (
-				470B6C5A2A48B877CCF179D5 /* Sources */,
-				B36636462DFA88D7146D48DA /* Resources */,
+				340313BEA662DD3B49D14560 /* Sources */,
+				05C61EA9EB35C53A63EC334E /* Resources */,
 			);
 			buildRules = (
 			);
@@ -117,13 +109,49 @@
 			packageProductDependencies = (
 			);
 			productName = FramekitFinalCutWorkflowExtension;
-			productReference = E09328E1DA303336F8109727 /* FramekitFinalCutWorkflowExtension.appex */;
+			productReference = 91FDA432029452C54820DC4A /* FramekitFinalCutWorkflowExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		B675F2D0DCAE33158CB27C19 /* FramekitFinalCutWorkflowCodeQL */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 73FB79082B0A5F8A7714EAEF /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflowCodeQL" */;
+			buildPhases = (
+				6AFF190AEC0437374FF42810 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FramekitFinalCutWorkflowCodeQL;
+			packageProductDependencies = (
+			);
+			productName = FramekitFinalCutWorkflowCodeQL;
+			productReference = 89096F1D7FF9A4C5C99ADF1A /* libFramekitFinalCutWorkflowCodeQL.a */;
+			productType = "com.apple.product-type.library.static";
+		};
+		D2F21955D0D11BB79EDBAF29 /* FramekitFinalCutWorkflow */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 09A59B84B9BA624A20C0773D /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflow" */;
+			buildPhases = (
+				02C6555121E8FB895960CA1A /* Sources */,
+				B25ECBEB3016087E515F41AF /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EDDB181ADDEED5D38421D26B /* PBXTargetDependency */,
+			);
+			name = FramekitFinalCutWorkflow;
+			packageProductDependencies = (
+			);
+			productName = FramekitFinalCutWorkflow;
+			productReference = FF570581D4C70712EB7E8E92 /* FramekitFinalCutWorkflow.app */;
+			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		3EE7229095F4E7E9009036FA /* Project object */ = {
+		ECAC6C945D08514F07A1AA4E /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
@@ -131,67 +159,129 @@
 				TargetAttributes = {
 				};
 			};
-			buildConfigurationList = C1874D4ADB52535C83AD5941 /* Build configuration list for PBXProject "FramekitFinalCutWorkflow" */;
+			buildConfigurationList = 607D2D400BED4E2A4680DE68 /* Build configuration list for PBXProject "FramekitFinalCutWorkflow" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
 				en,
 			);
-			mainGroup = 3B44E11F411F1B3A2B4CC671;
+			mainGroup = 9A63C43CDB19090C15C26D12;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 3C5A9DBD65609D588D2E9E1C /* Products */;
+			productRefGroup = A783034CED75DF1DC8E44236 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				76D0C261DEEDA61156AD5C23 /* FramekitFinalCutWorkflow */,
-				AA8DBB46D98CA8A43A1F9C50 /* FramekitFinalCutWorkflowExtension */,
+				D2F21955D0D11BB79EDBAF29 /* FramekitFinalCutWorkflow */,
+				9347A1BD2241A989B370925C /* FramekitFinalCutWorkflowExtension */,
+				B675F2D0DCAE33158CB27C19 /* FramekitFinalCutWorkflowCodeQL */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B36636462DFA88D7146D48DA /* Resources */ = {
+		05C61EA9EB35C53A63EC334E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				33EA772704D9A05AE9FE87C0 /* ProExtensionHostShim in Resources */,
+				967AA2589577CD9C54E1286F /* ProExtensionHostShim in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		470B6C5A2A48B877CCF179D5 /* Sources */ = {
+		02C6555121E8FB895960CA1A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4750FA18026AB67BBC16BC29 /* FinalCutLiveWorkflowExtension.swift in Sources */,
-				C0DE10300000000000000001 /* FinalCutWorkflowExtensionShim.swift in Sources */,
+				9750AE8F0BDBCDF6369BDDC6 /* ContainerApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		DA2E89A0A3B62D75C52F8A5C /* Sources */ = {
+		340313BEA662DD3B49D14560 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				81BE37D2435C97C1E26E9839 /* ContainerApp.swift in Sources */,
+				A900CB64642E66AF43B85269 /* FinalCutLiveWorkflowExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6AFF190AEC0437374FF42810 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				74327856567AA52B112088A8 /* FinalCutLiveWorkflowExtension.swift in Sources */,
+				9410B675BCED714A2321C31B /* FinalCutWorkflowExtensionShim.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		D3E587DFE4D1554817AA41FF /* PBXTargetDependency */ = {
+		EDDB181ADDEED5D38421D26B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = AA8DBB46D98CA8A43A1F9C50 /* FramekitFinalCutWorkflowExtension */;
-			targetProxy = DDC1FF4E679059444B52BD6E /* PBXContainerItemProxy */;
+			target = 9347A1BD2241A989B370925C /* FramekitFinalCutWorkflowExtension */;
+			targetProxy = 10A3060F392255ADB105ADF7 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		07D857AB5100DB16809DC856 /* Release */ = {
+		36C65023AF2832590065B1F6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow.codeql;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "";
+			};
+			name = Debug;
+		};
+		424079014C4B2028C77DA962 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = FinalCutWorkflowExtension.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/framekit-finalcut-frameworks",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/framekit-finalcut-frameworks",
+					"@loader_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-e",
+					_ProExtensionMain,
+					"-framework",
+					ProExtension,
+					"-framework",
+					ProExtensionHost,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow.extension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
+			};
+			name = Release;
+		};
+		5DEDF0B3EAB1DFEEBF6590D4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -247,77 +337,44 @@
 			};
 			name = Release;
 		};
-		1C9AD661FC420FF82EB1D967 /* Release */ = {
+		AC46B9A665A25D6B58F551D5 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_ENTITLEMENTS = FinalCutWorkflowExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Container/Container.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_DEBUG_DYLIB = NO;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"/tmp/framekit-finalcut-frameworks",
-				);
-				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_FILE = Container/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
-					"/tmp/framekit-finalcut-frameworks",
-					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
 				);
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-e",
-					_ProExtensionMain,
-					"-framework",
-					ProExtension,
-					"-framework",
-					ProExtensionHost,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow.extension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow;
 				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
-			};
-			name = Release;
-		};
-		557A664EC37289D70AB28E87 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGNING_ALLOWED = YES;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_ENTITLEMENTS = FinalCutWorkflowExtension.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_DEBUG_DYLIB = NO;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"/tmp/framekit-finalcut-frameworks",
-				);
-				INFOPLIST_FILE = Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"/tmp/framekit-finalcut-frameworks",
-					"@loader_path/../Frameworks",
-				);
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-e",
-					_ProExtensionMain,
-					"-framework",
-					ProExtension,
-					"-framework",
-					ProExtensionHost,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow.extension;
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
 			};
 			name = Debug;
 		};
-		9A689341F56BBD57F0A93643 /* Debug */ = {
+		BC3CF21303D17D9EB49E48CA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow.codeql;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "";
+			};
+			name = Release;
+		};
+		C3B17304F6D8B972815FA50D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -380,7 +437,42 @@
 			};
 			name = Debug;
 		};
-		BBC11ED14D43245AFA6FBFFC /* Release */ = {
+		DA0545EC009AA218A80B38BC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = FinalCutWorkflowExtension.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/framekit-finalcut-frameworks",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"/tmp/framekit-finalcut-frameworks",
+					"@loader_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-e",
+					_ProExtensionMain,
+					"-framework",
+					ProExtension,
+					"-framework",
+					ProExtensionHost,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow.extension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/ProExtensionHostShim";
+			};
+			name = Debug;
+		};
+		F2068612F8BD2697C6A6B2FB /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -399,56 +491,46 @@
 			};
 			name = Release;
 		};
-		F05643A414D827A1C4B7C8EB /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGNING_ALLOWED = YES;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_ENTITLEMENTS = Container/Container.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				INFOPLIST_FILE = Container/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.framekit.finalcut.workflow;
-				SDKROOT = macosx;
-			};
-			name = Debug;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		731EE41603D1CD9ECE5DF9EA /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflowExtension" */ = {
+		09A59B84B9BA624A20C0773D /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflow" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				557A664EC37289D70AB28E87 /* Debug */,
-				1C9AD661FC420FF82EB1D967 /* Release */,
+				AC46B9A665A25D6B58F551D5 /* Debug */,
+				F2068612F8BD2697C6A6B2FB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		C1874D4ADB52535C83AD5941 /* Build configuration list for PBXProject "FramekitFinalCutWorkflow" */ = {
+		607D2D400BED4E2A4680DE68 /* Build configuration list for PBXProject "FramekitFinalCutWorkflow" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				9A689341F56BBD57F0A93643 /* Debug */,
-				07D857AB5100DB16809DC856 /* Release */,
+				C3B17304F6D8B972815FA50D /* Debug */,
+				5DEDF0B3EAB1DFEEBF6590D4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		E7DC9B84F5F185983B001876 /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflow" */ = {
+		73FB79082B0A5F8A7714EAEF /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflowCodeQL" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				F05643A414D827A1C4B7C8EB /* Debug */,
-				BBC11ED14D43245AFA6FBFFC /* Release */,
+				36C65023AF2832590065B1F6 /* Debug */,
+				BC3CF21303D17D9EB49E48CA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F3D64E08B3D56C3FC0D9AD97 /* Build configuration list for PBXNativeTarget "FramekitFinalCutWorkflowExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DA0545EC009AA218A80B38BC /* Debug */,
+				424079014C4B2028C77DA962 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = 3EE7229095F4E7E9009036FA /* Project object */;
+	rootObject = ECAC6C945D08514F07A1AA4E /* Project object */;
 }

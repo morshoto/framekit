@@ -73,7 +73,7 @@ jobs:
         run: |
           xcodebuild \
             -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
-            -target FramekitFinalCutWorkflowExtension \
+            -target FramekitFinalCutWorkflowCodeQL \
             -configuration Debug \
             -sdk macosx \
             CODE_SIGNING_REQUIRED=NO \
@@ -81,7 +81,7 @@ jobs:
             COMPILATION_CACHE_ENABLE_CACHING=NO \
             SWIFT_ENABLE_COMPILE_CACHE=NO \
             SWIFT_USE_INTEGRATED_DRIVER=NO \
-            SWIFT_COMPILATION_MODE=wholemodule \
+            SWIFT_OBJC_INTERFACE_HEADER_NAME= \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL \
             FRAMEWORK_SEARCH_PATHS= \
             LD_RUNPATH_SEARCH_PATHS= \
