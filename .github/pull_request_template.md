@@ -1,5 +1,6 @@
 <!-- Title naming policy -->
-<!-- `feat:`, `fix:`, `perf:`, `design:`, `chore:` -->
+<!-- Release categories are derived from the title prefix. -->
+<!-- `feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `test:`, `design:`, `chore:` -->
 
 - [ ] Request PR review
 - [ ] If you are unable to review, please set it as a [PR draft](https://github.blog/2019-02-14-introducing-draft-pull-requests/) draft.

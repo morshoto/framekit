@@ -8,6 +8,7 @@ on:
 
 jobs:
     assign-label:
+        needs: sync-labels
         if: ${{ github.event_name == 'pull_request' }}
         permissions:
             contents: read
@@ -25,6 +26,7 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_REF: ${{ github.event.pull_request.head.ref }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
               run: python3 .github/scripts/assign_labels.py
 
     sync-labels:
