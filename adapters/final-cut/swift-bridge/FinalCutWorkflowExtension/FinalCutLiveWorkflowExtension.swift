@@ -1,12 +1,17 @@
 import CoreMedia
 import Foundation
+
+#if !FRAMEKIT_CODEQL
 import AppKit
+#endif
 
 #if os(macOS)
 import Darwin
 #endif
 
+#if !FRAMEKIT_CODEQL
 import ProExtensionHost
+#endif
 
 private let protocolVersion = 1
 

@@ -50,3 +50,96 @@ test("CodeQL verification documentation records operational metadata", async () 
     assert.match(documentation, expected);
   }
 });
+
+test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+
+  assert.match(workflow, /language: javascript-typescript/);
+  assert.match(workflow, /build-mode: none/);
+  assert.match(workflow, /os: ubuntu-latest/);
+  assert.match(workflow, /analyze-swift:/);
+  assert.match(workflow, /name: Analyze \(swift\)/);
+  assert.match(workflow, /runs-on: macos-15/);
+  assert.match(workflow, /timeout-minutes: 25/);
+  assert.match(workflow, /languages: swift/);
+  assert.match(workflow, /build-mode: manual/);
+  assert.match(workflow, /timeout-minutes: 15/);
+  assert.match(
+    workflow,
+    /\n      - name: Build Swift sources for CodeQL extraction\n        timeout-minutes: 15\n        run: \|/,
+  );
+});
+
+test("Swift CodeQL extraction uses the checked-in shim only", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml");
+  const swiftJob = workflow.match(
+    /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
+  )?.[0];
+
+  assert.ok(swiftJob, "Swift CodeQL job should be present");
+
+  assert.match(swiftJob, /xcodebuild/);
+  assert.match(swiftJob, /-target FramekitFinalCutWorkflowCodeQL/);
+  assert.match(swiftJob, /-sdk macosx/);
+  assert.match(swiftJob, /timeout-minutes: 25/);
+  assert.match(swiftJob, /timeout-minutes: 15/);
+  assert.match(swiftJob, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
+  assert.match(swiftJob, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
+  assert.match(swiftJob, /SWIFT_OBJC_INTERFACE_HEADER_NAME=/);
+  assert.match(swiftJob, /ARCHS="\$\(uname -m\)"/);
+  assert.match(swiftJob, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
+  assert.match(swiftJob, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
+  assert.match(swiftJob, /FRAMEWORK_SEARCH_PATHS=/);
+  assert.match(swiftJob, /LD_RUNPATH_SEARCH_PATHS=/);
+  assert.match(swiftJob, /OTHER_LDFLAGS=/);
+  assert.doesNotMatch(swiftJob, /xcrun swiftc/);
+  assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
+  assert.doesNotMatch(swiftJob, /-destination/);
+  assert.doesNotMatch(swiftJob, /-emit-module/);
+  assert.doesNotMatch(swiftJob, /ProExtensionHostShim/);
+  assert.doesNotMatch(swiftJob, /Final Cut Pro\.app/);
+  assert.doesNotMatch(swiftJob, /ProExtensionHost\.framework/);
+  assert.doesNotMatch(swiftJob, /\/tmp\/framekit-finalcut-frameworks/);
+  assert.doesNotMatch(swiftJob, /build\.sh/);
+  assert.match(project, /FramekitFinalCutWorkflowCodeQL:/);
+  assert.match(project, /type: library\.static/);
+  assert.match(project, /FinalCutLiveWorkflowExtension\.swift/);
+  assert.match(project, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
+});
+
+test("CodeQL substitutes host declarations without changing the native import", async () => {
+  const source = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift");
+  const shim = await readRepositoryFile(".github/codeql/FinalCutWorkflowExtensionShim.swift");
+  const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj/project.pbxproj");
+
+  assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import ProExtensionHost[\s\S]*#endif/);
+  assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import AppKit[\s\S]*#endif/);
+  assert.match(shim, /import CoreMedia/);
+  assert.match(shim, /class NSViewController/);
+  assert.match(shim, /protocol FCPXTimelineObserver/);
+  assert.match(shim, /func ProExtensionHostSingleton/);
+  assert.match(project, /FinalCutWorkflowExtensionShim\.swift/);
+});
+
+test("Swift CI remains an independent native validation gate", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/swift.yml");
+
+  assert.match(workflow, /name: Swift CI/);
+  assert.match(workflow, /xcodebuild[\s\S]*-list/);
+  assert.match(workflow, /xcrun swiftc/);
+  assert.match(workflow, /ProExtensionHostShim/);
+});
+
+test("Swift bridge documents the separate bounded CodeQL path", async () => {
+  const documentation = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
+
+  assert.match(documentation, /CodeQL Swift extraction/);
+  assert.match(documentation, /manual\s+`xcodebuild`/);
+  assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
+  assert.match(documentation, /dedicated static-library\s+target/);
+  assert.match(documentation, /integrated Swift\s+driver/);
+  assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
+  assert.match(documentation, /fifteen minutes/);
+  assert.match(documentation, /standalone Swift CI/);
+});
