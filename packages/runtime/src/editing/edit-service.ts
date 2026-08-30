@@ -179,14 +179,26 @@ export class EditService {
       transaction.after = transaction.attemptedAfter;
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
+      this.assertRestored(before, await this.project.inspectProject());
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
-    transaction.verification = await this.verificationEngine.verify(transaction, policy);
+    try {
+      transaction.verification = await this.verificationEngine.verify(transaction, policy);
+    } catch (verificationError) {
+      try {
+        await this.adapter.restore(before, attemptedAfter.revision);
+        this.assertRestored(before, await this.project.inspectProject());
+      } catch (rollbackError) {
+        throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
+      }
+      throw new Error(`VERIFICATION_FAILED: canonical state was restored (${String(verificationError)})`);
+    }
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
     } else {
       await this.adapter.restore(before, attemptedAfter.revision);
       transaction.after = await this.project.inspectProject();
+      this.assertRestored(before, transaction.after);
       transaction.status = "ROLLED_BACK";
     }
     this.transactions.set(transaction);

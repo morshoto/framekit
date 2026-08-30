@@ -34,7 +34,7 @@ export class ContextService {
   private liveAdapter(): LiveEditorStatePort {
     const candidate = this.adapter as Partial<LiveEditorStatePort>;
     if (typeof candidate.readLiveState !== "function" || typeof candidate.liveChangesSince !== "function") {
-      throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
+      throw new Error("CAPABILITY_UNAVAILABLE: live Framekit editor state");
     }
     return candidate as LiveEditorStatePort;
   }

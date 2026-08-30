@@ -78,19 +78,29 @@ export class MediaAnalysisService {
   }
 
   public async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
-    const mediaIds = new Set(transaction.diff.affectedRanges.flatMap((range) =>
-      transaction.attemptedAfter.timeline.clips
-        .filter((clip) => clip.start < range.end && clip.start + clip.duration > range.start)
-        .flatMap((clip) => clip.mediaId ? [clip.mediaId] : []),
-    ));
+    const affectedMediaRanges = transaction.diff.affectedRanges.flatMap((range) =>
+      transaction.attemptedAfter.timeline.clips.flatMap((clip) => {
+        const intersectionStart = Math.max(range.start, clip.start);
+        const intersectionEnd = Math.min(range.end, clip.start + clip.duration);
+        if (!clip.mediaId || intersectionStart >= intersectionEnd) return [];
+        return [{
+          mediaId: clip.mediaId,
+          range: {
+            start: intersectionStart - clip.start,
+            end: intersectionEnd - clip.start,
+          },
+        }];
+      }),
+    );
+    const mediaIds = new Set(affectedMediaRanges.map(({ mediaId }) => mediaId));
     if (mediaIds.size === 0) return transaction.attemptedAfter;
     const next = structuredClone(transaction.attemptedAfter);
     for (const mediaId of mediaIds) {
       const media = next.media.find((candidate) => candidate.mediaId === mediaId);
       if (!media) continue;
-      const ranges = transaction.diff.affectedRanges.filter((range) =>
-        next.timeline.clips.some((clip) => clip.mediaId === mediaId && clip.start < range.end && clip.start + clip.duration > range.start),
-      );
+      const ranges = affectedMediaRanges
+        .filter((affected) => affected.mediaId === mediaId)
+        .map((affected) => affected.range);
       const input = { project: next, media };
       if (this.options.speechAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.speechAnalyzer!.analyze(input, range)));
