@@ -279,6 +279,9 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (operation.type === "timeline.media.add") {
       const media = snapshot.media.find((candidate) => candidate.mediaId === operation.mediaId);
       if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      if (!isMediaCompatible(operation.role, media.mediaKind)) {
+        throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
+      }
       if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
         throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
       }
@@ -401,7 +404,14 @@ export class InMemoryEditorAdapter implements EditorPort {
       if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.occurrenceId}`);
       const media = snapshot.media.find(({ mediaId }) => mediaId === operation.mediaId);
       if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
-      if (!isMediaCompatible(clip.role, media.mediaKind)) {
+      const currentMedia = clip.mediaId
+        ? snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId)
+        : undefined;
+      const currentKind = clip.role === "audio" || clip.role === "music"
+        ? "audio"
+        : clip.role === "video" ? "video" : currentMedia?.mediaKind;
+      if (!isMediaCompatible(clip.role, media.mediaKind)
+        || (currentKind !== undefined && media.mediaKind !== undefined && currentKind !== media.mediaKind)) {
         throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
       }
       const duration = operation.duration ?? clip.duration;
@@ -795,5 +805,6 @@ function decimalToRational(value: number): RationalTime {
 function isMediaCompatible(role: Clip["role"], mediaKind: MediaContext["mediaKind"]): boolean {
   if (role === "video") return mediaKind === undefined || mediaKind === "video";
   if (role === "audio" || role === "music") return mediaKind === undefined || mediaKind === "audio";
+  if (role === "title") return false;
   return true;
 }
