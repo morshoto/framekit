@@ -4,7 +4,7 @@ import type { ProjectSnapshot } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 import { AgentVideoRuntime, planRoughCut } from "@framekit/runtime";
-import type { RoughCutPlanRequest } from "@framekit/runtime";
+import type { RoughCutPlanRequest, WorkflowOperation } from "@framekit/runtime";
 
 function emptyProject(): ProjectSnapshot {
   return {
@@ -173,4 +173,131 @@ test("rough-cut planner rejects missing, non-video, and overlong shots", () => {
     }],
     shots: [{ occurrenceId: "too-long", mediaId: "short", duration: 3 }],
   }), /ROUGH_CUT_DURATION_EXCEEDS_SOURCE/);
+});
+
+function constructionRuntime() {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-construction",
+    projectName: "Construction Fixture",
+    timelineId: "timeline-construction",
+    timelineName: "Main Cut",
+    clips: [
+      { id: "base-a", mediaId: "base-a-media", name: "Base A", start: 0, duration: 4, track: 0 },
+      { id: "base-b", mediaId: "base-b-media", name: "Base B", start: 4, duration: 4, track: 0 },
+      { id: "remove-me", mediaId: "remove-media", name: "Remove Me", start: 8, duration: 1, track: 0 },
+    ],
+    media: [
+      { mediaId: "base-a-media", source: "/fixtures/base-a.mov", mediaKind: "video", duration: 4 },
+      { mediaId: "base-b-media", source: "/fixtures/base-b.mov", mediaKind: "video", duration: 4 },
+      { mediaId: "remove-media", source: "/fixtures/remove.mov", mediaKind: "video", duration: 1 },
+    ],
+    assets: [{
+      id: "transition-dissolve",
+      kind: "transition",
+      name: "Cross Dissolve",
+      vendor: "Framekit Fixture",
+      metadata: {},
+      compatibility: { timelineKinds: ["asset-clip"] },
+    }],
+  });
+  return { adapter, runtime: new AgentVideoRuntime(adapter) };
+}
+
+function constructionOperations(): WorkflowOperation[] {
+  return [{
+    type: "media.import",
+    mediaId: "replacement-media",
+    source: "/fixtures/replacement.mov",
+    mediaKind: "video",
+    duration: 3,
+    sourceDigest: "sha256:replacement",
+  }, {
+    type: "media.import",
+    mediaId: "voice-media",
+    source: "/fixtures/voice.wav",
+    mediaKind: "audio",
+    duration: 2,
+    sourceDigest: "sha256:voice",
+  }, {
+    type: "timeline.transition.add",
+    transitionId: "transition-base",
+    assetId: "transition-dissolve",
+    beforeClipId: "base-a",
+    afterClipId: "base-b",
+    duration: 1,
+  }, {
+    type: "timeline.media.move",
+    occurrenceId: "base-b",
+    start: 5,
+    targetLane: "primary",
+  }, {
+    type: "timeline.media.replace",
+    occurrenceId: "base-a",
+    mediaId: "replacement-media",
+    duration: 3,
+  }, {
+    type: "timeline.audio.attach",
+    occurrenceId: "voice-occurrence",
+    targetClipId: "base-a",
+    mediaId: "voice-media",
+    startOffset: 0.5,
+    duration: 2,
+  }, {
+    type: "timeline.audio.mix",
+    clipId: "voice-occurrence",
+    gainDb: -12,
+    fadeIn: 0.25,
+    fadeOut: 0.25,
+  }, {
+    type: "timeline.media.remove",
+    occurrenceId: "remove-me",
+  }] as unknown as WorkflowOperation[];
+}
+
+test("fixture construction supports move, replace, remove, transitions, and attached audio mixing", async () => {
+  const { runtime: active } = constructionRuntime();
+  const before = await active.inspectProject();
+  const preview = await active.previewEdit({ baseRevision: before.revision, operations: constructionOperations() });
+
+  assert.deepEqual(await active.inspectProject(), before);
+  assert.equal(preview.expectedDiff.mediaChanges.filter((change) => change.type === "MEDIA_ADDED").length, 2);
+  assert.equal(preview.expectedDiff.storyElementChanges.some((change) => change.element.kind === "transition"), true);
+
+  const transaction = await active.executeEdit(preview.previewToken);
+  const after = transaction.after;
+  const moved = after.timeline.clips.find((clip) => clip.id === "base-b");
+  const replaced = after.timeline.clips.find((clip) => clip.id === "base-a");
+  const audio = after.timeline.clips.find((clip) => clip.id === "voice-occurrence");
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(moved?.start, 5);
+  assert.equal(replaced?.mediaId, "replacement-media");
+  assert.equal(replaced?.duration, 3);
+  assert.equal(after.timeline.clips.some((clip) => clip.id === "remove-me"), false);
+  assert.equal(audio?.attachedTo, "base-a");
+  assert.equal(audio?.gainDb, -12);
+  assert.equal(audio?.fadeIn, 0.25);
+  assert.equal(audio?.fadeOut, 0.25);
+  assert.equal(after.timeline.storyElements.some((element) => element.id === "transition-base" && element.kind === "transition"), true);
+  assert.equal(transaction.diff.modified.some((change) => change.itemId === "base-b"), true);
+  assert.equal(transaction.diff.modified.some((change) => change.itemId === "base-a"), true);
+
+  const undone = await active.undo(transaction.id);
+  assert.deepEqual({ clips: undone.timeline.clips, media: undone.media }, { clips: before.timeline.clips, media: before.media });
+});
+
+test("unsupported construction capabilities fail before preview mutation", async () => {
+  const { adapter, runtime: active } = constructionRuntime();
+  const before = await active.inspectProject();
+  const originalCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => ({
+    ...await originalCapabilities(),
+    editor: {
+      ...(await originalCapabilities()).editor,
+      clipMove: false,
+    } as never,
+  });
+
+  await assert.rejects(active.previewEdit({ baseRevision: before.revision, operations: constructionOperations() }), /CAPABILITY_UNAVAILABLE/);
+  assert.deepEqual(await active.inspectProject(), before);
 });
