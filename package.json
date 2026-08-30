@@ -5,6 +5,10 @@
   "private": false,
   "type": "module",
   "description": "Agentic video editing runtime and MCP server for Final Cut Pro",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/morshoto/framekit.git"
+  },
   "files": [
     "bin",
     "dist-package"

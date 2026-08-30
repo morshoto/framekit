@@ -35,7 +35,7 @@ jobs:
     needs: tagpr
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - name: Check out repository
@@ -55,10 +55,27 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
+      - name: Set up npm Trusted Publishing
+        run: npm install --global npm@11.5.1
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Publish npm package
-        run: npm publish --provenance --access public
+        run: npm publish --access public
+
+      - name: Verify npm publication
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.tagpr-tag }}
+        run: |
+          set -eu
+          expected_version="${RELEASE_TAG#v}"
+          package_name="$(node -p "require('./package.json').name")"
+          published_version="$(npm view "${package_name}@${expected_version}" version)"
+          test "${published_version}" = "${expected_version}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.tagpr-tag }}
+        run: gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
