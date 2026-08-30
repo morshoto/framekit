@@ -24,7 +24,8 @@ Extension reports:
     "speechTranscribe": false,
     "speechVad": false,
     "audioLoudness": false,
-    "visualTrack": false
+    "visualTrack": false,
+    "metadataDescribe": false
   }
 }
 ```
@@ -43,7 +44,10 @@ reports `timelineSnapshotRead`, `timelineArtifactWrite`, `readAfterWrite`, and
 `rollback` as true. `timelineWrite` remains false because edits update the
 managed FCPXML artifact rather than the open Final Cut timeline. Analyzer flags
 are true only for configured local analyzer commands, and `assetDiscovery` is
-true when the Motion-template registry is available.
+true when the Motion-template registry is available. `metadataDescribe` is
+true only when a metadata provider is configured. Combined media understanding
+reports each missing or failed analyzer as an unavailable status and leaves
+that modality out of the semantic description.
 
 `frameCapture` is true only when the selected editor backend has an actual
 frame-image provider. `timeline.frame.capture` never fabricates an image: it
