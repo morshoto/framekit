@@ -1,6 +1,9 @@
 import CoreMedia
 import Foundation
+
+#if !FRAMEKIT_CODEQL
 import AppKit
+#endif
 
 #if os(macOS)
 import Darwin
