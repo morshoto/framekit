@@ -1,5 +1,5 @@
 import type { ContextRevision } from "./primitives.js";
-import type { ImportMediaOperation, WorkflowOperation } from "./editing.js";
+import type { CompositeEditPreview, ImportMediaOperation, WorkflowOperation } from "./editing.js";
 import type { MediaContext } from "./media.js";
 import type { ProjectSnapshot } from "./project.js";
 
@@ -21,6 +21,10 @@ export interface RoughCutPlan {
   baseRevision: ContextRevision;
   operations: WorkflowOperation[];
   duration: number;
+}
+
+export interface RoughCutPreview extends CompositeEditPreview {
+  plan: RoughCutPlan;
 }
 
 /** Build a deterministic primary-storyline workflow without mutating a project. */

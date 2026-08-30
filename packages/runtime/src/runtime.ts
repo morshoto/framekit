@@ -21,6 +21,7 @@ import type {
   ProjectSnapshot,
   RoughCutPlan,
   RoughCutPlanRequest,
+  RoughCutPreview,
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
@@ -75,6 +76,12 @@ export class AgentVideoRuntime {
 
   public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
     return buildRoughCutPlan(await this.projects.inspectProject(), request);
+  }
+
+  public async previewRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPreview> {
+    const plan = await this.planRoughCut(request);
+    const preview = await this.edits.previewEdit({ baseRevision: plan.baseRevision, operations: plan.operations });
+    return { ...preview, plan };
   }
 
   public async captureFrame(
