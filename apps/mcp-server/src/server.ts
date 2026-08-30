@@ -403,6 +403,27 @@ const nativeEditToolInputSchema = z.object({
   duration: z.number().nonnegative().optional(),
 }).strict();
 
+const skillIds = ["filler-removal", "dialogue-normalization"] as const;
+const skillIdSchema = z.enum(skillIds);
+const skillManifests = [
+  {
+    id: "filler-removal",
+    version: 1,
+    description: "Remove high-confidence filler words through a guarded closed-loop transaction.",
+    previewTool: "speech.filler.remove.preview",
+    executeTool: "speech.filler.remove.execute",
+    requires: ["canonical timeline read", "speech analysis", "ripple-delete", "rollback"],
+  },
+  {
+    id: "dialogue-normalization",
+    version: 1,
+    description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
+    previewTool: "dialogue.normalization.preview",
+    executeTool: "dialogue.normalization.execute",
+    requires: ["canonical timeline read", "dialogue audio analysis", "set-gain", "rollback"],
+  },
+] as const;
+
 function jsonResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -479,6 +500,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
   }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
+
+  server.registerTool("skill.list", {
+    description: "List versioned Framekit Skills available through the generic MCP surface.",
+    inputSchema: {},
+  }, async () => jsonResult(skillManifests));
+
+  server.registerTool("skill.inspect", {
+    description: "Inspect one versioned Framekit Skill and its generic preview and execute tools.",
+    inputSchema: { skill: skillIdSchema },
+  }, async ({ skill }) => jsonResult(skillManifests.find((manifest) => manifest.id === skill)));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",

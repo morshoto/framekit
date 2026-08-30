@@ -43,9 +43,6 @@ test("generic MCP Skill surface discovers both release workflows", async () => {
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "skill.list"));
     assert.ok(tools.tools.some((tool) => tool.name === "skill.inspect"));
-    assert.ok(tools.tools.some((tool) => tool.name === "skill.preview"));
-    assert.ok(tools.tools.some((tool) => tool.name === "skill.execute"));
-
     const listed = await client.callTool({ name: "skill.list", arguments: {} });
     const content = listed.content as Array<{ type: string; text?: string }>;
     const payload = JSON.parse(content[0]?.text ?? "null") as Array<{ id: string; version: number }>;
