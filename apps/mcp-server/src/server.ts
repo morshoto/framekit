@@ -221,6 +221,39 @@ const nativeTitlePreviewSchema = {
   start: rationalTimeSchema.optional(),
   duration: rationalTimeSchema,
 };
+const exportAssertionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("audio-audibility"),
+    minAudibleSamples: z.number().int().positive().optional(),
+    maxSilenceMs: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-coverage"),
+    expectedSeconds: z.number().finite().positive(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-loudness"),
+    targetLufs: z.number().finite(),
+    toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-source"),
+    sourceDigest: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("visual-content"),
+    label: z.string().min(1),
+    labelKind: z.enum(["scene", "subject"]).optional(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    target: z.enum(["audio", "video"]),
+    expected: z.boolean(),
+  }),
+]);
 const exportExpectationSchema = z.object({
   durationSeconds: z.number().positive().optional(),
   durationToleranceSeconds: z.number().nonnegative().optional(),
@@ -229,6 +262,7 @@ const exportExpectationSchema = z.object({
   frameRate: z.number().positive().optional(),
   frameRateTolerance: z.number().nonnegative().optional(),
   hasAudio: z.boolean().optional(),
+  assertions: z.array(exportAssertionSchema).optional(),
 }).optional();
 const nativeEditToolInputSchema = z.object({
   type: z.enum([
