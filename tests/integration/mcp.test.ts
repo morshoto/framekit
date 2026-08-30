@@ -104,6 +104,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.deepEqual(timelineEditTool?.inputSchema.required?.slice().sort(), ["baseRevision", "projectId", "sequenceId", "type"]);
     const artifactEditTool = tools.tools.find((tool) => tool.name === "artifact.edit");
     assert.deepEqual(artifactEditTool?.inputSchema.required?.slice().sort(), ["artifactPath", "baseRevision", "type"]);
+    const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
+    assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
     assert.deepEqual(Object.keys(nativeEditTool?.inputSchema.properties ?? {}).sort(), ["duration", "edge", "gainDb", "name", "type"]);
     assert.deepEqual(nativeEditTool?.inputSchema.required, ["type"]);

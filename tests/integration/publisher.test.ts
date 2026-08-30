@@ -24,12 +24,29 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
       sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
       revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
     }),
-  }).publishNewProject("txn-publish-1");
+  }).publishNewProject({
+    sourceTransactionId: "txn-publish-1",
+    artifactPath: sourcePath,
+    confirm: true,
+  });
 
   assert.equal(result.verified, true);
   assert.equal(result.sourceTransactionId, "txn-publish-1");
   assert.equal(result.projectName, "Published Edit");
   assert.equal(result.liveProject, "Published Edit");
+  assert.deepEqual(result.sourceTarget, { kind: "artifact", artifactPath: sourcePath });
+  assert.deepEqual(result.createdTarget, {
+    kind: "editor.project",
+    projectId: "project-2",
+    sequenceId: "sequence-2",
+    projectName: "Published Edit",
+    sequenceName: "Published Edit",
+  });
+  assert.deepEqual(result.activeProject, {
+    before: { id: "project-2", name: "Published Edit" },
+    after: { id: "project-2", name: "Published Edit" },
+    changed: false,
+  });
   assert.match(scripts[0], /Import/);
   assert.equal(scripts[0].includes("focused text field"), false);
   assert.match(scripts[0], /first text field of front window/);
@@ -49,6 +66,54 @@ test("FCPXML publisher rejects invalid artifacts before automation", async () =>
       return "";
     },
   });
-  await assert.rejects(publisher.publishNewProject("txn-invalid"), /PUBLISH_VALIDATION_FAILED/);
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn-invalid",
+    artifactPath: sourcePath,
+    confirm: true,
+  }), /PUBLISH_VALIDATION_FAILED/);
+  assert.equal(called, false);
+});
+
+test("FCPXML publisher requires explicit confirmation before automation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-confirmation-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  await writeFile(sourcePath, '<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence /></project></event></library></fcpxml>');
+  let called = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    executor: async () => {
+      called = true;
+      return "";
+    },
+  });
+
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn-publish-2",
+    artifactPath: sourcePath,
+    confirm: false,
+  }), /PUBLISH_CONFIRMATION_REQUIRED/);
+  assert.equal(called, false);
+});
+
+test("FCPXML publisher rejects an artifact path outside its managed source", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-target-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  await writeFile(sourcePath, '<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence /></project></event></library></fcpxml>');
+  let called = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    executor: async () => {
+      called = true;
+      return "";
+    },
+  });
+
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn-publish-3",
+    artifactPath: join(directory, "other.fcpxml"),
+    confirm: true,
+  }), /PUBLISH_TARGET_MISMATCH/);
   assert.equal(called, false);
 });

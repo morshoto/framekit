@@ -68,6 +68,11 @@ const editorTimelineEditToolInputSchema = editToolInputSchema.extend({
   sequenceId: z.string().trim().min(1),
   baseRevision: revisionValueSchema,
 }).strict();
+const artifactPublishInputSchema = z.object({
+  artifactPath: z.string().trim().min(1),
+  transactionId: z.string().min(1),
+  confirm: z.boolean(),
+}).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
@@ -489,13 +494,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish", {
-    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project.",
-    inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => {
+    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project; requires explicit confirmation.",
+    inputSchema: artifactPublishInputSchema,
+  }, async ({ artifactPath, transactionId, confirm }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const transaction = runtime.getTransaction(transactionId);
+    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    }
     const verification = await runtime.verifyTransaction(transactionId);
     if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
-    return jsonResult(await options.projectPublisher.publishNewProject(transactionId));
+    return jsonResult(await options.projectPublisher.publishNewProject({
+      sourceTransactionId: transactionId,
+      artifactPath,
+      confirm,
+    }));
   });
 
   server.registerTool("timeline.export", {

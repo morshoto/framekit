@@ -10,11 +10,33 @@ const execFile = promisify(execFileCallback);
 export interface FinalCutProjectPublishResult {
   sourceTransactionId: string;
   sourcePath: string;
+  sourceTarget: {
+    kind: "artifact";
+    artifactPath: string;
+  };
   importedPath: string;
   projectName: string;
+  createdTarget: {
+    kind: "editor.project";
+    projectId?: string;
+    sequenceId?: string;
+    projectName: string;
+    sequenceName?: string;
+  };
+  activeProject: {
+    before?: { id: string; name: string };
+    after?: { id: string; name: string };
+    changed?: boolean;
+  };
   verified: boolean;
   liveProject?: string;
   liveSequence?: string;
+}
+
+export interface FinalCutProjectPublishRequest {
+  sourceTransactionId: string;
+  artifactPath: string;
+  confirm: boolean;
 }
 
 export interface FinalCutProjectPublisherOptions {
@@ -41,13 +63,19 @@ export class FinalCutProjectPublisher {
     this.waitMs = options.waitMs ?? 1_500;
   }
 
-  public async publishNewProject(sourceTransactionId: string): Promise<FinalCutProjectPublishResult> {
+  public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
+    if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+    if (!request.sourceTransactionId.trim()) throw new Error("INVALID_PUBLISH_REQUEST: sourceTransactionId is required");
+    if (request.artifactPath !== this.sourcePath) {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: requested artifact ${request.artifactPath} is not managed by this publisher`);
+    }
     const source = await readFile(this.sourcePath, "utf8");
     if (!source.includes("<fcpxml") || !source.includes("<project")) {
       throw new Error("FINAL_CUT_PUBLISH_VALIDATION_FAILED: source is not a valid FCPXML project artifact");
     }
     const projectName = projectNameFromXml(source);
+    const beforeLive = this.liveState ? await this.liveState() : undefined;
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-publish-"));
     const importedPath = join(directory, basename(this.sourcePath));
     await copyFile(this.sourcePath, importedPath);
@@ -59,10 +87,25 @@ export class FinalCutProjectPublisher {
         throw new Error(`FINAL_CUT_PUBLISH_VERIFICATION_FAILED: expected new project ${projectName}, observed ${live.project?.name ?? "none"}`);
       }
       return {
-        sourceTransactionId,
+        sourceTransactionId: request.sourceTransactionId,
         sourcePath: this.sourcePath,
+        sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
         importedPath,
         projectName,
+        createdTarget: {
+          kind: "editor.project",
+          ...(live?.project?.id ? { projectId: live.project.id } : {}),
+          ...(live?.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+          projectName,
+          ...(live?.sequence?.name ? { sequenceName: live.sequence.name } : {}),
+        },
+        activeProject: {
+          ...(beforeLive?.project ? { before: beforeLive.project } : {}),
+          ...(live?.project ? { after: live.project } : {}),
+          ...(beforeLive?.project && live?.project
+            ? { changed: beforeLive.project.id !== live.project.id || beforeLive.project.name !== live.project.name }
+            : {}),
+        },
         verified: true,
         ...(live?.project?.name ? { liveProject: live.project.name } : {}),
         ...(live?.sequence?.name ? { liveSequence: live.sequence.name } : {}),
