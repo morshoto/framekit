@@ -61,8 +61,8 @@ test("generic MCP Skill surface discovers both release workflows", async () => {
       id: "dialogue-normalization",
       version: 1,
       description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
-      previewTool: "dialogue.normalization.preview",
-      executeTool: "dialogue.normalization.execute",
+      previewTool: "skill.preview",
+      executeTool: "skill.execute",
       requires: ["canonical timeline read", "dialogue audio analysis", "set-gain", "rollback"],
     });
   } finally {
