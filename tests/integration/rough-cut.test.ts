@@ -386,6 +386,7 @@ test("MCP exposes read-only rough-cut planning and a guarded preview", async () 
 
 test("rough-cut construction contract documents lifecycle and backend boundaries", async () => {
   const contract = await readFile(resolve("docs/architecture/rough-cut-construction.md"), "utf8");
+  const tools = await readFile(resolve("docs/mcp/tools.md"), "utf8");
 
   assert.match(contract, /^# Rough-Cut Project Construction/m);
   for (const operation of [
@@ -405,4 +406,5 @@ test("rough-cut construction contract documents lifecycle and backend boundaries
   assert.match(contract, /CAPABILITY_UNAVAILABLE/);
   assert.match(contract, /timeline\.publish\.new-project/);
   assert.match(contract, /does not replace the active project/i);
+  assert.ok(tools.indexOf("`music.add` is the high-level") < tools.indexOf("## Rough-cut construction workflow"));
 });
