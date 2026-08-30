@@ -2,7 +2,7 @@
 name: 🎨 Design proposal
 about: Propose an architecture, UX, or workflow design
 title: "[Design] "
-labels: ""
+labels: "Type: Design"
 assignees: ""
 ---
 
