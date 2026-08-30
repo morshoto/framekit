@@ -97,6 +97,30 @@ and bound to the active sequence/playhead state.
 
 ## Music mixing workflow
 
+## Rough-cut construction workflow
+
+Use `rough-cut.plan` to turn ordered imported or indexed video media into a
+deterministic primary-storyline operation list. Use `rough-cut.preview` to
+bind that plan to the current project revision and receive the same short-lived
+preview contract as `timeline.edit.preview`. Both tools are read-only.
+
+The ordered workflow can include `timeline.media.add`, `timeline.media.move`,
+`timeline.media.replace`, `timeline.media.remove`, `timeline.transition.add`,
+`timeline.audio.attach`, `timeline.audio.mix`, and `timeline.title.add`.
+Each operation has an explicit editor capability. The runtime checks every
+required capability before calling adapter preview or execution, and reports
+`CAPABILITY_UNAVAILABLE` instead of applying a partial workflow.
+
+Execute a rough-cut preview with `timeline.edit.execute`; then inspect its
+before/after snapshots, `edit.diff`, and `edit.verify`, and undo it with
+`edit.undo`. The deterministic fixture supports this complete loop. Native and
+FCPXML backends remain unavailable for the new composite primitives until they
+advertise atomic preview, execution, read-after-write, and rollback support.
+
+Rough-cut construction does not create or replace the active Final Cut
+project. After a verified artifact exists, `timeline.publish.new-project` is
+the explicit publishing path for importing it as a new project.
+
 `music.add` is the high-level guarded entry point for the issue-11 music
 workflow. It accepts either an existing canonical `mediaId` (normally found
 with `media.search`) or an inline `import` source containing a stable media ID,
