@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   FixtureAudioAnalyzer,
   FixtureMetadataAnalyzer,
@@ -7,6 +9,16 @@ import {
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
 import { AgentVideoRuntime, type MediaContext } from "@framekit/runtime";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { type?: string; text?: unknown } | undefined;
+  assert.equal(first?.type, "text");
+  assert.equal(typeof first?.text, "string");
+  return first.text as string;
+}
 
 function semanticFixture() {
   const usableRange = {
@@ -151,4 +163,34 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.deepEqual(shot?.range, fixture.usableRange);
   assert.deepEqual(shot?.matchedProperties, ["subject:person"]);
   assert.match(shot?.rationale ?? "", /subject "person"/);
+});
+
+test("MCP exposes semantic indexing and rough-cut planning", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+  await runtime.understandMedia("media-semantic-1");
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "semantic-media-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const index = await client.callTool({
+      name: "media.index",
+      arguments: { subject: "person", range: { start: 2, end: 3 } },
+    });
+    assert.equal(JSON.parse(textFrom(index)).length, 1);
+    const plan = await client.callTool({
+      name: "rough-cut.plan",
+      arguments: { subject: "person", maxShots: 1 },
+    });
+    assert.equal(JSON.parse(textFrom(plan)).shots[0].sourceIdentity.sourceDigest, "sha256:interview");
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
