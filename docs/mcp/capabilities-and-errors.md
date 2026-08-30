@@ -1,5 +1,32 @@
 # Capabilities and Errors
 
+## Editor-first routing
+
+Before selecting an editing path, call `connection.status`, `editor.inspect`,
+and `project.inspect` in that order, then call `editing.route` with the
+intended operation. The route checks the operation's required capabilities
+against the selected backend. A connected editor that cannot satisfy the
+operation returns `CAPABILITY_UNAVAILABLE`; it is not silently replaced by an
+external renderer.
+
+The route result is structured for deterministic handling:
+
+```json
+{
+  "status": "external-fallback-selected",
+  "selectedPath": "external-renderer",
+  "missingCapabilities": ["editor.timelineSnapshotRead"],
+  "reason": {
+    "code": "EXTERNAL_FALLBACK_SELECTED",
+    "cause": { "code": "CAPABILITY_UNAVAILABLE" }
+  }
+}
+```
+
+`external-renderer` is returned only when the caller explicitly selects
+`fallback: "external-renderer"` or authorizes that fallback. The MCP server
+reports why it was selected but does not invoke an external rendering pipeline.
+
 Capabilities are machine-readable and backend-specific. A live-only Workflow
 Extension reports:
 
