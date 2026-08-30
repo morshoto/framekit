@@ -40,6 +40,7 @@ export interface AnalyzerCapabilities {
   speechVad: boolean;
   audioLoudness: boolean;
   visualTrack: boolean;
+  metadataDescribe?: boolean;
 }
 
 export const CAPABILITY_SCHEMA_VERSION = 1 as const;

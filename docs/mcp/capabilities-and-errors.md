@@ -1,5 +1,32 @@
 # Capabilities and Errors
 
+## Editor-first routing
+
+Before selecting an editing path, call `connection.status`, `editor.inspect`,
+and `project.inspect` in that order, then call `editing.route` with the
+intended operation. The route checks the operation's required capabilities
+against the selected backend. A connected editor that cannot satisfy the
+operation returns `CAPABILITY_UNAVAILABLE`; it is not silently replaced by an
+external renderer.
+
+The route result is structured for deterministic handling:
+
+```json
+{
+  "status": "external-fallback-selected",
+  "selectedPath": "external-renderer",
+  "missingCapabilities": ["editor.timelineSnapshotRead"],
+  "reason": {
+    "code": "EXTERNAL_FALLBACK_SELECTED",
+    "cause": { "code": "CAPABILITY_UNAVAILABLE" }
+  }
+}
+```
+
+`external-renderer` is returned only when the caller explicitly selects
+`fallback: "external-renderer"` or authorizes that fallback. The MCP server
+reports why it was selected but does not invoke an external rendering pipeline.
+
 Capabilities are machine-readable and backend-specific. A live-only Workflow
 Extension reports:
 
@@ -71,7 +98,8 @@ editability.
     "speechTranscribe": false,
     "speechVad": false,
     "audioLoudness": false,
-    "visualTrack": false
+    "visualTrack": false,
+    "metadataDescribe": false
   }
 }
 ```
@@ -90,7 +118,10 @@ reports `timelineSnapshotRead`, `timelineArtifactWrite`, `readAfterWrite`, and
 `rollback` as true. `timelineWrite` remains false because edits update the
 managed FCPXML artifact rather than the open Final Cut timeline. Analyzer flags
 are true only for configured local analyzer commands, and `assetDiscovery` is
-true when the Motion-template registry is available.
+true when the Motion-template registry is available. `metadataDescribe` is
+true only when a metadata provider is configured. Combined media understanding
+reports each missing or failed analyzer as an unavailable status and leaves
+that modality out of the semantic description.
 
 `frameCapture` is true only when the selected editor backend has an actual
 frame-image provider. `timeline.frame.capture` never fabricates an image: it

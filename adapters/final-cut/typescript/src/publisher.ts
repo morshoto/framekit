@@ -41,6 +41,10 @@ export class FinalCutProjectPublisher {
     this.waitMs = options.waitMs ?? 1_500;
   }
 
+  public isAvailable(): boolean {
+    return this.enabled;
+  }
+
   public async publishNewProject(sourceTransactionId: string): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     const source = await readFile(this.sourcePath, "utf8");
