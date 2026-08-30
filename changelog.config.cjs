@@ -4,6 +4,7 @@ module.exports = {
         'add',
         'config',
         'conflicts',
+        'chore',
         'design',
         'dependency',
         'docs',
@@ -52,6 +53,7 @@ module.exports = {
         test: { description: 'Fix/improve testing and CI', emoji: '🧪', value: 'test' },
         tracking: { description: 'Add analytics or tracking code', emoji: '📈', value: 'tracking' },
         update: { description: 'Update dependency packages, etc.', emoji: '🆙', value: 'update' },
-        wip: { description: 'WIP (Work in Progress)', emoji: '🚧', value: 'wip' }
+        wip: { description: 'WIP (Work in Progress)', emoji: '🚧', value: 'wip' },
+        chore: { description: 'Routine tasks and maintenance', emoji: '🧹', value: 'chore' }
     }
 };
