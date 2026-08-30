@@ -39,6 +39,7 @@ export class FillerRemovalService {
     const selectedRange = validateFillerSelection(request.range);
     const candidates: FillerRemovalTarget[] = [];
     const expectedWordsByClip = new Map<string, SpeechWord[]>();
+    const analysisRangesByClip = new Map<string, TimeRange>();
     const selectedClips = before.timeline.clips.filter((clip) =>
       clip.mediaId && rangesOverlap(clip.start, clip.start + clip.duration, selectedRange.start, selectedRange.end),
     );
@@ -60,6 +61,7 @@ export class FillerRemovalService {
       if (localRange.end <= localRange.start) continue;
       const speech = await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange);
       expectedWordsByClip.set(clip.id, structuredClone(speech.words));
+      analysisRangesByClip.set(clip.id, structuredClone(localRange));
       for (const candidate of planFillerRemoval(speech.words, localRange, request)) {
         candidates.push({
           ...candidate,
@@ -104,7 +106,7 @@ export class FillerRemovalService {
       if (oldestToken === undefined) break;
       this.previews.delete(oldestToken);
     }
-    this.previews.set(previewToken, { preview, expectedWordsByClip });
+    this.previews.set(previewToken, { preview, expectedWordsByClip, analysisRangesByClip });
     return structuredClone(preview);
   }
 
@@ -208,9 +210,17 @@ export class FillerRemovalService {
       }
       const media = next.media.find((candidate) => candidate.mediaId === beforeClip.mediaId);
       if (!media) throw new Error(`MEDIA_NOT_FOUND: ${beforeClip.mediaId}`);
+      const analysisRange = record.analysisRangesByClip.get(clipId);
+      if (!analysisRange) throw new Error(`ANALYSIS_FAILED: filler analysis range for clip ${clipId} is unavailable`);
+      const postEditRange = translateRangeAfterDeletes(
+        analysisRange,
+        record.preview.candidates
+          .filter((candidate) => candidate.clipId === clipId)
+          .map((candidate) => candidate.sourceRange),
+      );
       const speech = await this.options.speechAnalyzer!.analyze(
         { project: next, media },
-        { start: 0, end: afterClip.duration },
+        postEditRange,
       );
       media.speech = speech;
       media.analysisRevision = next.revision.id;
@@ -233,6 +243,7 @@ export class FillerRemovalService {
 interface FillerRemovalPreviewRecord {
   preview: FillerRemovalPreview;
   expectedWordsByClip: Map<string, SpeechWord[]>;
+  analysisRangesByClip: Map<string, TimeRange>;
 }
 
 function validateFillerSelection(range: TimeRange): TimeRange {
@@ -250,6 +261,27 @@ function validateFillerSelection(range: TimeRange): TimeRange {
 
 function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {
   return leftStart < rightEnd && leftEnd > rightStart;
+}
+
+function translateRangeAfterDeletes(range: TimeRange, deletes: TimeRange[]): TimeRange {
+  const orderedDeletes = [...deletes].sort((left, right) => left.start - right.start);
+  return {
+    start: translateBoundaryAfterDeletes(range.start, orderedDeletes),
+    end: translateBoundaryAfterDeletes(range.end, orderedDeletes),
+  };
+}
+
+function translateBoundaryAfterDeletes(boundary: number, deletes: TimeRange[]): number {
+  let translated = boundary;
+  let removed = 0;
+  for (const deletion of deletes) {
+    if (boundary <= deletion.start) break;
+    if (boundary < deletion.end) return deletion.start - removed;
+    const duration = deletion.end - deletion.start;
+    translated -= duration;
+    removed += duration;
+  }
+  return translated;
 }
 
 function verifyFillerSpeechContinuity(
