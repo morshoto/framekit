@@ -49,14 +49,16 @@ export class MediaAnalysisService {
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
     const input = { project, media };
-    const [speech, audio, visual] = await Promise.all([
-      this.options.speechAnalyzer?.analyze(input),
-      this.options.audioAnalyzer?.analyze(input),
-      this.options.visualAnalyzer?.analyze(input),
+    const [speechResult, audioResult, visualResult, metadataResult] = await Promise.all([
+      settle(() => this.options.speechAnalyzer?.analyze(input)),
+      settle(() => this.options.audioAnalyzer?.analyze(input)),
+      settle(() => this.options.visualAnalyzer?.analyze(input)),
+      settle(() => this.options.metadataAnalyzer?.analyze(input)),
     ]);
-    const metadata = this.options.metadataAnalyzer
-      ? await this.options.metadataAnalyzer.analyze(input)
-      : undefined;
+    const speech = fulfilledValue(speechResult);
+    const audio = fulfilledValue(audioResult);
+    const visual = fulfilledValue(visualResult);
+    const metadata = fulfilledValue(metadataResult);
     const sourceIdentity = sourceIdentityOf(media);
     const understanding: MediaUnderstanding = {
       mediaId: media.mediaId,
@@ -67,10 +69,10 @@ export class MediaAnalysisService {
       ...(audio ? { audio } : {}),
       ...(visual ? { visual } : {}),
       analysis: [
-        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech)),
-        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio)),
-        analysisStatus("visual", this.options.visualAnalyzer, sourceIdentity, Boolean(visual)),
-        analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentity, Boolean(metadata), metadata?.usableRanges),
+        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), [], failureReason(speechResult)),
+        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), [], failureReason(audioResult)),
+        analysisStatus("visual", this.options.visualAnalyzer, sourceIdentity, Boolean(visual), [], failureReason(visualResult)),
+        analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentity, Boolean(metadata), metadata?.usableRanges, failureReason(metadataResult)),
       ],
       analysisRevision: project.revision,
     };
@@ -159,10 +161,12 @@ function analysisStatus(
   source: MediaSourceIdentity,
   analyzed: boolean,
   ranges: import("../domain/primitives.js").TimeRange[] = [],
+  failureReason?: string,
 ): MediaAnalysisStatus {
   if (!analyzer) {
     return { capability, status: "unavailable", reason: `${capability} analyzer is not configured` };
   }
+  if (failureReason) return { capability, status: "unavailable", reason: failureReason };
   if (!analyzed) {
     return { capability, status: "available", reason: `${capability} analysis is not attached` };
   }
@@ -175,6 +179,26 @@ function analysisStatus(
       ranges: structuredClone(ranges),
     },
   };
+}
+
+async function settle<T>(operation: () => Promise<T> | undefined): Promise<PromiseSettledResult<T> | undefined> {
+  try {
+    const promise = operation();
+    return promise ? await Promise.resolve(promise).then(
+      (value) => ({ status: "fulfilled", value } as const),
+      (reason) => ({ status: "rejected", reason } as const),
+    ) : undefined;
+  } catch (reason) {
+    return { status: "rejected", reason };
+  }
+}
+
+function fulfilledValue<T>(result: PromiseSettledResult<T> | undefined): T | undefined {
+  return result?.status === "fulfilled" ? result.value : undefined;
+}
+
+function failureReason<T>(result: PromiseSettledResult<T> | undefined): string | undefined {
+  return result?.status === "rejected" ? String(result.reason) : undefined;
 }
 
 function findMedia(project: ProjectSnapshot, mediaId: string): MediaContext {

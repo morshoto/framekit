@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  FixtureAudioAnalyzer,
   FixtureMetadataAnalyzer,
+  FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
 import { AgentVideoRuntime, type MediaContext } from "@framekit/runtime";
@@ -59,4 +61,34 @@ test("media understanding preserves source identity and analyzer provenance", as
   assert.equal(metadata?.provenance?.analyzer.provider, "fixture");
   assert.deepEqual(metadata?.provenance?.source, understanding.sourceIdentity);
   assert.deepEqual(metadata?.provenance?.ranges, [fixture.usableRange]);
+});
+
+test("media understanding preserves successful results when one analyzer cannot analyze", async () => {
+  const fixture = semanticFixture();
+  const project = await fixture.adapter.readProject();
+  project.media[0]!.visual = {
+    scenes: [{ id: "scene-1", start: 1, end: 4, label: "interview", confidence: 0.95 }],
+    subjects: [{ id: "subject-1", label: "person", confidence: 0.99, start: 1, end: 4 }],
+    keyframes: [],
+  };
+  project.media[0]!.audio = undefined;
+  const adapter = new InMemoryEditorAdapter({
+    projectId: project.projectId,
+    projectName: project.projectName,
+    timelineId: project.timeline.id,
+    timelineName: project.timeline.name,
+    clips: project.timeline.clips,
+    media: project.media,
+  });
+  const runtime = new AgentVideoRuntime(adapter, {
+    audioAnalyzer: new FixtureAudioAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  const understanding = await runtime.understandMedia("media-semantic-1");
+  const audio = understanding.analysis.find((record) => record.capability === "audio");
+
+  assert.equal(understanding.visual?.subjects[0]?.label, "person");
+  assert.equal(audio?.status, "unavailable");
+  assert.match(audio?.reason ?? "", /no audio fixture/);
 });
