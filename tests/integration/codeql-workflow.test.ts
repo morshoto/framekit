@@ -85,6 +85,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(swiftJob, /timeout-minutes: 10/);
   assert.match(swiftJob, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
   assert.match(swiftJob, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
+  assert.match(swiftJob, /SWIFT_COMPILATION_MODE=wholemodule/);
   assert.match(swiftJob, /ARCHS="\$\(uname -m\)"/);
   assert.match(swiftJob, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
   assert.match(swiftJob, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
