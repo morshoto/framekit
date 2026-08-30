@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function createRuntime(
   audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number },
@@ -186,4 +189,43 @@ test("composite previews retain semantic policies through verified execution", a
   assert.equal(transaction.status, "ROLLED_BACK");
   assert.deepEqual(transaction.verificationPolicy, verification);
   assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-audibility")?.reason, "AUDIO_NOT_AUDIBLE");
+});
+
+test("MCP carries semantic verification assertions through a timeline edit", async () => {
+  const server = createMcpServer(createRuntime({
+    integratedLufs: -80,
+    truePeakDb: -80,
+    silenceMs: 10_000,
+    audibleSamples: 0,
+  }));
+  const client = new Client({ name: "verification-intent-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    const timelineEdit = tools.tools.find((tool) => tool.name === "timeline.edit");
+    assert.ok(timelineEdit);
+    assert.ok(Object.keys(timelineEdit.inputSchema.properties ?? {}).includes("verification"));
+
+    const result = await client.callTool({
+      name: "timeline.edit",
+      arguments: {
+        type: "rename-clip",
+        clipId: "rain-clip",
+        name: "Rain ambience",
+        verification: {
+          assertions: [{ type: "audio-audibility", mediaId: "rain", minAudibleSamples: 1 }],
+        },
+      },
+    });
+    assert.equal(result.isError, undefined);
+    const content = result.content as Array<{ text?: string }>;
+    const transaction = JSON.parse(content[0]?.text ?? "{}");
+    assert.equal(transaction.status, "ROLLED_BACK");
+    assert.equal(transaction.verification.checks.at(-1).reason, "AUDIO_NOT_AUDIBLE");
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
