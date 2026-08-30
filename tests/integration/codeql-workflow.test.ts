@@ -1,16 +1,58 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const repository = resolve(import.meta.dirname, "../..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-async function readWorkflow(relativePath: string): Promise<string> {
+async function readRepositoryFile(relativePath: string): Promise<string> {
   return readFile(resolve(repository, relativePath), "utf8");
 }
 
+test("CodeQL keeps default-branch runs from being cancelled", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+
+  assert.match(workflow, /push:\s+branches:\s+- main/);
+  assert.match(workflow, /group:\s+codeql-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
+  assert.match(workflow, /cancel-in-progress:\s+\$\{\{ github\.event_name == 'pull_request' \}\}/);
+});
+
+test("CodeQL still supersedes obsolete pull-request runs", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+
+  assert.match(workflow, /pull_request:\s+branches:\s+- main/);
+  assert.match(workflow, /types:\s+- opened\s+- synchronize\s+- reopened/);
+  assert.match(workflow, /github\.event_name == 'pull_request'/);
+});
+
+test("CodeQL concurrency policy is documented for operators", async () => {
+  const documentation = await readRepositoryFile("docs/ci/codeql.md");
+
+  assert.match(documentation, /default-branch.*queue/i);
+  assert.match(documentation, /pull-request.*cancel/i);
+  assert.match(documentation, /one.*running.*one.*pending/i);
+  assert.match(documentation, /code-scanning analyses API/i);
+});
+
+test("CodeQL verification documentation records operational metadata", async () => {
+  const documentation = await readRepositoryFile("docs/ci/codeql.md");
+
+  for (const expected of [
+    /^Status:\s+.+$/im,
+    /^Last verified:\s+\d{4}-\d{2}-\d{2}/im,
+    /^Environment:\s+.+$/im,
+    /^Scope:\s+.+$/im,
+    /^Expected result:\s+.+$/im,
+    /^Actual evidence:\s+.+$/im,
+    /^Limitations:\s+.+$/im,
+  ]) {
+    assert.match(documentation, expected);
+  }
+});
+
 test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async () => {
-  const workflow = await readWorkflow(".github/workflows/codeql.yml");
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
 
   assert.match(workflow, /language: javascript-typescript/);
   assert.match(workflow, /build-mode: none/);
@@ -29,7 +71,7 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
 });
 
 test("Swift CodeQL extraction uses the checked-in shim only", async () => {
-  const workflow = await readWorkflow(".github/workflows/codeql.yml");
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
 
   assert.match(workflow, /xcrun swiftc/);
   assert.match(workflow, /-D FRAMEKIT_CODEQL/);
@@ -48,8 +90,8 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
 });
 
 test("CodeQL substitutes host declarations without changing the native import", async () => {
-  const source = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift");
-  const shim = await readWorkflow(".github/codeql/FinalCutWorkflowExtensionShim.swift");
+  const source = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift");
+  const shim = await readRepositoryFile(".github/codeql/FinalCutWorkflowExtensionShim.swift");
 
   assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import ProExtensionHost[\s\S]*#endif/);
   assert.match(shim, /import CoreMedia/);
@@ -58,7 +100,7 @@ test("CodeQL substitutes host declarations without changing the native import", 
 });
 
 test("Swift CI remains an independent native validation gate", async () => {
-  const workflow = await readWorkflow(".github/workflows/swift.yml");
+  const workflow = await readRepositoryFile(".github/workflows/swift.yml");
 
   assert.match(workflow, /name: Swift CI/);
   assert.match(workflow, /xcodebuild[\s\S]*-list/);
@@ -67,7 +109,7 @@ test("Swift CI remains an independent native validation gate", async () => {
 });
 
 test("Swift bridge documents the separate bounded CodeQL path", async () => {
-  const documentation = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
+  const documentation = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
 
   assert.match(documentation, /CodeQL Swift extraction/);
   assert.match(documentation, /manual\s+`xcrun swiftc -emit-module`/);
