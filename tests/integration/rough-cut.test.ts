@@ -1,30 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as runtimeApi from "@framekit/runtime";
 import type { ProjectSnapshot } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
-type RoughCutPlanRequest = {
-  baseRevision: ProjectSnapshot["revision"];
-  imports?: Array<{
-    type: "media.import";
-    mediaId: string;
-    source: string;
-    mediaKind: "video" | "audio";
-    duration: number;
-    sourceDigest: string;
-  }>;
-  shots: Array<{ occurrenceId: string; mediaId: string; duration?: number }>;
-};
-
-const planRoughCut = (runtimeApi as unknown as {
-  planRoughCut: (snapshot: ProjectSnapshot, request: RoughCutPlanRequest) => {
-    projectId: string;
-    timelineId: string;
-    duration: number;
-    operations: unknown[];
-  };
-}).planRoughCut;
+import { AgentVideoRuntime, planRoughCut } from "@framekit/runtime";
+import type { RoughCutPlanRequest } from "@framekit/runtime";
 
 function emptyProject(): ProjectSnapshot {
   return {
@@ -93,7 +73,7 @@ function request(baseRevision: ProjectSnapshot["revision"]): RoughCutPlanRequest
 }
 
 function runtime() {
-  return new runtimeApi.AgentVideoRuntime(new InMemoryEditorAdapter({
+  return new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "project-rough-cut",
     projectName: "Rough Cut Fixture",
     timelineId: "timeline-rough-cut",
@@ -154,9 +134,7 @@ test("runtime rough-cut planning is read-only and binds the base revision", asyn
   const active = runtime();
   const before = await active.inspectProject();
 
-  const plan = await (active as unknown as {
-    planRoughCut: (value: RoughCutPlanRequest) => Promise<{ baseRevision: ProjectSnapshot["revision"] }>;
-  }).planRoughCut(request(before.revision));
+  const plan = await active.planRoughCut(request(before.revision));
 
   assert.equal(plan.baseRevision.id, before.revision.id);
   assert.deepEqual(await active.inspectProject(), before);

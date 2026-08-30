@@ -19,6 +19,8 @@ import type {
   ProjectCatalog,
   ProjectSelection,
   ProjectSnapshot,
+  RoughCutPlan,
+  RoughCutPlanRequest,
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
@@ -27,6 +29,7 @@ import type {
   VerificationPolicy,
   VisualAnalysis,
 } from "./domain/index.js";
+import { planRoughCut as buildRoughCutPlan } from "./domain/rough-cut.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
 import { ContextService } from "./context/context-service.js";
@@ -68,6 +71,10 @@ export class AgentVideoRuntime {
 
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
     return this.projects.inspectTimeline();
+  }
+
+  public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
+    return buildRoughCutPlan(await this.projects.inspectProject(), request);
   }
 
   public async captureFrame(
