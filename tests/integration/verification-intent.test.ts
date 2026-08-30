@@ -9,6 +9,7 @@ import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 function createRuntime(
   audio?: { integratedLufs: number; truePeakDb: number; silenceMs: number; audibleSamples?: number },
   visual?: { scenes: Array<{ id: string; start: number; end: number; label?: string; confidence?: number }>; subjects: Array<{ id: string; label: string; confidence: number }>; keyframes: [] },
+  mediaDuration: number | undefined = 10,
 ) {
   return new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "verification-project",
@@ -20,7 +21,7 @@ function createRuntime(
       mediaId: "rain",
       source: "rain.wav",
       mediaKind: "audio",
-      duration: 10,
+      ...(mediaDuration === undefined ? {} : { duration: mediaDuration }),
       sourceDigest: "sha256:rain",
       ...(audio ? { audio } : {}),
       ...(visual ? { visual } : {}),
@@ -163,6 +164,22 @@ test("semantic verification fails closed when a requested analyzer is unavailabl
   assert.equal(check?.passed, false);
   assert.equal(check?.status, "unavailable");
   assert.equal(check?.reason, "VISUAL_ANALYZER_UNAVAILABLE");
+});
+
+test("semantic audibility does not infer success without duration evidence", async () => {
+  const runtime = createRuntime({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }, undefined, undefined);
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    {
+      assertions: [{ type: "audio-audibility", mediaId: "rain" }],
+    } as never,
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  const check = transaction.verification?.checks.find((candidate) => candidate.name === "audio-audibility");
+  assert.equal(check?.status, "unavailable");
+  assert.equal(check?.reason, "AUDIO_ANALYZER_UNAVAILABLE");
 });
 
 test("composite previews retain semantic policies through verified execution", async () => {
