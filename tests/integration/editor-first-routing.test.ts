@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RuntimeCapabilities } from "@framekit/runtime";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { resolveEditingRoute, type EditorRoutingContext } from "../../apps/mcp-server/src/routing.js";
 
 const canonicalCapabilities: RuntimeCapabilities = {
@@ -113,3 +118,100 @@ test("explicit external selection is reported even when the editor is ready", ()
   assert.equal(route.selectedPath, "external-renderer");
   assert.equal(route.reason.cause?.code, "USER_SELECTED_EXTERNAL_FALLBACK");
 });
+
+test("MCP exposes editor-first instructions, descriptions, and routing decisions", async () => {
+  const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Routing Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  })));
+  const client = new Client({ name: "editor-first-routing-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const instructions = client.getInstructions();
+    assert.ok(instructions);
+    for (const step of [
+      "connection.status",
+      "editor.inspect",
+      "project.inspect",
+      "editing.route",
+      "preview",
+      "execute",
+      "edit.diff",
+      "edit.verify",
+    ]) assert.ok(instructions.includes(step), `missing ${step} from MCP instructions`);
+    assert.ok(instructions.indexOf("connection.status") < instructions.indexOf("editor.inspect"));
+    assert.ok(instructions.indexOf("editor.inspect") < instructions.indexOf("project.inspect"));
+
+    const tools = await client.listTools();
+    const routeTool = tools.tools.find((tool) => tool.name === "editing.route");
+    assert.ok(routeTool);
+    assert.match(routeTool.description ?? "", /capabilit/i);
+    assert.match(routeTool.description ?? "", /external/i);
+    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["fallback", "operation"]);
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.edit" },
+    })));
+    assert.equal(route.status, "editor-selected");
+    assert.equal(route.selectedPath, "editor");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP routing reports unavailable editors and explicit external fallback reasons", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Routing Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    connectionStatus: () => ({
+      state: "unavailable",
+      lastError: { code: "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE", message: "socket missing" },
+    }),
+  });
+  const client = new Client({ name: "editor-first-fallback-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const unavailable = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.edit" },
+    })));
+    assert.equal(unavailable.status, "unavailable");
+    assert.equal(unavailable.selectedPath, "none");
+    assert.equal(unavailable.reason.code, "EDITOR_UNAVAILABLE");
+
+    const fallback = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.edit", fallback: "external-renderer" },
+    })));
+    assert.equal(fallback.status, "external-fallback-selected");
+    assert.equal(fallback.reason.code, "EXTERNAL_FALLBACK_SELECTED");
+    assert.equal(fallback.reason.cause.code, "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.equal(typeof first?.text, "string");
+  return first.text as string;
+}

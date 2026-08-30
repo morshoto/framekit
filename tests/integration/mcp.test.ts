@@ -40,6 +40,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "edit.undo",
         "edit.verify",
         "editing.intent.resolve",
+        "editing.route",
         "editor.assets",
         "editor.inspect",
         "editor.live.changes",
