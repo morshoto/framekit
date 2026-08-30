@@ -31,6 +31,7 @@ this routing tool.
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit operation and affected range | Read-only; ambiguous requests return clarification and no operation; resolved destructive requests set `previewRequired` |
 | `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
+| `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
 | `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
@@ -82,6 +83,22 @@ this routing tool.
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
+
+## Duration planning
+
+`editing.duration.plan` is a read-only planning tool for rough-cut workflows.
+It accepts `requestedDurationSeconds`, a footage inventory with optional usable
+ranges and reusable flags, an optional `hard` or `soft` constraint, and explicit
+permissions for reuse, slow motion, or generated assets. Ambiguous duration
+requests default to a soft constraint. The response identifies the selected
+action, available unique and reusable footage, any reused source ranges, every
+alternative and tradeoff, and `durationReport` with
+`requestedDurationSeconds`, `achievableDurationSeconds`, and
+`actualDurationSeconds`.
+
+The tool never edits the timeline and never silently duplicates, stretches, or
+generates material. Call it before a rough-cut plan or `timeline.edit.preview`,
+then require confirmation for any alternative that changes source treatment.
 
 ## Live Final Cut tools
 

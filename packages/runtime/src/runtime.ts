@@ -26,6 +26,8 @@ import type {
   TimeRange,
   VerificationPolicy,
   VisualAnalysis,
+  DurationPolicyPlan,
+  DurationPolicyRequest,
 } from "./domain/index.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
@@ -37,6 +39,7 @@ import { MusicService } from "./editing/music-service.js";
 import { ProjectService } from "./application/project-service.js";
 import type { RuntimeOptions } from "./application/runtime-options.js";
 import { TransactionStore } from "./application/transaction-store.js";
+import { DurationPolicyService } from "./application/duration-policy-service.js";
 
 /** Stable runtime façade exposed to the MCP server and editor adapters. */
 export class AgentVideoRuntime {
@@ -46,6 +49,7 @@ export class AgentVideoRuntime {
   private readonly edits: EditService;
   private readonly music: MusicService;
   private readonly fillerRemoval: FillerRemovalService;
+  private readonly durationPolicy: DurationPolicyService;
 
   public constructor(
     adapter: EditorPort,
@@ -60,6 +64,7 @@ export class AgentVideoRuntime {
     this.edits = new EditService(adapter, this.projects, this.media, verificationEngine, options, transactions);
     this.music = new MusicService(this.projects, this.edits);
     this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
+    this.durationPolicy = new DurationPolicyService();
   }
 
   public async inspectProject(): Promise<ProjectSnapshot> {
@@ -148,6 +153,10 @@ export class AgentVideoRuntime {
 
   public async understandMedia(mediaId: string): Promise<MediaUnderstanding> {
     return this.media.understandMedia(mediaId);
+  }
+
+  public planDuration(request: DurationPolicyRequest): DurationPolicyPlan {
+    return this.durationPolicy.plan(request);
   }
 
   public async inspectMedia(mediaId: string): Promise<MediaContext> {

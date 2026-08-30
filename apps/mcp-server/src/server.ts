@@ -28,6 +28,27 @@ const rangeSchema = z.object({
   start: z.number().nonnegative(),
   end: z.number().positive(),
 });
+const durationRangeSchema = z.object({
+  startSeconds: z.number().finite().nonnegative(),
+  endSeconds: z.number().finite().positive(),
+});
+const durationPolicyInputSchema = z.object({
+  requestedDurationSeconds: z.number().finite().positive(),
+  footage: z.array(z.object({
+    id: z.string().trim().min(1),
+    durationSeconds: z.number().finite().positive(),
+    usableDurationSeconds: z.number().finite().positive().optional(),
+    usableRanges: z.array(durationRangeSchema).optional(),
+    reusable: z.boolean().optional(),
+  })),
+  constraint: z.enum(["hard", "soft"]).optional(),
+  permissions: z.object({
+    allowReuse: z.boolean().optional(),
+    allowSlowMotion: z.boolean().optional(),
+    allowGeneratedAssets: z.boolean().optional(),
+  }).optional(),
+  actualDurationSeconds: z.number().finite().nonnegative().optional(),
+});
 const markerSchema = z.object({
     id: z.string().min(1),
     start: z.number().nonnegative(),
@@ -278,6 +299,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const context = await editingRouteContext(runtime, options);
     return jsonResult(resolveEditingRoute({ operation, fallback }, context));
   });
+
+  server.registerTool("editing.duration.plan", {
+    description: "Plan requested duration against unique footage and return explicit quality-preserving alternatives without editing.",
+    inputSchema: durationPolicyInputSchema,
+  }, async (request) => jsonResult(runtime.planDuration(request)));
 
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",

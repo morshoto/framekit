@@ -22,6 +22,7 @@ invoke the external renderer.
 
 - [Protocol](./protocol.md): live Final Cut IPC framing and request methods.
 - [Tools](./tools.md): MCP tool names, inputs, and behavior.
+- [Rough-cut duration policy](../rough-cut/duration-policy.md): explicit duration tradeoffs for planning workflows.
 - [Capabilities and errors](./capabilities-and-errors.md): fail-closed rules.
 - [Final Cut live backend](./final-cut-live.md): selecting and probing it.
 
