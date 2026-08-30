@@ -46,6 +46,66 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const verificationAssertionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("audio-audibility"),
+    mediaId: z.string().min(1),
+    minAudibleSamples: z.number().int().positive().optional(),
+    maxSilenceMs: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-coverage"),
+    mediaId: z.string().min(1),
+    start: z.number().finite().nonnegative(),
+    duration: z.number().finite().positive(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-loudness"),
+    mediaId: z.string().min(1),
+    targetLufs: z.number().finite(),
+    toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-source"),
+    mediaId: z.string().min(1),
+    sourceDigest: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("visual-content"),
+    mediaId: z.string().min(1),
+    label: z.string().min(1),
+    labelKind: z.enum(["scene", "subject"]).optional(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("duration"),
+    target: z.literal("timeline"),
+    expectedSeconds: z.number().finite().nonnegative(),
+    toleranceSeconds: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    target: z.enum(["audio", "video"]),
+    expected: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("structure"),
+    requirement: z.enum(["media-present", "occurrence-present", "operation-present"]),
+    mediaId: z.string().min(1).optional(),
+    occurrenceId: z.string().min(1).optional(),
+    operationType: z.string().min(1).optional(),
+  }),
+]);
+const verificationPolicySchema = z.object({
+  requireExpectedChange: z.boolean().optional(),
+  maxTruePeakDb: z.number().finite().optional(),
+  requireSpeechContinuity: z.boolean().optional(),
+  targetLufs: z.number().finite().optional(),
+  loudnessToleranceDb: z.number().finite().nonnegative().optional(),
+  assertions: z.array(verificationAssertionSchema).optional(),
+}).strict();
 const editToolInputSchema = z.object({
   type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
   clipId: z.string().min(1).optional(),
@@ -58,6 +118,7 @@ const editToolInputSchema = z.object({
   reason: z.string().optional(),
   marker: markerSchema.optional(),
   baseRevision: revisionSchema,
+  verification: verificationPolicySchema.optional(),
 }).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
@@ -134,6 +195,7 @@ const musicAddInputSchema = {
   fadeIn: z.number().nonnegative().optional(),
   fadeOut: z.number().nonnegative().optional(),
   ducking: musicDuckingSchema.optional(),
+  verification: verificationPolicySchema.optional(),
 };
 const fillerRemovalInputSchema = {
   baseRevision: revisionValueSchema,
@@ -590,7 +652,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("timeline.edit", {
     description: "Apply one supported edit and return read-after-write plus its diff.",
     inputSchema: editToolInputSchema,
-  }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input))));
+  }, async (input) => jsonResult(await runtime.edit(editOperationSchema.parse(input), input.verification ?? {})));
 
   server.registerTool("music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
@@ -612,6 +674,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
+      verification: verificationPolicySchema.optional(),
     },
   }, async (request) => jsonResult(await runtime.previewEdit(request)));
 
