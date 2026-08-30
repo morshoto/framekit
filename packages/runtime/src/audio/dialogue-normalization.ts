@@ -1,4 +1,7 @@
 import type { AudioMeasurement } from "../domain/media.js";
+import type { ContextRevision } from "../domain/primitives.js";
+import type { EditOperation, EditTransaction } from "../domain/editing.js";
+import type { TimelineDiff } from "../domain/diff.js";
 
 export type DialogueGainDecision = "APPLY" | "NO_OP" | "SKIP";
 
@@ -28,6 +31,22 @@ export interface DialogueGainPlan extends DialogueGainPlanningOptions {
   clampedGainDb: number;
   estimatedPeakDb: number;
   reasonCodes: DialogueGainReasonCode[];
+}
+
+export interface DialogueNormalizationRequest extends DialogueGainPlanningOptions {
+  mediaId: string;
+  occurrenceId: string;
+  baseRevision: ContextRevision;
+}
+
+export interface DialogueNormalizationPreview {
+  measurement: AudioMeasurement;
+  plan: DialogueGainPlan;
+  operations: EditOperation[];
+  expectedDiff?: TimelineDiff;
+  previewToken?: string;
+  warnings: string[];
+  expiresAt?: string;
 }
 
 /** Plan a bounded clip-level gain change without mutating an editor. */

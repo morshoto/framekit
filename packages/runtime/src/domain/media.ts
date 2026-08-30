@@ -134,6 +134,9 @@ export interface AudioAnalysis {
   silenceMs: number;
   audibleSamples?: number;
   analyzedDurationSeconds?: number;
+  dialoguePresent?: boolean;
+  valid?: boolean;
+  invalidReason?: string;
 }
 
 /** Revision-bound audio evidence for one complete timeline occurrence. */
