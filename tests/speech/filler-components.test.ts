@@ -3,8 +3,10 @@ import test from "node:test";
 import {
   FillerDetector,
   SafeCutResolver,
+  type AnalysisInput,
   type SpeechAnalysis,
 } from "@framekit/runtime";
+import { FixtureSpeechAnalyzer } from "@framekit/testkit";
 
 const analysis: SpeechAnalysis = {
   words: [
@@ -110,6 +112,35 @@ test("detector records vocabulary-only and low-confidence evidence", () => {
   assert.equal(candidates[0]?.evidence.vocabularyMatch, true);
   assert.equal(candidates[0]?.eligible, false);
   assert.deepEqual(candidates[0]?.reasonCodes, ["VOCABULARY_MATCH", "BELOW_CONFIDENCE_THRESHOLD"]);
+});
+
+test("fixture speech analysis preserves range-bound VAD and protected evidence", async () => {
+  const input = {
+    project: {} as AnalysisInput["project"],
+    media: {
+      mediaId: "fixture-media",
+      source: "fixture.wav",
+      speech: {
+        words: [{ text: "um", start: 0.3, end: 0.5, confidence: 0.99, filler: true }],
+        vadSegments: [
+          { start: 0, end: 0.2, kind: "speech" },
+          { start: 0.2, end: 0.6, kind: "speech" },
+          { start: 0.6, end: 0.8, kind: "silence" },
+        ],
+        silenceSegments: [{ start: 0.6, end: 0.8, kind: "silence" }],
+        protectedSegments: [{ start: 0.6, end: 0.7, kind: "breath" }],
+      },
+    },
+  } as AnalysisInput;
+
+  const result = await new FixtureSpeechAnalyzer().analyze(input, { start: 0.25, end: 0.75 });
+
+  assert.deepEqual(result.vadSegments, [
+    { start: 0.2, end: 0.6, kind: "speech" },
+    { start: 0.6, end: 0.8, kind: "silence" },
+  ]);
+  assert.deepEqual(result.silenceSegments, [{ start: 0.6, end: 0.8, kind: "silence" }]);
+  assert.deepEqual(result.protectedSegments, [{ start: 0.6, end: 0.7, kind: "breath" }]);
 });
 
 test("resolver auto-applies a bounded frame-aligned cut with pause preservation", () => {
