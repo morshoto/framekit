@@ -29,9 +29,10 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 
 The CodeQL workflow keeps Swift analysis separate from the native build. Its
 manual `xcrun swiftc -typecheck` step analyzes
-`FinalCutLiveWorkflowExtension.swift` against the checked-in `ProExtensionHostShim`,
-which supplies declarations without requiring Final Cut Pro. It does not invoke
-`build.sh` or link the private host framework.
+`FinalCutLiveWorkflowExtension.swift` against the checked-in
+`.github/codeql/FinalCutWorkflowExtensionShim.swift`, a pure-Swift declaration
+shim that does not import the private `ProExtensionHost` module. It does not
+invoke `build.sh` or link the private host framework.
 The CodeQL job and extraction step are limited to fifteen and five minutes.
 The standalone Swift CI workflow remains the native gate for Xcode project
 validation and type-checking.

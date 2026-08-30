@@ -62,8 +62,8 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   const documentation = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
 
   assert.match(documentation, /CodeQL Swift extraction/);
-  assert.match(documentation, /checked-in `FinalCutWorkflowExtensionShim\.swift`/);
-  assert.match(documentation, /does not invoke[\s\S]*`build\.sh`/);
+  assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
+  assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
   assert.match(documentation, /five minutes/);
   assert.match(documentation, /standalone Swift CI/);
 });

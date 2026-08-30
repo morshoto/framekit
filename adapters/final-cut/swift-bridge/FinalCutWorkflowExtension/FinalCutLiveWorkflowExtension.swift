@@ -6,7 +6,9 @@ import AppKit
 import Darwin
 #endif
 
+#if !FRAMEKIT_CODEQL
 import ProExtensionHost
+#endif
 
 private let protocolVersion = 1
 
