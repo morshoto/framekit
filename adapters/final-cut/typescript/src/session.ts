@@ -114,7 +114,12 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   public async readProject(): Promise<ProjectSnapshot> {
     if (this.options.snapshot) return this.options.snapshot.readProject();
     const liveCapabilities = await optionalCapabilities(this.options.live);
-    if (liveCapabilities?.editor.timelineSnapshotRead && this.options.live?.readProject) {
+    if (
+      liveCapabilities?.editor.canonicalTimelineMode !== "metadata-only"
+      && !this.options.mutation
+      && liveCapabilities?.editor.timelineSnapshotRead
+      && this.options.live?.readProject
+    ) {
       return this.options.live.readProject();
     }
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");

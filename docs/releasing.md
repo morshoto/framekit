@@ -13,6 +13,17 @@ Configure npm Trusted Publishing for `@morshoto/framekit` with these values:
 - Workflow filename: `release.yml`
 - Allowed action: `npm publish`
 
+The same trust relationship can be configured from an authenticated npm CLI
+session after the package exists on the registry:
+
+```sh
+npm trust github @morshoto/framekit \
+  --repo morshoto/framekit \
+  --file release.yml \
+  --allow-publish \
+  --yes
+```
+
 The package metadata must keep its `repository.url` aligned with the GitHub
 repository. The workflow uses GitHub's OIDC identity and does not require an
 `NPM_TOKEN` repository secret.

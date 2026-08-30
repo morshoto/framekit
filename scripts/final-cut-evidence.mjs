@@ -101,7 +101,9 @@ export function sanitizeCanonicalEvidence(run, environment) {
   assert(run.project && run.target, "project or target identity is missing");
   assert(run.before && run.after && run.restored && run.diff, "canonical snapshots or diff are missing");
   assert(run.digests?.before && run.digests?.restored, "canonical digests are missing");
-  assert(run.digests.before === run.digests.restored, "restored digest does not match the pre-edit digest");
+  const beforeDigest = requireSha256Digest(run.digests.before, "before digest");
+  const restoredDigest = requireSha256Digest(run.digests.restored, "restored digest");
+  assert(beforeDigest === restoredDigest, "restored digest does not match the pre-edit digest");
   const beforeRevision = summarizeRevision(run.before.revision);
   const afterRevision = summarizeRevision(run.after.revision);
   const restoredRevision = summarizeRevision(run.restored.revision);
@@ -154,8 +156,8 @@ export function sanitizeCanonicalEvidence(run, environment) {
       operation: "edit.undo",
       status: "VERIFIED",
       restored: true,
-      beforeDigest: run.digests.before,
-      restoredDigest: run.digests.restored,
+      beforeDigest,
+      restoredDigest,
       restoredRevision,
     },
     sanitization: {
@@ -503,6 +505,11 @@ function requireString(value, label) {
 
 function requireFiniteNumber(value, label) {
   assert(typeof value === "number" && Number.isFinite(value), `${label} must be a finite number`);
+  return value;
+}
+
+function requireSha256Digest(value, label) {
+  assert(typeof value === "string" && /^[0-9a-f]{64}$/i.test(value), `${label} must be a 64-character SHA-256 hexadecimal string`);
   return value;
 }
 

@@ -38,7 +38,7 @@ export class FillerRemovalService {
     await this.assertCapabilities();
     const selectedRange = validateFillerSelection(request.range);
     const candidates: FillerRemovalTarget[] = [];
-    const expectedWordsByClip = new Map<string, SpeechWord[]>();
+    const analysisRangesByClip = new Map<string, TimeRange>();
     const selectedClips = before.timeline.clips.filter((clip) =>
       clip.mediaId && rangesOverlap(clip.start, clip.start + clip.duration, selectedRange.start, selectedRange.end),
     );
@@ -59,7 +59,7 @@ export class FillerRemovalService {
       };
       if (localRange.end <= localRange.start) continue;
       const speech = await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange);
-      expectedWordsByClip.set(clip.id, structuredClone(speech.words));
+      analysisRangesByClip.set(clip.id, structuredClone(localRange));
       for (const candidate of planFillerRemoval(speech.words, localRange, request)) {
         candidates.push({
           ...candidate,
@@ -104,7 +104,7 @@ export class FillerRemovalService {
       if (oldestToken === undefined) break;
       this.previews.delete(oldestToken);
     }
-    this.previews.set(previewToken, { preview, expectedWordsByClip });
+    this.previews.set(previewToken, { preview, analysisRangesByClip });
     return structuredClone(preview);
   }
 
@@ -208,11 +208,35 @@ export class FillerRemovalService {
       }
       const media = next.media.find((candidate) => candidate.mediaId === beforeClip.mediaId);
       if (!media) throw new Error(`MEDIA_NOT_FOUND: ${beforeClip.mediaId}`);
+      const analysisRange = record.analysisRangesByClip.get(clipId);
+      if (!analysisRange) throw new Error(`ANALYSIS_FAILED: filler analysis range for clip ${clipId} is unavailable`);
+      const fillerCandidates = record.preview.candidates.filter((candidate) => candidate.clipId === clipId);
+      const deletes = fillerCandidates.map((candidate) => candidate.sourceRange);
+      const postEditRange = translateRangeAfterDeletes(
+        analysisRange,
+        deletes,
+      );
       const speech = await this.options.speechAnalyzer!.analyze(
         { project: next, media },
-        { start: 0, end: afterClip.duration },
+        postEditRange,
       );
-      media.speech = speech;
+      const retainedWords = transaction.before.media
+        .find((candidate) => candidate.mediaId === beforeClip.mediaId)
+        ?.speech?.words ?? [];
+      const translatedRetainedWords = retainedWords
+        .filter((word) => !fillerCandidates.some((candidate) => sameSpeechWord(word, candidate.word)))
+        .map((word) => translateSpeechWordAfterDeletes(word, deletes));
+      media.speech = {
+        words: [
+          ...translatedRetainedWords.filter((word) => !rangesOverlap(
+            word.start,
+            word.end,
+            postEditRange.start,
+            postEditRange.end,
+          )),
+          ...speech.words.filter((word) => word.start >= postEditRange.start && word.end <= postEditRange.end),
+        ].sort((left, right) => left.start - right.start || left.end - right.end),
+      };
       media.analysisRevision = next.revision.id;
     }
     return next;
@@ -232,7 +256,7 @@ export class FillerRemovalService {
 
 interface FillerRemovalPreviewRecord {
   preview: FillerRemovalPreview;
-  expectedWordsByClip: Map<string, SpeechWord[]>;
+  analysisRangesByClip: Map<string, TimeRange>;
 }
 
 function validateFillerSelection(range: TimeRange): TimeRange {
@@ -252,33 +276,62 @@ function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, r
   return leftStart < rightEnd && leftEnd > rightStart;
 }
 
+function translateRangeAfterDeletes(range: TimeRange, deletes: TimeRange[]): TimeRange {
+  const orderedDeletes = [...deletes].sort((left, right) => left.start - right.start);
+  return {
+    start: translateBoundaryAfterDeletes(range.start, orderedDeletes),
+    end: translateBoundaryAfterDeletes(range.end, orderedDeletes),
+  };
+}
+
+function translateBoundaryAfterDeletes(boundary: number, deletes: TimeRange[]): number {
+  let translated = boundary;
+  let removed = 0;
+  for (const deletion of deletes) {
+    if (boundary <= deletion.start) break;
+    if (boundary < deletion.end) return deletion.start - removed;
+    const duration = deletion.end - deletion.start;
+    translated -= duration;
+    removed += duration;
+  }
+  return translated;
+}
+
+function translateSpeechWordAfterDeletes(word: SpeechWord, deletes: TimeRange[]): SpeechWord {
+  return {
+    ...word,
+    start: translateBoundaryAfterDeletes(word.start, deletes),
+    end: translateBoundaryAfterDeletes(word.end, deletes),
+  };
+}
+
 function verifyFillerSpeechContinuity(
   transaction: EditTransaction,
   record: FillerRemovalPreviewRecord,
 ): VerificationCheck {
-  for (const [clipId, beforeWords] of record.expectedWordsByClip) {
+  const clipIds = new Set(record.preview.candidates.map((candidate) => candidate.clipId));
+  for (const clipId of clipIds) {
     const beforeClip = transaction.before.timeline.clips.find((clip) => clip.id === clipId);
     const afterClip = transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === clipId);
     const mediaId = beforeClip?.mediaId;
+    const beforeWords = mediaId
+      ? transaction.before.media.find((media) => media.mediaId === mediaId)?.speech?.words
+      : undefined;
     const actualWords = mediaId
       ? transaction.attemptedAfter.media.find((media) => media.mediaId === mediaId)?.speech?.words
       : undefined;
-    if (!beforeClip || !afterClip || !actualWords) {
+    if (!beforeClip || !afterClip || !beforeWords || !actualWords) {
       return {
         name: "filler-speech-continuity",
         passed: false,
-        detail: `post-edit speech analysis is unavailable for filler target clip ${clipId}`,
+        detail: `complete pre- and post-edit speech analysis is unavailable for filler target clip ${clipId}`,
       };
     }
     const candidates = record.preview.candidates.filter((candidate) => candidate.clipId === clipId);
+    const deletes = candidates.map((candidate) => candidate.sourceRange);
     const expectedWords = beforeWords
       .filter((word) => !candidates.some((candidate) => sameSpeechWord(candidate.word, word)))
-      .map((word) => {
-        const removedBefore = candidates
-          .filter((candidate) => candidate.sourceRange.end <= word.start)
-          .reduce((total, candidate) => total + (candidate.sourceRange.end - candidate.sourceRange.start), 0);
-        return { ...word, start: word.start - removedBefore, end: word.end - removedBefore };
-      });
+      .map((word) => translateSpeechWordAfterDeletes(word, deletes));
     if (expectedWords.length !== actualWords.length) {
       return {
         name: "filler-speech-continuity",
