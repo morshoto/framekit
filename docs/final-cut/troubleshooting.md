@@ -1,11 +1,15 @@
 # Final Cut Pro Troubleshooting
 
+Commands using `pnpm` below assume a repository checkout and a shell running
+from its root. For a published installation, use the equivalent
+`npx -y @morshoto/framekit` command.
+
 ## Connection status
 
 Inspect the machine-readable setup state:
 
 ```sh
-framekit doctor finalcut --json
+pnpm run framekit -- doctor finalcut --json
 ```
 
 The MCP server exposes the same state through `connection.status`. It reports
@@ -20,14 +24,14 @@ The normal Framekit flow activates the extension automatically. First check:
 ls -l ~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock
 ```
 
-If the socket is absent, run `framekit doctor finalcut --json`. If the state is
+If the socket is absent, run `pnpm run framekit -- doctor finalcut --json`. If the state is
 `needs-user-action`, follow the reported macOS permission or installation
 message. If the state is `unavailable` with `FINAL_CUT_LIVE_TIMEOUT`, use the
 explicit development connection flow, which reloads Final Cut after replacing
 the extension:
 
 ```sh
-framekit connect finalcut --development --json
+pnpm run framekit -- connect finalcut --development --json
 ```
 
 The command quits gracefully and reopens Final Cut only when it has replaced
@@ -60,7 +64,7 @@ with Accessibility and never closes it.
 
 ## Build or signing errors
 
-Run `npm run xcode:check`, verify that Xcode 16.4 is selected, rebuild, and
+Run `pnpm run xcode:check`, verify that Xcode 16.4 is selected, rebuild, and
 verify the installed app with `codesign --verify --deep --strict`.
 
 For release artifacts, set `FRAMEKIT_EXTENSION_APP_PATH` only when intentionally

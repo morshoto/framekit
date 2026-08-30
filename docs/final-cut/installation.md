@@ -2,16 +2,18 @@
 
 ## Toolchain
 
-Use the repository's Nix shell for Node and shell tooling:
+From the repository root, use the repository's Nix shell for Node and shell
+tooling:
 
 ```sh
 nix develop ./nix
 ```
 
-Xcode remains a host dependency. Confirm the selected version:
+Xcode remains a host dependency. Confirm the selected version from the
+repository root:
 
 ```sh
-npm run xcode:check
+pnpm run xcode:check
 ```
 
 The verified native baseline is Xcode 16.4 / build 16F6 with macOS SDK 15.5.
@@ -20,8 +22,10 @@ The verified native baseline is Xcode 16.4 / build 16F6 with macOS SDK 15.5.
 
 The Codex plugin installs the Framekit MCP integration, but it does not replace
 the Final Cut Workflow Extension. Install the signed extension application from
-the latest Framekit release before the first live session. The install is
-per-user and does not require administrator privileges.
+a [Framekit GitHub release](https://github.com/morshoto/framekit/releases)
+before the first live session. If a release has no extension asset, use the
+[development build](#development-build) below. The install is per-user and
+does not require administrator privileges.
 
 Configure the Framekit marketplace once:
 
@@ -72,7 +76,7 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 Build and connect the generated development app through Framekit:
 
 ```sh
-framekit connect finalcut --development
+pnpm run framekit -- connect finalcut --development
 ```
 
 The explicit `connect` command may gracefully quit and reopen Final Cut Pro
@@ -93,7 +97,7 @@ in the live MCP session, provide an exported FCPXML file:
 ```sh
 FRAMEKIT_EDITOR=final-cut-live \
 FRAMEKIT_FCPXML_PATH=/absolute/path/to/project.fcpxml \
-framekit mcp --editor final-cut-live
+pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 The FCPXML file is the managed artifact. Framekit does not automatically
@@ -110,7 +114,7 @@ Accessibility and Automation permission in System Settings:
 
 ```sh
 FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
-framekit mcp --editor final-cut-live
+pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 The same opt-in enables `timeline.export`, provided `ffprobe` is available on

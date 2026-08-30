@@ -9,8 +9,9 @@ the native bridge.
 - [Capabilities and errors](./capabilities-and-errors.md): fail-closed rules.
 - [Final Cut live backend](./final-cut-live.md): selecting and probing it.
 
-The default `npm run mcp` configuration uses the deterministic in-memory
+The default `pnpm run mcp` configuration uses the deterministic in-memory
 fixture. Set `FRAMEKIT_EDITOR=final-cut-live` to select the live Final Cut
-backend, or use `framekit mcp --editor final-cut-live` to enable automatic
-connection setup. Add `FRAMEKIT_FCPXML_PATH` to enable the canonical document
-surface alongside live state.
+backend, or use `pnpm run framekit -- mcp --editor final-cut-live` to enable
+automatic connection setup from a development checkout. Add
+`FRAMEKIT_FCPXML_PATH` to enable the canonical document surface alongside live
+state.

@@ -1,5 +1,9 @@
 # Selecting the Live Final Cut Backend
 
+Commands using `pnpm` below assume a repository checkout and a shell running
+from its root. End users should use the Codex plugin or the published `npx`
+commands shown in this guide.
+
 For end users, configure the Framekit marketplace once:
 
 ```sh
@@ -20,9 +24,10 @@ In normal (non-headless) mode, the Framekit MCP process automatically:
 - retries after Final Cut or extension restarts.
 
 It does not quit or reopen Final Cut automatically. The explicit
-`framekit connect finalcut` command is the recovery path when it has replaced
-the extension and Final Cut needs to reload the bundle; that command performs
-a graceful quit/reopen before activation.
+`connect finalcut` command is the recovery path when it has replaced the
+extension and Final Cut needs to reload the bundle; that command performs a
+graceful quit/reopen before activation. From a repository checkout, invoke it
+as `pnpm run framekit -- connect finalcut`.
 
 The registration above uses headless mode, so it skips that lifecycle recovery
 and only probes the existing socket.
@@ -31,7 +36,7 @@ The bundled Workflow Extension connection is metadata-only. Check setup progress
 tool `connection.status` or:
 
 ```sh
-framekit doctor finalcut --json
+pnpm run framekit -- doctor finalcut --json
 ```
 
 ## Headless mode
@@ -40,7 +45,7 @@ For repository development without the plugin, start the equivalent headless
 live server with:
 
 ```sh
-framekit mcp --editor final-cut-live --headless
+pnpm run framekit -- mcp --editor final-cut-live --headless
 ```
 
 Headless mode only probes the existing Workflow Extension socket. It does not
@@ -61,7 +66,7 @@ pnpm run test:final-cut-headless
 For a development checkout, use:
 
 ```sh
-framekit connect finalcut --development
+pnpm run framekit -- connect finalcut --development
 ```
 
 For a non-default socket:
@@ -69,7 +74,7 @@ For a non-default socket:
 ```sh
 FRAMEKIT_EDITOR=final-cut-live \
 FRAMEKIT_FINAL_CUT_SOCKET=/tmp/framekit-finalcut-custom.sock \
-npm run mcp
+pnpm run mcp
 ```
 
 The live backend reads active project/sequence metadata, playhead, selected
@@ -98,7 +103,7 @@ To enable selection-scoped native UI edits:
 
 ```sh
 FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
-framekit mcp --editor final-cut-live
+pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 Grant Accessibility and Automation permission to the terminal or host running

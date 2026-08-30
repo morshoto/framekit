@@ -21,9 +21,9 @@ claiming that the open Final Cut timeline was mutated.
 ## Build and connect
 
 ```sh
-npm run xcode:check
+pnpm run xcode:check
 bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
-framekit connect finalcut --development --json
+pnpm run framekit -- connect finalcut --development --json
 ```
 
 The command detects or launches Final Cut, installs the development bundle into
@@ -40,7 +40,7 @@ ls -l ~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/frameki
 Use the live backend through the standard Codex MCP registration:
 
 ```sh
-codex mcp add framekit -- framekit mcp --editor final-cut-live
+codex mcp add framekit -- pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 The MCP `connection.status` tool should report `ready` before the live state
@@ -60,7 +60,7 @@ For canonical MCP coverage, start the server with:
 ```sh
 FRAMEKIT_EDITOR=final-cut-live \
 FRAMEKIT_FCPXML_PATH=/absolute/path/to/exported.fcpxml \
-framekit mcp --editor final-cut-live
+pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 Then verify `project.inspect`, `timeline.inspect`, `context.inspect`,
