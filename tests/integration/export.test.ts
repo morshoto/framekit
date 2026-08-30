@@ -230,6 +230,44 @@ test("video exporter fails closed without analyzed audio duration", async () => 
   }
 });
 
+test("video exporter fails closed without requested sample-count evidence", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-sample-evidence-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "unverified output");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: {
+          integratedLufs: -18,
+          truePeakDb: -3,
+          silenceMs: 100,
+          audibleSamples: undefined,
+          analyzedDurationSeconds: 12,
+        },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-audibility", minAudibleSamples: 100 }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+  );
+});
+
 test("video exporter classifies missing source evidence as unavailable", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-source-unavailable-"));
   const outputPath = join(directory, "final.mp4");
