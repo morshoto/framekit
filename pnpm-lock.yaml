@@ -25,16 +25,16 @@ importers:
         version: 3.25.76
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.1
         version: 22.20.1
       tsc-alias:
-        specifier: ^1.8.16
+        specifier: 1.9.2
         version: 1.9.2
       tsx:
-        specifier: ^4.19.4
+        specifier: 4.23.12
         version: 4.23.12
       typescript:
-        specifier: ^5.8.3
+        specifier: 5.9.3
         version: 5.9.3
 
   adapters/final-cut/typescript:
@@ -47,10 +47,10 @@ importers:
         version: 5.11.1
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.1
         version: 22.20.1
       typescript:
-        specifier: ^5.8.3
+        specifier: 5.9.3
         version: 5.9.3
 
   apps/mcp-server:
@@ -72,22 +72,22 @@ importers:
         version: 3.25.76
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.1
         version: 22.20.1
       tsx:
-        specifier: ^4.19.4
+        specifier: 4.23.12
         version: 4.23.12
       typescript:
-        specifier: ^5.8.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/runtime:
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.1
         version: 22.20.1
       typescript:
-        specifier: ^5.8.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/testkit:
@@ -97,10 +97,10 @@ importers:
         version: link:../runtime
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.1
         version: 22.20.1
       typescript:
-        specifier: ^5.8.3
+        specifier: 5.9.3
         version: 5.9.3
 
 packages:
