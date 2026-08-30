@@ -7,6 +7,11 @@ import type {
   FinalCutVideoExporter,
   NativeFinalCutEditor,
 } from "@framekit/final-cut";
+import {
+  EDITOR_FIRST_MCP_INSTRUCTIONS,
+  resolveEditingRoute,
+  type EditorRoutingContext,
+} from "./routing.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -203,8 +208,17 @@ function frameResult(value: TimelineFrameCapture) {
   };
 }
 
+export interface McpConnectionStatus {
+  state: string;
+  lastError?: { code: string; message: string };
+  editorDetected?: boolean;
+  extensionInstalled?: boolean;
+  socketPath?: string | null;
+  capabilities?: unknown;
+}
+
 export interface McpServerOptions {
-  connectionStatus?: () => unknown;
+  connectionStatus?: () => McpConnectionStatus | undefined | Promise<McpConnectionStatus | undefined>;
   nativeEditor?: NativeFinalCutEditor;
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   projectPublisher?: FinalCutProjectPublisher;
@@ -212,19 +226,15 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "framekit", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "framekit", version: "0.1.0" },
+    { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
+  );
 
   server.registerTool("connection.status", {
-    description: "Read Framekit's Final Cut connection state, setup progress, and live capabilities.",
+    description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
-  }, async () => jsonResult(options.connectionStatus?.() ?? {
-    state: "ready",
-    editorDetected: false,
-    extensionInstalled: false,
-    socketPath: null,
-    capabilities: null,
-    lastError: null,
-  }));
+  }, async () => jsonResult(await connectionStatus(options)));
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot.",
@@ -244,27 +254,38 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId }) => jsonResult(await runtime.selectProject({ projectId, sequenceId })));
 
   server.registerTool("editor.inspect", {
-    description: "Read editor identity and machine-readable Phase 2 capabilities.",
-  }, async () => {
-    const inspected = await runtime.inspectEditor();
-    return jsonResult({
-      ...inspected,
-      capabilities: {
-        ...inspected.capabilities,
-        editor: {
-          ...inspected.capabilities.editor,
-          timelinePublishNewProject: Boolean(options.projectPublisher),
-          videoExport: Boolean(options.videoExporter?.isAvailable()),
-        },
-      },
-      ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
-    });
-  });
+    description: "Read editor identity and machine-readable capabilities before selecting an editing path.",
+  }, async () => jsonResult(await inspectMcpEditor(runtime, options)));
 
   server.registerTool("editing.intent.resolve", {
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
     inputSchema: { request: z.string().trim().min(1) },
   }, async ({ request }) => jsonResult(resolveEditingIntent(request)));
+
+  server.registerTool("editing.route", {
+    description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
+    inputSchema: {
+      operation: z.enum([
+        "timeline.edit",
+        "editor.native.edit",
+        "timeline.publish.new-project",
+        "timeline.export",
+      ]),
+      fallback: z.enum(["none", "external-renderer"]).optional().default("none"),
+    },
+  }, async ({ operation, fallback }) => {
+    const connection = await connectionStatus(options);
+    if (connection.state !== "ready") {
+      return jsonResult(resolveEditingRoute({ operation, fallback }, { connection }));
+    }
+    const editor = await inspectMcpEditor(runtime, options);
+    const context: EditorRoutingContext = {
+      connection,
+      editor,
+      ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
+    };
+    return jsonResult(resolveEditingRoute({ operation, fallback }, context));
+  });
 
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
@@ -664,4 +685,30 @@ async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: stri
   if (!asset) throw new Error(`TITLE_ASSET_NOT_FOUND: installed title asset ${assetId} was not discovered`);
   if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${assetId} is not an installed Final Cut title asset`);
   return asset;
+}
+
+async function connectionStatus(options: McpServerOptions): Promise<McpConnectionStatus> {
+  return await options.connectionStatus?.() ?? {
+    state: "ready",
+    editorDetected: false,
+    extensionInstalled: false,
+    socketPath: null,
+    capabilities: null,
+  };
+}
+
+async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
+  const inspected = await runtime.inspectEditor();
+  return {
+    ...inspected,
+    capabilities: {
+      ...inspected.capabilities,
+      editor: {
+        ...inspected.capabilities.editor,
+        timelinePublishNewProject: Boolean(options.projectPublisher),
+        videoExport: Boolean(options.videoExporter?.isAvailable()),
+      },
+    },
+    ...(options.nativeEditor ? { native: options.nativeEditor.capabilities() } : {}),
+  };
 }

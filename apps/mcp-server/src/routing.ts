@@ -46,7 +46,7 @@ export interface EditingRoute {
   reason: EditingRouteReason;
 }
 
-const EDITOR_FIRST_WORKFLOW = [
+export const EDITOR_FIRST_WORKFLOW = [
   "connection.status",
   "editor.inspect",
   "project.inspect",
@@ -58,6 +58,17 @@ const EDITOR_FIRST_WORKFLOW = [
   "edit.diff",
   "edit.verify",
 ];
+
+export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
+  "Framekit uses an editor-first workflow for every editing request.",
+  "1. Call connection.status to establish whether the expected editor is connected.",
+  "2. Call editor.inspect to read the selected editor identity and capabilities.",
+  "3. Inspect the active project with project.inspect before selecting an editing path.",
+  "4. Call editing.route and use only a path whose required capabilities are advertised.",
+  "5. Resolve intent when needed, then preview before execute; never mutate on an unavailable capability.",
+  "6. Observe the result, then use edit.diff and edit.verify to confirm the change.",
+  "An external renderer is never an implicit substitute for a connected editor. Select fallback: external-renderer explicitly and report the structured reason returned by editing.route.",
+].join("\n");
 
 type Requirement = {
   label: string;

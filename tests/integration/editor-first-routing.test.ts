@@ -212,6 +212,6 @@ function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
   const first = content[0] as { text?: unknown } | undefined;
-  assert.equal(typeof first?.text, "string");
+  if (!first || typeof first.text !== "string") throw new Error("MCP result has no text content");
   return first.text as string;
 }
