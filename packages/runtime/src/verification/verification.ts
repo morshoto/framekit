@@ -15,8 +15,93 @@ import type {
   VisualContentAssertion,
 } from "../domain/verification.js";
 
+export function assertValidVerificationPolicy(policy: VerificationPolicy): void {
+  if (!policy || typeof policy !== "object") {
+    throw new Error("INVALID_VERIFICATION_POLICY: policy must be an object");
+  }
+  if (policy.maxTruePeakDb !== undefined && !Number.isFinite(policy.maxTruePeakDb)) {
+    throw new Error("INVALID_VERIFICATION_POLICY: maxTruePeakDb must be finite");
+  }
+  if (policy.targetLufs !== undefined && !Number.isFinite(policy.targetLufs)) {
+    throw new Error("INVALID_VERIFICATION_POLICY: targetLufs must be finite");
+  }
+  if (policy.loudnessToleranceDb !== undefined
+    && (!Number.isFinite(policy.loudnessToleranceDb) || policy.loudnessToleranceDb < 0)) {
+    throw new Error("INVALID_VERIFICATION_POLICY: loudnessToleranceDb must be non-negative and finite");
+  }
+  if (policy.assertions === undefined) return;
+  if (!Array.isArray(policy.assertions)) {
+    throw new Error("INVALID_VERIFICATION_POLICY: assertions must be an array");
+  }
+  policy.assertions.forEach((assertion, index) => validateAssertion(assertion, index));
+}
+
+function validateAssertion(assertion: VerificationAssertion, index: number): void {
+  const path = `assertions[${index}]`;
+  if (assertion.type === "audio-audibility") {
+    if (assertion.minAudibleSamples !== undefined
+      && (!Number.isInteger(assertion.minAudibleSamples) || assertion.minAudibleSamples <= 0)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path}.minAudibleSamples must be a positive integer`);
+    }
+    if (assertion.maxSilenceMs !== undefined
+      && (!Number.isFinite(assertion.maxSilenceMs) || assertion.maxSilenceMs < 0)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path}.maxSilenceMs must be non-negative and finite`);
+    }
+    return;
+  }
+  if (assertion.type === "audio-coverage") {
+    if (!Number.isFinite(assertion.start) || assertion.start < 0
+      || !Number.isFinite(assertion.duration) || assertion.duration <= 0
+      || assertion.toleranceSeconds !== undefined
+      && (!Number.isFinite(assertion.toleranceSeconds) || assertion.toleranceSeconds < 0)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid coverage timing`);
+    }
+    return;
+  }
+  if (assertion.type === "audio-loudness") {
+    if (!Number.isFinite(assertion.targetLufs)
+      || assertion.toleranceDb !== undefined
+      && (!Number.isFinite(assertion.toleranceDb) || assertion.toleranceDb < 0)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid loudness values`);
+    }
+    return;
+  }
+  if (assertion.type === "audio-source") {
+    if (assertion.sourceDigest === undefined && assertion.source === undefined) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} requires sourceDigest or source`);
+    }
+    return;
+  }
+  if (assertion.type === "visual-content") {
+    if (assertion.minConfidence !== undefined
+      && (!Number.isFinite(assertion.minConfidence) || assertion.minConfidence < 0 || assertion.minConfidence > 1)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path}.minConfidence must be between 0 and 1`);
+    }
+    return;
+  }
+  if (assertion.type === "duration") {
+    if (!Number.isFinite(assertion.expectedSeconds) || assertion.expectedSeconds < 0
+      || assertion.toleranceSeconds !== undefined
+      && (!Number.isFinite(assertion.toleranceSeconds) || assertion.toleranceSeconds < 0)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid duration values`);
+    }
+    return;
+  }
+  if (assertion.type === "stream") return;
+  if (assertion.type === "structure") {
+    if ((assertion.requirement === "media-present" && assertion.mediaId === undefined)
+      || (assertion.requirement === "occurrence-present" && assertion.occurrenceId === undefined)
+      || (assertion.requirement === "operation-present" && assertion.operationType === undefined)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} is missing its required identifier`);
+    }
+    return;
+  }
+  throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has an unsupported assertion type`);
+}
+
 export class DefaultVerificationEngine implements VerificationEngine {
   public async verify(transaction: EditTransaction, policy: VerificationPolicy): Promise<VerificationReport> {
+    assertValidVerificationPolicy(policy);
     const checks: VerificationCheck[] = [
       {
         name: "timeline-valid",
@@ -140,8 +225,13 @@ function verifyAudioAudibility(transaction: EditTransaction, assertion: AudioAud
       detail: `audio analysis is unavailable for media ${assertion.mediaId}`,
     };
   }
+  const duration = Number.isFinite(media.audio.analyzedDurationSeconds) && media.audio.analyzedDurationSeconds! > 0
+    ? media.audio.analyzedDurationSeconds
+    : Number.isFinite(media.duration) && media.duration! > 0
+      ? media.duration
+      : undefined;
   if (media.audio.audibleSamples === undefined
-    && (media.duration === undefined || !Number.isFinite(media.duration))) {
+    && duration === undefined) {
     return {
       name: assertion.type,
       passed: false,
@@ -159,7 +249,7 @@ function verifyAudioAudibility(transaction: EditTransaction, assertion: AudioAud
   };
   const minAudibleSamples = assertion.minAudibleSamples ?? 1;
   const audible = media.audio.audibleSamples === undefined
-    ? media.audio.silenceMs < (media.duration ?? Number.POSITIVE_INFINITY) * 1000
+    ? media.audio.silenceMs < duration! * 1000
     : media.audio.audibleSamples >= minAudibleSamples;
   const silenceWithinLimit = assertion.maxSilenceMs === undefined || media.audio.silenceMs <= assertion.maxSilenceMs;
   const passed = audible && silenceWithinLimit;
@@ -233,7 +323,18 @@ function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudn
     toleranceDb,
   };
   const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
-  if (!media?.audio) {
+  if (!media) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "MEDIA_NOT_FOUND",
+      detail: `expected audio media ${assertion.mediaId}, but it was not observed`,
+    };
+  }
+  if (!media.audio) {
     return {
       name: assertion.type,
       passed: false,
