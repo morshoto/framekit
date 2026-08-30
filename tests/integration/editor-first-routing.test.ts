@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -205,6 +208,33 @@ test("MCP routing reports unavailable editors and explicit external fallback rea
   } finally {
     await client.close();
     await server.close();
+  }
+});
+
+test("MCP documentation describes one consistent editor-first policy", async () => {
+  const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const [overview, tools, errors] = await Promise.all([
+    readFile(resolve(repository, "docs/mcp/README.md"), "utf8"),
+    readFile(resolve(repository, "docs/mcp/tools.md"), "utf8"),
+    readFile(resolve(repository, "docs/mcp/capabilities-and-errors.md"), "utf8"),
+  ]);
+
+  for (const content of [overview, tools, errors]) {
+    assert.match(content, /editor-first/i);
+    assert.match(content, /editing\.route/);
+    assert.match(content, /external-renderer/);
+    assert.match(content, /CAPABILITY_UNAVAILABLE/);
+  }
+  for (const [before, after] of [
+    ["connection.status", "editor.inspect"],
+    ["editor.inspect", "project.inspect"],
+    ["project.inspect", "editing.route"],
+    ["editing.route", "preview"],
+    ["preview", "execute"],
+    ["execute", "edit.diff"],
+    ["edit.diff", "edit.verify"],
+  ]) {
+    assert.ok(tools.indexOf(before) < tools.indexOf(after), `${before} must precede ${after}`);
   }
 });
 
