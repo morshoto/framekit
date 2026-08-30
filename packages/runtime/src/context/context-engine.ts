@@ -1,17 +1,11 @@
-import { diffSnapshots } from "../diff/diff.js";
-import type {
-  AgentContext,
-  AssetSearchQuery,
-  ContextDiff,
-  ContextRevision,
-  EditorChange,
-  EditorPort,
-  EditorLiveState,
-  MediaUnderstanding,
-  ProjectSnapshot,
-  RuntimeCapabilities,
-  TimelineDiff,
-} from "../domain/types.js";
+import { diffSnapshots } from "../timeline/snapshot-diff.js";
+import type { AgentContext, ContextDiff, EditorChange, EditorLiveState } from "../domain/context.js";
+import type { AssetSearchQuery, EditorPort } from "../domain/ports.js";
+import type { ContextRevision } from "../domain/primitives.js";
+import type { MediaUnderstanding } from "../domain/media.js";
+import type { ProjectSnapshot } from "../domain/project.js";
+import type { RuntimeCapabilities } from "../domain/capabilities.js";
+import type { TimelineDiff } from "../domain/diff.js";
 
 export class ContextEngine {
   private readonly snapshots = new Map<string, ProjectSnapshot>();
