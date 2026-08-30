@@ -150,6 +150,118 @@ test("video exporter reports unavailable semantic analyzers explicitly", async (
   );
 });
 
+test("video exporter explains silence-limit failures accurately", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-silence-limit-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "too-silent output");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: {
+          integratedLufs: -18,
+          truePeakDb: -3,
+          silenceMs: 500,
+          audibleSamples: 100,
+          analyzedDurationSeconds: 12,
+        },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-audibility", maxSilenceMs: 100 }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_VERIFICATION_FAILED.*expected at most 100ms of silence, observed 500ms/,
+  );
+});
+
+test("video exporter fails closed without analyzed audio duration", async () => {
+  const cases = [
+    {
+      name: "coverage",
+      assertion: { type: "audio-coverage" as const, expectedSeconds: 12 },
+      audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000 },
+    },
+    {
+      name: "audibility",
+      assertion: { type: "audio-audibility" as const },
+      audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 100, audibleSamples: undefined },
+    },
+  ];
+
+  for (const candidate of cases) {
+    const directory = await mkdtemp(join(os.tmpdir(), `framekit-export-duration-${candidate.name}-`));
+    const outputPath = join(directory, "final.mp4");
+    const exporter = new FinalCutVideoExporter({
+      enabled: true,
+      executor: async (script) => {
+        await writeFile(stagingPathFromScript(script), "unverified output");
+        return "started";
+      },
+      probe: async () => ({
+        durationSeconds: 12,
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        hasAudio: true,
+        semantic: { audio: candidate.audio },
+      }),
+      sleep: async () => undefined,
+    });
+
+    await assert.rejects(
+      exporter.exportVideo({ outputPath, preset: "master", expected: { assertions: [candidate.assertion] } }),
+      /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+      candidate.name,
+    );
+  }
+});
+
+test("video exporter classifies missing source evidence as unavailable", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-source-unavailable-"));
+  const outputPath = join(directory, "final.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      await writeFile(stagingPathFromScript(script), "unidentified output");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 12,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+      semantic: {
+        audio: { integratedLufs: -18, truePeakDb: -3, silenceMs: 120, audibleSamples: 1_000, analyzedDurationSeconds: 12 },
+      },
+    }),
+    sleep: async () => undefined,
+  });
+
+  await assert.rejects(
+    exporter.exportVideo({
+      outputPath,
+      preset: "master",
+      expected: { assertions: [{ type: "audio-source", sourceDigest: "sha256:rain" }] },
+    }),
+    /FINAL_CUT_EXPORT_SEMANTIC_UNAVAILABLE/,
+  );
+});
+
 test("video exporter preserves the existing output until a replacement is verified", async () => {
   const failures: Array<{
     name: string;
@@ -162,6 +274,12 @@ test("video exporter preserves the existing output until a replacement is verifi
       configure: () => {},
       expected: { width: 0 } as unknown as FinalCutVideoExportRequest["expected"],
       error: /INVALID_EXPORT/,
+    },
+    {
+      name: "invalid source assertion",
+      configure: () => {},
+      expected: { assertions: [{ type: "audio-source" }] },
+      error: /INVALID_EXPORT: audio-source assertion requires sourceDigest or source/,
     },
     {
       name: "native preflight failure",
