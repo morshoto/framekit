@@ -28,12 +28,25 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   const workflow = await readWorkflow(".github/workflows/codeql.yml");
 
   assert.match(workflow, /xcrun swiftc/);
+  assert.match(workflow, /-D FRAMEKIT_CODEQL/);
   assert.match(workflow, /-typecheck/);
   assert.match(workflow, /FinalCutLiveWorkflowExtension\.swift/);
-  assert.match(workflow, /ProExtensionHostShim/);
+  assert.match(workflow, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
+  assert.doesNotMatch(workflow, /ProExtensionHostShim/);
   assert.doesNotMatch(workflow, /Final Cut Pro\.app/);
+  assert.doesNotMatch(workflow, /ProExtensionHost\.framework/);
   assert.doesNotMatch(workflow, /FRAMEWORK_SEARCH_PATHS/);
   assert.doesNotMatch(workflow, /build\.sh/);
+});
+
+test("CodeQL substitutes host declarations without changing the native import", async () => {
+  const source = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift");
+  const shim = await readWorkflow(".github/codeql/FinalCutWorkflowExtensionShim.swift");
+
+  assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import ProExtensionHost[\s\S]*#endif/);
+  assert.match(shim, /import CoreMedia/);
+  assert.match(shim, /protocol FCPXTimelineObserver/);
+  assert.match(shim, /func ProExtensionHostSingleton/);
 });
 
 test("Swift CI remains an independent native validation gate", async () => {
@@ -49,7 +62,7 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   const documentation = await readWorkflow("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
 
   assert.match(documentation, /CodeQL Swift extraction/);
-  assert.match(documentation, /checked-in `ProExtensionHostShim`/);
+  assert.match(documentation, /checked-in `FinalCutWorkflowExtensionShim\.swift`/);
   assert.match(documentation, /does not invoke[\s\S]*`build\.sh`/);
   assert.match(documentation, /five minutes/);
   assert.match(documentation, /standalone Swift CI/);
