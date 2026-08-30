@@ -48,3 +48,54 @@ test("semantic audio audibility rejects silent audio with an audio stream", asyn
     detail: "expected audible audio samples, observed none",
   });
 });
+
+test("semantic audio assertions verify coverage, loudness, and source identity", async () => {
+  const runtime = createRuntime({
+    integratedLufs: -18,
+    truePeakDb: -3,
+    silenceMs: 120,
+    audibleSamples: 1_000,
+  });
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    {
+      assertions: [
+        { type: "audio-audibility", mediaId: "rain", minAudibleSamples: 1 },
+        { type: "audio-coverage", mediaId: "rain", start: 0, duration: 10 },
+        { type: "audio-loudness", mediaId: "rain", targetLufs: -18, toleranceDb: 0.5 },
+        { type: "audio-source", mediaId: "rain", sourceDigest: "sha256:rain" },
+      ],
+    } as never,
+  );
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(
+    transaction.verification?.checks
+      .filter((check) => ["audio-audibility", "audio-coverage", "audio-loudness", "audio-source"].includes(check.name))
+      .map((check) => check.name),
+    ["audio-audibility", "audio-coverage", "audio-loudness", "audio-source"],
+  );
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "audio-loudness")?.observed, -18);
+});
+
+test("semantic audio coverage rejects an ambience shorter than requested", async () => {
+  const runtime = createRuntime({
+    integratedLufs: -18,
+    truePeakDb: -3,
+    silenceMs: 120,
+    audibleSamples: 1_000,
+  });
+
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "rain-clip", name: "Rain ambience" },
+    {
+      assertions: [{ type: "audio-coverage", mediaId: "rain", start: 0, duration: 11 }],
+    } as never,
+  );
+
+  assert.equal(transaction.status, "ROLLED_BACK");
+  const check = transaction.verification?.checks.find((candidate) => candidate.name === "audio-coverage");
+  assert.equal(check?.reason, "AUDIO_COVERAGE_INCOMPLETE");
+  assert.deepEqual(check?.expected, { mediaId: "rain", start: 0, duration: 11, toleranceSeconds: 0 });
+});
