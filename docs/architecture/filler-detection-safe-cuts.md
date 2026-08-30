@@ -27,23 +27,23 @@ evidence with `eligible: false`; this allows a later resolver to return a
 `SUGGESTED` decision without permitting automatic application.
 
 Candidate IDs are deterministic hashes of the preview ID, optional analysis
-revision, occurrence identity, word index, and source range. Repeating the same
-preview input produces the same ID; a different preview produces a different
-scope.
+revision, occurrence identity, and source range. Repeating the same candidate
+in an expanded or narrowed analysis window preserves its ID; a different
+preview produces a different scope.
 
 ## Safe-cut policy
 
 The resolver requires valid VAD evidence covering the candidate word. It rejects
-overlapping speech, malformed VAD ranges, ambiguous source-to-sequence mappings,
-and protected breath or laughter evidence. A following silence segment may be
-trimmed only when it exceeds the configured preserved pause; the resolver never
-selects arbitrary silence without evidence.
+overlapping speech, malformed VAD, silence, or protected ranges, ambiguous
+source-to-sequence mappings, and protected breath or laughter evidence. A
+following silence segment may be trimmed only when it exceeds the configured
+preserved pause; the resolver never selects arbitrary silence without evidence.
 
 The candidate word is expanded to frame boundaries only through adjacent safe
 silence. Start boundaries are floored and end boundaries are ceiled using exact
-rational arithmetic. If either boundary would cross a target, occurrence,
-adjacent speech, protected segment, or frame-safe interval, the decision is
-`SKIPPED`.
+rational arithmetic, then clamped against neighboring speech VAD boundaries as
+well as transcript words. If either boundary would cross a target, occurrence,
+speech, protected segment, or frame-safe interval, the decision is `SKIPPED`.
 
 | Status | Meaning |
 | --- | --- |
