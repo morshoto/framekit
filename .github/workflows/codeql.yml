@@ -51,3 +51,33 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
+
+  analyze-swift:
+    name: Analyze (swift)
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+
+      - name: Type-check Swift sources for CodeQL extraction
+        timeout-minutes: 5
+        run: >-
+          xcrun swiftc
+          -typecheck
+          -parse-as-library
+          -target arm64-apple-macos15.0
+          -I adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/ProExtensionHostShim
+          adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:swift
