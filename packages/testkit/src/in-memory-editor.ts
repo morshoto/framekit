@@ -440,6 +440,9 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (operation.type === "timeline.transition.add") {
       const asset = this.assets.find((candidate) => candidate.id === operation.assetId && candidate.kind === "transition");
       if (!asset) throw new Error(`TRANSITION_ASSET_NOT_FOUND: ${operation.assetId}`);
+      if (asset.compatibility?.timelineKinds?.includes("asset-clip") !== true) {
+        throw new Error(`TRANSITION_ASSET_INCOMPATIBLE: ${operation.assetId}`);
+      }
       if (snapshot.timeline.storyElements.some(({ id }) => id === operation.transitionId)
         || snapshot.timeline.clips.some(({ id }) => id === operation.transitionId)) {
         throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.transitionId}`);
