@@ -76,6 +76,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     return { id: `fcpxml:${this.filePath}`, path: this.filePath, format: "fcpxml" };
   }
 
+  public async getManagedArtifactDigest(): Promise<string> {
+    return hash(await readFile(this.filePath, "utf8"));
+  }
+
   public async getCapabilities(): Promise<RuntimeCapabilities> {
     return {
       editor: {

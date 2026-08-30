@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -167,5 +167,54 @@ test("MCP reports disabled artifact publishing as unavailable", async () => {
   } finally {
     await client.close();
     await server.close();
+  }
+});
+
+test("MCP refuses publishing when the verified artifact changes before publish", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-publish-race-"));
+  const artifactPath = join(directory, "managed.fcpxml");
+  const source = `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-artifact" name="Artifact Project"><sequence uid="sequence-artifact" duration="1s"><spine><asset-clip id="clip-artifact" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`;
+  await writeFile(artifactPath, source);
+  const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+  const before = await runtime.inspectProject();
+  const transaction = await runtime.editArtifact(
+    artifactPath,
+    { type: "rename-clip", clipId: "clip-artifact", name: "Published source", baseRevision: before.revision },
+  );
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath: artifactPath,
+    waitMs: 0,
+    executor: async () => "imported",
+  });
+  const server = createMcpServer(runtime, { projectPublisher: publisher });
+  const client = new Client({ name: "artifact-publish-race-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const verifyTransaction = runtime.verifyTransaction.bind(runtime);
+  let changed = false;
+  runtime.verifyTransaction = async (transactionId) => {
+    const verification = await verifyTransaction(transactionId);
+    if (!changed) {
+      changed = true;
+      await runtime.editArtifact(
+        artifactPath,
+        { type: "rename-clip", clipId: "clip-artifact", name: "Changed after verification", baseRevision: transaction.after.revision },
+      );
+    }
+    return verification;
+  };
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const published = await client.callTool({
+      name: "artifact.publish",
+      arguments: { artifactPath, transactionId: transaction.id, confirm: true },
+    });
+    assert.equal(published.isError, true);
+    assert.match(textFrom(published), /PUBLISH_SOURCE_CHANGED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

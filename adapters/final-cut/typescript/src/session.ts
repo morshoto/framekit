@@ -51,6 +51,10 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
   }
 
+  public async getManagedArtifactDigest(): Promise<string | undefined> {
+    return this.options.snapshot?.getManagedArtifactDigest?.();
+  }
+
   public async getCapabilities(): Promise<RuntimeCapabilities> {
     const snapshot = await this.options.snapshot?.getCapabilities();
     const mutation = await this.options.mutation?.getCapabilities();

@@ -20,6 +20,7 @@ export interface EditorPort extends EditorAdapter {
   getIdentity(): Promise<EditorIdentity>;
   getCapabilities(): Promise<RuntimeCapabilities>;
   getManagedArtifact?(): Promise<ManagedArtifact>;
+  getManagedArtifactDigest?(): Promise<string | undefined>;
   readProject(): Promise<ProjectSnapshot>;
   restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void>;
   listAssets?(query?: AssetSearchQuery): Promise<EditorAsset[]>;

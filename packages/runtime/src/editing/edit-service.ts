@@ -92,9 +92,11 @@ export class EditService {
       }
       throw new Error(`READ_AFTER_WRITE_FAILED: canonical state was restored (${String(readError)})`);
     }
+    const artifactDigest = await this.readArtifactDigest(target);
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
       target: structuredClone(target),
+      ...(artifactDigest ? { artifactDigest } : {}),
       operation,
       intent: operation.type,
       planned: [operation],
@@ -234,9 +236,11 @@ export class EditService {
       throw new Error(`TRANSACTION_FAILED: ${String(error)}; transaction was rolled back`);
     }
     const attemptedAfter = await this.project.inspectProject();
+    const artifactDigest = await this.readArtifactDigest(preview.target);
     const transaction: EditTransaction = {
       id: `txn-${randomUUID()}`,
       target: structuredClone(preview.target),
+      ...(artifactDigest ? { artifactDigest } : {}),
       intent: "composite-edit",
       planned: structuredClone(preview.operations),
       applied: structuredClone(preview.operations),
@@ -376,6 +380,11 @@ export class EditService {
 
   private artifactDescriptor(artifact: { id: string; path: string }): ArtifactEditTarget {
     return { kind: "artifact", artifactId: artifact.id, artifactPath: artifact.path };
+  }
+
+  private async readArtifactDigest(target: EditTarget): Promise<string | undefined> {
+    if (target.kind !== "artifact" || !this.adapter.getManagedArtifactDigest) return undefined;
+    return this.adapter.getManagedArtifactDigest();
   }
 
   private timelineTarget(input: EditorTimelineEditTargetInput): EditorTimelineEditTarget {

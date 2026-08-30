@@ -502,11 +502,15 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
       throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
     }
+    if (!transaction.artifactDigest) {
+      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    }
     const verification = await runtime.verifyTransaction(transactionId);
     if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
     return jsonResult(await options.projectPublisher.publishNewProject({
       sourceTransactionId: transactionId,
       artifactPath,
+      artifactDigest: transaction.artifactDigest,
       confirm,
     }));
   });

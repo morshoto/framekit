@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -36,6 +37,7 @@ export interface FinalCutProjectPublishResult {
 export interface FinalCutProjectPublishRequest {
   sourceTransactionId: string;
   artifactPath: string;
+  artifactDigest: string;
   confirm: boolean;
 }
 
@@ -71,10 +73,14 @@ export class FinalCutProjectPublisher {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; configure FRAMEKIT_EDITOR=final-cut-live and FRAMEKIT_FCPXML_PATH, and ensure Final Cut is reachable through FRAMEKIT_FINAL_CUT_SOCKET");
     if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
     if (!request.sourceTransactionId.trim()) throw new Error("INVALID_PUBLISH_REQUEST: sourceTransactionId is required");
+    if (!request.artifactDigest.trim()) throw new Error("INVALID_PUBLISH_REQUEST: artifactDigest is required");
     if (request.artifactPath !== this.sourcePath) {
       throw new Error(`PUBLISH_TARGET_MISMATCH: requested artifact ${request.artifactPath} is not managed by this publisher`);
     }
     const source = await readFile(this.sourcePath, "utf8");
+    if (hash(source) !== request.artifactDigest) {
+      throw new Error("PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed after transaction verification");
+    }
     if (!source.includes("<fcpxml") || !source.includes("<project")) {
       throw new Error("FINAL_CUT_PUBLISH_VALIDATION_FAILED: source is not a valid FCPXML project artifact");
     }
@@ -82,7 +88,7 @@ export class FinalCutProjectPublisher {
     const beforeLive = this.liveState ? await this.liveState() : undefined;
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-publish-"));
     const importedPath = join(directory, basename(this.sourcePath));
-    await copyFile(this.sourcePath, importedPath);
+    await writeFile(importedPath, source, "utf8");
     try {
       await this.executor(importXmlScript(importedPath));
       await delay(this.waitMs);
@@ -171,4 +177,8 @@ function appleScriptString(value: string): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
+function hash(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
 }

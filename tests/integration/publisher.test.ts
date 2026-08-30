@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FinalCutProjectPublisher } from "@framekit/final-cut";
 
+function digest(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
 test("FCPXML publisher imports a validated artifact as a new project", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-"));
   const sourcePath = join(directory, "project.fcpxml");
-  await writeFile(sourcePath, '<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence /></project></event></library></fcpxml>');
+  const source = '<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
   const scripts: string[] = [];
   const result = await new FinalCutProjectPublisher({
     enabled: true,
@@ -27,6 +33,7 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   }).publishNewProject({
     sourceTransactionId: "txn-publish-1",
     artifactPath: sourcePath,
+    artifactDigest: digest(source),
     confirm: true,
   });
 
@@ -69,6 +76,7 @@ test("FCPXML publisher rejects invalid artifacts before automation", async () =>
   await assert.rejects(publisher.publishNewProject({
     sourceTransactionId: "txn-invalid",
     artifactPath: sourcePath,
+    artifactDigest: digest("not fcpxml"),
     confirm: true,
   }), /PUBLISH_VALIDATION_FAILED/);
   assert.equal(called, false);
@@ -91,6 +99,7 @@ test("FCPXML publisher requires explicit confirmation before automation", async 
   await assert.rejects(publisher.publishNewProject({
     sourceTransactionId: "txn-publish-2",
     artifactPath: sourcePath,
+    artifactDigest: digest('<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence /></project></event></library></fcpxml>'),
     confirm: false,
   }), /PUBLISH_CONFIRMATION_REQUIRED/);
   assert.equal(called, false);
@@ -104,6 +113,7 @@ test("FCPXML publisher names the supported runtime configuration when disabled",
   await assert.rejects(publisher.publishNewProject({
     sourceTransactionId: "txn-disabled",
     artifactPath: "/tmp/project.fcpxml",
+    artifactDigest: "unused",
     confirm: true,
   }), /FRAMEKIT_EDITOR.*FRAMEKIT_FCPXML_PATH.*FRAMEKIT_FINAL_CUT_SOCKET/);
 });
@@ -125,6 +135,7 @@ test("FCPXML publisher rejects an artifact path outside its managed source", asy
   await assert.rejects(publisher.publishNewProject({
     sourceTransactionId: "txn-publish-3",
     artifactPath: join(directory, "other.fcpxml"),
+    artifactDigest: "unused",
     confirm: true,
   }), /PUBLISH_TARGET_MISMATCH/);
   assert.equal(called, false);

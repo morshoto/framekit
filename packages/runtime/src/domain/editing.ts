@@ -145,6 +145,7 @@ export interface CompositeEditPreview {
 export interface EditTransaction {
   id: string;
   target?: EditTarget;
+  artifactDigest?: string;
   operation?: EditOperation;
   intent: string;
   planned: WorkflowOperation[];
