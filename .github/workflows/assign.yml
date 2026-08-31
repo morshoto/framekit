@@ -41,8 +41,6 @@ jobs:
               with:
                   node-version: '22.14.0'
             - uses: pnpm/action-setup@v4
-              with:
-                  version: 11.10.0
             - name: Run github-label-setup
               run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
 
