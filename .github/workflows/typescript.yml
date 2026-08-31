@@ -15,7 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PNPM_VERSION: 11.10.0
   NODE_VERSION: 22.14.0
 
 jobs:
@@ -28,8 +27,6 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -55,8 +52,6 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
