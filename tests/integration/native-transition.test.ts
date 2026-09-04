@@ -137,6 +137,7 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   assert.equal(result.undoAvailable, true);
   assert.equal(scripts.some((script) => script.includes("keystroke \"t\" using {command down}")), true);
   assert.equal(scripts.some((script) => script.includes("set durationText to \"1/1\"")), true);
+  assert.equal(scripts.some((script) => script.includes("if not durationApplied then error")), true);
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
@@ -194,4 +195,55 @@ test("native transition previews fail closed for non-adjacent or stale edit poin
   });
   revision = 2;
   await assert.rejects(adapter.executeTransitionAdd(validPreview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/);
+});
+
+test("native transition placement rolls back when Command-T succeeds but duration editing fails", async () => {
+  const scripts: string[] = [];
+  let revision = 1;
+  let transitionAdded = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => liveState(revision),
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("set searchQuery to \"before\"")) return ["Before", "AXClip", "before-source", "before-source"].join(fieldSeparator) + recordSeparator;
+      if (script.includes("set searchQuery to \"after\"")) return ["After", "AXClip", "after-source", "after-source"].join(fieldSeparator) + recordSeparator;
+      if (script.includes("set sourceIdentity to \"before-source\"")) return occurrenceOutput("Before", "0/1", "40");
+      if (script.includes("set sourceIdentity to \"after-source\"")) return occurrenceOutput("After", "4/1", "160");
+      if (script.includes("keystroke \"t\" using {command down}")) {
+        transitionAdded = true;
+        revision = 2;
+        throw new Error("FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: duration field disappeared after Command-T");
+      }
+      if (script.includes('click menu item "Undo Add Transition"')) {
+        transitionAdded = false;
+        revision = 3;
+        return "undone";
+      }
+      if (script.includes("on preflightResult") || script.includes("set selectedName to \"\"")) {
+        return context(transitionAdded ? "Cross Dissolve" : "", transitionAdded ? "transition" : "", transitionAdded ? "Undo Add Transition" : "Undo");
+      }
+      return "";
+    },
+  });
+  const [beforeMedia] = await adapter.searchMedia("before");
+  const [afterMedia] = await adapter.searchMedia("after");
+  assert.ok(beforeMedia);
+  assert.ok(afterMedia);
+  const before = (await adapter.locateOccurrence(beforeMedia.handle)).occurrences[0];
+  const after = (await adapter.locateOccurrence(afterMedia.handle)).occurrences[0];
+  assert.ok(before);
+  assert.ok(after);
+  const preview = await adapter.previewTransitionAdd({
+    asset: { id: "transition-1", kind: "transition", name: "Cross Dissolve", vendor: "Final Cut Pro", identity: "fcp://transition/cross" },
+    beforeOccurrenceHandle: before.handle,
+    afterOccurrenceHandle: after.handle,
+    duration: { value: "1", timescale: "1" },
+  });
+
+  await assert.rejects(adapter.executeTransitionAdd(preview.previewToken), /transition placement was rolled back/);
+  assert.equal(transitionAdded, false);
+  assert.equal(revision, 3);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Add Transition"')), true);
 });

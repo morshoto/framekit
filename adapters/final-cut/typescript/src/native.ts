@@ -1138,6 +1138,25 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         validateTransitionPreviewBinding(preview, await this.requireLiveState());
       });
     } catch (error) {
+      const observedContext = await this.inspectRawNative();
+      const observedLive = await this.readLiveState();
+      if (observedLive && observedLive.revision.id !== beforeLive.revision.id && observedContext.undoCommand) {
+        const failedOperationId = opaqueHandle("native-transition");
+        this.rememberOperation(failedOperationId, {
+          kind: "transition-placement",
+          before,
+          after: observedContext,
+          beforeLive,
+          afterLive: observedLive,
+          undoCommand: observedContext.undoCommand,
+        });
+        try {
+          await this.undo(failedOperationId);
+        } catch (rollbackError) {
+          throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${failedOperationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`${nativeErrorCode(error)}: ${String(error)}; transition placement was rolled back`);
+      }
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
 
@@ -3452,15 +3471,18 @@ function applyTransitionScript(duration: RationalTime): string {
     keystroke "d" using {control down}
     delay 0.2
     set durationText to ${appleScriptString(`${duration.value}/${duration.timescale}`)}
+    set durationApplied to false
     repeat with candidate in text fields of front window
       try
         if focused of candidate then
           set value of candidate to durationText
           key code 36
+          set durationApplied to true
           exit repeat
         end if
       end try
     end repeat
+    if not durationApplied then error "FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut did not expose a focused transition duration field"
   end tell
   end tell`;
 }
