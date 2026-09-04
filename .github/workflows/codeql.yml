@@ -68,26 +68,18 @@ jobs:
           languages: swift
           build-mode: manual
 
-      - name: Build Swift sources for CodeQL extraction
-        timeout-minutes: 20
+      - name: Type-check Swift sources for CodeQL extraction
+        timeout-minutes: 15
         run: |
-          xcodebuild \
-            -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
-            -target FramekitFinalCutWorkflowCodeQL \
-            -configuration Debug \
-            -sdk macosx \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=NO \
-            SWIFT_ENABLE_COMPILE_CACHE=NO \
-            SWIFT_USE_INTEGRATED_DRIVER=NO \
-            SWIFT_OBJC_INTERFACE_HEADER_NAME= \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL \
-            FRAMEWORK_SEARCH_PATHS= \
-            LD_RUNPATH_SEARCH_PATHS= \
-            OTHER_LDFLAGS= \
-            ARCHS="$(uname -m)" \
-            build
+          xcrun --sdk macosx swiftc \
+            -typecheck \
+            -parse-as-library \
+            -module-name FramekitFinalCutWorkflowCodeQL \
+            -target "$(uname -m)-apple-macos15.0" \
+            -swift-version 5 \
+            -D FRAMEKIT_CODEQL \
+            adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift \
+            .github/codeql/FinalCutWorkflowExtensionShim.swift
 
       - name: Analyze with CodeQL
         uses: github/codeql-action/analyze@v4

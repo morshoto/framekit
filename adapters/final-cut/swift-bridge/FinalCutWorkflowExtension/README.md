@@ -28,16 +28,13 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 ## CodeQL Swift extraction
 
 The CodeQL workflow keeps Swift analysis separate from the native build. Its
-manual `xcodebuild` step builds the extension with the checked-in
-`.github/codeql/FinalCutWorkflowExtensionShim.swift`, a pure-Swift declaration
-shim for the host and minimal AppKit surface, enabled only by
-`FRAMEKIT_CODEQL`. It builds a dedicated static-library target so CodeQL
-compiles the bridge source without importing the large AppKit module,
-packaging the Workflow Extension, or invoking extension-specific linker work.
-The build disables the
-integrated Swift driver, generated Objective-C headers, compiler caches, and
-private framework/linker paths. It does not invoke `build.sh` or link the
-private host framework.
+manual `xcrun swiftc` step type-checks the bridge source together with the
+checked-in `.github/codeql/FinalCutWorkflowExtensionShim.swift`, a pure-Swift
+declaration shim for the host and minimal AppKit surface, enabled only by
+`FRAMEKIT_CODEQL`. Direct compiler invocation avoids Xcode project orchestration,
+static-library linking, App Intents metadata generation, and extension packaging
+that are not needed for CodeQL extraction. It does not invoke `build.sh` or link
+the private host framework.
 The CodeQL job and extraction step are limited to twenty-five and fifteen minutes.
 The standalone Swift CI workflow remains the native gate for Xcode project
 validation and type-checking.
