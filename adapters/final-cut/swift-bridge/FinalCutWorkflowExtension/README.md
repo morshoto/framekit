@@ -35,7 +35,7 @@ declaration shim for the host and minimal AppKit surface, enabled only by
 static-library linking, App Intents metadata generation, and extension packaging
 that are not needed for CodeQL extraction. It does not invoke `build.sh` or link
 the private host framework.
-The CodeQL job and extraction step are limited to twenty-five and fifteen minutes.
+The CodeQL job and extraction step are limited to twenty-five and twenty minutes.
 The standalone Swift CI workflow remains the native gate for Xcode project
 validation and type-checking.
 

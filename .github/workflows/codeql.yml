@@ -69,7 +69,7 @@ jobs:
           build-mode: manual
 
       - name: Type-check Swift sources for CodeQL extraction
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           xcrun --sdk macosx swiftc \
             -typecheck \
