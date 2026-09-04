@@ -85,6 +85,8 @@ private struct EditorCapabilities: Codable {
     let playheadWrite: Bool
     let frameCapture: Bool
     let playbackControl: Bool
+    let projectCatalogRead: Bool
+    let projectSelection: Bool
 }
 
 private struct AnalyzerCapabilities: Codable {
@@ -446,7 +448,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false),
+            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
             schemaVersion: 1,
             families: metadataOnlyCapabilityFamilies()

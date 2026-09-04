@@ -166,6 +166,22 @@ fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
 `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
 
+The headed project-selection acceptance gate is opt-in and never uses project
+names as IDs:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID="final-cut-project-id" \
+FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut-sequence-id" \
+pnpm run test:final-cut-project-selection-headed
+```
+
+It requires `projectCatalogRead` and `projectSelection`, enumerates the live
+catalog, selects the explicit project and sequence, and records only the
+allowlisted IDs, counts, capability payload, Final Cut version, and commit.
+With the bundled metadata-only Workflow Extension it fails closed with
+`CAPABILITY_UNAVAILABLE`; that failure is the expected current result until a
+bridge with real catalog and selection support is installed.
+
 `media.search` remains canonical snapshot search. Live Browser import and search
 use the explicit `editor.native.media.*` tools because Browser media identity and
 timeline occurrence identity are different. Imported media handles are stable
