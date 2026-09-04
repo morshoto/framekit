@@ -140,9 +140,10 @@ pnpm run test:final-cut-canonical-headed \
   > docs/tests/evidence/$(date +%F)-canonical-live.json
 ```
 
-The runner disables FCPXML composition, verifies the exact project and
-occurrence before mutation, renames that occurrence, and performs compensating
-undo. It emits a sanitized evidence document using an allowlisted summary
+The runner disables FCPXML composition, requires a canonical-write bridge to
+enumerate the live project catalog and explicitly select the active project and
+sequence, verifies the exact project and occurrence before mutation, renames
+that occurrence, and performs compensating undo. It emits a sanitized evidence document using an allowlisted summary
 rather than the raw snapshots returned by the MCP tools. The document records
 the Framekit version, full Git commit, runtime environment, Final Cut
 identity/version, capability payload, required tool results, target IDs,

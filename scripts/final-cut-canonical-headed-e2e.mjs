@@ -35,6 +35,20 @@ try {
     throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${editor.capabilities?.editor?.canonicalTimelineMode ?? "unknown"}; canonical-write is required`);
   }
 
+  const catalog = await callJson("project.list");
+  toolResults.push({ name: "project.list", status: "passed" });
+  if (!catalog.activeProjectId || !catalog.activeSequenceId) {
+    throw new Error("TARGET_UNAVAILABLE: canonical live catalog must expose active project and sequence IDs");
+  }
+  const selected = await callJson("project.select", {
+    projectId: catalog.activeProjectId,
+    sequenceId: catalog.activeSequenceId,
+  });
+  toolResults.push({ name: "project.select", status: "passed" });
+  if (selected.activeProjectId !== catalog.activeProjectId || selected.activeSequenceId !== catalog.activeSequenceId) {
+    throw new Error("TARGET_MISMATCH: canonical live project selection did not confirm the active catalog target");
+  }
+
   const before = await callJson("project.inspect");
   toolResults.push({ name: "project.inspect", status: "passed" });
   if (before.projectName !== expectedProject) {
