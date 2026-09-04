@@ -10,7 +10,7 @@
       "description": "Automerge non-major npm development dependency updates",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchUpdateTypes": ["minor", "patch", "pin"],
       "groupName": "dev dependencies",
       "automerge": true
     },

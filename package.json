@@ -1,7 +1,7 @@
 {
   "name": "@morshoto/framekit",
-  "version": "0.1.1",
-  "packageManager": "pnpm@11.10.0",
+  "version": "0.1.2",
+  "packageManager": "pnpm@11.24.0",
   "private": false,
   "type": "module",
   "description": "Agentic video editing runtime and MCP server for Final Cut Pro",
@@ -62,9 +62,9 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
-    "tsc-alias": "^1.8.16",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "@types/node": "24.13.3",
+    "tsc-alias": "1.9.2",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3"
   }
 }

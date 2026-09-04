@@ -16,14 +16,14 @@ jobs:
             issues: write
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
             - name: Apply labels from branch
-              uses: actions/labeler@v6
+              uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v6
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   configuration-path: .github/labels/labeling-branch.yaml
             - name: Apply labels from changed files
-              uses: actions/labeler@v6
+              uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v6
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   configuration-path: .github/labels/labeling-files.yaml
@@ -36,13 +36,11 @@ jobs:
             id-token: write
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
-            - uses: actions/setup-node@v6
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
               with:
-                  node-version: '22.14.0'
-            - uses: pnpm/action-setup@v4
-              with:
-                  version: 11.10.0
+                  node-version: '22.23.2'
+            - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
             - name: Run github-label-setup
               run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
 
@@ -53,4 +51,4 @@ jobs:
             pull-requests: write
         runs-on: ubuntu-latest
         steps:
-            - uses: technote-space/assign-author@v1
+            - uses: technote-space/assign-author@9558557c5c4816f38bd06176fbc324ba14bb3160 # v1
