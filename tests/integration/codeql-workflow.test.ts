@@ -63,10 +63,10 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /timeout-minutes: 25/);
   assert.match(workflow, /languages: swift/);
   assert.match(workflow, /build-mode: manual/);
-  assert.match(workflow, /timeout-minutes: 20/);
+  assert.match(workflow, /timeout-minutes: 15/);
   assert.match(
     workflow,
-    /\n      - name: Build Swift sources for CodeQL extraction\n        timeout-minutes: 20\n        run: \|/,
+    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 15\n        run: \|/,
   );
 });
 
@@ -79,21 +79,14 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
 
   assert.ok(swiftJob, "Swift CodeQL job should be present");
 
-  assert.match(swiftJob, /xcodebuild/);
-  assert.match(swiftJob, /-target FramekitFinalCutWorkflowCodeQL/);
-  assert.match(swiftJob, /-sdk macosx/);
+  assert.match(swiftJob, /xcrun --sdk macosx swiftc/);
+  assert.match(swiftJob, /-typecheck/);
+  assert.match(swiftJob, /-parse-as-library/);
+  assert.match(swiftJob, /-target \"\$\(uname -m\)-apple-macos15\.0\"/);
+  assert.match(swiftJob, /-swift-version 5/);
   assert.match(swiftJob, /timeout-minutes: 25/);
-  assert.match(swiftJob, /timeout-minutes: 20/);
-  assert.match(swiftJob, /SWIFT_ACTIVE_COMPILATION_CONDITIONS=FRAMEKIT_CODEQL/);
-  assert.match(swiftJob, /SWIFT_USE_INTEGRATED_DRIVER=NO/);
-  assert.match(swiftJob, /SWIFT_OBJC_INTERFACE_HEADER_NAME=/);
-  assert.match(swiftJob, /ARCHS="\$\(uname -m\)"/);
-  assert.match(swiftJob, /COMPILATION_CACHE_ENABLE_CACHING=NO/);
-  assert.match(swiftJob, /SWIFT_ENABLE_COMPILE_CACHE=NO/);
-  assert.match(swiftJob, /FRAMEWORK_SEARCH_PATHS=/);
-  assert.match(swiftJob, /LD_RUNPATH_SEARCH_PATHS=/);
-  assert.match(swiftJob, /OTHER_LDFLAGS=/);
-  assert.doesNotMatch(swiftJob, /xcrun swiftc/);
+  assert.match(swiftJob, /-D FRAMEKIT_CODEQL/);
+  assert.doesNotMatch(swiftJob, /xcodebuild/);
   assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
   assert.doesNotMatch(swiftJob, /-destination/);
   assert.doesNotMatch(swiftJob, /-emit-module/);
@@ -135,10 +128,9 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   const documentation = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
 
   assert.match(documentation, /CodeQL Swift extraction/);
-  assert.match(documentation, /manual\s+`xcodebuild`/);
+  assert.match(documentation, /manual\s+`xcrun swiftc`/);
   assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
-  assert.match(documentation, /dedicated static-library\s+target/);
-  assert.match(documentation, /integrated Swift\s+driver/);
+  assert.match(documentation, /Direct\s+compiler\s+invocation/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
   assert.match(documentation, /fifteen minutes/);
   assert.match(documentation, /standalone Swift CI/);
