@@ -60,13 +60,13 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /analyze-swift:/);
   assert.match(workflow, /name: Analyze \(swift\)/);
   assert.match(workflow, /runs-on: macos-15/);
-  assert.match(workflow, /timeout-minutes: 25/);
+  assert.match(workflow, /timeout-minutes: 40/);
   assert.match(workflow, /languages: swift/);
   assert.match(workflow, /build-mode: manual/);
-  assert.match(workflow, /timeout-minutes: 20/);
+  assert.match(workflow, /timeout-minutes: 25/);
   assert.match(
     workflow,
-    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 20\n        run: \|/,
+    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 25\n        run: \|/,
   );
 });
 
@@ -84,6 +84,7 @@ test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   assert.match(swiftJob, /-parse-as-library/);
   assert.match(swiftJob, /-target \"\$\(uname -m\)-apple-macos15\.0\"/);
   assert.match(swiftJob, /-swift-version 5/);
+  assert.match(swiftJob, /timeout-minutes: 40/);
   assert.match(swiftJob, /timeout-minutes: 25/);
   assert.match(swiftJob, /-D FRAMEKIT_CODEQL/);
   assert.doesNotMatch(swiftJob, /xcodebuild/);
@@ -132,6 +133,6 @@ test("Swift bridge documents the separate bounded CodeQL path", async () => {
   assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
   assert.match(documentation, /Direct\s+compiler\s+invocation/);
   assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
-  assert.match(documentation, /twenty minutes/);
+  assert.match(documentation, /forty and twenty-five minutes/);
   assert.match(documentation, /standalone Swift CI/);
 });
