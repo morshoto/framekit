@@ -132,6 +132,7 @@ test("tagpr releases publish the package consumed by the plugin", async () => {
   assert.match(workflow, /needs:\s+tagpr/);
   assert.match(workflow, /needs\.tagpr\.outputs\.release-tag != ''/);
   assert.match(workflow, /git tag --points-at HEAD/);
+  assert.match(workflow, /tagpr:[\s\S]*?persist-credentials: false/);
   assert.match(workflow, /id-token:\s+write/);
   assert.match(workflow, /npm install --global npm@11\.5\.1/);
   assert.match(workflow, /npm publish --access public/);

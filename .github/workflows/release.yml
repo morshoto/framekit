@@ -23,13 +23,19 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.TAGPR_TOKEN }}
+          persist-credentials: false
 
       - id: existing-tag
         name: Detect release tag on HEAD
         shell: bash
         run: |
           set -euo pipefail
-          tag="$(git tag --points-at HEAD --list 'v*' | head -n 1)"
+          mapfile -t tags < <(git tag --points-at HEAD --list 'v*')
+          if (( ${#tags[@]} > 1 )); then
+            echo "Multiple release tags point to HEAD" >&2
+            exit 1
+          fi
+          tag="${tags[0]-}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - id: run-tagpr
