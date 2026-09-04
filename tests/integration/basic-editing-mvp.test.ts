@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
 import { resolve } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { FinalCutVideoExporter } from "@framekit/final-cut";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { BASIC_EDITING_MVP_FIXTURE, BASIC_MVP_MEDIA, BASIC_MVP_TITLE_ASSET } from "../fixtures/basic-editing-mvp.js";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const contractPath = resolve("docs/final-cut/basic-editing-mvp.md");
 
@@ -59,4 +70,125 @@ test("Basic Final Cut editing MVP has an executable design contract", async () =
   assert.match(contract, /audio stream.*audible/i);
   assert.match(contract, /source identity/i);
   assert.match(contract, /semantic export/i);
+});
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.equal(typeof first?.text, "string");
+  return first?.text as string;
+}
+
+function jsonFrom(result: unknown): any {
+  const text = textFrom(result);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`MCP tool failed: ${text}`);
+  }
+}
+
+test("Basic Final Cut editing MVP executes as one deterministic MCP workflow", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-basic-mvp-"));
+  const outputPath = join(directory, "basic-mvp.mp4");
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      const match = script.match(/set value of first text field of front window to "([^"]+)"/);
+      assert.ok(match?.[1]);
+      await writeFile(match[1], "deterministic basic mvp export");
+      return "started";
+    },
+    probe: async () => ({
+      durationSeconds: 4,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      hasAudio: true,
+    }),
+    sleep: async () => undefined,
+  });
+  const adapter = new InMemoryEditorAdapter(BASIC_EDITING_MVP_FIXTURE);
+  const runtime = new AgentVideoRuntime(adapter);
+  const server = createMcpServer(runtime, { videoExporter: exporter });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "basic-editing-mvp-test", version: "0.1.0" });
+
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const connection = jsonFrom(await client.callTool({ name: "connection.status", arguments: {} }));
+    assert.equal(connection.state, "ready");
+    const editor = jsonFrom(await client.callTool({ name: "editor.inspect", arguments: {} }));
+    assert.equal(editor.capabilities.editor.compositeTransactions, true);
+    assert.equal(editor.capabilities.editor.mediaImport, true);
+    assert.equal(editor.capabilities.editor.titlePlacement, true);
+
+    const before = jsonFrom(await client.callTool({ name: "project.inspect", arguments: {} }));
+    const beforeDigest = createHash("sha256").update(JSON.stringify(before)).digest("hex");
+    const assets = jsonFrom(await client.callTool({
+      name: "editor.assets",
+      arguments: { kind: "title", query: BASIC_MVP_TITLE_ASSET.name },
+    }));
+    assert.deepEqual(assets.map((asset: { id: string }) => asset.id), [BASIC_MVP_TITLE_ASSET.id]);
+
+    const operations = [
+      { type: "media.import", ...BASIC_MVP_MEDIA.video },
+      { type: "timeline.media.add", occurrenceId: "fixture-video-occurrence", mediaId: BASIC_MVP_MEDIA.video.mediaId, role: "video", start: 0, duration: 5, targetLane: "primary" },
+      { type: "trim-clip", clipId: "fixture-video-occurrence", duration: 4 },
+      { type: "media.import", ...BASIC_MVP_MEDIA.music },
+      { type: "timeline.media.add", occurrenceId: "fixture-music-occurrence", mediaId: BASIC_MVP_MEDIA.music.mediaId, role: "music", start: 0, duration: 4, targetLane: 1 },
+      { type: "timeline.title.add", occurrenceId: "fixture-title-occurrence", assetId: BASIC_MVP_TITLE_ASSET.id, text: "Framekit MVP", start: 1, duration: 2, targetLane: 2 },
+    ];
+    const preview = jsonFrom(await client.callTool({
+      name: "editor.timeline.edit.preview",
+      arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
+        baseRevision: before.revision,
+        operations,
+      },
+    }));
+    assert.equal(preview.baseRevision.id, before.revision.id);
+    assert.equal(preview.expectedDiff.added.length >= 3, true);
+    const afterPreview = jsonFrom(await client.callTool({ name: "project.inspect", arguments: {} }));
+    assert.equal(afterPreview.revision.id, before.revision.id);
+    assert.equal(createHash("sha256").update(JSON.stringify(afterPreview)).digest("hex"), beforeDigest);
+
+    const transaction = jsonFrom(await client.callTool({
+      name: "editor.timeline.edit.execute",
+      arguments: { previewToken: preview.previewToken },
+    }));
+    assert.equal(transaction.status, "VERIFIED");
+    assert.equal(transaction.applied.length, operations.length);
+    assert.equal(transaction.after.media.length, 2);
+    assert.deepEqual(
+      transaction.after.timeline.clips.map((clip: { id: string }) => clip.id),
+      ["fixture-video-occurrence", "fixture-music-occurrence", "fixture-title-occurrence"],
+    );
+    assert.equal(transaction.after.timeline.clips[0].duration, 4);
+    assert.equal(transaction.after.timeline.storyElements.find((element: { kind: string }) => element.kind === "title").text, "Framekit MVP");
+
+    const diff = jsonFrom(await client.callTool({ name: "edit.diff", arguments: { transactionId: transaction.id } }));
+    assert.equal(diff.added.some((item: { itemId: string }) => item.itemId === "fixture-title-occurrence"), true);
+    const verification = jsonFrom(await client.callTool({ name: "edit.verify", arguments: { transactionId: transaction.id } }));
+    assert.equal(verification.passed, true);
+
+    const exported = jsonFrom(await client.callTool({
+      name: "timeline.export",
+      arguments: { outputPath, preset: "master", expected: { durationSeconds: 4, hasAudio: true } },
+    }));
+    assert.equal(exported.verified, true);
+    assert.equal(exported.metadata.hasAudio, true);
+    assert.equal(exported.metadata.outputPath, outputPath);
+    assert.equal((await readFile(outputPath, "utf8")), "deterministic basic mvp export");
+
+    const undone = jsonFrom(await client.callTool({ name: "edit.undo", arguments: { transactionId: transaction.id } }));
+    assert.equal(undone.timeline.clips.length, 0);
+    assert.equal(undone.media.length, 0);
+    assert.equal(undone.timeline.storyElements.length, 0);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
