@@ -128,7 +128,10 @@ test("tagpr releases publish the package consumed by the plugin", async () => {
 
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /publish-npm:/);
-  assert.match(workflow, /publish-npm:[\s\S]*?actions\/checkout@v4\s+with:\s+persist-credentials:\s+false/);
+  assert.match(
+    workflow,
+    /publish-npm:[\s\S]*?actions\/checkout@(?:v4|[0-9a-f]{40}[ \t]+# v4)\s+with:\s+persist-credentials:\s+false/,
+  );
   assert.match(workflow, /needs:\s+tagpr/);
   assert.match(workflow, /needs\.tagpr\.outputs\.release-tag != ''/);
   assert.match(workflow, /git tag --points-at HEAD/);
