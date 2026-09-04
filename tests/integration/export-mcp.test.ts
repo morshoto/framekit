@@ -63,7 +63,7 @@ test("MCP exposes verified video export and its capability", async () => {
     const tools = await client.listTools();
     const exportTool = tools.tools.find((tool) => tool.name === "timeline.export");
     assert.ok(exportTool);
-    assert.deepEqual(Object.keys(exportTool.inputSchema.properties ?? {}).sort(), ["expected", "outputPath", "overwrite", "preset"]);
+    assert.deepEqual(Object.keys(exportTool.inputSchema.properties ?? {}).sort(), ["expected", "outputPath", "overwrite", "preset", "transactionId"]);
 
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.capabilities.editor.videoExport, true);

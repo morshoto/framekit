@@ -176,12 +176,33 @@ test("Basic Final Cut editing MVP executes as one deterministic MCP workflow", a
 
     const exported = jsonFrom(await client.callTool({
       name: "timeline.export",
-      arguments: { outputPath, preset: "master", expected: { durationSeconds: 4, hasAudio: true } },
+      arguments: {
+        outputPath,
+        preset: "master",
+        transactionId: transaction.id,
+        expected: { durationSeconds: 4, hasAudio: true },
+      },
     }));
     assert.equal(exported.verified, true);
     assert.equal(exported.metadata.hasAudio, true);
     assert.equal(exported.metadata.outputPath, outputPath);
-    assert.equal((await readFile(outputPath, "utf8")), "deterministic basic mvp export");
+    const output = await readFile(outputPath);
+    assert.equal(output.toString("utf8"), "deterministic basic mvp export");
+    assert.equal(exported.metadata.format, "mp4");
+    assert.equal(exported.metadata.outputDigest, `sha256:${createHash("sha256").update(output).digest("hex")}`);
+    assert.deepEqual(exported.manifest, {
+      schemaVersion: 1,
+      transactionId: transaction.id,
+      sourceRevision: transaction.after.revision,
+      project: { id: before.projectId, name: before.projectName },
+      sequence: { id: before.timeline.id, name: before.timeline.name },
+      timelineDurationSeconds: 4,
+      media: [
+        { mediaId: BASIC_MVP_MEDIA.video.mediaId, sourceDigest: BASIC_MVP_MEDIA.video.sourceDigest },
+        { mediaId: BASIC_MVP_MEDIA.music.mediaId, sourceDigest: BASIC_MVP_MEDIA.music.sourceDigest },
+      ],
+      output: { format: "mp4", digest: exported.metadata.outputDigest },
+    });
 
     const undone = jsonFrom(await client.callTool({ name: "edit.undo", arguments: { transactionId: transaction.id } }));
     assert.equal(undone.timeline.clips.length, 0);

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, constants, rename, stat, unlink } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, constants, readFile, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { AudioAnalysis, VerificationReport, VisualAnalysis } from "@framekit/runtime";
@@ -88,6 +89,8 @@ export interface FinalCutVideoProbeResult {
 export interface FinalCutVideoMetadata extends FinalCutVideoProbeResult {
   outputPath: string;
   sizeBytes: number;
+  format: string;
+  outputDigest: string;
 }
 
 export interface FinalCutVideoExportResult {
@@ -186,10 +189,13 @@ export class FinalCutVideoExporter {
         await this.assertPreflight();
         await this.executor(exportScript(stagingPath, preset.menuItem));
         const output = await this.waitForOutput(stagingPath);
+        const outputDigest = await sha256File(stagingPath);
         const probed = await this.probeUntilReady(stagingPath, output.deadline);
         const metadata: FinalCutVideoMetadata = {
           outputPath,
           sizeBytes: output.size,
+          format: outputFormat(outputPath),
+          outputDigest,
           ...probed,
         };
         const verification = verifyMetadata(metadata, request.expected);
@@ -281,6 +287,16 @@ export class FinalCutVideoExporter {
       else this.resumeLiveConnection?.();
     }
   }
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const digest = createHash("sha256").update(await readFile(filePath)).digest("hex");
+  return `sha256:${digest}`;
+}
+
+function outputFormat(outputPath: string): string {
+  const extension = extname(outputPath).slice(1).toLowerCase();
+  return extension || "unknown";
 }
 
 async function assertOutputDirectory(outputPath: string): Promise<void> {

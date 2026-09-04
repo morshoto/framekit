@@ -401,6 +401,7 @@ const exportExpectationSchema = z.object({
   hasAudio: z.boolean().optional(),
   assertions: z.array(exportAssertionSchema).optional(),
 }).optional();
+const exportTransactionSchema = z.string().trim().min(1).optional();
 const nativeEditToolInputSchema = z.object({
   type: z.enum([
     "rename-selected-clip",
@@ -869,16 +870,52 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("timeline.export", {
-    description: "Export the active Final Cut timeline to a local video file, wait for completion, and verify its media metadata.",
+    description: "Export the active Final Cut timeline to a local video file, wait for completion, verify its media metadata, and optionally bind the result to a verified edit transaction.",
     inputSchema: {
       outputPath: z.string().trim().min(1),
       preset: z.enum(["master", "web"]),
       overwrite: z.boolean().optional(),
       expected: exportExpectationSchema,
+      transactionId: exportTransactionSchema,
     },
-  }, async ({ outputPath, preset, overwrite, expected }) => {
+  }, async ({ outputPath, preset, overwrite, expected, transactionId }) => {
     if (!options.videoExporter?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is not configured");
-    return jsonResult(await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected }));
+    const transaction = transactionId ? runtime.getTransaction(transactionId) : undefined;
+    if (transactionId) {
+      if (!transaction) throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} was not found`);
+      if (transaction.status !== "VERIFIED") {
+        throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} is not verified`);
+      }
+      const verification = await runtime.verifyTransaction(transactionId);
+      if (!verification.passed) {
+        throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} did not pass verification`);
+      }
+      const current = await runtime.inspectProject();
+      if (current.projectId !== transaction.after.projectId || current.timeline.id !== transaction.after.timeline.id) {
+        throw new Error(`TARGET_MISMATCH: transaction ${transactionId} is not for the active project and sequence`);
+      }
+    }
+    const result = await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected });
+    if (!transaction || !transactionId) return jsonResult(result);
+    return jsonResult({
+      ...result,
+      manifest: {
+        schemaVersion: 1,
+        transactionId,
+        sourceRevision: transaction.after.revision,
+        project: { id: transaction.after.projectId, name: transaction.after.projectName },
+        sequence: { id: transaction.after.timeline.id, name: transaction.after.timeline.name },
+        timelineDurationSeconds: transaction.after.timeline.duration,
+        media: transaction.after.media.map((media) => ({
+          mediaId: media.mediaId,
+          ...(media.sourceDigest ? { sourceDigest: media.sourceDigest } : {}),
+        })),
+        output: {
+          format: result.metadata.format,
+          digest: result.metadata.outputDigest,
+        },
+      },
+    });
   });
 
   server.registerTool("context.inspect", {

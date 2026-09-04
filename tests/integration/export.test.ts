@@ -77,6 +77,8 @@ test("video exporter uses a supported preset and returns verified output metadat
   assert.equal(result.metadata.hasAudio, true);
   assert.equal(result.metadata.videoCodec, "h264");
   assert.equal(result.metadata.audioCodec, "aac");
+  assert.equal(result.metadata.format, "mp4");
+  assert.match(result.metadata.outputDigest, /^sha256:[a-f0-9]{64}$/);
   assert.equal(result.verification.passed, true);
   assert.deepEqual(result.verification.checks.map((check) => check.name), [
     "audio-audibility",
