@@ -86,7 +86,9 @@ export type NativeCapabilityOperation =
   | "timelineFocus"
   | "projectCreation"
   | "clipInsertion"
-  | "clipMovement";
+  | "clipMovement"
+  | "transitionDiscovery"
+  | "transitionPlacement";
 
 export interface CapabilityFamilies {
   connection: {
