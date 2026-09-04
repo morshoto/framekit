@@ -79,7 +79,11 @@ test("release workflow validates the package before publishing", async () => {
   assert.notEqual(validation, -1);
   assert.ok(validation < publication, "release validation must run before npm publish");
   assert.match(workflow, /GITHUB_REPOSITORY: \$\{\{ github\.repository \}\}/);
-  assert.match(workflow, /RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.tagpr-tag \}\}/);
+  assert.match(workflow, /release-tag: \$\{\{ steps\.existing-tag\.outputs\.tag \|\| steps\.run-tagpr\.outputs\.tag \}\}/);
+  assert.match(workflow, /git tag --points-at HEAD/);
+  assert.match(workflow, /if: steps\.existing-tag\.outputs\.tag == ''/);
+  assert.match(workflow, /RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/);
+  assert.match(workflow, /releases\/\$\{release_id\}/);
 });
 
 test("release documentation provides the exact npm trust command", async () => {
