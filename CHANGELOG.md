@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.1.3](https://github.com/morshoto/framekit/compare/v0.1.2...v0.1.3) - 2026-09-04
+
+- chore(deps): pin dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/122
+- chore: automerge pinned dev dependencies by @morshoto in https://github.com/morshoto/framekit/pull/123
+- chore(deps): update dependency @types/node to v24 by @renovate[bot] in https://github.com/morshoto/framekit/pull/126
+- chore(deps): update pnpm to v11.24.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/125
+- fix(ci): use packageManager pnpm version in assign workflow by @morshoto in https://github.com/morshoto/framekit/pull/127
+- fix: recover tagged npm releases by @morshoto in https://github.com/morshoto/framekit/pull/129
+- fix(ci): use packageManager pnpm version across workflows by @morshoto in https://github.com/morshoto/framekit/pull/128
+- perf: streamline Swift CodeQL extraction by @morshoto in https://github.com/morshoto/framekit/pull/131
+- chore(deps): pin dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/121
+
 ## [v0.1.2](https://github.com/morshoto/framekit/compare/v0.1.1...v0.1.2) - 2026-08-30
 
 - chore: run Renovate daily at 7am by @morshoto in https://github.com/morshoto/framekit/pull/106
