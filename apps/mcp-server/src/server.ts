@@ -891,12 +891,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} did not pass verification`);
       }
       const current = await runtime.inspectProject();
-      if (current.projectId !== transaction.after.projectId || current.timeline.id !== transaction.after.timeline.id) {
+      if (current.projectId !== transaction.after.projectId
+        || current.timeline.id !== transaction.after.timeline.id
+        || current.revision.id !== transaction.after.revision.id
+        || current.revision.sequence !== transaction.after.revision.sequence) {
         throw new Error(`TARGET_MISMATCH: transaction ${transactionId} is not for the active project and sequence`);
       }
     }
     const result = await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected });
     if (!transaction || !transactionId) return jsonResult(result);
+    const currentAfterExport = await runtime.inspectProject();
+    if (currentAfterExport.projectId !== transaction.after.projectId
+      || currentAfterExport.timeline.id !== transaction.after.timeline.id
+      || currentAfterExport.revision.id !== transaction.after.revision.id
+      || currentAfterExport.revision.sequence !== transaction.after.revision.sequence) {
+      throw new Error(`STALE_CONTEXT: transaction ${transactionId} changed while the export was running`);
+    }
     return jsonResult({
       ...result,
       manifest: {

@@ -11,13 +11,16 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FinalCutVideoExporter } from "@framekit/final-cut";
 import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import { BASIC_EDITING_MVP_FIXTURE, BASIC_MVP_MEDIA, BASIC_MVP_TITLE_ASSET } from "../fixtures/basic-editing-mvp.js";
+import { BASIC_EDITING_MVP_FIXTURE, BASIC_MVP_FIXTURE_BYTES, BASIC_MVP_MEDIA, BASIC_MVP_TITLE_ASSET } from "../fixtures/basic-editing-mvp.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const contractPath = resolve("docs/final-cut/basic-editing-mvp.md");
 
 test("Basic Final Cut editing MVP has an executable design contract", async () => {
   const contract = await readFile(contractPath, "utf8");
+
+  assert.equal(BASIC_MVP_MEDIA.video.sourceDigest, `sha256:${createHash("sha256").update(BASIC_MVP_FIXTURE_BYTES.video).digest("hex")}`);
+  assert.equal(BASIC_MVP_MEDIA.music.sourceDigest, `sha256:${createHash("sha256").update(BASIC_MVP_FIXTURE_BYTES.music).digest("hex")}`);
 
   assert.match(contract, /^# Basic Final Cut Editing MVP/m);
   for (const stage of [
@@ -203,6 +206,8 @@ test("Basic Final Cut editing MVP executes as one deterministic MCP workflow", a
       ],
       output: { format: "mp4", digest: exported.metadata.outputDigest },
     });
+    assert.match(BASIC_MVP_MEDIA.video.sourceDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.match(BASIC_MVP_MEDIA.music.sourceDigest, /^sha256:[a-f0-9]{64}$/);
 
     const undone = jsonFrom(await client.callTool({ name: "edit.undo", arguments: { transactionId: transaction.id } }));
     assert.equal(undone.timeline.clips.length, 0);

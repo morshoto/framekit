@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, constants, readFile, rename, stat, unlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { access, constants, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { AudioAnalysis, VerificationReport, VisualAnalysis } from "@framekit/runtime";
@@ -290,8 +291,9 @@ export class FinalCutVideoExporter {
 }
 
 async function sha256File(filePath: string): Promise<string> {
-  const digest = createHash("sha256").update(await readFile(filePath)).digest("hex");
-  return `sha256:${digest}`;
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return `sha256:${hash.digest("hex")}`;
 }
 
 function outputFormat(outputPath: string): string {
