@@ -85,7 +85,7 @@ than the open Final Cut timeline.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
-through the existing `project.inspect`, `editor.timeline.edit`, `edit.diff`, and
+through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`, `edit.diff`, and
 `edit.undo` MCP tools only when `canonicalTimelineMode` is `canonical-read` or
 `canonical-write`. The bundled Workflow Extension cannot currently supply
 those methods and fails them with `CAPABILITY_UNAVAILABLE`.
