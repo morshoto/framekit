@@ -263,6 +263,32 @@ Accessibility automation to open Final Cut's Titles and Generators browser,
 select the discovered template, apply the text, and verify the selected title
 and live revision.
 
+## Native transition placement
+
+Native transitions use a guarded discovery and preview/execute flow:
+
+1. Call `editor.native.transition.search` with a visible transition name or
+   query and choose one result with a stable native `id` and `identity`.
+2. Search the Browser for the media on both sides of the edit point, then call
+   `editor.native.timeline.locate` for each result. Keep both unique occurrence
+   handles; repeated occurrence lookup does not invalidate the other media's
+   handle.
+3. Call `editor.native.transition.add.preview` with both occurrence handles and
+   an exact positive rational `duration`. Framekit requires exact adjacent
+   start/end coordinates, a shared sequence, a frame-aligned duration, and a
+   live revision that can be rechecked before execution.
+4. Confirm the returned edit point, transition identity, sequence, and revision,
+   then call `editor.native.transition.add.execute` with the short-lived token.
+5. Confirm the returned selected transition, new live revision, and Undo
+   command. Use `editor.native.undo` with the returned `operationId` to revert it.
+
+The flow fails closed when the Transitions browser search field or stable
+identity is unavailable, either occurrence is stale or ambiguous, the clips
+are not adjacent, the requested duration does not fit both clips, the sequence
+revision changes, or Final Cut cannot expose a verified selected transition and
+native Undo command. The bundled Workflow Extension remains metadata-only; this
+Accessibility path does not upgrade canonical timeline read/write capabilities.
+
 Before timeline-native preview or execute calls in normal native mode, Framekit activates Final Cut
 Pro, waits up to two seconds for an accessible project timeline, and focuses
 the timeline pane through semantic Accessibility candidates followed by

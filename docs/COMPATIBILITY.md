@@ -85,10 +85,12 @@ capability flags. With the same opt-in, the native path can import local video o
 audio, wait for the asset to appear in the active Browser, return a stable
 session media handle, search/select Browser media, locate a unique timeline
 occurrence, Blade it at the playhead, and add a discovered native title with
-text at the playhead or an explicit range. Imported media handles are session
-stable; timeline occurrence and native title operation handles remain short-lived
-and are not canonical timeline identities. Native title placement is reported
-separately as `titlePlacement` and never upgrades the live Workflow Extension's
+text at the playhead or an explicit range, and place a discovered transition
+between two adjacent occurrences. Imported media handles are session stable;
+timeline occurrence, native title, and native transition operation handles
+remain short-lived and are not canonical timeline identities. Native title and
+transition placement are reported separately as `titlePlacement` and
+`transitionPlacement`; neither upgrades the live Workflow Extension's
 canonical timeline capabilities.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
