@@ -9,7 +9,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FinalCutVideoExporter } from "@framekit/final-cut";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { BASIC_EDITING_MVP_FIXTURE, BASIC_MVP_MEDIA, BASIC_MVP_TITLE_ASSET } from "../fixtures/basic-editing-mvp.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
@@ -212,4 +212,61 @@ test("Basic Final Cut editing MVP executes as one deterministic MCP workflow", a
     await client.close();
     await server.close();
   }
+});
+
+test("Basic Final Cut editing MVP rejects stale and unavailable workflows before mutation", async () => {
+  const staleAdapter = new InMemoryEditorAdapter(BASIC_EDITING_MVP_FIXTURE);
+  const staleRuntime = new AgentVideoRuntime(staleAdapter);
+  const staleBefore = await staleRuntime.inspectProject();
+  const importOperation = {
+    type: "media.import" as const,
+    ...BASIC_MVP_MEDIA.video,
+  };
+  const stalePreview = await staleRuntime.previewEdit({
+    baseRevision: staleBefore.revision,
+    operations: [importOperation],
+  });
+  await staleAdapter.apply({
+    type: "add-marker",
+    timelineId: staleBefore.timeline.id,
+    marker: { id: "outside-workflow", start: 0, duration: 0, name: "Outside workflow" },
+  }, staleBefore.revision);
+  await assert.rejects(staleRuntime.executeEdit(stalePreview.previewToken), /STALE_CONTEXT/);
+  const staleAfter = await staleRuntime.inspectProject();
+  assert.equal(staleAfter.media.length, 0);
+  assert.equal(staleAfter.timeline.markers.length, 1);
+
+  const unavailableAdapter = new InMemoryEditorAdapter(BASIC_EDITING_MVP_FIXTURE);
+  const availableCapabilities = await unavailableAdapter.getCapabilities();
+  unavailableAdapter.getCapabilities = async () => ({
+    ...availableCapabilities,
+    editor: { ...availableCapabilities.editor, mediaImport: false },
+  });
+  const unavailableRuntime = new AgentVideoRuntime(unavailableAdapter);
+  const unavailableBefore = await unavailableRuntime.inspectProject();
+  await assert.rejects(
+    unavailableRuntime.previewEdit({ baseRevision: unavailableBefore.revision, operations: [importOperation] }),
+    /CAPABILITY_UNAVAILABLE: media import/,
+  );
+  const unavailableAfter = await unavailableRuntime.inspectProject();
+  assert.equal(canonicalSnapshotDigest(unavailableAfter), canonicalSnapshotDigest(unavailableBefore));
+});
+
+test("Basic Final Cut editing MVP rolls back a failed verification to the original digest", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter(BASIC_EDITING_MVP_FIXTURE));
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: [{ type: "media.import", ...BASIC_MVP_MEDIA.video }],
+    verification: {
+      assertions: [{ type: "audio-audibility", mediaId: BASIC_MVP_MEDIA.video.mediaId }],
+    },
+  });
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(transaction.verification?.passed, false);
+  const after = await runtime.inspectProject();
+  assert.equal(canonicalSnapshotDigest(after), canonicalSnapshotDigest(before));
+  assert.equal(after.media.length, 0);
+  assert.equal(after.timeline.clips.length, 0);
 });
