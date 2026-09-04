@@ -171,6 +171,47 @@ export interface NativeFinalCutTitleResult {
   undoCommand?: string;
 }
 
+export interface NativeFinalCutTransitionMatch {
+  id: string;
+  kind: "transition";
+  name: string;
+  vendor: string;
+  identity: string;
+}
+
+export interface NativeFinalCutTransitionPreview {
+  previewToken: string;
+  asset: NativeFinalCutTransitionMatch;
+  beforeOccurrence: NativeFinalCutOccurrence;
+  afterOccurrence: NativeFinalCutOccurrence;
+  editPoint: RationalTime;
+  duration: RationalTime;
+  sequenceId?: string;
+  revision: string;
+  command: "Add native transition";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutTransitionResult {
+  operationId: string;
+  previewToken: string;
+  asset: NativeFinalCutTransitionMatch;
+  beforeOccurrence: NativeFinalCutOccurrence;
+  afterOccurrence: NativeFinalCutOccurrence;
+  editPoint: RationalTime;
+  duration: RationalTime;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeRevision: ContextRevision;
+  afterRevision: ContextRevision;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+  undoCommand?: string;
+}
+
 export type NativeFinalCutRangeOperation = "delete-range" | "trim-to-duration";
 
 export interface NativeFinalCutRange {
@@ -253,6 +294,8 @@ export interface NativeFinalCutCapabilities {
   mediaAppend: boolean;
   mediaInsert: boolean;
   titlePlacement: boolean;
+  transitionDiscovery?: boolean;
+  transitionPlacement?: boolean;
   timelineFocus: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
@@ -283,7 +326,7 @@ export interface NativeFinalCutUndoResult {
   };
 }
 
-type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement";
+type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement" | "transition-placement";
 type NativeRetryValidator = (context: NativeFinalCutContext) => Promise<void> | void;
 
 interface NativeOperationRecord {
@@ -345,6 +388,16 @@ export interface NativeFinalCutEditor {
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
   executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult>;
+  searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]>;
+  previewTransitionAdd(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview>;
+  executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult>;
+}
+
+export interface NativeFinalCutTransitionRequest {
+  asset: NativeFinalCutTransitionMatch;
+  beforeOccurrenceHandle: string;
+  afterOccurrenceHandle: string;
+  duration: RationalTime;
 }
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
@@ -400,6 +453,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     revision: string;
     expiresAt: number;
   }>();
+  private readonly transitionPreviews = new Map<string, {
+    asset: NativeFinalCutTransitionMatch;
+    beforeOccurrence: NativeFinalCutOccurrence;
+    afterOccurrence: NativeFinalCutOccurrence;
+    editPoint: RationalTime;
+    duration: RationalTime;
+    sequenceId?: string;
+    revision: string;
+    expiresAt: number;
+  }>();
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
@@ -432,6 +495,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
       titlePlacement: this.enabled,
+      transitionDiscovery: this.enabled,
+      transitionPlacement: this.enabled,
       timelineFocus: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
@@ -832,8 +897,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         occurrence.revision = live?.revision.id;
         occurrence.uiContext = context.frontWindow;
       }
-      this.occurrenceHandles.clear();
-      this.ambiguousMediaHandles.clear();
+      for (const [handle, occurrence] of this.occurrenceHandles) {
+        if (occurrence.mediaHandle === mediaHandle) this.occurrenceHandles.delete(handle);
+      }
+      this.ambiguousMediaHandles.delete(mediaHandle);
       for (const occurrence of occurrences) this.occurrenceHandles.set(occurrence.handle, occurrence);
       if (occurrences.length !== 1) this.ambiguousMediaHandles.add(mediaHandle);
       return {
@@ -985,6 +1052,136 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult> {
     return this.withNativeUi(() => this.executeTitleAddNative(previewToken));
+  }
+
+  public async searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]> {
+    return this.withNativeUi(() => this.searchTransitionsNative(query));
+  }
+
+  public async previewTransitionAdd(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview> {
+    return this.withNativeUi(() => this.previewTransitionAddNative(request));
+  }
+
+  public async executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult> {
+    return this.withNativeUi(() => this.executeTransitionAddNative(previewToken));
+  }
+
+  private async searchTransitionsNative(query: string): Promise<NativeFinalCutTransitionMatch[]> {
+    this.assertEnabled();
+    if (!query.trim()) throw new Error("INVALID_OPERATION: transition search query cannot be empty");
+    const context = await this.requireTimelineContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for transition discovery");
+    try {
+      return parseTransitionMatches(await this.executeNativeScript(transitionSearchScript(query)));
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
+  private async previewTransitionAddNative(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview> {
+    this.assertEnabled();
+    assertNativeTransitionAsset(request.asset);
+    const beforeOccurrence = this.occurrenceHandles.get(request.beforeOccurrenceHandle);
+    if (!beforeOccurrence) throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown before occurrence ${request.beforeOccurrenceHandle}`);
+    const afterOccurrence = this.occurrenceHandles.get(request.afterOccurrenceHandle);
+    if (!afterOccurrence) throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown after occurrence ${request.afterOccurrenceHandle}`);
+    const context = await this.requireTimelineContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    const live = await this.requireLiveState();
+    const editPoint = validateTransitionEditPoint(beforeOccurrence, afterOccurrence, request.duration, live);
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle("transition-preview");
+    this.transitionPreviews.set(previewToken, {
+      asset: structuredClone(request.asset),
+      beforeOccurrence: structuredClone(beforeOccurrence),
+      afterOccurrence: structuredClone(afterOccurrence),
+      editPoint,
+      duration: structuredClone(request.duration),
+      sequenceId: live.sequence?.id,
+      revision: live.revision.id,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      asset: structuredClone(request.asset),
+      beforeOccurrence: structuredClone(beforeOccurrence),
+      afterOccurrence: structuredClone(afterOccurrence),
+      editPoint,
+      duration: structuredClone(request.duration),
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      revision: live.revision.id,
+      command: "Add native transition",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  private async executeTransitionAddNative(previewToken: string): Promise<NativeFinalCutTransitionResult> {
+    this.assertEnabled();
+    const preview = this.transitionPreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown native transition preview");
+    this.transitionPreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native transition preview has expired");
+
+    const before = await this.requireTimelineContext();
+    const beforeLive = await this.requireLiveState();
+    validateTransitionPreviewBinding(preview, beforeLive);
+    if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    try {
+      await this.executeNativeSequence(async () => {
+        await this.executor(transitionAssetSelectionScript(preview.asset.name));
+        await this.executor(selectTransitionEditPointScript(preview.beforeOccurrence, preview.afterOccurrence));
+        await this.executor(applyTransitionScript(preview.duration));
+      }, async (recovered) => {
+        if (!recovered.frontmost || !recovered.timelineWindowAvailable) {
+          throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut timeline became unavailable during transition placement");
+        }
+        validateTransitionPreviewBinding(preview, await this.requireLiveState());
+      });
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+
+    const after = await this.requireTimelineContext();
+    const afterLive = await this.waitForRevision(beforeLive.revision.id);
+    const verification = verifyNativeTransition(preview, after, beforeLive, afterLive);
+    const operationId = opaqueHandle("native-transition");
+    const operation = {
+      kind: "transition-placement" as const,
+      before,
+      after,
+      beforeLive,
+      afterLive,
+      undoCommand: after.undoCommand,
+    } satisfies NativeOperationRecord;
+    if (!verification.verified) {
+      if (afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
+        this.rememberOperation(operationId, operation);
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; transition placement was rolled back`);
+      }
+      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+    }
+    this.rememberOperation(operationId, operation);
+    return {
+      operationId,
+      previewToken,
+      asset: structuredClone(preview.asset),
+      beforeOccurrence: structuredClone(preview.beforeOccurrence),
+      afterOccurrence: structuredClone(preview.afterOccurrence),
+      editPoint: structuredClone(preview.editPoint),
+      duration: structuredClone(preview.duration),
+      before,
+      after,
+      beforeRevision: beforeLive.revision,
+      afterRevision: afterLive.revision,
+      verification,
+      undoAvailable: after.undoAvailable,
+      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+    };
   }
 
   private async previewTitleAddNative(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview> {
@@ -1792,6 +1989,123 @@ function verifyNativeTitle(
     verified: true,
     detail: `Final Cut selected ${preview.asset.name} for ${preview.start.value}/${preview.start.timescale}-${preview.end.value}/${preview.end.timescale} (${preview.duration.value}/${preview.duration.timescale}) at revision ${afterLive.revision.id}`,
   };
+}
+
+function assertNativeTransitionAsset(asset: NativeFinalCutTransitionMatch): void {
+  if (!asset.id.trim() || !asset.name.trim() || !asset.identity.trim()) {
+    throw new Error("TRANSITION_ASSET_NOT_FOUND: native transition asset identity is incomplete");
+  }
+  if (asset.kind !== "transition") {
+    throw new Error(`TRANSITION_ASSET_INCOMPATIBLE: ${asset.id} is not a Final Cut transition asset`);
+  }
+}
+
+function validateTransitionEditPoint(
+  before: NativeFinalCutOccurrence,
+  after: NativeFinalCutOccurrence,
+  duration: RationalTime,
+  live: EditorLiveState,
+): RationalTime {
+  if (before.timelineOffset === undefined || after.timelineOffset === undefined) {
+    throw new Error("FINAL_CUT_NATIVE_EDIT_POINT_POSITION_UNAVAILABLE: adjacent occurrences do not have selectable timeline positions");
+  }
+  if (before.sequenceId && after.sequenceId && before.sequenceId !== after.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_EDIT_POINT_INVALID: adjacent occurrences belong to different sequences");
+  }
+  if (!before.start || !before.duration || !after.start || !after.duration) {
+    throw new Error("FINAL_CUT_NATIVE_EDIT_POINT_POSITION_UNAVAILABLE: adjacent occurrences do not expose exact coordinates");
+  }
+  const beforeEnd = addRational(parseRationalString(before.start, "before occurrence start"), parseRationalString(before.duration, "before occurrence duration"));
+  const afterStart = parseRationalString(after.start, "after occurrence start");
+  if (compareRational(beforeEnd, afterStart) !== 0) {
+    throw new Error("FINAL_CUT_NATIVE_EDIT_POINT_INVALID: occurrences are not adjacent on the same edit point");
+  }
+  const exactDuration = parseRationalInput(duration, "transition duration");
+  if (compareRational(exactDuration, zeroRational()) <= 0
+    || compareRational(exactDuration, parseRationalString(before.duration, "before occurrence duration")) > 0
+    || compareRational(exactDuration, parseRationalString(after.duration, "after occurrence duration")) > 0) {
+    throw new Error("INVALID_OPERATION: transition duration must be positive and fit both adjacent occurrences");
+  }
+  if (live.sequence?.frameDuration && !isFrameAligned(exactDuration, zeroRational(), live.sequence.frameDuration)) {
+    throw new Error("INVALID_OPERATION: transition duration must align to the sequence frame duration");
+  }
+  return beforeEnd;
+}
+
+function validateTransitionPreviewBinding(
+  preview: { beforeOccurrence: NativeFinalCutOccurrence; afterOccurrence: NativeFinalCutOccurrence; sequenceId?: string; revision: string },
+  live: EditorLiveState,
+): void {
+  if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+  }
+  if (live.revision.id !== preview.revision) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+  }
+  if (preview.beforeOccurrence.sequenceId && live.sequence?.id !== preview.beforeOccurrence.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: before occurrence sequence changed");
+  }
+  if (preview.afterOccurrence.sequenceId && live.sequence?.id !== preview.afterOccurrence.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: after occurrence sequence changed");
+  }
+}
+
+function verifyNativeTransition(
+  preview: { asset: NativeFinalCutTransitionMatch; editPoint: RationalTime; duration: RationalTime },
+  after: NativeFinalCutContext,
+  beforeLive: EditorLiveState,
+  afterLive: EditorLiveState,
+): NativeFinalCutTransitionResult["verification"] {
+  if (!afterLive.revision.id || afterLive.revision.id === beforeLive.revision.id) {
+    return { verified: false, detail: "Final Cut did not expose a new revision after native transition placement" };
+  }
+  if (after.target.kind !== "selected-clip") {
+    return { verified: false, detail: "Final Cut did not expose the inserted transition as the selected timeline item" };
+  }
+  const observedName = after.target.name ?? "";
+  if (after.target.role !== "transition" && !observedName.toLowerCase().includes(preview.asset.name.toLowerCase())) {
+    return { verified: false, detail: `Final Cut selected ${observedName || "an unnamed item"}, not ${preview.asset.name}` };
+  }
+  if (!after.undoAvailable || !after.undoCommand) {
+    return { verified: false, detail: "Final Cut did not expose an Undo command for the native transition placement" };
+  }
+  return {
+    verified: true,
+    detail: `Final Cut verified ${preview.asset.name} at ${preview.editPoint.value}/${preview.editPoint.timescale} for ${preview.duration.value}/${preview.duration.timescale} at revision ${afterLive.revision.id}`,
+  };
+}
+
+function parseTransitionMatches(output: string): NativeFinalCutTransitionMatch[] {
+  return output
+    .split(String.fromCharCode(30))
+    .map((record) => record.trim())
+    .filter(Boolean)
+    .map((record) => {
+      const [name = "", identity = ""] = record.split(String.fromCharCode(31));
+      if (!name || !identity) {
+        throw new Error("FINAL_CUT_NATIVE_TRANSITION_ID_UNAVAILABLE: transition browser did not expose stable identities");
+      }
+      return {
+        id: `final-cut:transition:${identity}`,
+        kind: "transition" as const,
+        name,
+        vendor: "Final Cut Pro",
+        identity,
+      };
+    });
+}
+
+function parseRationalString(value: string, label: string): RationalTime {
+  const match = value.match(/^(-?\d+)\/(\d+)$/);
+  if (!match || match[2] === "0") throw new Error(`FINAL_CUT_NATIVE_PROTOCOL: ${label} is not a valid rational time`);
+  return normalizeRational(BigInt(match[1]!), BigInt(match[2]!));
+}
+
+function parseRationalInput(value: RationalTime, label: string): RationalTime {
+  if (!/^-?\d+$/.test(value.value) || !/^\d+$/.test(value.timescale) || value.timescale === "0") {
+    throw new Error(`INVALID_OPERATION: ${label} is not a valid rational time`);
+  }
+  return normalizeRational(BigInt(value.value), BigInt(value.timescale));
 }
 
 async function runAppleScript(script: string, options: NativeFinalCutExecutorOptions = {}): Promise<string> {
@@ -3018,6 +3332,139 @@ tell application "System Events"
 end tell`;
 }
 
+function transitionSearchScript(query: string): string {
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    -- Final Cut's Transitions tab is a custom Browser control. Keep the click
+    -- bounded to the standard Browser tab strip and verify the result by its
+    -- AXIdentifier rather than treating a visible name as an identity.
+    click at {(item 1 of origin) + 146, (item 2 of origin) + 53}
+    delay 0.3
+    set transitionSearchField to missing value
+    repeat with candidate in entire contents of front window
+      try
+        set candidateRole to role of candidate as text
+        set candidateDescription to description of candidate as text
+        if (candidateRole is "AXSearchField" or candidateRole is "AXTextField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
+          set transitionSearchField to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if transitionSearchField is missing value then error "FINAL_CUT_NATIVE_TRANSITION_SEARCH_UNAVAILABLE: transition search field was not exposed"
+    set value of transitionSearchField to ${appleScriptString(query)}
+    delay 0.6
+    set output to ""
+    set seenIdentities to {}
+    repeat with candidate in entire contents of front window
+      try
+        set candidateName to name of candidate as text
+        set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+        if candidateIdentity is not "" and candidateName contains ${appleScriptString(query)} and seenIdentities does not contain candidateIdentity then
+          set end of seenIdentities to candidateIdentity
+          set output to output & candidateName & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+        end if
+      on error
+        -- Ignore inaccessible Browser descendants and continue the bounded scan.
+      end try
+    end repeat
+    return output
+  end tell
+  end tell`;
+}
+
+function transitionAssetSelectionScript(assetName: string): string {
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    click at {(item 1 of origin) + 146, (item 2 of origin) + 53}
+    delay 0.3
+    set transitionSearchField to missing value
+    repeat with candidate in entire contents of front window
+      try
+        set candidateRole to role of candidate as text
+        set candidateDescription to description of candidate as text
+        if (candidateRole is "AXSearchField" or candidateRole is "AXTextField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
+          set transitionSearchField to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if transitionSearchField is missing value then error "FINAL_CUT_NATIVE_TRANSITION_SEARCH_UNAVAILABLE: transition search field was not exposed"
+    set value of transitionSearchField to ${appleScriptString(assetName)}
+    delay 0.6
+    set exactItem to missing value
+    set exactCount to 0
+    repeat with candidate in entire contents of front window
+      try
+        if (name of candidate as text) is ${appleScriptString(assetName)} then
+          set exactCount to exactCount + 1
+          set exactItem to candidate
+        end if
+      end try
+    end repeat
+    if exactCount is greater than 1 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_AMBIGUOUS: multiple exact transition matches were visible"
+    if exactItem is missing value then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not visible"
+    try
+      perform action "AXPress" of exactItem
+    on error
+      click exactItem
+    end try
+  end tell
+  end tell`;
+}
+
+function selectTransitionEditPointScript(before: NativeFinalCutOccurrence, after: NativeFinalCutOccurrence): string {
+  const left = before.timelineOffset!;
+  const right = after.timelineOffset!;
+  const midpoint = Math.round((left + right) / 2);
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set origin to position of mainWindow
+    -- Select the exact bounded UI edit point observed during occurrence
+    -- discovery. The occurrence handles and live revision are rechecked by
+    -- the adapter immediately before this script runs.
+    click at {(item 1 of origin) + ${midpoint}, (item 2 of origin) + 650}
+    delay 0.2
+  end tell
+  end tell`;
+}
+
+function applyTransitionScript(duration: RationalTime): string {
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    -- Command-T applies the selected compatible transition. Control-D opens
+    -- Final Cut's duration editor for the selected transition.
+    keystroke "t" using {command down}
+    delay 0.5
+    keystroke "d" using {control down}
+    delay 0.2
+    set durationText to ${appleScriptString(`${duration.value}/${duration.timescale}`)}
+    repeat with candidate in text fields of front window
+      try
+        if focused of candidate then
+          set value of candidate to durationText
+          key code 36
+          exit repeat
+        end if
+      end try
+    end repeat
+  end tell
+  end tell`;
+}
+
 function titleAssetSelectionScript(assetName: string): string {
   return `
 tell application "System Events"
@@ -3315,7 +3762,7 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
       const timelineOffsetText = legacyRecord ? legacyTimelineOffset : timelineOffsetOrDuration;
       const legacyRange = legacyRecord || (!legacyRecord && isRational(identityOrStart) && isRational(timelineOffsetOrDuration));
       return {
-        handle: opaqueHandle("occurrence", index),
+        handle: opaqueHandle("occurrence"),
         mediaHandle,
         name,
         ...(role ? { role } : {}),

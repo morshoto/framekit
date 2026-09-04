@@ -358,6 +358,12 @@ const nativeTitlePreviewSchema = {
   start: rationalTimeSchema.optional(),
   duration: rationalTimeSchema,
 };
+const nativeTransitionPreviewSchema = {
+  assetId: z.string().min(1),
+  beforeOccurrenceHandle: z.string().min(1),
+  afterOccurrenceHandle: z.string().min(1),
+  duration: rationalTimeSchema,
+};
 const exportAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio-audibility"),
@@ -686,6 +692,36 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
     return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
+  });
+
+  server.registerTool("editor.native.transition.search", {
+    description: "Search the visible Final Cut Transitions browser and return only transitions with stable native identities.",
+    inputSchema: { query: z.string().trim().min(1) },
+  }, async ({ query }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition discovery is not configured");
+    return jsonResult(await options.nativeEditor.searchTransitions(query));
+  });
+
+  server.registerTool("editor.native.transition.add.preview", {
+    description: "Preview adding a discovered native transition between two adjacent occurrence handles at an exact duration.",
+    inputSchema: nativeTransitionPreviewSchema,
+  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
+    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId);
+    return jsonResult(await options.nativeEditor.previewTransitionAdd({
+      asset,
+      beforeOccurrenceHandle,
+      afterOccurrenceHandle,
+      duration,
+    }));
+  });
+
+  server.registerTool("editor.native.transition.add.execute", {
+    description: "Execute a previously previewed native transition placement and return verified revision and Undo state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
+    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken));
   });
 
   server.registerTool("editor.native.undo", {
@@ -1137,6 +1173,34 @@ async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: stri
   return asset;
 }
 
+async function resolveNativeTransitionAsset(
+  runtime: AgentVideoRuntime,
+  nativeEditor: NativeFinalCutEditor,
+  assetId: string,
+) {
+  let assets: Awaited<ReturnType<AgentVideoRuntime["listAssets"]>> = [];
+  try {
+    assets = await runtime.listAssets({ kind: "transition" });
+  } catch {
+    // A native-only session may not expose the runtime asset registry. Native
+    // discovery below remains the source of truth in that case.
+  }
+  const asset = assets.find((candidate) => candidate.id === assetId);
+  if (asset) {
+    return {
+      id: asset.id,
+      kind: "transition" as const,
+      name: asset.name,
+      vendor: asset.vendor,
+      identity: typeof asset.metadata.nativeIdentity === "string" ? asset.metadata.nativeIdentity : asset.id,
+    };
+  }
+  const nativeMatches = await nativeEditor.searchTransitions(assetId);
+  const nativeMatch = nativeMatches.find((candidate) => candidate.id === assetId);
+  if (!nativeMatch) throw new Error(`TRANSITION_ASSET_NOT_FOUND: installed transition asset ${assetId} was not discovered`);
+  return nativeMatch;
+}
+
 async function connectionStatus(options: McpServerOptions): Promise<McpConnectionStatus> {
   return await options.connectionStatus?.() ?? {
     state: "ready",
@@ -1181,6 +1245,8 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
         mediaAppend: Boolean(native?.mediaAppend),
         mediaInsert: Boolean(native?.mediaInsert),
         titlePlacement: Boolean(native?.titlePlacement),
+        transitionDiscovery: Boolean(native?.transitionDiscovery),
+        transitionPlacement: Boolean(native?.transitionPlacement),
         timelineFocus: Boolean(native?.timelineFocus),
         projectCreation: false,
         clipInsertion: false,
