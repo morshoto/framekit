@@ -92,7 +92,7 @@ test("release workflow validates the package before publishing", async () => {
   assert.match(workflow, /if: steps\.existing-tag\.outputs\.tag == ''/);
   assert.match(
     workflow,
-    /tagpr:[\s\S]*?actions\/checkout@v4[\s\S]*?token: \$\{\{ secrets\.TAGPR_TOKEN \}\}[\s\S]*?persist-credentials: false/,
+    /tagpr:[\s\S]*?actions\/checkout@(?:v4|[0-9a-f]{40}[ \t]+# v4)[\s\S]*?token: \$\{\{ secrets\.TAGPR_TOKEN \}\}[\s\S]*?persist-credentials: false/,
   );
   assert.match(workflow, /RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/);
   assert.match(workflow, /releases\/\$\{release_id\}/);
