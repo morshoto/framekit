@@ -10,7 +10,7 @@ discovery, and the Phase 1 Final Cut runtime.
 Requirements:
 
 - Node.js 20 or newer;
-- pnpm 11.10.0;
+- pnpm 11.24.0;
 - Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
 
 For the pinned Node and shell toolchain, enter the optional Nix shell first:
