@@ -69,7 +69,7 @@ jobs:
           build-mode: manual
 
       - name: Build Swift sources for CodeQL extraction
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           xcodebuild \
             -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
