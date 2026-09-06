@@ -3,10 +3,11 @@ import type { TimeRange } from "../domain/primitives.js";
 import { planFillerRemoval } from "../speech/filler-removal.js";
 import { translateRationalRange } from "../timeline/rational-time.js";
 import { planDialogueGain, type DialogueNormalizationRequest } from "../audio/dialogue-normalization.js";
+import { planNoiseReduction, type NoiseReductionRequest } from "../audio/noise-reduction.js";
 import type { FillerRemovalTarget } from "../speech/filler-removal.js";
 
 export function builtinSkills(): SkillDefinition[] {
-  return [fillerRemovalSkill(), dialogueNormalizationSkill()];
+  return [fillerRemovalSkill(), dialogueNormalizationSkill(), noiseReductionSkill()];
 }
 
 function fillerRemovalSkill(): SkillDefinition {
@@ -146,6 +147,91 @@ function dialogueNormalizationSkill(): SkillDefinition {
     handler: {
       normalize: (input) => input as Record<string, unknown>,
       plan: async (context, input) => planDialogueSkill(context, input),
+    },
+  };
+}
+
+function noiseReductionSkill(): SkillDefinition {
+  return {
+    manifest: {
+      contractVersion: 1,
+      id: "audio-noise-reduction",
+      version: "1.0.0",
+      title: "Audio noise reduction",
+      description: "Detect unwanted background noise and apply a bounded, verified reduction to one audio occurrence.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          mediaId: { type: "string", minLength: 1 },
+          occurrenceId: { type: "string", minLength: 1 },
+          noiseThresholdDb: { type: "number" },
+          maxReductionDb: { type: "number", minimum: 0 },
+          minConfidence: { type: "number", minimum: 0, maximum: 1 },
+        },
+        required: ["mediaId", "occurrenceId", "noiseThresholdDb", "maxReductionDb", "minConfidence"],
+        additionalProperties: false,
+      },
+      requirements: {
+        type: "allOf",
+        requirements: [
+          { type: "editor", capability: "timelineSnapshotRead" },
+          { type: "editor", capability: "timelineWrite" },
+          { type: "editor", capability: "readAfterWrite" },
+          { type: "editor", capability: "rollback" },
+          { type: "editor", capability: "compositeTransactions" },
+          { type: "editor", capability: "noiseReduction" },
+          { type: "analyzer", capability: "audioNoise" },
+          { type: "operation", operation: "reduce-noise" },
+        ],
+      },
+    },
+    handler: {
+      normalize: (input) => input as Record<string, unknown>,
+      plan: async (context, input) => planNoiseSkill(context, input),
+    },
+  };
+}
+
+async function planNoiseSkill(context: SkillPlanningContext, input: Record<string, unknown>) {
+  if (!context.measureNoise) throw new Error("CAPABILITY_UNAVAILABLE: audio noise analysis");
+  const clip = context.project.timeline.clips.find((candidate) => candidate.id === input.occurrenceId);
+  if (!clip) throw new Error(`OCCURRENCE_NOT_FOUND: ${String(input.occurrenceId)}`);
+  if (clip.mediaId !== input.mediaId) {
+    throw new Error(`TARGET_MISMATCH: occurrence ${String(input.occurrenceId)} does not reference media ${String(input.mediaId)}`);
+  }
+  const request = input as unknown as NoiseReductionRequest;
+  const measurement = await context.measureNoise(request.mediaId, request.occurrenceId);
+  const plan = planNoiseReduction(measurement, request);
+  const timelineRanges = plan.decision === "APPLY"
+    ? plan.affectedRanges.map((range) => ({
+      start: clip.start + range.start,
+      end: clip.start + range.end,
+    }))
+    : [];
+  const verification = plan.decision === "APPLY" ? {
+    requireExpectedChange: true,
+    assertions: [{
+      type: "audio-noise" as const,
+      mediaId: request.mediaId,
+      maxNoiseFloorDb: request.noiseThresholdDb,
+      minConfidence: request.minConfidence,
+    }],
+  } : undefined;
+  return {
+    operations: plan.decision === "APPLY" ? timelineRanges.map((range) => ({
+      type: "reduce-noise" as const,
+      clipId: clip.id,
+      range,
+      reductionDb: plan.reductionDb,
+      baseRevision: context.baseRevision,
+    })) : [],
+    affectedRanges: structuredClone(timelineRanges),
+    warnings: plan.decision === "SKIP" ? [...plan.reasonCodes] : [],
+    ...(verification ? { verification } : {}),
+    details: {
+      measurement: structuredClone(measurement),
+      plan: structuredClone(plan),
+      timelineAffectedRanges: structuredClone(timelineRanges),
     },
   };
 }

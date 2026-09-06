@@ -100,6 +100,7 @@ export class SkillRuntime {
       baseRevision: structuredClone(before.revision),
       analyzeSpeech: (mediaId: string, range?: import("../domain/primitives.js").TimeRange) => this.analysis.analyzeSpeech(mediaId, range),
       measureAudio: (mediaId: string, occurrenceId: string) => this.analysis.measureAudio(mediaId, occurrenceId),
+      measureNoise: (mediaId: string, occurrenceId: string) => this.analysis.measureNoise(mediaId, occurrenceId),
     });
     const planned = await definition.handler.plan(handlerContext, normalizedInput);
     const plan: SkillPlan = {

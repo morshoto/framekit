@@ -3,6 +3,7 @@ import type {
   AgentContext,
   AssetSearchQuery,
   AudioAnalysis,
+  NoiseAnalysis,
   CompositeEditPreview,
   CompositeEditRequest,
   ContextDiff,
@@ -261,6 +262,10 @@ export class AgentVideoRuntime {
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
     return this.media.analyzeAudio(mediaId);
+  }
+
+  public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
+    return this.media.analyzeNoise(mediaId, range);
   }
 
   public async analyzeVisual(mediaId: string, range?: TimeRange): Promise<VisualAnalysis> {

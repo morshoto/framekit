@@ -4,7 +4,7 @@ import type { ProjectSnapshot } from "./project.js";
 import type { WorkflowOperation } from "./editing.js";
 import type { TimelineDiff } from "./diff.js";
 import type { VerificationPolicy, VerificationReport } from "./verification.js";
-import type { AudioMeasurement, SpeechAnalysis } from "./media.js";
+import type { AudioMeasurement, NoiseMeasurement, SpeechAnalysis } from "./media.js";
 
 /** Version of the editor-independent Skill contract. */
 export const SKILL_CONTRACT_VERSION = 1 as const;
@@ -63,12 +63,15 @@ export type EditorSkillCapability =
   | "clipRemoval"
   | "transitionPlacement"
   | "audioAttachment"
-  | "audioMixing";
+  | "audioMixing"
+  | "noiseReduction"
+  | "colorCorrection";
 
 export type AnalyzerSkillCapability =
   | "speechTranscribe"
   | "speechVad"
   | "audioLoudness"
+  | "audioNoise"
   | "visualTrack"
   | "metadataDescribe";
 
@@ -77,6 +80,8 @@ export const SKILL_OPERATIONS = [
   "rename-clip",
   "trim-clip",
   "set-gain",
+  "reduce-noise",
+  "set-color-correction",
   "ripple-delete",
   "add-marker",
   "media.import",
@@ -118,6 +123,7 @@ export interface SkillPlanningContext {
   baseRevision: ContextRevision;
   analyzeSpeech?: (mediaId: string, range?: TimeRange) => Promise<SpeechAnalysis>;
   measureAudio?: (mediaId: string, occurrenceId: string) => Promise<AudioMeasurement>;
+  measureNoise?: (mediaId: string, occurrenceId: string) => Promise<NoiseMeasurement>;
 }
 
 export interface SkillPlan {
