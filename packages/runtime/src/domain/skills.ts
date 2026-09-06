@@ -71,7 +71,25 @@ export type AnalyzerSkillCapability =
   | "metadataDescribe";
 
 /** Semantic operation names are deliberately independent of editor commands. */
-export type SkillOperation = WorkflowOperation["type"];
+export const SKILL_OPERATIONS = [
+  "rename-clip",
+  "trim-clip",
+  "set-gain",
+  "ripple-delete",
+  "add-marker",
+  "media.import",
+  "timeline.media.add",
+  "timeline.audio.fades",
+  "timeline.title.add",
+  "timeline.media.move",
+  "timeline.media.replace",
+  "timeline.media.remove",
+  "timeline.transition.add",
+  "timeline.audio.attach",
+  "timeline.audio.mix",
+] as const satisfies readonly WorkflowOperation["type"][];
+
+export type SkillOperation = (typeof SKILL_OPERATIONS)[number];
 
 export type SkillRequirement =
   | { type: "allOf"; requirements: SkillRequirement[] }

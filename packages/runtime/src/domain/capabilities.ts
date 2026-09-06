@@ -41,6 +41,8 @@ export interface EditorCapabilities {
   transitionPlacement?: boolean;
   audioAttachment?: boolean;
   audioMixing?: boolean;
+  /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
+  semanticOperations?: Partial<Record<string, boolean>>;
 }
 
 export interface AnalyzerCapabilities {
