@@ -1,5 +1,18 @@
 # Generic MCP Skills
 
+Framekit's public Skill contract lives in `@framekit/runtime`. A manifest is
+metadata and an executable handler is separate from it; handlers receive a
+read-only planning context and return semantic operations. Skill implementations
+must not call Final Cut or another editor adapter directly.
+
+The lifecycle is:
+
+```text
+discover → resolve → plan → preview → execute → verify → accept | rollback
+```
+
+The v0.0.2 contract is documented in [ADR 0008](../adr/0008-skill-contract.md).
+
 Framekit Skills describe editing knowledge and use generic MCP tools. A Skill
 contains no Final Cut-specific commands; editor and analyzer capabilities are
 resolved by the runtime before mutation.
