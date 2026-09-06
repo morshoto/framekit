@@ -282,6 +282,9 @@ preview tokens. An unrecognized or ambiguous destructive request returns
 ## Generic Skills
 
 The versioned Skill surface is `skill.list`, `skill.inspect`, `skill.preview`,
-and `skill.execute`. See [Generic MCP Skills](./skills.md) for the
-`filler-removal` and `dialogue-normalization` contracts. Skills use runtime
+and `skill.execute`. Discovery and inspection include current capability
+availability and structured missing requirements. Preview accepts a Skill ID,
+optional semantic version, and an argument object containing the inspected base
+revision; execute accepts only the runtime-issued preview token. See
+[Generic MCP Skills](./skills.md) for the full contract. Skills use runtime
 capabilities and never embed Final Cut-specific commands.

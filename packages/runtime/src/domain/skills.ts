@@ -3,6 +3,7 @@ import type { ContextRevision, TimeRange } from "./primitives.js";
 import type { ProjectSnapshot } from "./project.js";
 import type { WorkflowOperation } from "./editing.js";
 import type { VerificationPolicy, VerificationReport } from "./verification.js";
+import type { AudioMeasurement, SpeechAnalysis } from "./media.js";
 
 /** Version of the editor-independent Skill contract. */
 export const SKILL_CONTRACT_VERSION = 1 as const;
@@ -114,6 +115,8 @@ export interface SkillPlanningContext {
   project: ProjectSnapshot;
   capabilities: RuntimeCapabilities;
   baseRevision: ContextRevision;
+  analyzeSpeech?: (mediaId: string, range?: TimeRange) => Promise<SpeechAnalysis>;
+  measureAudio?: (mediaId: string, occurrenceId: string) => Promise<AudioMeasurement>;
 }
 
 export interface SkillPlan {
@@ -125,6 +128,8 @@ export interface SkillPlan {
   operations: WorkflowOperation[];
   affectedRanges: TimeRange[];
   warnings: string[];
+  verification?: VerificationPolicy;
+  details?: Record<string, unknown>;
 }
 
 export interface SkillPreview {

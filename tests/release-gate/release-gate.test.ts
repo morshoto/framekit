@@ -47,24 +47,26 @@ test("generic MCP Skill surface discovers both release workflows", async () => {
     assert.ok(tools.tools.some((tool) => tool.name === "skill.execute"));
     const listed = await client.callTool({ name: "skill.list", arguments: {} });
     const content = listed.content as Array<{ type: string; text?: string }>;
-    const payload = JSON.parse(content[0]?.text ?? "null") as Array<{ id: string; version: number }>;
-    assert.deepEqual(payload.map((skill) => skill.id), ["filler-removal", "dialogue-normalization"]);
-    assert.ok(payload.every((skill) => skill.version === 1));
+    const payload = JSON.parse(content[0]?.text ?? "null") as Array<{ id: string; version: string }>;
+    assert.deepEqual(payload.map((skill) => skill.id), ["dialogue-normalization", "filler-removal"]);
+    assert.ok(payload.every((skill) => skill.version === "1.0.0"));
 
     const inspected = await client.callTool({
       name: "skill.inspect",
       arguments: { skill: "dialogue-normalization" },
     });
     const inspectedContent = inspected.content as Array<{ type: string; text?: string }>;
-    const dialogueSkill = JSON.parse(inspectedContent[0]?.text ?? "null") as { previewTool: string; executeTool: string };
-    assert.deepEqual(dialogueSkill, {
-      id: "dialogue-normalization",
-      version: 1,
-      description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
-      previewTool: "skill.preview",
-      executeTool: "skill.execute",
-      requires: ["canonical timeline read", "dialogue audio analysis", "set-gain", "rollback"],
-    });
+    const dialogueSkill = JSON.parse(inspectedContent[0]?.text ?? "null") as {
+      id: string;
+      version: string;
+      inputSchema: { type: string };
+      availability: { available: boolean; missingRequirements: unknown[] };
+    };
+    assert.equal(dialogueSkill.id, "dialogue-normalization");
+    assert.equal(dialogueSkill.version, "1.0.0");
+    assert.equal(dialogueSkill.inputSchema.type, "object");
+    assert.equal(dialogueSkill.availability.available, false);
+    assert.ok(dialogueSkill.availability.missingRequirements.length > 0);
   } finally {
     await client.close();
     await server.close();
