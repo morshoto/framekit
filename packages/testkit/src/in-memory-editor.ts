@@ -119,10 +119,14 @@ export class InMemoryEditorAdapter implements EditorPort {
         transitionPlacement: true,
         audioAttachment: true,
         audioMixing: true,
+        noiseReduction: true,
+        colorCorrection: true,
         semanticOperations: {
           "rename-clip": true,
           "trim-clip": true,
           "set-gain": true,
+          "reduce-noise": true,
+          "set-color-correction": true,
           "ripple-delete": true,
           "add-marker": true,
           "media.import": true,
@@ -575,6 +579,32 @@ export class InMemoryEditorAdapter implements EditorPort {
         ...(operation.gainDb !== undefined ? { gainDb: operation.gainDb } : {}),
         fadeIn,
         fadeOut,
+      });
+    }
+    if (operation.type === "reduce-noise") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+      const media = clip.mediaId ? snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId) : undefined;
+      if (clip.role !== "audio" && clip.role !== "music" && media?.mediaKind !== "audio") {
+        throw new Error("INVALID_OPERATION: noise reduction requires an audio clip");
+      }
+      if (!Number.isFinite(operation.reductionDb) || operation.reductionDb <= 0
+        || operation.range.start < clip.start
+        || operation.range.end > clip.start + clip.duration
+        || operation.range.end <= operation.range.start) {
+        throw new Error("INVALID_OPERATION: noise reduction range and adjustment must fit the clip");
+      }
+      return this.updateClip(snapshot, {
+        ...clip,
+        noiseReductionDb: (clip.noiseReductionDb ?? 0) + operation.reductionDb,
+      });
+    }
+    if (operation.type === "set-color-correction") {
+      const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+      if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+      return this.updateClip(snapshot, {
+        ...clip,
+        colorCorrection: structuredClone(operation.correction),
       });
     }
     if (operation.type === "ripple-delete") {

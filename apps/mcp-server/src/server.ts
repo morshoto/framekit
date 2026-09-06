@@ -43,7 +43,7 @@ const mediaIndexQuerySchema = z.object({
   mood: z.string().optional(),
   motion: z.enum(["static", "low", "medium", "high"]).optional(),
   range: rangeSchema.optional(),
-  capabilities: z.array(z.enum(["metadata", "speech", "audio", "visual"])).optional(),
+  capabilities: z.array(z.enum(["metadata", "speech", "audio", "noise", "visual"])).optional(),
 });
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
@@ -84,6 +84,13 @@ const trimClipSchema = z.object({
     baseRevision: revisionSchema,
 });
 const setGainSchema = z.object({ type: z.literal("set-gain"), clipId: z.string().min(1), gainDb: z.number().finite(), baseRevision: revisionSchema });
+const reduceNoiseSchema = z.object({
+  type: z.literal("reduce-noise"),
+  clipId: z.string().min(1),
+  range: rangeSchema,
+  reductionDb: z.number().finite().positive(),
+  baseRevision: revisionSchema,
+});
 const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
 const roughCutImportSchema = z.object({
@@ -108,6 +115,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
   setGainSchema,
+  reduceNoiseSchema,
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
@@ -130,6 +138,12 @@ const verificationAssertionSchema = z.discriminatedUnion("type", [
     mediaId: z.string().min(1),
     targetLufs: z.number().finite(),
     toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-noise"),
+    mediaId: z.string().min(1),
+    maxNoiseFloorDb: z.number().finite(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
   }),
   z.object({
     type: z.literal("audio-source"),
@@ -172,12 +186,13 @@ const verificationPolicySchema = z.object({
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
 const editToolInputSchema = z.object({
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
+  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "ripple-delete", "add-marker"]),
   clipId: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   duration: z.number().positive().optional(),
   durationTime: rationalTimeSchema.optional(),
   gainDb: z.number().finite().optional(),
+  reductionDb: z.number().finite().positive().optional(),
   timelineId: z.string().min(1).optional(),
   range: rangeSchema.optional(),
   reason: z.string().optional(),
@@ -203,6 +218,7 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
   setGainSchema,
+  reduceNoiseSchema,
   rippleDeleteSchema,
   addMarkerSchema,
   z.object({
@@ -340,6 +356,14 @@ const dialogueNormalizationInputSchema = {
   minGainDb: z.number().finite(),
   maxGainDb: z.number().finite(),
   minDialogueDurationSeconds: z.number().finite().nonnegative(),
+};
+const noiseReductionInputSchema = {
+  mediaId: z.string().trim().min(1),
+  occurrenceId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  noiseThresholdDb: z.number().finite(),
+  maxReductionDb: z.number().finite().positive(),
+  minConfidence: z.number().finite().min(0).max(1),
 };
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
@@ -1144,6 +1168,28 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Analyze loudness, true peak, and silence for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
   }, async ({ mediaId }) => jsonResult(await runtime.analyzeAudio(mediaId)));
+
+  server.registerTool("audio.noise.analyze", {
+    description: "Analyze unwanted background noise for one media item when a noise analyzer is configured.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeNoise(mediaId, range)));
+
+  server.registerTool("audio.noise.reduce.preview", {
+    description: "Preview a bounded noise-reduction adjustment and its affected ranges without mutating the editor.",
+    inputSchema: noiseReductionInputSchema,
+  }, async (request) => {
+    const { baseRevision, ...input } = request;
+    return skillPreviewResult(await runtime.previewSkill({
+      skillId: "audio-noise-reduction",
+      baseRevision,
+      input,
+    }));
+  });
+
+  server.registerTool("audio.noise.reduce.execute", {
+    description: "Execute one previewed noise-reduction adjustment and return post-write measurement verification and rollback state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
 
   server.registerTool("edit.diff", {
     description: "Read the deterministic diff for a completed edit transaction.",

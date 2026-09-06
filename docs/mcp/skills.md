@@ -27,6 +27,7 @@ Skills currently exposed by the generic surface are:
 | --- | --- | --- |
 | `filler-removal` | 1.0.0 | speech analysis, safe deletion, re-analysis, verification, rollback |
 | `dialogue-normalization` | 1.0.0 | dialogue measurement, bounded gain, re-measurement, verification, rollback |
+| `audio-noise-reduction` | 1.0.0 | noise analysis, affected-range preview, bounded reduction, re-analysis, verification, rollback |
 
 ## Execution contract
 
@@ -50,6 +51,13 @@ dialogue loudness and true peak before planning gain, returns `NO_OP` for clips
 inside tolerance, and returns `SKIP` for silence, missing dialogue, invalid
 measurements, clamp violations, or peak risk. Verification uses a new
 post-write measurement rather than the estimate.
+
+`audio-noise-reduction` requires an explicitly configured noise analyzer and an
+editor-native noise-reduction capability. It reports revision-bound noise
+measurements, affected ranges, and a bounded reduction adjustment. The runtime
+re-analyzes the edited range after execution and rolls back when the configured
+noise-floor threshold is not met. Missing analyzer or effect capability fails
+closed before mutation.
 
 Both workflows require canonical read, supported timeline write, read-after-write,
 analysis, and rollback capabilities. Missing capabilities fail closed before
