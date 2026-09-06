@@ -9,7 +9,6 @@ export * from "./timeline/snapshot-digest.js";
 export * from "./speech/filler-removal.js";
 export * from "./audio/dialogue-normalization.js";
 export * from "./audio/noise-reduction.js";
-export * from "./color-correction.js";
 export * from "./domain/skills.js";
 export * from "./skills/requirements.js";
 export * from "./skills/index.js";
