@@ -10,6 +10,7 @@ export * from "./speech/filler-removal.js";
 export * from "./audio/dialogue-normalization.js";
 export * from "./domain/skills.js";
 export * from "./skills/requirements.js";
+export * from "./skills/index.js";
 export type { RuntimeOptions } from "./application/runtime-options.js";
 export * from "./speech/filler-detector.js";
 export * from "./speech/safe-cut-resolver.js";
