@@ -175,6 +175,7 @@ export class SkillRuntime {
         baseRevision: structuredClone(session.preview.plan.baseRevision),
       },
       transactionIds: [transaction.id],
+      diff: structuredClone(transaction.diff),
       ...(transaction.verification ? { verification: structuredClone(transaction.verification) } : {}),
       rollback: {
         attempted: rolledBack,

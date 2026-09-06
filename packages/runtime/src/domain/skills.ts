@@ -2,6 +2,7 @@ import type { RuntimeCapabilities } from "./capabilities.js";
 import type { ContextRevision, TimeRange } from "./primitives.js";
 import type { ProjectSnapshot } from "./project.js";
 import type { WorkflowOperation } from "./editing.js";
+import type { TimelineDiff } from "./diff.js";
 import type { VerificationPolicy, VerificationReport } from "./verification.js";
 import type { AudioMeasurement, SpeechAnalysis } from "./media.js";
 
@@ -152,6 +153,7 @@ export interface SkillExecution {
   status: SkillExecutionStatus;
   plan: Pick<SkillPlan, "id" | "skillId" | "skillVersion" | "baseRevision">;
   transactionIds: string[];
+  diff?: TimelineDiff;
   verification?: VerificationReport;
   rollback: SkillRollbackResult;
 }
