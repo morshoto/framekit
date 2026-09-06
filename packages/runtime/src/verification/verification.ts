@@ -3,6 +3,7 @@ import type {
   AudioAudibilityAssertion,
   AudioCoverageAssertion,
   AudioLoudnessAssertion,
+  AudioNoiseAssertion,
   AudioSourceAssertion,
   DurationAssertion,
   StreamAssertion,
@@ -13,6 +14,7 @@ import type {
   VerificationReport,
   VerificationAssertion,
   VisualContentAssertion,
+  ColorCorrectionAssertion,
 } from "../domain/verification.js";
 
 export function assertValidVerificationPolicy(policy: VerificationPolicy): void {
@@ -66,6 +68,14 @@ function validateAssertion(assertion: VerificationAssertion, index: number): voi
     }
     return;
   }
+  if (assertion.type === "audio-noise") {
+    if (!Number.isFinite(assertion.maxNoiseFloorDb)
+      || assertion.minConfidence !== undefined
+      && (!Number.isFinite(assertion.minConfidence) || assertion.minConfidence < 0 || assertion.minConfidence > 1)) {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid noise values`);
+    }
+    return;
+  }
   if (assertion.type === "audio-source") {
     if (assertion.sourceDigest === undefined && assertion.source === undefined) {
       throw new Error(`INVALID_VERIFICATION_POLICY: ${path} requires sourceDigest or source`);
@@ -93,6 +103,12 @@ function validateAssertion(assertion: VerificationAssertion, index: number): voi
       || (assertion.requirement === "occurrence-present" && assertion.occurrenceId === undefined)
       || (assertion.requirement === "operation-present" && assertion.operationType === undefined)) {
       throw new Error(`INVALID_VERIFICATION_POLICY: ${path} is missing its required identifier`);
+    }
+    return;
+  }
+  if (assertion.type === "color-correction") {
+    if (!assertion.clipId.trim() || !assertion.expected || typeof assertion.expected !== "object") {
+      throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid color correction values`);
     }
     return;
   }
@@ -200,11 +216,13 @@ export class DefaultVerificationEngine implements VerificationEngine {
 function verifyAssertion(transaction: EditTransaction, assertion: VerificationAssertion): VerificationCheck {
   if (assertion.type === "audio-coverage") return verifyAudioCoverage(transaction, assertion);
   if (assertion.type === "audio-loudness") return verifyAudioLoudness(transaction, assertion);
+  if (assertion.type === "audio-noise") return verifyAudioNoise(transaction, assertion);
   if (assertion.type === "audio-source") return verifyAudioSource(transaction, assertion);
   if (assertion.type === "visual-content") return verifyVisualContent(transaction, assertion);
   if (assertion.type === "duration") return verifyDuration(transaction, assertion);
   if (assertion.type === "stream") return verifyStream(transaction, assertion);
   if (assertion.type === "structure") return verifyStructure(transaction, assertion);
+  if (assertion.type === "color-correction") return verifyColorCorrection(transaction, assertion);
   return verifyAudioAudibility(transaction, assertion);
 }
 
@@ -372,6 +390,58 @@ function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudn
   };
 }
 
+function verifyAudioNoise(transaction: EditTransaction, assertion: AudioNoiseAssertion): VerificationCheck {
+  const expected = {
+    mediaId: assertion.mediaId,
+    maxNoiseFloorDb: assertion.maxNoiseFloorDb,
+    ...(assertion.minConfidence !== undefined ? { minConfidence: assertion.minConfidence } : {}),
+  };
+  const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
+  if (!media) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "MEDIA_NOT_FOUND",
+      detail: `expected audio media ${assertion.mediaId}, but it was not observed`,
+    };
+  }
+  if (!media.noise) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "unavailable",
+      expected,
+      observed: { mediaId: assertion.mediaId },
+      reason: "NOISE_ANALYZER_UNAVAILABLE",
+      detail: `noise analysis is unavailable for media ${assertion.mediaId}`,
+    };
+  }
+  const observed = {
+    mediaId: assertion.mediaId,
+    noiseFloorDb: media.noise.noiseFloorDb,
+    confidence: media.noise.confidence,
+    affectedRanges: media.noise.affectedRanges,
+    valid: media.noise.valid !== false,
+  };
+  const passed = observed.valid
+    && observed.noiseFloorDb <= assertion.maxNoiseFloorDb
+    && (assertion.minConfidence === undefined || observed.confidence >= assertion.minConfidence);
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed,
+    ...(passed ? {} : { reason: observed.valid ? "AUDIO_NOISE_OUT_OF_RANGE" : "NOISE_MEASUREMENT_INVALID" }),
+    detail: passed
+      ? `observed noise floor ${observed.noiseFloorDb} dB within the configured limit`
+      : `expected noise floor at or below ${assertion.maxNoiseFloorDb} dB with sufficient confidence`,
+  };
+}
+
 function verifyAudioSource(transaction: EditTransaction, assertion: AudioSourceAssertion): VerificationCheck {
   const expected = {
     mediaId: assertion.mediaId,
@@ -462,6 +532,41 @@ function verifyVisualContent(transaction: EditTransaction, assertion: VisualCont
     detail: passed
       ? `observed ${labelKind} content ${assertion.label} in media ${assertion.mediaId}`
       : `expected ${labelKind} content ${assertion.label} in media ${assertion.mediaId}`,
+  };
+}
+
+function verifyColorCorrection(transaction: EditTransaction, assertion: ColorCorrectionAssertion): VerificationCheck {
+  const clip = transaction.attemptedAfter.timeline.clips.find((candidate) => candidate.id === assertion.clipId);
+  const observed = clip?.colorCorrection;
+  const expected = { clipId: assertion.clipId, correction: assertion.expected };
+  if (!clip) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { clipId: assertion.clipId },
+      reason: "CLIP_NOT_FOUND",
+      detail: `expected color correction target ${assertion.clipId}, but it was not observed`,
+    };
+  }
+  const passed = observed !== undefined
+    && observed.exposure === assertion.expected.exposure
+    && observed.contrast === assertion.expected.contrast
+    && observed.saturation === assertion.expected.saturation
+    && observed.temperature === assertion.expected.temperature
+    && observed.tint === assertion.expected.tint
+    && observed.preset === assertion.expected.preset;
+  return {
+    name: assertion.type,
+    passed,
+    status: passed ? "passed" : "failed",
+    expected,
+    observed: { clipId: assertion.clipId, correction: observed },
+    ...(passed ? {} : { reason: "COLOR_CORRECTION_MISMATCH" }),
+    detail: passed
+      ? `observed the requested color correction on clip ${assertion.clipId}`
+      : `the observed color correction on clip ${assertion.clipId} differed from the requested values`,
   };
 }
 

@@ -13,6 +13,8 @@ import type {
   RoughCutPlanRequest,
   MediaUnderstanding,
   MediaSourceIdentity,
+  NoiseAnalysis,
+  NoiseMeasurement,
   SpeechAnalysis,
   VisualAnalysis,
 } from "../domain/media.js";
@@ -43,6 +45,13 @@ export class MediaAnalysisService {
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
     return this.options.audioAnalyzer.analyze({ project, media });
+  }
+
+  public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
+    if (!this.options.noiseAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio noise analysis");
+    const project = await this.project.inspectProject();
+    const media = findMedia(project, mediaId);
+    return this.options.noiseAnalyzer.analyze({ project, media }, range);
   }
 
   public async measureAudio(mediaId: string, occurrenceId: string): Promise<AudioMeasurement> {
@@ -84,6 +93,43 @@ export class MediaAnalysisService {
     };
   }
 
+  public async measureNoise(mediaId: string, occurrenceId: string): Promise<NoiseMeasurement> {
+    if (!this.options.noiseAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio noise analysis");
+    const project = await this.project.inspectProject();
+    const clip = project.timeline.clips.find((candidate) => candidate.id === occurrenceId);
+    if (!clip) throw new Error(`OCCURRENCE_NOT_FOUND: ${occurrenceId}`);
+    if (clip.mediaId !== mediaId) {
+      throw new Error(`TARGET_MISMATCH: occurrence ${occurrenceId} does not reference media ${mediaId}`);
+    }
+    const media = findMedia(project, mediaId);
+    const requestedRange = { start: 0, end: clip.duration };
+    const analysis = await this.options.noiseAnalyzer.analyze({ project, media }, requestedRange);
+    const measuredEnd = analysis.affectedRanges.reduce((end, range) => Math.max(end, range.end), 0);
+    const measuredRange = {
+      start: 0,
+      end: Math.max(analysis.affectedRanges.length > 0 ? measuredEnd : requestedRange.end, 0),
+    };
+    const valid = analysis.valid !== false
+      && Number.isFinite(analysis.noiseFloorDb)
+      && Number.isFinite(analysis.recommendedReductionDb)
+      && Number.isFinite(analysis.confidence)
+      && analysis.confidence >= 0
+      && analysis.confidence <= 1
+      && analysis.affectedRanges.every((range) => Number.isFinite(range.start)
+        && Number.isFinite(range.end) && range.start >= 0 && range.end > range.start);
+    return {
+      ...structuredClone(analysis),
+      mediaId,
+      occurrenceId,
+      requestedRange,
+      measuredRange,
+      revision: project.revision,
+      provider: this.options.noiseAnalyzer.descriptor ?? { id: "framekit.audio-noise", provider: "unknown" },
+      valid,
+      ...(analysis.invalidReason ? { invalidReason: analysis.invalidReason } : {}),
+    };
+  }
+
   public async analyzeVisual(mediaId: string, range?: TimeRange): Promise<VisualAnalysis> {
     if (!this.options.visualAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: visual analysis");
     const project = await this.project.inspectProject();
@@ -95,14 +141,16 @@ export class MediaAnalysisService {
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
     const input = { project, media };
-    const [speechResult, audioResult, visualResult, metadataResult] = await Promise.all([
+    const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
       settle(() => this.options.speechAnalyzer?.analyze(input)),
       settle(() => this.options.audioAnalyzer?.analyze(input)),
+      settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
       settle(() => this.options.metadataAnalyzer?.analyze(input)),
     ]);
     const speech = fulfilledValue(speechResult);
     const audio = fulfilledValue(audioResult);
+    const noise = fulfilledValue(noiseResult);
     const visual = fulfilledValue(visualResult);
     const metadata = fulfilledValue(metadataResult);
     const sourceIdentity = sourceIdentityOf(media);
@@ -113,11 +161,13 @@ export class MediaAnalysisService {
       ...(metadata ? { metadata } : {}),
       ...(speech ? { speech } : {}),
       ...(audio ? { audio } : {}),
+      ...(noise ? { noise } : {}),
       ...(visual ? { visual } : {}),
       semantic: semanticFromAnalyses(speech, audio, visual, metadata),
       analysis: [
         analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), [], failureReason(speechResult)),
         analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), [], failureReason(audioResult)),
+        analysisStatus("noise", this.options.noiseAnalyzer, sourceIdentity, Boolean(noise), noise?.affectedRanges, failureReason(noiseResult)),
         analysisStatus("visual", this.options.visualAnalyzer, sourceIdentity, Boolean(visual), [], failureReason(visualResult)),
         analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentity, Boolean(metadata), metadata?.usableRanges, failureReason(metadataResult)),
       ],
@@ -159,6 +209,7 @@ export class MediaAnalysisService {
         analysis: media.analysis ?? [
           analysisStatus("speech", this.options.speechAnalyzer, sourceIdentityOf(media), false),
           analysisStatus("audio", this.options.audioAnalyzer, sourceIdentityOf(media), false),
+          analysisStatus("noise", this.options.noiseAnalyzer, sourceIdentityOf(media), false),
           analysisStatus("visual", this.options.visualAnalyzer, sourceIdentityOf(media), false),
           analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentityOf(media), false),
         ],
@@ -200,6 +251,10 @@ export class MediaAnalysisService {
         const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
         if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
       }
+      if (this.options.noiseAnalyzer) {
+        const analyses = await Promise.all(ranges.map((range) => this.options.noiseAnalyzer!.analyze(input, range)));
+        if (analyses[analyses.length - 1]) media.noise = analyses[analyses.length - 1];
+      }
       if (this.options.visualAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.visualAnalyzer!.analyze(input, range)));
         media.visual = {
@@ -209,7 +264,7 @@ export class MediaAnalysisService {
           motion: analyses[analyses.length - 1]?.motion,
         };
       }
-      if (this.options.speechAnalyzer || this.options.audioAnalyzer || this.options.visualAnalyzer) {
+      if (this.options.speechAnalyzer || this.options.audioAnalyzer || this.options.noiseAnalyzer || this.options.visualAnalyzer) {
         for (const candidate of next.media) {
           if (candidate.mediaId === mediaId) candidate.analysisRevision = next.revision.id;
         }

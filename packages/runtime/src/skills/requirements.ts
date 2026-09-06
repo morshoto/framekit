@@ -41,12 +41,15 @@ export const SKILL_EDITOR_CAPABILITIES = [
   "transitionPlacement",
   "audioAttachment",
   "audioMixing",
+  "noiseReduction",
+  "colorCorrection",
 ] as const satisfies readonly EditorSkillCapability[];
 
 export const SKILL_ANALYZER_CAPABILITIES = [
   "speechTranscribe",
   "speechVad",
   "audioLoudness",
+  "audioNoise",
   "visualTrack",
   "metadataDescribe",
 ] as const satisfies readonly AnalyzerSkillCapability[];
