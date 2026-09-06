@@ -38,6 +38,8 @@ import type {
   DurationPolicyPlan,
   DurationPolicyRequest,
 } from "./domain/index.js";
+import type { SkillDefinition, SkillExecution, SkillManifest, SkillPreview } from "./domain/skills.js";
+import type { SkillPreviewRequest } from "./skills/runtime.js";
 import { planRoughCutConstruction as buildRoughCutConstructionPlan } from "./domain/rough-cut.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
@@ -51,6 +53,7 @@ import type { RuntimeOptions } from "./application/runtime-options.js";
 import { TransactionStore } from "./application/transaction-store.js";
 import { DurationPolicyService } from "./application/duration-policy-service.js";
 import { DialogueNormalizationService } from "./editing/dialogue-normalization-service.js";
+import { SkillRuntime } from "./skills/runtime.js";
 import type {
   DialogueNormalizationPreview,
   DialogueNormalizationRequest,
@@ -66,6 +69,7 @@ export class AgentVideoRuntime {
   private readonly fillerRemoval: FillerRemovalService;
   private readonly durationPolicy: DurationPolicyService;
   private readonly dialogueNormalization: DialogueNormalizationService;
+  private readonly skills: SkillRuntime;
 
   public constructor(
     adapter: EditorPort,
@@ -82,6 +86,7 @@ export class AgentVideoRuntime {
     this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
     this.dialogueNormalization = new DialogueNormalizationService(adapter, this.projects, this.media, this.edits);
     this.durationPolicy = new DurationPolicyService();
+    this.skills = new SkillRuntime(this.projects, this.edits, options);
   }
 
   public async inspectProject(): Promise<ProjectSnapshot> {
@@ -202,6 +207,26 @@ export class AgentVideoRuntime {
 
   public async executeDialogueNormalization(previewToken: string): Promise<EditTransaction> {
     return this.dialogueNormalization.execute(previewToken);
+  }
+
+  public registerSkill(definition: SkillDefinition): void {
+    this.skills.register(definition);
+  }
+
+  public listSkills(): SkillManifest[] {
+    return this.skills.list();
+  }
+
+  public inspectSkill(skillId: string, version?: string): SkillManifest {
+    return this.skills.inspect(skillId, version);
+  }
+
+  public previewSkill(request: SkillPreviewRequest): Promise<SkillPreview> {
+    return this.skills.preview(request);
+  }
+
+  public executeSkill(previewToken: string): Promise<SkillExecution> {
+    return this.skills.execute(previewToken);
   }
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
