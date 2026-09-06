@@ -28,6 +28,7 @@ Skills currently exposed by the generic surface are:
 | `filler-removal` | 1.0.0 | speech analysis, safe deletion, re-analysis, verification, rollback |
 | `dialogue-normalization` | 1.0.0 | dialogue measurement, bounded gain, re-measurement, verification, rollback |
 | `audio-noise-reduction` | 1.0.0 | noise analysis, affected-range preview, bounded reduction, re-analysis, verification, rollback |
+| `color-correction` | 1.0.0 | clip-scoped exposure, contrast, saturation, white balance, presets, verification, rollback |
 
 ## Execution contract
 
@@ -58,6 +59,13 @@ measurements, affected ranges, and a bounded reduction adjustment. The runtime
 re-analyzes the edited range after execution and rolls back when the configured
 noise-floor threshold is not met. Missing analyzer or effect capability fails
 closed before mutation.
+
+`color-correction` accepts exposure, contrast, saturation, temperature/tint
+white-balance controls, and the `neutral`, `warm`, `cool`, and `high-contrast`
+presets. It records the before and after correction in the preview details and
+verifies the requested values on the intended clip after execution. It requires
+the editor's explicit color-correction capability; advanced grading and
+unsupported native effects are outside this Skill.
 
 Both workflows require canonical read, supported timeline write, read-after-write,
 analysis, and rollback capabilities. Missing capabilities fail closed before

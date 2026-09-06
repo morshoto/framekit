@@ -4,10 +4,11 @@ import { planFillerRemoval } from "../speech/filler-removal.js";
 import { translateRationalRange } from "../timeline/rational-time.js";
 import { planDialogueGain, type DialogueNormalizationRequest } from "../audio/dialogue-normalization.js";
 import { planNoiseReduction, type NoiseReductionRequest } from "../audio/noise-reduction.js";
+import { planColorCorrection, type ColorCorrectionRequest } from "../color-correction.js";
 import type { FillerRemovalTarget } from "../speech/filler-removal.js";
 
 export function builtinSkills(): SkillDefinition[] {
-  return [fillerRemovalSkill(), dialogueNormalizationSkill(), noiseReductionSkill()];
+  return [fillerRemovalSkill(), dialogueNormalizationSkill(), noiseReductionSkill(), colorCorrectionSkill()];
 }
 
 function fillerRemovalSkill(): SkillDefinition {
@@ -232,6 +233,81 @@ async function planNoiseSkill(context: SkillPlanningContext, input: Record<strin
       measurement: structuredClone(measurement),
       plan: structuredClone(plan),
       timelineAffectedRanges: structuredClone(timelineRanges),
+    },
+  };
+}
+
+function colorCorrectionSkill(): SkillDefinition {
+  return {
+    manifest: {
+      contractVersion: 1,
+      id: "color-correction",
+      version: "1.0.0",
+      title: "Basic color correction",
+      description: "Apply a clip-scoped basic color correction with before/after verification.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          clipId: { type: "string", minLength: 1 },
+          preset: { type: "string", enum: ["neutral", "warm", "cool", "high-contrast"] },
+          exposure: { type: "number", minimum: -4, maximum: 4 },
+          contrast: { type: "number", minimum: -1, maximum: 1 },
+          saturation: { type: "number", minimum: -1, maximum: 1 },
+          temperature: { type: "number", minimum: -100, maximum: 100 },
+          tint: { type: "number", minimum: -100, maximum: 100 },
+        },
+        required: ["clipId"],
+        additionalProperties: false,
+      },
+      requirements: {
+        type: "allOf",
+        requirements: [
+          { type: "editor", capability: "timelineSnapshotRead" },
+          { type: "editor", capability: "timelineWrite" },
+          { type: "editor", capability: "readAfterWrite" },
+          { type: "editor", capability: "rollback" },
+          { type: "editor", capability: "compositeTransactions" },
+          { type: "editor", capability: "colorCorrection" },
+          { type: "operation", operation: "set-color-correction" },
+        ],
+      },
+    },
+    handler: {
+      normalize: (input) => input as Record<string, unknown>,
+      plan: async (context, input) => planColorSkill(context, input),
+    },
+  };
+}
+
+async function planColorSkill(context: SkillPlanningContext, input: Record<string, unknown>) {
+  const clip = context.project.timeline.clips.find((candidate) => candidate.id === input.clipId);
+  if (!clip) throw new Error(`CLIP_NOT_FOUND: ${String(input.clipId)}`);
+  const request = input as unknown as ColorCorrectionRequest;
+  const plan = planColorCorrection(clip, request);
+  const affectedRange = { start: clip.start, end: clip.start + clip.duration };
+  const verification = plan.decision === "APPLY" ? {
+    requireExpectedChange: true,
+    assertions: [{
+      type: "color-correction" as const,
+      clipId: clip.id,
+      expected: structuredClone(plan.after),
+    }],
+  } : undefined;
+  return {
+    operations: plan.decision === "APPLY" ? [{
+      type: "set-color-correction" as const,
+      clipId: clip.id,
+      correction: structuredClone(plan.after),
+      baseRevision: context.baseRevision,
+    }] : [],
+    affectedRanges: plan.decision === "APPLY" ? [affectedRange] : [],
+    warnings: [],
+    ...(verification ? { verification } : {}),
+    details: {
+      before: structuredClone(plan.before),
+      after: structuredClone(plan.after),
+      changedFields: [...plan.changedFields],
+      reasonCodes: [...plan.reasonCodes],
     },
   };
 }
