@@ -31,11 +31,11 @@ export class MediaAnalysisService {
     private readonly options: RuntimeOptions,
   ) {}
 
-  public async analyzeSpeech(mediaId: string): Promise<SpeechAnalysis> {
+  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<SpeechAnalysis> {
     if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
-    return this.options.speechAnalyzer.analyze({ project, media });
+    return this.options.speechAnalyzer.analyze({ project, media }, range);
   }
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {

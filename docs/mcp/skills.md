@@ -20,21 +20,26 @@ resolved by the runtime before mutation.
 ## Discovery
 
 Call `skill.list` to enumerate versioned Skills and `skill.inspect` with a Skill
-ID to read its requirements, preview tool, and execute tool. The v0.0.3 Skills
-are:
+ID to read its requirements, preview tool, and execute tool. The repository-owned
+Skills currently exposed by the generic surface are:
 
 | Skill | Version | Workflow |
 | --- | --- | --- |
-| `filler-removal` | 1 | speech analysis, safe deletion, re-analysis, verification, rollback |
-| `dialogue-normalization` | 1 | dialogue measurement, bounded gain, re-measurement, verification, rollback |
+| `filler-removal` | 1.0.0 | speech analysis, safe deletion, re-analysis, verification, rollback |
+| `dialogue-normalization` | 1.0.0 | dialogue measurement, bounded gain, re-measurement, verification, rollback |
 
 ## Execution contract
 
-Use `skill.preview` with `skill` and an `arguments` object. Preview is
-non-mutating and returns the plan, evidence, authorized operations, expected
-diff, warnings, and a short-lived token when mutation is safe. Use
-`skill.execute` with the same Skill ID and token. Execution accepts only the
-runtime-issued token and returns a verified or rolled-back transaction.
+Use `skill.preview` with `skill`, an optional semantic `version`, and an
+`arguments` object containing the inspected `baseRevision`. Preview is
+non-mutating and returns the version-pinned plan, normalized input, semantic
+operations, expected diff, warnings, and a short-lived runtime token. Use
+`skill.execute` with only that token; the token pins the Skill ID and version,
+so raw operations and editable plans cannot be submitted.
+
+`skill.list` and `skill.inspect` include the current capability-resolution
+result. Unsupported requirements are reported with exact missing leaves and
+stable reason codes; they do not fall back to a fixture or another editor.
 
 `filler-removal` skips low-confidence, ambiguous, overlapping, or protected
 speech rather than choosing a cut in natural-language code. It re-analyzes

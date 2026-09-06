@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectService } from "../application/project-service.js";
+import type { MediaAnalysisService } from "../application/media-analysis-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import type { ContextRevision } from "../domain/primitives.js";
+import type { ProjectSnapshot } from "../domain/project.js";
 import type {
   SkillDefinition,
   SkillExecution,
@@ -14,6 +16,7 @@ import type { EditService } from "../editing/edit-service.js";
 import { sameRevision } from "../context/revision.js";
 import {
   assertSkillRequirements,
+  resolveSkillRequirements,
   type SkillAvailability,
 } from "./requirements.js";
 import { SkillRegistry } from "./registry.js";
@@ -27,7 +30,17 @@ export interface SkillPreviewRequest {
 
 interface SkillPreviewSession {
   preview: SkillPreview;
-  editPreviewToken: string;
+  editPreviewToken?: string;
+}
+
+interface CurrentResolutionContext {
+  project: ProjectSnapshot;
+  inspected: Awaited<ReturnType<ProjectService["inspectEditor"]>>;
+}
+
+export interface SkillInspection {
+  manifest: SkillManifest;
+  availability: SkillAvailability;
 }
 
 export class SkillRuntime {
@@ -36,6 +49,7 @@ export class SkillRuntime {
 
   public constructor(
     private readonly project: ProjectService,
+    private readonly analysis: MediaAnalysisService,
     private readonly edits: EditService,
     private readonly options: RuntimeOptions = {},
   ) {}
@@ -52,6 +66,20 @@ export class SkillRuntime {
     return this.registry.inspect(skillId, version);
   }
 
+  public async listAvailability(): Promise<SkillInspection[]> {
+    const context = await this.currentResolutionContext();
+    return this.registry.list().map((manifest) => ({
+      manifest,
+      availability: resolveAvailability(manifest, context),
+    }));
+  }
+
+  public async inspectAvailability(skillId: string, version?: string): Promise<SkillInspection> {
+    const manifest = this.registry.inspect(skillId, version);
+    const context = await this.currentResolutionContext();
+    return { manifest, availability: resolveAvailability(manifest, context) };
+  }
+
   public async preview(request: SkillPreviewRequest): Promise<SkillPreview> {
     const definition = this.registry.lookup(request.skillId, request.version);
     const before = await this.project.inspectProject();
@@ -59,7 +87,7 @@ export class SkillRuntime {
       throw new Error("STALE_CONTEXT: Skill preview base revision does not match current editor state");
     }
     const inspected = await this.project.inspectEditor();
-    const availability = assertSkillRequirements(definition.manifest, {
+    assertSkillRequirements(definition.manifest, {
       capabilities: inspected.capabilities,
       editor: inspected.identity,
       revision: before.revision,
@@ -70,6 +98,8 @@ export class SkillRuntime {
       project: structuredClone(before),
       capabilities: structuredClone(inspected.capabilities),
       baseRevision: structuredClone(before.revision),
+      analyzeSpeech: (mediaId: string, range?: import("../domain/primitives.js").TimeRange) => this.analysis.analyzeSpeech(mediaId, range),
+      measureAudio: (mediaId: string, occurrenceId: string) => this.analysis.measureAudio(mediaId, occurrenceId),
     });
     const planned = await definition.handler.plan(handlerContext, normalizedInput);
     const plan: SkillPlan = {
@@ -81,22 +111,25 @@ export class SkillRuntime {
       operations: structuredClone(planned.operations),
       affectedRanges: structuredClone(planned.affectedRanges),
       warnings: [...planned.warnings],
+      ...(planned.verification ? { verification: structuredClone(planned.verification) } : {}),
+      ...(planned.details ? { details: structuredClone(planned.details) } : {}),
     };
-    if (plan.operations.length === 0) throw new Error("SKILL_PLAN_INVALID: at least one semantic operation is required");
-    const editPreview = await this.edits.previewEdit({
-      baseRevision: before.revision,
-      operations: plan.operations,
-      verification: definition.manifest.verification,
-    });
+    const editPreview = plan.operations.length > 0
+      ? await this.edits.previewEdit({
+        baseRevision: before.revision,
+        operations: plan.operations,
+        verification: plan.verification ?? definition.manifest.verification,
+      })
+      : undefined;
     const previewToken = `skill-preview-${randomUUID()}`;
     const preview: SkillPreview = {
       previewToken,
       plan,
-      expectedDiff: editPreview.expectedDiff,
-      expiresAt: editPreview.expiresAt,
+      ...(editPreview?.expectedDiff ? { expectedDiff: editPreview.expectedDiff } : {}),
+      expiresAt: editPreview?.expiresAt ?? new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString(),
     };
     this.prunePreviews();
-    this.previews.set(previewToken, { preview, editPreviewToken: editPreview.previewToken });
+    this.previews.set(previewToken, { preview, ...(editPreview ? { editPreviewToken: editPreview.previewToken } : {}) });
     return structuredClone(preview);
   }
 
@@ -118,6 +151,19 @@ export class SkillRuntime {
       editor: inspected.identity,
       revision: before.revision,
     });
+    if (!session.editPreviewToken) {
+      return {
+        status: "SKIPPED",
+        plan: {
+          id: session.preview.plan.id,
+          skillId: session.preview.plan.skillId,
+          skillVersion: session.preview.plan.skillVersion,
+          baseRevision: structuredClone(session.preview.plan.baseRevision),
+        },
+        transactionIds: [],
+        rollback: { attempted: false, succeeded: true, transactionIds: [] },
+      };
+    }
     const transaction = await this.edits.executeEdit(session.editPreviewToken);
     const rolledBack = transaction.status === "ROLLED_BACK";
     return {
@@ -129,6 +175,7 @@ export class SkillRuntime {
         baseRevision: structuredClone(session.preview.plan.baseRevision),
       },
       transactionIds: [transaction.id],
+      diff: structuredClone(transaction.diff),
       ...(transaction.verification ? { verification: structuredClone(transaction.verification) } : {}),
       rollback: {
         attempted: rolledBack,
@@ -170,6 +217,17 @@ export class SkillRuntime {
 
   private now(): number {
     return this.options.now?.() ?? Date.now();
+  }
+
+  private async currentResolutionContext() {
+    const [project, inspected] = await Promise.all([
+      this.project.inspectProject(),
+      this.project.inspectEditor(),
+    ]);
+    return {
+      project,
+      inspected,
+    };
   }
 }
 
@@ -216,4 +274,15 @@ function validateSchemaValue(schema: SkillInputSchema["properties"][string], val
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveAvailability(
+  manifest: SkillManifest,
+  context: CurrentResolutionContext,
+): SkillAvailability {
+  return resolveSkillRequirements(manifest, {
+    capabilities: context.inspected.capabilities,
+    editor: context.inspected.identity,
+    revision: context.project.revision,
+  });
 }

@@ -13,6 +13,10 @@ export class SkillRegistry {
     this.definitions.set(definition.manifest.id, versions);
   }
 
+  public has(skillId: string, version: string): boolean {
+    return this.definitions.get(skillId)?.has(version) ?? false;
+  }
+
   public list(): SkillManifest[] {
     return [...this.definitions.values()]
       .flatMap((versions) => [...versions.values()])

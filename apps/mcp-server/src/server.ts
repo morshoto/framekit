@@ -414,31 +414,38 @@ const nativeEditToolInputSchema = z.object({
   duration: z.number().nonnegative().optional(),
 }).strict();
 
-const skillIds = ["filler-removal", "dialogue-normalization"] as const;
-const skillIdSchema = z.enum(skillIds);
-const skillManifests = [
-  {
-    id: "filler-removal",
-    version: 1,
-    description: "Remove high-confidence filler words through a guarded closed-loop transaction.",
-    previewTool: "skill.preview",
-    executeTool: "skill.execute",
-    requires: ["canonical timeline read", "speech analysis", "ripple-delete", "rollback"],
-  },
-  {
-    id: "dialogue-normalization",
-    version: 1,
-    description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
-    previewTool: "skill.preview",
-    executeTool: "skill.execute",
-    requires: ["canonical timeline read", "dialogue audio analysis", "set-gain", "rollback"],
-  },
-] as const;
-
 function jsonResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
   };
+}
+
+function skillErrorResult(error: unknown) {
+  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof z.ZodError
+    ? "SKILL_INPUT_INVALID"
+    : typeof value.code === "string" ? value.code : message.split(":", 1)[0] || "SKILL_ERROR";
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code,
+        message,
+        ...(value.availability ? { availability: value.availability } : {}),
+      }),
+    }],
+  };
+}
+
+function skillPreviewResult(preview: Awaited<ReturnType<AgentVideoRuntime["previewSkill"]>>) {
+  const details = preview.plan.details ?? {};
+  return jsonResult({
+    ...preview,
+    ...details,
+    plan: { ...preview.plan, ...details },
+  });
 }
 
 function normalizeConnectionStatus(value: unknown): unknown {
@@ -502,6 +509,7 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
+  runtime.registerBuiltinSkills();
   const server = new McpServer(
     { name: "framekit", version: "0.1.0" },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
@@ -513,39 +521,65 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
 
   server.registerTool("skill.list", {
-    description: "List versioned Framekit Skills available through the generic MCP surface.",
+    description: "List registered versioned Framekit Skills with current capability availability.",
     inputSchema: {},
-  }, async () => jsonResult(skillManifests));
+  }, async () => {
+    try {
+      return jsonResult((await runtime.listSkillAvailability()).map(({ manifest, availability }) => ({
+        ...manifest,
+        availability,
+      })));
+    } catch (error) {
+      return skillErrorResult(error);
+    }
+  });
 
   server.registerTool("skill.inspect", {
-    description: "Inspect one versioned Framekit Skill and its generic preview and execute tools.",
-    inputSchema: { skill: skillIdSchema },
-  }, async ({ skill }) => jsonResult(skillManifests.find((manifest) => manifest.id === skill)));
+    description: "Inspect one registered Framekit Skill version and its current capability availability.",
+    inputSchema: { skill: z.string().min(1), version: z.string().min(1).optional() },
+  }, async ({ skill, version }) => {
+    try {
+      const { manifest, availability } = await runtime.inspectSkillAvailability(skill, version);
+      return jsonResult({ ...manifest, availability });
+    } catch (error) {
+      return skillErrorResult(error);
+    }
+  });
 
   server.registerTool("skill.preview", {
-    description: "Preview a versioned Framekit Skill through its generic MCP contract without mutating the editor.",
+    description: "Validate and preview a registered Skill without mutating the editor.",
     inputSchema: {
-      skill: skillIdSchema,
+      skill: z.string().min(1),
+      version: z.string().min(1).optional(),
       arguments: z.record(z.unknown()),
     },
-  }, async ({ skill, arguments: skillArguments }) => {
-    if (skill === "filler-removal") {
-      return jsonResult(await runtime.previewFillerRemoval(z.object(fillerRemovalInputSchema).parse(skillArguments)));
+  }, async ({ skill, version, arguments: skillArguments }) => {
+    try {
+      const baseRevision = revisionValueSchema.parse(skillArguments.baseRevision);
+      const { baseRevision: _baseRevision, ...input } = skillArguments;
+      return skillPreviewResult(await runtime.previewSkill({
+        skillId: skill,
+        ...(version ? { version } : {}),
+        baseRevision,
+        input,
+      }));
+    } catch (error) {
+      return skillErrorResult(error);
     }
-    return jsonResult(await runtime.previewDialogueNormalization(
-      z.object(dialogueNormalizationInputSchema).parse(skillArguments),
-    ));
   });
 
   server.registerTool("skill.execute", {
-    description: "Execute one generic Framekit Skill preview token and return its verified or rolled-back transaction.",
+    description: "Execute only a runtime-issued Skill preview token and return verification/rollback evidence.",
     inputSchema: {
-      skill: skillIdSchema,
       previewToken: z.string().min(1),
     },
-  }, async ({ skill, previewToken }) => jsonResult(skill === "filler-removal"
-    ? await runtime.executeFillerRemoval(previewToken)
-    : await runtime.executeDialogueNormalization(previewToken)));
+  }, async ({ previewToken }) => {
+    try {
+      return jsonResult(await runtime.executeSkill(previewToken));
+    } catch (error) {
+      return skillErrorResult(error);
+    }
+  });
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
