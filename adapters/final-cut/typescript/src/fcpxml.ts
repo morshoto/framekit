@@ -97,6 +97,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         frameCapture: false,
         projectCatalogRead: true,
         projectSelection: true,
+        compositeTransactions: true,
+        semanticOperations: { "add-marker": true },
       },
       analyzers: emptyAnalyzerCapabilities(),
     }, { backend: "fcpxml-document" });
@@ -185,6 +187,58 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       throw new Error("STALE_CONTEXT: FCPXML document changed before write");
     }
     this.history.set(expectedRevision.id, structuredClone(this.xml!));
+    this.applyOperation(operation);
+    this.sequence += 1;
+    await this.persist();
+    return this.revision();
+  }
+
+  public async previewTransaction(
+    operations: import("@framekit/runtime").WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<ProjectSnapshot> {
+    await this.ensureLoaded();
+    if (!sameRevision(expectedRevision, this.revision())) {
+      throw new Error("STALE_CONTEXT: FCPXML document changed before preview");
+    }
+    const originalXml = structuredClone(this.xml!);
+    const originalSequence = this.sequence;
+    const originalSignature = this.fileSignature;
+    try {
+      for (const operation of operations) {
+        if (operation.type === "media.import" || operation.type.startsWith("timeline.")) {
+          throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML preview does not support ${operation.type}`);
+        }
+        this.applyOperation(operation as EditOperation);
+      }
+      return this.readProject();
+    } finally {
+      this.xml = originalXml;
+      this.sequence = originalSequence;
+      this.fileSignature = originalSignature;
+    }
+  }
+
+  public async applyTransaction(
+    operations: import("@framekit/runtime").WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<void> {
+    await this.ensureLoaded();
+    if (!sameRevision(expectedRevision, this.revision())) {
+      throw new Error("STALE_CONTEXT: FCPXML document changed before transaction");
+    }
+    this.history.set(expectedRevision.id, structuredClone(this.xml!));
+    for (const operation of operations) {
+      if (operation.type === "media.import" || operation.type.startsWith("timeline.")) {
+        throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML transaction does not support ${operation.type}`);
+      }
+      this.applyOperation(operation as EditOperation);
+    }
+    this.sequence += 1;
+    await this.persist();
+  }
+
+  private applyOperation(operation: EditOperation): void {
     const project = this.projectNode();
     const sequenceNode = findElement(project, "sequence");
     const sequence = sequenceNode ?? {};
@@ -233,9 +287,6 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       }
     }
     this.updateSequenceDuration(sequence, spine);
-    this.sequence += 1;
-    await this.persist();
-    return this.revision();
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {

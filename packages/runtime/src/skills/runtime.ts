@@ -34,7 +34,7 @@ interface SkillPreviewSession {
 }
 
 interface CurrentResolutionContext {
-  project: ProjectSnapshot;
+  project?: ProjectSnapshot;
   inspected: Awaited<ReturnType<ProjectService["inspectEditor"]>>;
 }
 
@@ -220,14 +220,7 @@ export class SkillRuntime {
   }
 
   private async currentResolutionContext() {
-    const [project, inspected] = await Promise.all([
-      this.project.inspectProject(),
-      this.project.inspectEditor(),
-    ]);
-    return {
-      project,
-      inspected,
-    };
+    return { inspected: await this.project.inspectEditor() };
   }
 }
 
@@ -283,6 +276,6 @@ function resolveAvailability(
   return resolveSkillRequirements(manifest, {
     capabilities: context.inspected.capabilities,
     editor: context.inspected.identity,
-    revision: context.project.revision,
+    revision: context.project?.revision,
   });
 }
