@@ -85,6 +85,8 @@ this routing tool.
 | `audio.noise.analyze` | Noise-floor analysis and affected ranges | Requires a configured noise analyzer |
 | `audio.noise.reduce.preview` | Preview a bounded noise-reduction adjustment for one audio occurrence | Requires noise analysis, native noise-reduction capability, and canonical transaction guarantees |
 | `audio.noise.reduce.execute` | Execute the noise preview and return post-write measurement verification/rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
+| `color.correction.preview` | Preview exposure, contrast, saturation, white balance, or a basic preset on one clip | Requires explicit clip targeting and advertised color-correction capability |
+| `color.correction.execute` | Execute the color preview and return before/after diff, verification, and rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
 | `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |

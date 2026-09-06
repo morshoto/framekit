@@ -197,7 +197,7 @@ async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWo
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     const skills = parseJson(await client.callTool({ name: "skill.list", arguments: {} })) as Array<{ id: string }>;
-    assert.deepEqual(skills.map((skill) => skill.id), ["audio-noise-reduction", "dialogue-normalization", "filler-removal"]);
+    assert.deepEqual(skills.map((skill) => skill.id), ["audio-noise-reduction", "color-correction", "dialogue-normalization", "filler-removal"]);
     before = parseJson(await client.callTool({ name: "project.inspect", arguments: {} })) as ProjectSnapshot;
     previewed = true;
     const previewResult = await client.callTool({

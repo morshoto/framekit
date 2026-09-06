@@ -91,6 +91,19 @@ const reduceNoiseSchema = z.object({
   reductionDb: z.number().finite().positive(),
   baseRevision: revisionSchema,
 });
+const colorCorrectionSchema = z.object({
+  type: z.literal("set-color-correction"),
+  clipId: z.string().min(1),
+  correction: z.object({
+    exposure: z.number().finite().min(-4).max(4),
+    contrast: z.number().finite().min(-1).max(1),
+    saturation: z.number().finite().min(-1).max(1),
+    temperature: z.number().finite().min(-100).max(100),
+    tint: z.number().finite().min(-100).max(100),
+    preset: z.enum(["neutral", "warm", "cool", "high-contrast"]).optional(),
+  }),
+  baseRevision: revisionSchema,
+});
 const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
 const roughCutImportSchema = z.object({
@@ -116,6 +129,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
   trimClipSchema,
   setGainSchema,
   reduceNoiseSchema,
+  colorCorrectionSchema,
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
@@ -144,6 +158,18 @@ const verificationAssertionSchema = z.discriminatedUnion("type", [
     mediaId: z.string().min(1),
     maxNoiseFloorDb: z.number().finite(),
     minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("color-correction"),
+    clipId: z.string().min(1),
+    expected: z.object({
+      exposure: z.number().finite().min(-4).max(4),
+      contrast: z.number().finite().min(-1).max(1),
+      saturation: z.number().finite().min(-1).max(1),
+      temperature: z.number().finite().min(-100).max(100),
+      tint: z.number().finite().min(-100).max(100),
+      preset: z.enum(["neutral", "warm", "cool", "high-contrast"]).optional(),
+    }),
   }),
   z.object({
     type: z.literal("audio-source"),
@@ -186,13 +212,14 @@ const verificationPolicySchema = z.object({
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
 const editToolInputSchema = z.object({
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "ripple-delete", "add-marker"]),
+  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "set-color-correction", "ripple-delete", "add-marker"]),
   clipId: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   duration: z.number().positive().optional(),
   durationTime: rationalTimeSchema.optional(),
   gainDb: z.number().finite().optional(),
   reductionDb: z.number().finite().positive().optional(),
+  correction: colorCorrectionSchema.shape.correction.optional(),
   timelineId: z.string().min(1).optional(),
   range: rangeSchema.optional(),
   reason: z.string().optional(),
@@ -219,6 +246,7 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
   trimClipSchema,
   setGainSchema,
   reduceNoiseSchema,
+  colorCorrectionSchema,
   rippleDeleteSchema,
   addMarkerSchema,
   z.object({
@@ -364,6 +392,16 @@ const noiseReductionInputSchema = {
   noiseThresholdDb: z.number().finite(),
   maxReductionDb: z.number().finite().positive(),
   minConfidence: z.number().finite().min(0).max(1),
+};
+const colorCorrectionInputSchema = {
+  clipId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  preset: z.enum(["neutral", "warm", "cool", "high-contrast"]).optional(),
+  exposure: z.number().finite().min(-4).max(4).optional(),
+  contrast: z.number().finite().min(-1).max(1).optional(),
+  saturation: z.number().finite().min(-1).max(1).optional(),
+  temperature: z.number().finite().min(-100).max(100).optional(),
+  tint: z.number().finite().min(-100).max(100).optional(),
 };
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
@@ -1188,6 +1226,23 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("audio.noise.reduce.execute", {
     description: "Execute one previewed noise-reduction adjustment and return post-write measurement verification and rollback state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
+
+  server.registerTool("color.correction.preview", {
+    description: "Preview a clip-scoped basic color correction with before/after values without mutating the editor.",
+    inputSchema: colorCorrectionInputSchema,
+  }, async (request) => {
+    const { baseRevision, ...input } = request;
+    return skillPreviewResult(await runtime.previewSkill({
+      skillId: "color-correction",
+      baseRevision,
+      input,
+    }));
+  });
+
+  server.registerTool("color.correction.execute", {
+    description: "Execute one previewed basic color correction and return the target verification, diff, and rollback state.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
 

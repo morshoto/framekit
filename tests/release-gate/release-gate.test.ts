@@ -48,7 +48,7 @@ test("generic MCP Skill surface discovers both release workflows", async () => {
     const listed = await client.callTool({ name: "skill.list", arguments: {} });
     const content = listed.content as Array<{ type: string; text?: string }>;
     const payload = JSON.parse(content[0]?.text ?? "null") as Array<{ id: string; version: string }>;
-    assert.deepEqual(payload.map((skill) => skill.id), ["audio-noise-reduction", "dialogue-normalization", "filler-removal"]);
+    assert.deepEqual(payload.map((skill) => skill.id), ["audio-noise-reduction", "color-correction", "dialogue-normalization", "filler-removal"]);
     assert.ok(payload.every((skill) => skill.version === "1.0.0"));
 
     const inspected = await client.callTool({

@@ -24,6 +24,8 @@ test("Skill documentation describes only the generic MCP workflow", async () => 
   }
   assert.match(documentation, /filler-removal/);
   assert.match(documentation, /dialogue-normalization/);
+  assert.match(documentation, /audio-noise-reduction/);
+  assert.match(documentation, /color-correction/);
   assert.match(documentation, /Final Cut-specific commands/i);
   assert.match(documentation, /preview/);
   assert.match(documentation, /rollback/);
