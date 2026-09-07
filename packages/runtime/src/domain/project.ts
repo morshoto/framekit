@@ -2,6 +2,17 @@ import type { ContextRevision, RationalTime } from "./primitives.js";
 
 import type { MediaContext } from "./media.js";
 
+export type ColorCorrectionPreset = "neutral" | "warm" | "cool" | "high-contrast";
+
+export interface ColorCorrection {
+  exposure: number;
+  contrast: number;
+  saturation: number;
+  temperature: number;
+  tint: number;
+  preset?: ColorCorrectionPreset;
+}
+
 export interface Clip {
   /** Stable identity of this timeline occurrence, never the media resource id. */
   id: string;
@@ -11,6 +22,8 @@ export interface Clip {
   duration: number;
   track: number;
   gainDb?: number;
+  noiseReductionDb?: number;
+  colorCorrection?: ColorCorrection;
   fadeIn?: number;
   fadeOut?: number;
   enabled?: boolean;

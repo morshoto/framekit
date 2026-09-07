@@ -16,22 +16,37 @@ jobs:
   tagpr:
     runs-on: ubuntu-latest
     outputs:
-      tagpr-tag: ${{ steps.run-tagpr.outputs.tag }}
+      release-tag: ${{ steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           token: ${{ secrets.TAGPR_TOKEN }}
+          persist-credentials: false
+
+      - id: existing-tag
+        name: Detect release tag on HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tags < <(git tag --points-at HEAD --list 'v*')
+          if (( ${#tags[@]} > 1 )); then
+            echo "Multiple release tags point to HEAD" >&2
+            exit 1
+          fi
+          tag="${tags[0]-}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - id: run-tagpr
         name: Run tagpr
-        uses: Songmu/tagpr@v1
+        if: steps.existing-tag.outputs.tag == ''
+        uses: Songmu/tagpr@7ebae2dcc300132baa7cc9dd108c8923b07fc366 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
 
   publish-npm:
-    if: needs.tagpr.outputs.tagpr-tag != ''
+    if: needs.tagpr.outputs.release-tag != ''
     needs: tagpr
     runs-on: ubuntu-latest
     permissions:
@@ -39,25 +54,23 @@ jobs:
       id-token: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Validate release package
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.tagpr.outputs.tagpr-tag }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
         run: node scripts/validate-release-contract.mjs
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.10.0
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.14.0
+          node-version: 22.23.2
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
@@ -72,7 +85,7 @@ jobs:
 
       - name: Verify npm publication
         env:
-          RELEASE_TAG: ${{ needs.tagpr.outputs.tagpr-tag }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
         run: |
           set -eu
           expected_version="${RELEASE_TAG#v}"
@@ -83,5 +96,18 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.tagpr.outputs.tagpr-tag }}
-        run: gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+            --jq ".[] | select(.draft == true and (.name == \"${RELEASE_TAG}\" or .tag_name == \"${RELEASE_TAG}\")) | .id" \
+            | head -n 1)"
+          if [ -n "${release_id}" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f tag_name="${RELEASE_TAG}" \
+              -f name="${RELEASE_TAG}" \
+              -F draft=false
+          else
+            gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          fi

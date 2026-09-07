@@ -79,7 +79,23 @@ test("release workflow validates the package before publishing", async () => {
   assert.notEqual(validation, -1);
   assert.ok(validation < publication, "release validation must run before npm publish");
   assert.match(workflow, /GITHUB_REPOSITORY: \$\{\{ github\.repository \}\}/);
-  assert.match(workflow, /RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.tagpr-tag \}\}/);
+  assert.match(workflow, /release-tag: \$\{\{ steps\.existing-tag\.outputs\.tag \|\| steps\.run-tagpr\.outputs\.tag \}\}/);
+  const tagDetection = workflow.slice(
+    workflow.indexOf("name: Detect release tag on HEAD"),
+    workflow.indexOf("name: Run tagpr"),
+  );
+  assert.match(tagDetection, /git tag --points-at HEAD --list 'v\*'/);
+  assert.match(tagDetection, /mapfile -t tags/);
+  assert.match(tagDetection, /\$\{#tags\[@\]\} > 1/);
+  assert.match(tagDetection, /Multiple release tags point to HEAD/);
+  assert.doesNotMatch(tagDetection, /head -n 1/);
+  assert.match(workflow, /if: steps\.existing-tag\.outputs\.tag == ''/);
+  assert.match(
+    workflow,
+    /tagpr:[\s\S]*?actions\/checkout@(?:v4|[0-9a-f]{40}[ \t]+# v4)[\s\S]*?token: \$\{\{ secrets\.TAGPR_TOKEN \}\}[\s\S]*?persist-credentials: false/,
+  );
+  assert.match(workflow, /RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/);
+  assert.match(workflow, /releases\/\$\{release_id\}/);
 });
 
 test("release documentation provides the exact npm trust command", async () => {

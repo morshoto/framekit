@@ -33,6 +33,11 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       tools.tools.map((tool) => tool.name).sort(),
       [
         "audio.analyze",
+        "audio.noise.analyze",
+        "audio.noise.reduce.execute",
+        "audio.noise.reduce.preview",
+        "color.correction.execute",
+        "color.correction.preview",
         "skill.execute",
         "skill.inspect",
         "skill.list",
@@ -113,7 +118,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     );
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "sequenceId", "timelineId", "type", "verification",
+      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "type", "verification",
     ]);
     assert.deepEqual(timelineEditTool?.inputSchema.required?.slice().sort(), ["baseRevision", "projectId", "sequenceId", "type"]);
     const artifactEditTool = tools.tools.find((tool) => tool.name === "artifact.edit");

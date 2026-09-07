@@ -3,6 +3,7 @@ import type {
   AgentContext,
   AssetSearchQuery,
   AudioAnalysis,
+  NoiseAnalysis,
   CompositeEditPreview,
   CompositeEditRequest,
   ContextDiff,
@@ -38,6 +39,8 @@ import type {
   DurationPolicyPlan,
   DurationPolicyRequest,
 } from "./domain/index.js";
+import type { SkillDefinition, SkillExecution, SkillManifest, SkillPreview } from "./domain/skills.js";
+import type { SkillInspection, SkillPreviewRequest } from "./skills/runtime.js";
 import { planRoughCutConstruction as buildRoughCutConstructionPlan } from "./domain/rough-cut.js";
 import type { FillerRemovalPreview, FillerRemovalRequest } from "./speech/filler-removal.js";
 import { DefaultVerificationEngine } from "./verification/verification.js";
@@ -51,6 +54,8 @@ import type { RuntimeOptions } from "./application/runtime-options.js";
 import { TransactionStore } from "./application/transaction-store.js";
 import { DurationPolicyService } from "./application/duration-policy-service.js";
 import { DialogueNormalizationService } from "./editing/dialogue-normalization-service.js";
+import { SkillRuntime } from "./skills/runtime.js";
+import { builtinSkills } from "./skills/builtin.js";
 import type {
   DialogueNormalizationPreview,
   DialogueNormalizationRequest,
@@ -66,6 +71,7 @@ export class AgentVideoRuntime {
   private readonly fillerRemoval: FillerRemovalService;
   private readonly durationPolicy: DurationPolicyService;
   private readonly dialogueNormalization: DialogueNormalizationService;
+  private readonly skills: SkillRuntime;
 
   public constructor(
     adapter: EditorPort,
@@ -82,6 +88,7 @@ export class AgentVideoRuntime {
     this.fillerRemoval = new FillerRemovalService(adapter, this.projects, verificationEngine, options, transactions);
     this.dialogueNormalization = new DialogueNormalizationService(adapter, this.projects, this.media, this.edits);
     this.durationPolicy = new DurationPolicyService();
+    this.skills = new SkillRuntime(this.projects, this.media, this.edits, options);
   }
 
   public async inspectProject(): Promise<ProjectSnapshot> {
@@ -204,6 +211,43 @@ export class AgentVideoRuntime {
     return this.dialogueNormalization.execute(previewToken);
   }
 
+  public registerSkill(definition: SkillDefinition): void {
+    this.skills.register(definition);
+  }
+
+  /** Register the repository-owned Skills used by the generic MCP surface. */
+  public registerBuiltinSkills(): void {
+    for (const definition of builtinSkills()) {
+      if (!this.skills.registry.has(definition.manifest.id, definition.manifest.version)) {
+        this.skills.register(definition);
+      }
+    }
+  }
+
+  public listSkills(): SkillManifest[] {
+    return this.skills.list();
+  }
+
+  public inspectSkill(skillId: string, version?: string): SkillManifest {
+    return this.skills.inspect(skillId, version);
+  }
+
+  public listSkillAvailability(): Promise<SkillInspection[]> {
+    return this.skills.listAvailability();
+  }
+
+  public inspectSkillAvailability(skillId: string, version?: string): Promise<SkillInspection> {
+    return this.skills.inspectAvailability(skillId, version);
+  }
+
+  public previewSkill(request: SkillPreviewRequest): Promise<SkillPreview> {
+    return this.skills.preview(request);
+  }
+
+  public executeSkill(previewToken: string): Promise<SkillExecution> {
+    return this.skills.execute(previewToken);
+  }
+
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
     return this.contexts.changesSince(revision);
   }
@@ -218,6 +262,10 @@ export class AgentVideoRuntime {
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
     return this.media.analyzeAudio(mediaId);
+  }
+
+  public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
+    return this.media.analyzeNoise(mediaId, range);
   }
 
   public async analyzeVisual(mediaId: string, range?: TimeRange): Promise<VisualAnalysis> {

@@ -55,3 +55,18 @@ targets:
       CODE_SIGNING_ALLOWED: YES
       ENABLE_DEBUG_DYLIB: NO
       SKIP_INSTALL: YES
+
+  FramekitFinalCutWorkflowCodeQL:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: FinalCutLiveWorkflowExtension.swift
+      - path: ../../../../.github/codeql/FinalCutWorkflowExtensionShim.swift
+        group: CodeQL
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.framekit.finalcut.workflow.codeql
+      SWIFT_INCLUDE_PATHS: "$(SRCROOT)/ProExtensionHostShim"
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: NO
+      SWIFT_OBJC_INTERFACE_HEADER_NAME: ""
+      SKIP_INSTALL: YES

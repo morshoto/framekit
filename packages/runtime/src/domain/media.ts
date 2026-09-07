@@ -21,7 +21,7 @@ export interface SpeechSegment {
   confidence?: number;
 }
 
-export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "visual";
+export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "noise" | "visual";
 
 export interface SemanticTag {
   value: string;
@@ -151,6 +151,27 @@ export interface AudioAnalysis {
   invalidReason?: string;
 }
 
+/** Provider output for locating and reducing unwanted background noise. */
+export interface NoiseAnalysis {
+  noiseFloorDb: number;
+  peakNoiseDb?: number;
+  affectedRanges: TimeRange[];
+  recommendedReductionDb: number;
+  confidence: number;
+  valid?: boolean;
+  invalidReason?: string;
+}
+
+/** Revision-bound noise evidence for one complete timeline occurrence. */
+export interface NoiseMeasurement extends NoiseAnalysis {
+  mediaId: string;
+  occurrenceId: string;
+  requestedRange: TimeRange;
+  measuredRange: TimeRange;
+  revision: ContextRevision;
+  provider: AnalyzerDescriptor;
+}
+
 /** Revision-bound audio evidence for one complete timeline occurrence. */
 export interface AudioMeasurement {
   mediaId: string;
@@ -237,6 +258,7 @@ export interface MediaContext {
   semantic?: MediaSemanticDescription;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
+  noise?: NoiseAnalysis;
   visual?: VisualAnalysis;
   /** Revision of the source context used to produce attached analysis. */
   analysisRevision?: string;
@@ -249,6 +271,7 @@ export interface MediaUnderstanding {
   metadata?: MetadataAnalysis;
   speech?: SpeechAnalysis;
   audio?: AudioAnalysis;
+  noise?: NoiseAnalysis;
   visual?: VisualAnalysis;
   semantic: MediaSemanticDescription;
   analysis: MediaAnalysisStatus[];
@@ -267,6 +290,11 @@ export interface SpeechAnalyzer {
 
 export interface AudioAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis>;
+  readonly descriptor?: AnalyzerDescriptor;
+}
+
+export interface NoiseAnalyzer {
+  analyze(input: AnalysisInput, range?: TimeRange): Promise<NoiseAnalysis>;
   readonly descriptor?: AnalyzerDescriptor;
 }
 

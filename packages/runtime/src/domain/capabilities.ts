@@ -41,12 +41,17 @@ export interface EditorCapabilities {
   transitionPlacement?: boolean;
   audioAttachment?: boolean;
   audioMixing?: boolean;
+  noiseReduction?: boolean;
+  colorCorrection?: boolean;
+  /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
+  semanticOperations?: Partial<Record<string, boolean>>;
 }
 
 export interface AnalyzerCapabilities {
   speechTranscribe: boolean;
   speechVad: boolean;
   audioLoudness: boolean;
+  audioNoise?: boolean;
   visualTrack: boolean;
   metadataDescribe?: boolean;
 }
@@ -112,6 +117,7 @@ export interface CapabilityFamilies {
     speechTranscribe: CapabilityDescriptor;
     speechVad: CapabilityDescriptor;
     audioLoudness: CapabilityDescriptor;
+    audioNoise?: CapabilityDescriptor;
     visualTrack: CapabilityDescriptor;
   };
 }

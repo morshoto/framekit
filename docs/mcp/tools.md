@@ -82,6 +82,11 @@ this routing tool.
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
+| `audio.noise.analyze` | Noise-floor analysis and affected ranges | Requires a configured noise analyzer |
+| `audio.noise.reduce.preview` | Preview a bounded noise-reduction adjustment for one audio occurrence | Requires noise analysis, native noise-reduction capability, and canonical transaction guarantees |
+| `audio.noise.reduce.execute` | Execute the noise preview and return post-write measurement verification/rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
+| `color.correction.preview` | Preview exposure, contrast, saturation, white balance, or a basic preset on one clip | Requires explicit clip targeting and advertised color-correction capability |
+| `color.correction.execute` | Execute the color preview and return before/after diff, verification, and rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
 | `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
@@ -282,6 +287,9 @@ preview tokens. An unrecognized or ambiguous destructive request returns
 ## Generic Skills
 
 The versioned Skill surface is `skill.list`, `skill.inspect`, `skill.preview`,
-and `skill.execute`. See [Generic MCP Skills](./skills.md) for the
-`filler-removal` and `dialogue-normalization` contracts. Skills use runtime
+and `skill.execute`. Discovery and inspection include current capability
+availability and structured missing requirements. Preview accepts a Skill ID,
+optional semantic version, and an argument object containing the inspected base
+revision; execute accepts only the runtime-issued preview token. See
+[Generic MCP Skills](./skills.md) for the full contract. Skills use runtime
 capabilities and never embed Final Cut-specific commands.

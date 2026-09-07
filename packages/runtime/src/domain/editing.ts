@@ -50,6 +50,19 @@ export type EditOperation =
       baseRevision?: ContextRevision;
     }
   | {
+      type: "reduce-noise";
+      clipId: string;
+      range: TimeRange;
+      reductionDb: number;
+      baseRevision?: ContextRevision;
+    }
+  | {
+      type: "set-color-correction";
+      clipId: string;
+      correction: import("./project.js").ColorCorrection;
+      baseRevision?: ContextRevision;
+    }
+  | {
       type: "ripple-delete";
       timelineId: string;
       range: TimeRange;

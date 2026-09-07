@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.1.2](https://github.com/morshoto/framekit/compare/v0.1.1...v0.1.2) - 2026-08-30
+
+- chore: run Renovate daily at 7am by @morshoto in https://github.com/morshoto/framekit/pull/106
+- ci: preserve default-branch CodeQL analyses by @morshoto in https://github.com/morshoto/framekit/pull/111
+- [Fix] Fail closed on untrusted live snapshots by @morshoto in https://github.com/morshoto/framekit/pull/112
+- [Improvement] Harden sanitized headed evidence digests by @morshoto in https://github.com/morshoto/framekit/pull/113
+- fix: guard npm release publishing by @morshoto in https://github.com/morshoto/framekit/pull/114
+- fix: preserve partial filler analysis ranges by @morshoto in https://github.com/morshoto/framekit/pull/117
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/116
+- chore: enable Renovate automerge for safe updates by @morshoto in https://github.com/morshoto/framekit/pull/120
+- feat: add deterministic filler safe cuts by @morshoto in https://github.com/morshoto/framekit/pull/118
+- feat: add v0.0.3 speech editing release gate by @morshoto in https://github.com/morshoto/framekit/pull/119
+- ci: restore reliable Swift CodeQL coverage by @morshoto in https://github.com/morshoto/framekit/pull/115
+
 ## [v0.1.1](https://github.com/morshoto/framekit/compare/v0.1.0...v0.1.1) - 2026-08-30
 
 - chore: automate npm and GitHub releases by @morshoto in https://github.com/morshoto/framekit/pull/84
