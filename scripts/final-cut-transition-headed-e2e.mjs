@@ -75,6 +75,7 @@ try {
   }
 
   const executed = await callJson("editor.native.transition.add.execute", { previewToken: preview.previewToken });
+  operationId = executed.operationId;
   toolResults.push({ name: "editor.native.transition.add.execute", status: executed.verification?.verified ? "passed" : "failed" });
   if (!executed.verification?.verified
     || !executed.undoAvailable
@@ -84,8 +85,6 @@ try {
     || executed.beforeRevision?.id === executed.afterRevision?.id) {
     throw new Error("FINAL_CUT_E2E_TRANSITION_EXECUTE_FAILED: native transition placement was not verified with observed duration and a new revision");
   }
-  operationId = executed.operationId;
-
   const undone = await callJson("editor.native.undo", { operationId });
   toolResults.push({ name: "editor.native.undo", status: undone.verification?.verified ? "passed" : "failed" });
   if (!undone.undone || !undone.verification?.verified) {
