@@ -3467,13 +3467,13 @@ function transitionSearchScript(query: string, identityQuery = false): string {
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
-    set mainWindow to window "Final Cut Pro"
+    set mainWindow to first window whose name is "Final Cut Pro"
     ${transitionBrowserOpenScript()}
     ${transitionBrowserFocusScript()}
     set value of transitionSearchField to ${appleScriptString(searchQuery)}
     delay 0.6
     set seenIdentities to {}
-    return my collectTransitionMatches(mainWindow, 0, ${appleScriptString(identityQuery ? query : searchQuery)}, ${identityQuery ? "true" : "false"}, seenIdentities, mainOrigin, mainSize)
+    return my collectTransitionMatches(UI elements of mainWindow, 0, ${appleScriptString(identityQuery ? query : searchQuery)}, ${identityQuery ? "true" : "false"}, seenIdentities, mainOrigin, mainSize)
   end tell
   end tell`;
 }
@@ -3484,14 +3484,14 @@ function transitionAssetSelectionScript(assetName: string): string {
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
-    set mainWindow to window "Final Cut Pro"
+    set mainWindow to first window whose name is "Final Cut Pro"
     ${transitionBrowserFocusScript()}
     set value of transitionSearchField to ${appleScriptString(assetName)}
     delay 0.6
-    set exactCount to my countTransitionItems(mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize)
+    set exactCount to my countTransitionItems(UI elements of mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize)
     if exactCount is greater than 1 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_AMBIGUOUS: multiple exact transition matches were visible"
     if exactCount is 0 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not visible"
-    if not my pressTransitionItem(mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize) then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not selectable"
+    if not my pressTransitionItem(UI elements of mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize) then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not selectable"
   end tell
   end tell`;
 }
@@ -3499,6 +3499,26 @@ function transitionAssetSelectionScript(assetName: string): string {
 function transitionBrowserTraversalScript(): string {
   return `
   using terms from application "System Events"
+    on transitionBrowserVisible(nodes, depth, mainOrigin, mainSize)
+      if depth > 12 then return false
+      repeat with candidateIndex from 1 to count of nodes
+        try
+          set candidate to contents of item candidateIndex of nodes
+          set candidateRole to role of candidate as text
+          if candidateRole is "AXGroup" and my transitionPaneVisible(candidate, mainOrigin, mainSize) then
+            set candidatePosition to position of candidate
+            set candidateSize to size of candidate
+            set lowerPaneTop to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.55)
+            if (item 2 of candidatePosition) is greater than lowerPaneTop and (item 1 of candidateSize) is less than 600 and (item 2 of candidateSize) is greater than 200 then return true
+          end if
+          if my transitionBrowserVisible(UI elements of candidate, depth + 1, mainOrigin, mainSize) then return true
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return false
+    end transitionBrowserVisible
+
     on transitionChildIndices(containerItem)
       set childCount to count of UI elements of containerItem
       set orderedIndices to {}
@@ -3541,13 +3561,12 @@ function transitionBrowserTraversalScript(): string {
       end try
     end transitionPaneVisible
 
-    on collectTransitionMatches(containerItem, depth, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
+    on collectTransitionMatches(nodes, depth, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
       if depth > 12 then return ""
       set output to ""
-      set candidateItems to UI elements of containerItem
-      repeat with candidateIndex in my transitionChildIndices(containerItem)
+      repeat with candidateIndex from 1 to count of nodes
         try
-          set candidate to item (contents of candidateIndex) of candidateItems
+          set candidate to contents of item candidateIndex of nodes
           if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
             set candidateName to my transitionCandidateName(candidate)
             set candidateIdentity to ""
@@ -3566,7 +3585,7 @@ function transitionBrowserTraversalScript(): string {
               set end of seenIdentities to candidateIdentity
               set output to output & candidateName & (ASCII character 31) & candidateIdentity & (ASCII character 30)
             end if
-            set output to output & my collectTransitionMatches(candidate, depth + 1, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
+            set output to output & my collectTransitionMatches(UI elements of candidate, depth + 1, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
@@ -3575,16 +3594,15 @@ function transitionBrowserTraversalScript(): string {
       return output
     end collectTransitionMatches
 
-    on countTransitionItems(containerItem, depth, targetName, mainOrigin, mainSize)
+    on countTransitionItems(nodes, depth, targetName, mainOrigin, mainSize)
       if depth > 12 then return 0
       set matchCount to 0
-      set candidateItems to UI elements of containerItem
-      repeat with candidateIndex in my transitionChildIndices(containerItem)
+      repeat with candidateIndex from 1 to count of nodes
         try
-          set candidate to item (contents of candidateIndex) of candidateItems
+          set candidate to contents of item candidateIndex of nodes
           if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
             if my transitionCandidateName(candidate) is targetName then set matchCount to matchCount + 1
-            set matchCount to matchCount + my countTransitionItems(candidate, depth + 1, targetName, mainOrigin, mainSize)
+            set matchCount to matchCount + my countTransitionItems(UI elements of candidate, depth + 1, targetName, mainOrigin, mainSize)
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
@@ -3593,12 +3611,11 @@ function transitionBrowserTraversalScript(): string {
       return matchCount
     end countTransitionItems
 
-    on pressTransitionItem(containerItem, depth, targetName, mainOrigin, mainSize)
+    on pressTransitionItem(nodes, depth, targetName, mainOrigin, mainSize)
       if depth > 12 then return false
-      set candidateItems to UI elements of containerItem
-      repeat with candidateIndex in my transitionChildIndices(containerItem)
+      repeat with candidateIndex from 1 to count of nodes
         try
-          set candidate to item (contents of candidateIndex) of candidateItems
+          set candidate to contents of item candidateIndex of nodes
           if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
             if my transitionCandidateName(candidate) is targetName then
               try
@@ -3608,7 +3625,7 @@ function transitionBrowserTraversalScript(): string {
               end try
               return true
             end if
-            if my pressTransitionItem(candidate, depth + 1, targetName, mainOrigin, mainSize) then return true
+            if my pressTransitionItem(UI elements of candidate, depth + 1, targetName, mainOrigin, mainSize) then return true
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
@@ -3623,10 +3640,14 @@ function transitionBrowserOpenScript(): string {
   return `
     -- Final Cut exposes the Transitions browser through the workspace menu;
     -- fixed coordinates vary with sidebar and window layout.
-    click menu bar item "Window" of menu bar 1
-    delay 0.1
-    click menu item "Transitions" of menu 1 of menu item "Show in Workspace" of menu 1 of menu bar item "Window" of menu bar 1
-    delay 0.3`;
+    set mainOrigin to position of mainWindow
+    set mainSize to size of mainWindow
+    if not my transitionBrowserVisible(UI elements of mainWindow, 0, mainOrigin, mainSize) then
+      click menu bar item "Window" of menu bar 1
+      delay 0.1
+      click menu item "Transitions" of menu 1 of menu item "Show in Workspace" of menu 1 of menu bar item "Window" of menu bar 1
+      delay 0.3
+    end if`;
 }
 
 function transitionBrowserFocusScript(): string {
@@ -3634,10 +3655,25 @@ function transitionBrowserFocusScript(): string {
     set mainOrigin to position of mainWindow
     set mainSize to size of mainWindow
     set transitionSearchField to missing value
+    -- Final Cut exposes the installed-transition search field as the third
+    -- control in the lower-right Effects Library group. Prefer that bounded
+    -- control so a previously focused Browser search field cannot capture the
+    -- transition query.
     try
-      set focusedCandidate to value of attribute "AXFocusedUIElement"
-      set focusedRole to role of focusedCandidate as text
-      if focusedRole is "AXSearchField" or focusedRole is "AXTextField" then set transitionSearchField to focusedCandidate
+      set transitionSearchField to UI element 3 of UI element 10 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+      set value of attribute "AXFocused" of transitionSearchField to true
+    on error
+      set transitionSearchField to missing value
+    end try
+    try
+      if transitionSearchField is missing value then
+        set focusedCandidate to value of attribute "AXFocusedUIElement"
+        set focusedRole to role of focusedCandidate as text
+        set focusedPosition to position of focusedCandidate
+        set focusedSearchX to item 1 of focusedPosition
+        set focusedSearchY to item 2 of focusedPosition
+        if (focusedRole is "AXSearchField" or focusedRole is "AXTextField") and focusedSearchX is greater than ((item 1 of mainOrigin) + ((item 1 of mainSize) * 0.60)) and focusedSearchY is greater than ((item 2 of mainOrigin) + ((item 2 of mainSize) * 0.70)) then set transitionSearchField to focusedCandidate
+      end if
     end try
     if transitionSearchField is missing value then
       set transitionSearchPoints to {{0.72, 0.96}, {0.68, 0.96}, {0.76, 0.96}, {0.72, 0.91}}
@@ -3647,11 +3683,14 @@ function transitionBrowserFocusScript(): string {
           delay 0.15
           set focusedCandidate to value of attribute "AXFocusedUIElement"
           set focusedRole to role of focusedCandidate as text
+          set focusedPosition to position of focusedCandidate
+          set focusedSearchX to item 1 of focusedPosition
+          set focusedSearchY to item 2 of focusedPosition
           set focusedDescription to ""
           try
             set focusedDescription to description of focusedCandidate as text
           end try
-          if (focusedRole is "AXSearchField" or focusedRole is "AXTextField") and (focusedDescription contains "search" or focusedDescription contains "Search" or focusedRole is "AXSearchField") then
+          if (focusedRole is "AXSearchField" or focusedRole is "AXTextField") and focusedSearchX is greater than ((item 1 of mainOrigin) + ((item 1 of mainSize) * 0.60)) and focusedSearchY is greater than ((item 2 of mainOrigin) + ((item 2 of mainSize) * 0.70)) and (focusedDescription contains "search" or focusedDescription contains "Search" or focusedRole is "AXSearchField") then
             set transitionSearchField to focusedCandidate
             exit repeat
           end if
@@ -3666,7 +3705,7 @@ function selectTransitionEditPointScript(timecode: string): string {
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
-    set mainWindow to window "Final Cut Pro"
+    set mainWindow to first window whose name is "Final Cut Pro"
     set origin to position of mainWindow
     -- Browser asset selection leaves focus in the Browser. Return focus to
     -- the timeline, then use Final Cut's timecode entry for the exact
@@ -3721,7 +3760,7 @@ function occurrenceRangeEndpointScript(timelineOffset: number, endpoint: "start"
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
-    set mainWindow to window "Final Cut Pro"
+    set mainWindow to first window whose name is "Final Cut Pro"
     set origin to position of mainWindow
     -- Framekit occurrence range ${endpoint}: select the actual clip and ask
     -- Final Cut for its range endpoint rather than inferring from pixels.
