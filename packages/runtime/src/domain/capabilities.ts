@@ -1,3 +1,5 @@
+import type { SkillOperation } from "./skills.js";
+
 export interface EditorIdentity {
   name: string;
   version: string;
@@ -44,7 +46,7 @@ export interface EditorCapabilities {
   noiseReduction?: boolean;
   colorCorrection?: boolean;
   /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
-  semanticOperations?: Partial<Record<string, boolean>>;
+  semanticOperations?: Partial<Record<SkillOperation, boolean>>;
 }
 
 export interface AnalyzerCapabilities {
