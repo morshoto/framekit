@@ -272,15 +272,21 @@ Native transitions use a guarded discovery and preview/execute flow:
 2. Search the Browser for the media on both sides of the edit point, then call
    `editor.native.timeline.locate` for each result. Keep both unique occurrence
    handles; repeated occurrence lookup does not invalidate the other media's
-   handle.
+   handle. For a unique occurrence, the native adapter selects the actual clip
+   and obtains its exact range from Final Cut's Shift-I/Shift-O endpoints before
+   restoring the original `playheadTime`; pixel offsets are used only to select
+   the clip, never as timeline coordinates.
 3. Call `editor.native.transition.add.preview` with both occurrence handles and
    an exact positive rational `duration`. Framekit requires exact adjacent
    start/end coordinates, a shared sequence, a frame-aligned duration, and a
    live revision that can be rechecked before execution.
 4. Confirm the returned edit point, transition identity, sequence, and revision,
    then call `editor.native.transition.add.execute` with the short-lived token.
-5. Confirm the returned selected transition, new live revision, and Undo
-   command. Use `editor.native.undo` with the returned `operationId` to revert it.
+5. Confirm the returned selected transition, new live revision, observed
+   `observedDuration`, and Undo command. The observed duration is read back from
+   Final Cut after the duration field is committed and must equal the requested
+   rational duration. Use `editor.native.undo` with the returned `operationId`
+   to revert it.
 
 The flow fails closed when the Transitions browser search field or stable
 identity is unavailable, either occurrence is stale or ambiguous, the clips

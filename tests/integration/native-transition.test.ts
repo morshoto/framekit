@@ -34,7 +34,7 @@ function context(
   ].join(fieldSeparator);
 }
 
-function liveState(revision: number) {
+function liveState(revision: number, playhead = "0") {
   return {
     project: { id: "project-1", name: "Edit" },
     sequence: {
@@ -44,7 +44,7 @@ function liveState(revision: number) {
       duration: { value: "20", timescale: "1" },
       frameDuration: { value: "1", timescale: "24" },
     },
-    playheadTime: { value: "0", timescale: "1" },
+    playheadTime: { value: playhead, timescale: "1" },
     sequenceTimeRange: {
       start: { value: "0", timescale: "1" },
       duration: { value: "20", timescale: "1" },
@@ -57,15 +57,16 @@ function liveState(revision: number) {
   };
 }
 
-function occurrenceOutput(name: string, start: string, timelineOffset: string): string {
-  return [name, "AXClip", start, "4/1", timelineOffset].join(fieldSeparator) + recordSeparator;
+function productionOccurrenceOutput(name: string, sourceIdentity: string, timelineOffset: string): string {
+  return [name, "AXClip", sourceIdentity, timelineOffset].join(fieldSeparator) + recordSeparator;
 }
 
 test("native Final Cut adapter discovers and verifies a transition between adjacent occurrences", async () => {
   const scripts: string[] = [];
   let revision = 1;
+  let playhead = "0";
   let transitionAdded = false;
-  const live = async () => liveState(revision);
+  const live = async () => liveState(revision, playhead);
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     liveState: live,
@@ -82,15 +83,31 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
         return ["After", "AXClip", "after-source", "after-source"].join(fieldSeparator) + recordSeparator;
       }
       if (script.includes("set sourceIdentity to \"before-source\"")) {
-        return occurrenceOutput("Before", "0/1", "40");
+        return productionOccurrenceOutput("Before", "before-source", "40");
       }
       if (script.includes("set sourceIdentity to \"after-source\"")) {
-        return occurrenceOutput("After", "4/1", "160");
+        return productionOccurrenceOutput("After", "after-source", "160");
+      }
+      if (script.includes("Framekit occurrence range start")) {
+        playhead = script.includes("+ 40") ? "0" : "4";
+        return "";
+      }
+      if (script.includes("Framekit occurrence range end")) {
+        playhead = script.includes("+ 40") ? "4" : "8";
+        return "";
+      }
+      if (script.includes('keystroke "p" using {control down}')) {
+        playhead = script.includes('"00:00:04:00"') ? "4" : "0";
+        return "";
+      }
+      if (script.includes("00:00:04:00")) {
+        playhead = "4";
+        return "";
       }
       if (script.includes("keystroke \"t\" using {command down}")) {
         transitionAdded = true;
         revision = 2;
-        return "applied";
+        return "FRAMEKIT_NATIVE_TRANSITION_DURATION=1/1";
       }
       if (script.includes('click menu item "Undo Add Transition"')) {
         transitionAdded = false;
@@ -112,6 +129,9 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
     vendor: "Final Cut Pro",
     identity: "fcp://transition/cross",
   });
+  const [transitionById] = await adapter.searchTransitions(transition!.id);
+  assert.deepEqual(transitionById, transition);
+  assert.equal(scripts.some((script) => script.includes('set value of transitionSearchField to ""') && script.includes('candidateIdentity is "fcp://transition/cross"')), true);
 
   const [beforeMedia] = await adapter.searchMedia("before");
   const [afterMedia] = await adapter.searchMedia("after");
@@ -134,10 +154,14 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   const result = await adapter.executeTransitionAdd(preview.previewToken);
   assert.equal(result.verification.verified, true);
   assert.equal(result.afterRevision.id, "rev-2");
+  assert.deepEqual(result.observedDuration, { value: "1", timescale: "1" });
   assert.equal(result.undoAvailable, true);
   assert.equal(scripts.some((script) => script.includes("keystroke \"t\" using {command down}")), true);
   assert.equal(scripts.some((script) => script.includes("set durationText to \"1/1\"")), true);
   assert.equal(scripts.some((script) => script.includes("if not durationApplied then error")), true);
+  assert.equal(scripts.some((script) => script.includes("Framekit occurrence range start") && script.includes('keystroke "i" using {shift down}')), true);
+  assert.equal(scripts.some((script) => script.includes("Framekit occurrence range end") && script.includes('keystroke "o" using {shift down}')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "p" using {control down}') && script.includes('"00:00:04:00"')), true);
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
@@ -147,17 +171,30 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
 
 test("native transition previews fail closed for non-adjacent or stale edit points", async () => {
   let revision = 1;
+  let playhead = "0";
   let afterStart = "5/1";
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    liveState: async () => liveState(revision),
+    liveState: async () => liveState(revision, playhead),
     sleep: async () => {},
     executor: async (script) => {
       if (script.includes("on preflightResult") || script.includes("set selectedName to \"\"")) {
         return context("", "", "Undo");
       }
-      if (script.includes("set sourceIdentity to \"before-source\"")) return occurrenceOutput("Before", "0/1", "40");
-      if (script.includes("set sourceIdentity to \"after-source\"")) return occurrenceOutput("After", afterStart, "160");
+      if (script.includes("set sourceIdentity to \"before-source\"")) return productionOccurrenceOutput("Before", "before-source", "40");
+      if (script.includes("set sourceIdentity to \"after-source\"")) return productionOccurrenceOutput("After", "after-source", "160");
+      if (script.includes("Framekit occurrence range start")) {
+        playhead = script.includes("+ 40") ? "0" : afterStart.split("/")[0]!;
+        return "";
+      }
+      if (script.includes("Framekit occurrence range end")) {
+        playhead = script.includes("+ 40") ? "4" : String(Number(afterStart.split("/")[0]!) + 4);
+        return "";
+      }
+      if (script.includes('keystroke "p" using {control down}')) {
+        playhead = script.includes('"00:00:04:00"') ? "4" : "0";
+        return "";
+      }
       if (script.includes("set searchQuery to \"before\"")) return ["Before", "AXClip", "before-source", "before-source"].join(fieldSeparator) + recordSeparator;
       if (script.includes("set searchQuery to \"after\"")) return ["After", "AXClip", "after-source", "after-source"].join(fieldSeparator) + recordSeparator;
       return "";
@@ -197,24 +234,37 @@ test("native transition previews fail closed for non-adjacent or stale edit poin
   await assert.rejects(adapter.executeTransitionAdd(validPreview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/);
 });
 
-test("native transition placement rolls back when Command-T succeeds but duration editing fails", async () => {
+test("native transition placement rolls back when native duration readback disagrees", async () => {
   const scripts: string[] = [];
   let revision = 1;
+  let playhead = "0";
   let transitionAdded = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    liveState: async () => liveState(revision),
+    liveState: async () => liveState(revision, playhead),
     sleep: async () => {},
     executor: async (script) => {
       scripts.push(script);
       if (script.includes("set searchQuery to \"before\"")) return ["Before", "AXClip", "before-source", "before-source"].join(fieldSeparator) + recordSeparator;
       if (script.includes("set searchQuery to \"after\"")) return ["After", "AXClip", "after-source", "after-source"].join(fieldSeparator) + recordSeparator;
-      if (script.includes("set sourceIdentity to \"before-source\"")) return occurrenceOutput("Before", "0/1", "40");
-      if (script.includes("set sourceIdentity to \"after-source\"")) return occurrenceOutput("After", "4/1", "160");
+      if (script.includes("set sourceIdentity to \"before-source\"")) return productionOccurrenceOutput("Before", "before-source", "40");
+      if (script.includes("set sourceIdentity to \"after-source\"")) return productionOccurrenceOutput("After", "after-source", "160");
+      if (script.includes("Framekit occurrence range start")) {
+        playhead = script.includes("+ 40") ? "0" : "4";
+        return "";
+      }
+      if (script.includes("Framekit occurrence range end")) {
+        playhead = script.includes("+ 40") ? "4" : "8";
+        return "";
+      }
+      if (script.includes('keystroke "p" using {control down}')) {
+        playhead = script.includes('"00:00:04:00"') ? "4" : "0";
+        return "";
+      }
       if (script.includes("keystroke \"t\" using {command down}")) {
         transitionAdded = true;
         revision = 2;
-        throw new Error("FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: duration field disappeared after Command-T");
+        return "FRAMEKIT_NATIVE_TRANSITION_DURATION=2/1";
       }
       if (script.includes('click menu item "Undo Add Transition"')) {
         transitionAdded = false;
@@ -242,7 +292,7 @@ test("native transition placement rolls back when Command-T succeeds but duratio
     duration: { value: "1", timescale: "1" },
   });
 
-  await assert.rejects(adapter.executeTransitionAdd(preview.previewToken), /transition placement was rolled back/);
+  await assert.rejects(adapter.executeTransitionAdd(preview.previewToken), /read back 2\/1.*transition placement was rolled back/);
   assert.equal(transitionAdded, false);
   assert.equal(revision, 3);
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Add Transition"')), true);
