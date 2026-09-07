@@ -16,6 +16,9 @@ Repository-local GitHub agent playbooks are documented in
 - [Rough-cut duration policy](./rough-cut/duration-policy.md): explicit duration tradeoffs and safety defaults.
 - [Tests](./tests/README.md): reproducible checks and evidence, including the [golden workflow corpus](./tests/golden-corpus.md), [deterministic MCP evaluation](./tests/mcp-evaluation.md), and [v0.0.3 release gate](./tests/release-gate.md).
 - [Generic MCP Skills](./mcp/skills.md): versioned Skill discovery and execution.
+- [Skill authoring](./mcp/skill-authoring.md): public manifests, handlers, plans, and lifecycle boundaries.
+- [v0.0.2 Skill conformance](./tests/skill-conformance.md): deterministic gate and adapter evidence.
+- [v0.0.2 release checklist](./release-v0.0.2-checklist.md): scope and required repository gates.
 - [v0.0.3 release evidence](./release-notes-v0.0.3.md): verified behavior and explicit unsupported boundaries.
 - [Final Cut](./final-cut/README.md): native integration and operations.
 - [Native media insertion breakthrough](./final-cut/native-media-insertion-breakthrough.md):

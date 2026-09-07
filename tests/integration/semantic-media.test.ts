@@ -316,6 +316,7 @@ test("unconfigured analysis returns unavailable statuses without descriptions", 
     [
       { capability: "speech", status: "unavailable" },
       { capability: "audio", status: "unavailable" },
+      { capability: "noise", status: "unavailable" },
       { capability: "visual", status: "unavailable" },
       { capability: "metadata", status: "unavailable" },
     ],

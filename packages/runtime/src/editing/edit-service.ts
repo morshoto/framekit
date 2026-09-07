@@ -385,6 +385,12 @@ export class EditService {
     if (operations.some((operation) => operation.type === "timeline.audio.mix") && !capabilities.audioMixing) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline audio mixing");
     }
+    if (operations.some((operation) => operation.type === "reduce-noise") && !capabilities.noiseReduction) {
+      throw new Error("CAPABILITY_UNAVAILABLE: noise reduction effect");
+    }
+    if (operations.some((operation) => operation.type === "set-color-correction") && !capabilities.colorCorrection) {
+      throw new Error("CAPABILITY_UNAVAILABLE: color correction");
+    }
   }
 
   private async defaultTarget(

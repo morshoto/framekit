@@ -1,5 +1,6 @@
 import type { EditTransaction } from "./editing.js";
 import type { EditTarget } from "./editing.js";
+import type { ColorCorrection } from "./project.js";
 
 export interface AudioAudibilityAssertion {
   type: "audio-audibility";
@@ -21,6 +22,13 @@ export interface AudioLoudnessAssertion {
   mediaId: string;
   targetLufs: number;
   toleranceDb?: number;
+}
+
+export interface AudioNoiseAssertion {
+  type: "audio-noise";
+  mediaId: string;
+  maxNoiseFloorDb: number;
+  minConfidence?: number;
 }
 
 export interface AudioSourceAssertion {
@@ -59,15 +67,23 @@ export interface StructureAssertion {
   operationType?: string;
 }
 
+export interface ColorCorrectionAssertion {
+  type: "color-correction";
+  clipId: string;
+  expected: ColorCorrection;
+}
+
 export type VerificationAssertion =
   | AudioAudibilityAssertion
   | AudioCoverageAssertion
   | AudioLoudnessAssertion
+  | AudioNoiseAssertion
   | AudioSourceAssertion
   | VisualContentAssertion
   | DurationAssertion
   | StreamAssertion
-  | StructureAssertion;
+  | StructureAssertion
+  | ColorCorrectionAssertion;
 
 export interface VerificationPolicy {
   requireExpectedChange?: boolean;
