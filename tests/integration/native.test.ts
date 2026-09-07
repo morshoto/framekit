@@ -1006,6 +1006,22 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     now: () => 1_000,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: {
+        id: "sequence-1",
+        name: "Edit",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      playheadTime: { value: "0", timescale: "1" },
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+      },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    }),
     executor: async (script) => {
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
@@ -1014,7 +1030,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
         occurrenceReads += 1;
         return occurrenceReads === 1
           ? `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}10/1${recordSeparator}`
-          : `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}5/1${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${separator}5/1${separator}5/1${recordSeparator}`;
+          : `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}00:00:00:00${separator}00:00:00:05${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${separator}00:00:00:05${separator}00:00:00:05${recordSeparator}`;
       }
       return "";
     },
@@ -1065,6 +1081,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const result = await adapter.executeBlade(preview.previewToken);
   assert.equal(result.verification.verified, true);
   assert.equal(result.resultingSegments.length, 2);
+  assert.deepEqual(result.resultingSegments.map(({ start, duration }) => ({ start, duration })), [
+    { start: "0/1", duration: "5/24" },
+    { start: "5/24", duration: "5/24" },
+  ]);
   assert.equal(scripts.some((script) => script.includes("Blade")), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 3, true);
 });

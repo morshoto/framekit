@@ -895,14 +895,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         }
       }
       const occurrences = parseOccurrences(occurrenceOutput, mediaHandle);
-      for (const occurrence of occurrences) {
-        if (occurrence.start && !isRational(occurrence.start)) {
-          occurrence.start = rationalText(timelineTimecodeToRational(occurrence.start, liveBefore?.sequence, "occurrence start", true));
-        }
-        if (occurrence.duration && !isRational(occurrence.duration)) {
-          occurrence.duration = rationalText(timelineTimecodeToRational(occurrence.duration, liveBefore?.sequence, "occurrence duration", false));
-        }
-      }
+      normalizeOccurrenceTimes(occurrences, liveBefore?.sequence);
       if (occurrences.length === 1 && this.canDriveNativeMouse) {
         const timelineOffset = occurrences[0]?.timelineOffset;
         if (timelineOffset === undefined) {
@@ -993,15 +986,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     const after = await this.requireTimelineContext();
     if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
+    const afterLive = await this.readLiveState();
     const resultingSegments = parseOccurrences(
       await this.executor(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
       preview.occurrence.mediaHandle,
     );
+    normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
     if (resultingSegments.length < 2) {
       throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
     }
     const operationId = opaqueHandle("native-blade");
-    const afterLive = await this.readLiveState();
     this.rememberOperation(operationId, { kind: "blade", before, after, beforeLive: undefined, afterLive, undoCommand: after.undoCommand });
     return {
       operationId,
@@ -1158,6 +1152,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const before = await this.requireTimelineContext();
     const beforeLive = await this.requireLiveState();
     validateTransitionPreviewBinding(preview, beforeLive);
+    const frameDuration = beforeLive.sequence?.frameDuration;
+    if (!frameDuration) {
+      throw new Error("FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut sequence frame duration is unavailable");
+    }
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     let observedDuration: RationalTime | undefined;
     const validatePreparationRetry = async (recovered: NativeFinalCutContext): Promise<void> => {
@@ -1182,8 +1180,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       // Command-T may mutate before duration editing fails. Never retry this
       // script: the outer recovery path observes and rolls back that mutation.
       observedDuration = parseObservedTransitionDuration(
-        await this.executor(applyTransitionScript(preview.duration)),
-        beforeLive.sequence?.frameDuration,
+        await this.executor(applyTransitionScript(preview.duration, frameDuration)),
+        frameDuration,
       );
       if (compareRational(observedDuration, preview.duration) !== 0) {
         throw new Error(
@@ -1943,9 +1941,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private async waitForLivePlayheadChangeOrCurrent(previous: EditorLiveState, endpoint: "start" | "end"): Promise<EditorLiveState> {
     const deadline = this.now() + 5_000;
     let latest = await this.requireLiveState();
+    let stableStartPlayhead: RationalTime | undefined;
     while (this.now() < deadline) {
-      if (latest.playheadTime && (endpoint === "start" || !previous.playheadTime || compareRational(latest.playheadTime, previous.playheadTime) !== 0)) {
-        return latest;
+      if (latest.playheadTime) {
+        const changed = !previous.playheadTime || compareRational(latest.playheadTime, previous.playheadTime) !== 0;
+        if (endpoint === "end" && changed) return latest;
+        if (endpoint === "start") {
+          if (changed) return latest;
+          if (stableStartPlayhead && compareRational(stableStartPlayhead, latest.playheadTime) === 0) return latest;
+          stableStartPlayhead = latest.playheadTime;
+        }
       }
       await this.sleep(100);
       latest = await this.requireLiveState();
@@ -1968,6 +1973,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.attachLiveState(await this.ensureTimelineReady());
     if (!context.available) {
       throw new Error(`${context.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${context.error?.message ?? "native timeline context unavailable"}`);
+    }
+    if (context.target.kind === "playhead") {
+      const detailed = await this.inspectRawNative();
+      if (detailed.available && detailed.frontWindow && detailed.timelineWindowAvailable) return detailed;
     }
     return context;
   }
@@ -2253,8 +2262,21 @@ function parseObservedTransitionDuration(output: string, frameDuration?: Rationa
       const totalFrames = (((BigInt(match[1]!) * 60n + BigInt(match[2]!)) * 60n + BigInt(match[3]!)) * BigInt(framesPerSecond)) + BigInt(match[4]!);
       return normalizeRational(totalFrames * BigInt(frameDuration.value), BigInt(frameDuration.timescale));
     }
+    const frameCount = value.match(/^(\d+)$/);
+    if (frameCount && frameDuration) {
+      return normalizeRational(BigInt(frameCount[1]!) * BigInt(frameDuration.value), BigInt(frameDuration.timescale));
+    }
     throw new Error(`FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut returned an unsupported transition duration ${value || "<empty>"}`);
   }
+}
+
+function transitionDurationInput(duration: RationalTime, frameDuration: RationalTime): string {
+  const durationNumerator = BigInt(duration.value) * BigInt(frameDuration.timescale);
+  const durationDenominator = BigInt(duration.timescale) * BigInt(frameDuration.value);
+  if (durationDenominator <= 0n || durationNumerator <= 0n || durationNumerator % durationDenominator !== 0n) {
+    throw new Error("FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: transition duration is not representable as whole sequence frames");
+  }
+  return (durationNumerator / durationDenominator).toString();
 }
 
 function parseRationalString(value: string, label: string): RationalTime {
@@ -2625,10 +2647,12 @@ function inspectScript(): string {
     set selectedIdentity to ""
     set selectedCount to 0
     set selectedRecord to ""
+    set selectionLookupAvailable to false
     -- Final Cut exposes the Project Timeline as a stable bounded AX node.
     -- Start there instead of traversing Browser and Effects Library trees.
     try
       set timelineArea to UI element 1 of UI element 8 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
+      set selectionLookupAvailable to true
       set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
     end try
     if selectedRecord is not "" then
@@ -2638,6 +2662,7 @@ function inspectScript(): string {
       set selectedIdentity to item 3 of selectedFields
       set selectedCount to 1
     end if
+    if not selectionLookupAvailable then set selectedCount to -1
     set undoEnabled to false
     set undoCommand to ""
     try
@@ -3893,7 +3918,8 @@ function selectTransitionEditPointScript(timecode: string): string {
   end tell`;
 }
 
-function applyTransitionScript(duration: RationalTime): string {
+function applyTransitionScript(duration: RationalTime, frameDuration: RationalTime): string {
+  const durationText = transitionDurationInput(duration, frameDuration);
   return `
   tell application "System Events"
   tell process "Final Cut Pro"
@@ -3920,7 +3946,7 @@ function applyTransitionScript(duration: RationalTime): string {
     end if
     keystroke "d" using {control down}
     delay 0.2
-    set durationText to ${appleScriptString(`${duration.value}/${duration.timescale}`)}
+    set durationText to ${appleScriptString(durationText)}
     set durationApplied to false
     set observedDuration to ""
     repeat with candidate in text fields of front window
@@ -4192,14 +4218,16 @@ function parseContext(output: string): NativeFinalCutContext {
     : timelineFocused
       ? "timeline"
       : "none";
-  const target = selectedCount === 1
-    ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
-    : selectedCount > 1
-      ? { kind: "unknown" as const }
-      : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")
-        || focusedRole === "AXTextArea" && focusedDescription === "text entry area") && focusedName
-        ? { kind: "selected-clip" as const, name: focusedName, role: focusedRole }
-      : { kind: "playhead" as const };
+  const target = selectedCount < 0
+    ? { kind: "unknown" as const }
+    : selectedCount === 1
+      ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
+      : selectedCount > 1
+        ? { kind: "unknown" as const }
+        : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")
+          || focusedRole === "AXTextArea" && focusedDescription === "text entry area") && focusedName
+          ? { kind: "selected-clip" as const, name: focusedName, role: focusedRole }
+        : { kind: "playhead" as const };
   return {
     available: true,
     application: "Final Cut Pro",
@@ -4270,6 +4298,20 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
         ...(timelineOffsetText && Number.isFinite(Number(timelineOffsetText)) ? { timelineOffset: Number(timelineOffsetText) } : {}),
       };
     });
+}
+
+function normalizeOccurrenceTimes(
+  occurrences: NativeFinalCutOccurrence[],
+  sequence: EditorLiveState["sequence"] | undefined,
+): void {
+  for (const occurrence of occurrences) {
+    if (occurrence.start && !isRational(occurrence.start)) {
+      occurrence.start = rationalText(timelineTimecodeToRational(occurrence.start, sequence, "occurrence start", true));
+    }
+    if (occurrence.duration && !isRational(occurrence.duration)) {
+      occurrence.duration = rationalText(timelineTimecodeToRational(occurrence.duration, sequence, "occurrence duration", false));
+    }
+  }
 }
 
 function isRational(value: string): boolean {

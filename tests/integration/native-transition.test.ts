@@ -9,11 +9,12 @@ function context(
   selectedName: string,
   selectedRole: string,
   undoCommand: string,
+  selectedCount = selectedName ? 1 : 0,
 ): string {
   return [
     "true",
     "Final Cut Pro",
-    selectedName ? "1" : "0",
+    String(selectedCount),
     selectedName,
     selectedRole,
     undoCommand ? "true" : "false",
@@ -66,11 +67,11 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   let revision = 1;
   let playhead = "0";
   let transitionAdded = false;
+  let pendingAfterStart = false;
   const live = async () => liveState(revision, playhead);
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     liveState: live,
-    sleep: async () => {},
     executor: async (script) => {
       scripts.push(script);
       if (script.includes("transitionSearchField")) {
@@ -89,7 +90,12 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
         return productionOccurrenceOutput("After", "after-source", "160");
       }
       if (script.includes("Framekit occurrence range start")) {
-        playhead = script.includes("+ 40") ? "0" : "4";
+        if (script.includes("+ 40")) {
+          playhead = "0";
+        } else {
+          playhead = "0";
+          pendingAfterStart = true;
+        }
         return "";
       }
       if (script.includes("Framekit occurrence range end")) {
@@ -107,7 +113,7 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
       if (script.includes("keystroke \"t\" using {command down}")) {
         transitionAdded = true;
         revision = 2;
-        return "FRAMEKIT_NATIVE_TRANSITION_DURATION=1/1";
+        return "FRAMEKIT_NATIVE_TRANSITION_DURATION=24";
       }
       if (script.includes('click menu item "Undo Add Transition"')) {
         transitionAdded = false;
@@ -118,6 +124,12 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
         return context(transitionAdded ? "Cross Dissolve" : "", transitionAdded ? "transition" : "", transitionAdded ? "Undo Add Transition" : "Undo");
       }
       return "";
+    },
+    sleep: async () => {
+      if (pendingAfterStart) {
+        playhead = "4";
+        pendingAfterStart = false;
+      }
     },
   });
 
@@ -162,7 +174,7 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   assert.equal(scripts.filter((script) => script.includes("keystroke \"t\" using {command down}")).length, 1);
   assert.equal(scripts.some((script) => script.includes('button "Create Transition"')), true);
   assert.equal(scripts.some((script) => script.includes('countTransitionItems(UI elements of mainWindow, 0, "fcp://transition/cross"')), true);
-  assert.equal(scripts.some((script) => script.includes("set durationText to \"1/1\"")), true);
+  assert.equal(scripts.some((script) => script.includes("set durationText to \"24\"")), true);
   assert.equal(scripts.some((script) => script.includes("if not durationApplied then error")), true);
   assert.equal(scripts.some((script) => script.includes("Framekit occurrence range start") && script.includes('keystroke "i" using {shift down}')), true);
   assert.equal(scripts.some((script) => script.includes("Framekit occurrence range end") && script.includes('keystroke "o" using {shift down}')), true);
@@ -241,7 +253,26 @@ test("native transition previews fail closed for non-adjacent or stale edit poin
   await assert.rejects(adapter.executeTransitionAdd(validPreview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/);
 });
 
+test("native operations fail closed when timeline selection lookup is unavailable", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("set timelineArea to")) return context("", "", "Undo", -1);
+      if (script.includes("on preflightResult")) return context("", "", "Undo");
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+
+  await assert.rejects(adapter.previewBlade(occurrence.handle), /FINAL_CUT_NATIVE_SELECTION_REQUIRED/);
+});
+
 test("native transition placement rolls back when native duration readback disagrees", async () => {
+  for (const [durationReadback, expectedError] of [
+    ["2/1", /read back 2\/1.*transition placement was rolled back/],
+    ["", /did not return a readable transition duration.*transition placement was rolled back/],
+  ] as const) {
   const scripts: string[] = [];
   let revision = 1;
   let playhead = "0";
@@ -271,7 +302,7 @@ test("native transition placement rolls back when native duration readback disag
       if (script.includes("keystroke \"t\" using {command down}")) {
         transitionAdded = true;
         revision = 2;
-        return "FRAMEKIT_NATIVE_TRANSITION_DURATION=2/1";
+        return durationReadback ? `FRAMEKIT_NATIVE_TRANSITION_DURATION=${durationReadback}` : "";
       }
       if (script.includes('click menu item "Undo Add Transition"')) {
         transitionAdded = false;
@@ -299,8 +330,9 @@ test("native transition placement rolls back when native duration readback disag
     duration: { value: "1", timescale: "1" },
   });
 
-  await assert.rejects(adapter.executeTransitionAdd(preview.previewToken), /read back 2\/1.*transition placement was rolled back/);
+  await assert.rejects(adapter.executeTransitionAdd(preview.previewToken), expectedError);
   assert.equal(transitionAdded, false);
   assert.equal(revision, 3);
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Add Transition"')), true);
+  }
 });
