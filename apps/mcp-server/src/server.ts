@@ -1186,17 +1186,18 @@ async function resolveNativeTransitionAsset(
     // discovery below remains the source of truth in that case.
   }
   const asset = assets.find((candidate) => candidate.id === assetId);
-  if (asset) {
-    return {
-      id: asset.id,
-      kind: "transition" as const,
-      name: asset.name,
-      vendor: asset.vendor,
-      identity: typeof asset.metadata.nativeIdentity === "string" ? asset.metadata.nativeIdentity : asset.id,
-    };
+  // The runtime registry identifies installed assets by filesystem metadata;
+  // transition placement must use the stable identity returned by Final Cut's
+  // Transitions browser. Resolve registry assets back through native discovery
+  // instead of fabricating a native identity from the registry id.
+  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId);
+  const matchingNativeMatches = asset
+    ? nativeMatches.filter((candidate) => candidate.name === asset.name)
+    : nativeMatches.filter((candidate) => candidate.id === assetId || candidate.identity === assetId);
+  if (asset && matchingNativeMatches.length > 1) {
+    throw new Error(`TRANSITION_ASSET_AMBIGUOUS: native transition name ${asset.name} has multiple stable identities`);
   }
-  const nativeMatches = await nativeEditor.searchTransitions(assetId);
-  const nativeMatch = nativeMatches.find((candidate) => candidate.id === assetId);
+  const nativeMatch = matchingNativeMatches[0];
   if (!nativeMatch) throw new Error(`TRANSITION_ASSET_NOT_FOUND: installed transition asset ${assetId} was not discovered`);
   return nativeMatch;
 }
