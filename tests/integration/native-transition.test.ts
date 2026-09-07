@@ -131,7 +131,9 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   });
   const [transitionById] = await adapter.searchTransitions(transition!.id);
   assert.deepEqual(transitionById, transition);
-  assert.equal(scripts.some((script) => script.includes('set value of transitionSearchField to ""') && script.includes('candidateIdentity is "fcp://transition/cross"')), true);
+  assert.equal(scripts.some((script) => script.includes('set value of transitionSearchField to ""') && script.includes('collectTransitionMatches(mainWindow, 0, "fcp://transition/cross", true')), true);
+  assert.equal(scripts.some((script) => script.includes('menu item "Transitions" of menu 1 of menu item "Show in Workspace"')), true);
+  assert.equal(scripts.filter((script) => script.includes("transitionSearchField")).every((script) => !script.includes("entire contents of front window")), true);
 
   const [beforeMedia] = await adapter.searchMedia("before");
   const [afterMedia] = await adapter.searchMedia("after");

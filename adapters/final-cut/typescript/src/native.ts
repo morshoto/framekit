@@ -3462,95 +3462,203 @@ end tell`;
 
 function transitionSearchScript(query: string, identityQuery = false): string {
   const searchQuery = identityQuery ? "" : query;
-  const matchExpression = identityQuery
-    ? `candidateIdentity is ${appleScriptString(query)}`
-    : `candidateName contains ${appleScriptString(query)}`;
   return `
+  ${transitionBrowserTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
-    -- Final Cut's Transitions tab is a custom Browser control. Keep the click
-    -- bounded to the standard Browser tab strip and verify the result by its
-    -- AXIdentifier rather than treating a visible name as an identity.
-    click at {(item 1 of origin) + 146, (item 2 of origin) + 53}
-    delay 0.3
-    set transitionSearchField to missing value
-    repeat with candidate in entire contents of front window
-      try
-        set candidateRole to role of candidate as text
-        set candidateDescription to description of candidate as text
-        if (candidateRole is "AXSearchField" or candidateRole is "AXTextField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
-          set transitionSearchField to candidate
-          exit repeat
-        end if
-      end try
-    end repeat
-    if transitionSearchField is missing value then error "FINAL_CUT_NATIVE_TRANSITION_SEARCH_UNAVAILABLE: transition search field was not exposed"
+    ${transitionBrowserOpenScript()}
+    ${transitionBrowserFocusScript()}
     set value of transitionSearchField to ${appleScriptString(searchQuery)}
     delay 0.6
-    set output to ""
     set seenIdentities to {}
-    repeat with candidate in entire contents of front window
-      try
-        set candidateName to name of candidate as text
-        set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
-        if candidateIdentity is not "" and ${matchExpression} and seenIdentities does not contain candidateIdentity then
-          set end of seenIdentities to candidateIdentity
-          set output to output & candidateName & (ASCII character 31) & candidateIdentity & (ASCII character 30)
-        end if
-      on error
-        -- Ignore inaccessible Browser descendants and continue the bounded scan.
-      end try
-    end repeat
-    return output
+    return my collectTransitionMatches(mainWindow, 0, ${appleScriptString(identityQuery ? query : searchQuery)}, ${identityQuery ? "true" : "false"}, seenIdentities, mainOrigin, mainSize)
   end tell
   end tell`;
 }
 
 function transitionAssetSelectionScript(assetName: string): string {
   return `
+  ${transitionBrowserTraversalScript()}
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
-    set origin to position of mainWindow
-    click at {(item 1 of origin) + 146, (item 2 of origin) + 53}
-    delay 0.3
-    set transitionSearchField to missing value
-    repeat with candidate in entire contents of front window
-      try
-        set candidateRole to role of candidate as text
-        set candidateDescription to description of candidate as text
-        if (candidateRole is "AXSearchField" or candidateRole is "AXTextField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
-          set transitionSearchField to candidate
-          exit repeat
-        end if
-      end try
-    end repeat
-    if transitionSearchField is missing value then error "FINAL_CUT_NATIVE_TRANSITION_SEARCH_UNAVAILABLE: transition search field was not exposed"
+    ${transitionBrowserFocusScript()}
     set value of transitionSearchField to ${appleScriptString(assetName)}
     delay 0.6
-    set exactItem to missing value
-    set exactCount to 0
-    repeat with candidate in entire contents of front window
-      try
-        if (name of candidate as text) is ${appleScriptString(assetName)} then
-          set exactCount to exactCount + 1
-          set exactItem to candidate
-        end if
-      end try
-    end repeat
+    set exactCount to my countTransitionItems(mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize)
     if exactCount is greater than 1 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_AMBIGUOUS: multiple exact transition matches were visible"
-    if exactItem is missing value then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not visible"
-    try
-      perform action "AXPress" of exactItem
-    on error
-      click exactItem
-    end try
+    if exactCount is 0 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not visible"
+    if not my pressTransitionItem(mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize) then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not selectable"
   end tell
   end tell`;
+}
+
+function transitionBrowserTraversalScript(): string {
+  return `
+  using terms from application "System Events"
+    on transitionChildIndices(containerItem)
+      set childCount to count of UI elements of containerItem
+      set orderedIndices to {}
+      repeat with candidateIndex from 1 to childCount
+        set end of orderedIndices to contents of candidateIndex
+      end repeat
+      return orderedIndices
+    end transitionChildIndices
+
+    on transitionCandidateName(candidate)
+      set candidateName to ""
+      try
+        set candidateName to name of candidate as text
+      end try
+      if candidateName is "missing value" then set candidateName to ""
+      if candidateName is "" then
+        try
+          set candidateName to value of candidate as text
+        end try
+      end if
+      if candidateName is "missing value" then set candidateName to ""
+      return candidateName
+    end transitionCandidateName
+
+    on transitionPaneVisible(candidate, mainOrigin, mainSize)
+      set minimumX to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.60)
+      set minimumY to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.50)
+      set maximumX to (item 1 of mainOrigin) + (item 1 of mainSize)
+      set maximumY to (item 2 of mainOrigin) + (item 2 of mainSize)
+      try
+        set candidatePosition to position of candidate
+        set candidateSize to size of candidate
+        set candidateX to item 1 of candidatePosition
+        set candidateY to item 2 of candidatePosition
+        set candidateRight to candidateX + (item 1 of candidateSize)
+        set candidateBottom to candidateY + (item 2 of candidateSize)
+        return candidateRight is greater than minimumX and candidateBottom is greater than minimumY and candidateX is less than maximumX and candidateY is less than maximumY
+      on error
+        return false
+      end try
+    end transitionPaneVisible
+
+    on collectTransitionMatches(containerItem, depth, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
+      if depth > 12 then return ""
+      set output to ""
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my transitionChildIndices(containerItem)
+        try
+          set candidate to item (contents of candidateIndex) of candidateItems
+          if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
+            set candidateName to my transitionCandidateName(candidate)
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            set matches to false
+            if candidateIdentity is not "" then
+              if identityQuery then
+                set matches to candidateIdentity is queryText
+              else
+                set matches to candidateName contains queryText
+              end if
+            end if
+            if matches and seenIdentities does not contain candidateIdentity then
+              set end of seenIdentities to candidateIdentity
+              set output to output & candidateName & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+            end if
+            set output to output & my collectTransitionMatches(candidate, depth + 1, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return output
+    end collectTransitionMatches
+
+    on countTransitionItems(containerItem, depth, targetName, mainOrigin, mainSize)
+      if depth > 12 then return 0
+      set matchCount to 0
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my transitionChildIndices(containerItem)
+        try
+          set candidate to item (contents of candidateIndex) of candidateItems
+          if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
+            if my transitionCandidateName(candidate) is targetName then set matchCount to matchCount + 1
+            set matchCount to matchCount + my countTransitionItems(candidate, depth + 1, targetName, mainOrigin, mainSize)
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return matchCount
+    end countTransitionItems
+
+    on pressTransitionItem(containerItem, depth, targetName, mainOrigin, mainSize)
+      if depth > 12 then return false
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my transitionChildIndices(containerItem)
+        try
+          set candidate to item (contents of candidateIndex) of candidateItems
+          if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
+            if my transitionCandidateName(candidate) is targetName then
+              try
+                perform action "AXPress" of candidate
+              on error
+                click candidate
+              end try
+              return true
+            end if
+            if my pressTransitionItem(candidate, depth + 1, targetName, mainOrigin, mainSize) then return true
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return false
+    end pressTransitionItem
+  end using terms from`;
+}
+
+function transitionBrowserOpenScript(): string {
+  return `
+    -- Final Cut exposes the Transitions browser through the workspace menu;
+    -- fixed coordinates vary with sidebar and window layout.
+    click menu bar item "Window" of menu bar 1
+    delay 0.1
+    click menu item "Transitions" of menu 1 of menu item "Show in Workspace" of menu 1 of menu bar item "Window" of menu bar 1
+    delay 0.3`;
+}
+
+function transitionBrowserFocusScript(): string {
+  return `
+    set mainOrigin to position of mainWindow
+    set mainSize to size of mainWindow
+    set transitionSearchField to missing value
+    try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      set focusedRole to role of focusedCandidate as text
+      if focusedRole is "AXSearchField" or focusedRole is "AXTextField" then set transitionSearchField to focusedCandidate
+    end try
+    if transitionSearchField is missing value then
+      set transitionSearchPoints to {{0.72, 0.96}, {0.68, 0.96}, {0.76, 0.96}, {0.72, 0.91}}
+      repeat with transitionPoint in transitionSearchPoints
+        try
+          click at {(item 1 of mainOrigin) + ((item 1 of mainSize) * (item 1 of transitionPoint)), (item 2 of mainOrigin) + ((item 2 of mainSize) * (item 2 of transitionPoint))}
+          delay 0.15
+          set focusedCandidate to value of attribute "AXFocusedUIElement"
+          set focusedRole to role of focusedCandidate as text
+          set focusedDescription to ""
+          try
+            set focusedDescription to description of focusedCandidate as text
+          end try
+          if (focusedRole is "AXSearchField" or focusedRole is "AXTextField") and (focusedDescription contains "search" or focusedDescription contains "Search" or focusedRole is "AXSearchField") then
+            set transitionSearchField to focusedCandidate
+            exit repeat
+          end if
+        end try
+      end repeat
+    end if
+    if transitionSearchField is missing value then error "FINAL_CUT_NATIVE_TRANSITION_SEARCH_UNAVAILABLE: transition search field was not exposed"`;
 }
 
 function selectTransitionEditPointScript(timecode: string): string {
