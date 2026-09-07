@@ -349,7 +349,7 @@ test("Final Cut MCP resolves transition search ids back through native discovery
         duration: { value: "1", timescale: "1" },
       },
     });
-    assert.deepEqual(queries, ["Cross Dissolve", nativeMatch.id, registryAsset.name]);
+    assert.deepEqual(queries, ["Cross Dissolve", registryAsset.name]);
     assert.equal(requests.length, 2);
     assert.deepEqual((requests[0] as { asset: unknown }).asset, nativeMatch);
     assert.deepEqual((requests[1] as { asset: unknown }).asset, nativeMatch);

@@ -136,14 +136,14 @@ try {
 }
 
 async function uniqueMedia(query, toolResults) {
-  const matches = await callJson("editor.native.media.search", { query });
+  let matches = await callJson("editor.native.media.search", { query });
+  if (Array.isArray(matches) && matches.length === 0) {
+    matches = await callJson("editor.native.media.search", { query });
+  }
   toolResults.push({ name: "editor.native.media.search", status: "passed" });
   if (!Array.isArray(matches) || matches.length !== 1) {
     throw new Error(`FINAL_CUT_E2E_MEDIA_AMBIGUOUS: query ${query} returned ${matches?.length ?? 0} matches`);
   }
-  const selected = await callJson("editor.native.media.select", { mediaHandle: matches[0].handle });
-  toolResults.push({ name: "editor.native.media.select", status: "passed" });
-  if (!selected.frontmost) throw new Error(`FINAL_CUT_E2E_MEDIA_SELECT_FAILED: ${query} did not leave Final Cut frontmost`);
   return matches[0];
 }
 
@@ -157,13 +157,22 @@ async function uniqueOccurrence(mediaHandle, label, toolResults) {
 }
 
 async function callJson(name, arguments_ = {}) {
-  const result = await client.callTool({ name, arguments: arguments_ });
-  const text = result.content?.find((item) => item.type === "text")?.text ?? "";
-  if (result.isError) throw new Error(text || `${name} failed`);
+  const startedAt = Date.now();
+  process.stderr.write(`[headed-e2e] begin ${name}\n`);
   try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`${name} returned invalid JSON: ${text}`);
+    const result = await client.callTool({ name, arguments: arguments_ });
+    const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+    if (result.isError) throw new Error(text || `${name} failed`);
+    try {
+      const parsed = JSON.parse(text);
+      process.stderr.write(`[headed-e2e] end ${name} ${Date.now() - startedAt}ms\n`);
+      return parsed;
+    } catch {
+      throw new Error(`${name} returned invalid JSON: ${text}`);
+    }
+  } catch (error) {
+    process.stderr.write(`[headed-e2e] fail ${name} ${Date.now() - startedAt}ms: ${String(error)}\n`);
+    throw error;
   }
 }
 

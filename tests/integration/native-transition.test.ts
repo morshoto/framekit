@@ -159,10 +159,15 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   assert.deepEqual(result.observedDuration, { value: "1", timescale: "1" });
   assert.equal(result.undoAvailable, true);
   assert.equal(scripts.some((script) => script.includes("keystroke \"t\" using {command down}")), true);
+  assert.equal(scripts.filter((script) => script.includes("keystroke \"t\" using {command down}")).length, 1);
+  assert.equal(scripts.some((script) => script.includes('button "Create Transition"')), true);
+  assert.equal(scripts.some((script) => script.includes('countTransitionItems(UI elements of mainWindow, 0, "fcp://transition/cross"')), true);
   assert.equal(scripts.some((script) => script.includes("set durationText to \"1/1\"")), true);
   assert.equal(scripts.some((script) => script.includes("if not durationApplied then error")), true);
   assert.equal(scripts.some((script) => script.includes("Framekit occurrence range start") && script.includes('keystroke "i" using {shift down}')), true);
   assert.equal(scripts.some((script) => script.includes("Framekit occurrence range end") && script.includes('keystroke "o" using {shift down}')), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Zoom to Fit"') && script.includes("delay 0.5")), true);
+  assert.equal(scripts.some((script) => script.includes("set value of searchField to searchQuery") && script.includes("key code 36")), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "p" using {control down}') && script.includes('"00:00:04:00"')), true);
 
   const undone = await adapter.undo(result.operationId);

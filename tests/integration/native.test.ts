@@ -398,8 +398,8 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) {
         return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Blade");
       }
-      if (script.includes('set output to ""') && script.includes("xOffset")) {
-        return `Interview${separator}${"AXRow"}${recordSeparator}Interview${separator}${"AXRow"}${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) {
+        return `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}10/1${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${separator}10/1${separator}10/1${recordSeparator}`;
       }
       return "";
     },
@@ -1010,11 +1010,11 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes('set output to ""') && script.includes("xOffset")) {
+      if (script.includes("collectTimelineClipMatches")) {
         occurrenceReads += 1;
         return occurrenceReads === 1
-          ? `Interview${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}`
-          : `Interview${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${recordSeparator}`;
+          ? `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}10/1${recordSeparator}`
+          : `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}5/1${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${separator}5/1${separator}5/1${recordSeparator}`;
       }
       return "";
     },
@@ -1037,11 +1037,11 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.ok(activationIndex >= 0);
   assert.ok(frontmostGuardIndex > activationIndex);
   assert.equal(searchScript.includes('tell application "Final Cut Pro" to activate'), false);
-  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth\)/);
+  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth, mainOrigin, mainSize\)/);
   assert.match(searchScript, /on revealBrowser\(containerItem, depth\)/);
   assert.match(searchScript, /candidateDescription contains "Browser"/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
-  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0\)/);
+  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0, origin, windowSize\)/);
   assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath\)/);
   assert.match(searchScript, /on collectSelectedBrowserMedia\(containerItem, depth, origin, inheritedContext, seenIdentities, browserPath\)/);
   assert.match(searchScript, /containerText contains "Events"/);
@@ -1569,7 +1569,7 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview.mov", 1, true);
       if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes("set output to \"\"")) return `Interview.mov${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview.mov${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}20/1${recordSeparator}`;
       return "";
     },
   });
@@ -1585,9 +1585,9 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.equal(target.playheadTime, "1/1");
   assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
   assert.equal(scripts.some((script) => script.includes("on browserRegion(candidatePosition, origin, mediaContext)") && script.includes("AXRow")), true);
-  const occurrenceScript = scripts.find((script) => script.includes("xOffset"));
+  const occurrenceScript = scripts.find((script) => script.includes("collectTimelineClipMatches"));
   assert.ok(occurrenceScript);
-  assert.equal(occurrenceScript.includes("40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500"), true);
+  assert.equal(occurrenceScript.includes('candidateDescription contains ("Video-Clip:" & targetName)'), true);
   assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), true);
   assert.equal(scripts.some((script) => script.includes("on pressBrowserMedia(containerItem, depth, origin, inheritedContext, targetSourceIdentity, targetIdentity, browserPath)")), true);
 });
@@ -1646,7 +1646,7 @@ test("native Final Cut refuses a Blade retry without live state", async () => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) {
         return context(true, "Final Cut Pro", "Interview", 1, true);
       }
-      if (script.includes('set output to ""') && script.includes("xOffset")) {
+      if (script.includes("collectTimelineClipMatches")) {
         return `Interview${separator}AXRow${recordSeparator}`;
       }
       if (script.includes('click menu item "Blade"')) {
@@ -1998,7 +1998,7 @@ test("native Final Cut Blade previews expire and stale handles fail closed", asy
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes('set output to ""') && script.includes("xOffset")) return `Interview${separator}AXRow${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}10/1${recordSeparator}`;
       return "";
     },
   });
@@ -2026,7 +2026,7 @@ test("native Final Cut rejects ambiguous occurrences and an out-of-range playhea
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes("xOffset")) return `Interview${separator}AXRow${separator}media-source-1${separator}40${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}880${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}media-source-1${separator}40${separator}0/1${separator}10/1${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}880${separator}10/1${separator}10/1${recordSeparator}`;
       return "";
     },
     liveState,
@@ -2041,7 +2041,7 @@ test("native Final Cut rejects ambiguous occurrences and an out-of-range playhea
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes("xOffset")) return `Interview${separator}AXRow${separator}10/1${separator}2/1${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}10/1${separator}2/1${recordSeparator}`;
       return "";
     },
     liveState,

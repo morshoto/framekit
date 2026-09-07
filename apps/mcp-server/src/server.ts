@@ -12,6 +12,7 @@ import type {
   FinalCutProjectPublisher,
   FinalCutVideoExporter,
   NativeFinalCutEditor,
+  NativeFinalCutTransitionMatch,
 } from "@framekit/final-cut";
 import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
@@ -582,6 +583,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { name: "framekit", version: "0.1.0" },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
+  const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
@@ -795,7 +797,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { query: z.string().trim().min(1) },
   }, async ({ query }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition discovery is not configured");
-    return jsonResult(await options.nativeEditor.searchTransitions(query));
+    const matches = await options.nativeEditor.searchTransitions(query);
+    for (const match of matches) {
+      nativeTransitionAssets.set(match.id, match);
+      nativeTransitionAssets.set(`final-cut:transition:${match.identity}`, match);
+    }
+    return jsonResult(matches);
   });
 
   server.registerTool("editor.native.transition.add.preview", {
@@ -803,7 +810,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: nativeTransitionPreviewSchema,
   }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
-    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId);
+    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets);
     return jsonResult(await options.nativeEditor.previewTransitionAdd({
       asset,
       beforeOccurrenceHandle,
@@ -1312,7 +1319,10 @@ async function resolveNativeTransitionAsset(
   runtime: AgentVideoRuntime,
   nativeEditor: NativeFinalCutEditor,
   assetId: string,
+  nativeTransitionAssets: Map<string, NativeFinalCutTransitionMatch> = new Map(),
 ) {
+  const cachedAsset = nativeTransitionAssets.get(assetId);
+  if (cachedAsset) return cachedAsset;
   let assets: Awaited<ReturnType<AgentVideoRuntime["listAssets"]>> = [];
   try {
     assets = await runtime.listAssets({ kind: "transition" });

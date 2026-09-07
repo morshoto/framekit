@@ -883,7 +883,26 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     try {
-      const occurrences = parseOccurrences(await this.executor(locateOccurrenceScript(match, scanAll)), mediaHandle);
+      const liveBefore = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
+      let occurrenceOutput = "";
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          occurrenceOutput = await this.executor(locateOccurrenceScript(match, scanAll));
+          break;
+        } catch (error) {
+          if (attempt > 0) throw error;
+          await this.sleep(300);
+        }
+      }
+      const occurrences = parseOccurrences(occurrenceOutput, mediaHandle);
+      for (const occurrence of occurrences) {
+        if (occurrence.start && !isRational(occurrence.start)) {
+          occurrence.start = rationalText(timelineTimecodeToRational(occurrence.start, liveBefore?.sequence, "occurrence start", true));
+        }
+        if (occurrence.duration && !isRational(occurrence.duration)) {
+          occurrence.duration = rationalText(timelineTimecodeToRational(occurrence.duration, liveBefore?.sequence, "occurrence duration", false));
+        }
+      }
       if (occurrences.length === 1 && this.canDriveNativeMouse) {
         const timelineOffset = occurrences[0]?.timelineOffset;
         if (timelineOffset === undefined) {
@@ -892,7 +911,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         await selectTimelineOccurrence(this.executor, timelineOffset);
         await this.ensureOccurrenceRange(occurrences[0]!);
       }
-      const live = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
+      const live = this.liveState ? await this.liveState().catch(() => undefined) : liveBefore;
       for (const occurrence of occurrences) {
         occurrence.sequence = live?.sequence?.name;
         occurrence.sequenceId = live?.sequence?.id;
@@ -1075,7 +1094,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for transition discovery");
     try {
       const identity = transitionIdentityFromId(query);
-      return parseTransitionMatches(await this.executeNativeScript(transitionSearchScript(identity ?? query, identity !== undefined)));
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return parseTransitionMatches(await this.executeNativeScript(transitionSearchScript(identity ?? query, identity !== undefined)));
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) await this.sleep(250);
+        }
+      }
+      throw lastError;
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -1132,26 +1160,36 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     validateTransitionPreviewBinding(preview, beforeLive);
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     let observedDuration: RationalTime | undefined;
+    const validatePreparationRetry = async (recovered: NativeFinalCutContext): Promise<void> => {
+      if (!recovered.frontmost || !recovered.timelineWindowAvailable) {
+        throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut timeline became unavailable during transition placement");
+      }
+      const recoveredLive = await this.requireLiveState();
+      if (preview.sequenceId && recoveredLive.sequence?.id !== preview.sequenceId) {
+        throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+      }
+    };
     try {
-      await this.executeNativeSequence(async () => {
-        await this.executor(transitionAssetSelectionScript(preview.asset.name));
-        await this.executor(selectTransitionEditPointScript(this.toTimecode(preview.editPoint, beforeLive)));
-        await this.waitForPlayhead(preview.editPoint, beforeLive.sequence?.id);
-        observedDuration = parseObservedTransitionDuration(
-          await this.executor(applyTransitionScript(preview.duration)),
-          beforeLive.sequence?.frameDuration,
+      await this.executeNativeCommand(
+        transitionAssetSelectionScript(preview.asset.name, preview.asset.identity),
+        validatePreparationRetry,
+      );
+      await this.executeNativeCommand(
+        selectTransitionEditPointScript(this.toTimecode(preview.editPoint, beforeLive)),
+        validatePreparationRetry,
+      );
+      await this.waitForPlayhead(preview.editPoint, beforeLive.sequence?.id);
+      // Command-T may mutate before duration editing fails. Never retry this
+      // script: the outer recovery path observes and rolls back that mutation.
+      observedDuration = parseObservedTransitionDuration(
+        await this.executor(applyTransitionScript(preview.duration)),
+        beforeLive.sequence?.frameDuration,
+      );
+      if (compareRational(observedDuration, preview.duration) !== 0) {
+        throw new Error(
+          `FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut read back ${observedDuration.value}/${observedDuration.timescale}, expected ${preview.duration.value}/${preview.duration.timescale}`,
         );
-        if (compareRational(observedDuration, preview.duration) !== 0) {
-          throw new Error(
-            `FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut read back ${observedDuration.value}/${observedDuration.timescale}, expected ${preview.duration.value}/${preview.duration.timescale}`,
-          );
-        }
-      }, async (recovered) => {
-        if (!recovered.frontmost || !recovered.timelineWindowAvailable) {
-          throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut timeline became unavailable during transition placement");
-        }
-        validateTransitionPreviewBinding(preview, await this.requireLiveState());
-      });
+      }
     } catch (error) {
       const observedContext = await this.inspectRawNative();
       const observedLive = await this.readLiveState();
@@ -2517,27 +2555,89 @@ end tell`;
 
 function inspectScript(): string {
   return `
+  using terms from application "System Events"
+    on splitText(valueText, delimiter)
+      set oldDelimiters to AppleScript's text item delimiters
+      set AppleScript's text item delimiters to delimiter
+      set parts to text items of valueText
+      set AppleScript's text item delimiters to oldDelimiters
+      return parts
+    end splitText
+
+    on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
+      if depth > 12 then return ""
+      set output to ""
+      repeat with candidateRef in UI elements of containerItem
+        try
+          set candidate to contents of candidateRef
+          set candidatePosition to position of candidate
+          set candidateSize to size of candidate
+          set candidateX to item 1 of candidatePosition
+          set candidateY to item 2 of candidatePosition
+          set candidateWidth to item 1 of candidateSize
+          set candidateHeight to item 2 of candidateSize
+          set timelineTop to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.62)
+          set timelineLeft to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.20)
+          set inTimelineRegion to (candidateX + candidateWidth) is greater than timelineLeft and (candidateY + candidateHeight) is greater than timelineTop
+          if inTimelineRegion then
+            set candidateSelected to false
+            try
+              set candidateSelected to (selected of candidate) is true
+            end try
+            if candidateSelected then
+              set candidateRole to role of candidate as text
+              set candidateName to ""
+              try
+                set candidateName to description of candidate as text
+              end try
+              if candidateName is "" then
+                try
+                  set candidateName to value of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              set candidateIdentity to ""
+              try
+                set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+            end if
+            set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
+            if output is not "" then return output
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return ""
+    end selectedTimelineItem
+  end using terms from
+
   tell application "System Events"
   tell process "Final Cut Pro"
     ${activateFinalCutWindowAppleScript()}
     set frontWindow to window "Final Cut Pro"
     set frontWindowName to name of frontWindow
+    set mainOrigin to position of frontWindow
+    set mainSize to size of frontWindow
     set selectedName to ""
     set selectedRole to ""
+    set selectedIdentity to ""
     set selectedCount to 0
+    set selectedRecord to ""
+    -- Final Cut exposes the Project Timeline as a stable bounded AX node.
+    -- Start there instead of traversing Browser and Effects Library trees.
     try
-      repeat with candidate in entire contents of frontWindow
-        try
-          if (selected of candidate) is true then
-            set selectedCount to selectedCount + 1
-            if selectedCount is 1 then
-              set selectedName to name of candidate as text
-              set selectedRole to role of candidate as text
-            end if
-          end if
-        end try
-      end repeat
+      set timelineArea to UI element 1 of UI element 8 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
+      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
     end try
+    if selectedRecord is not "" then
+      set selectedFields to my splitText(selectedRecord, ASCII character 31)
+      set selectedName to item 1 of selectedFields
+      set selectedRole to item 2 of selectedFields
+      set selectedIdentity to item 3 of selectedFields
+      set selectedCount to 1
+    end if
     set undoEnabled to false
     set undoCommand to ""
     try
@@ -2558,13 +2658,6 @@ function inspectScript(): string {
     end try
     set inspectorName to ""
     set inspectorRole to ""
-    if selectedCount is 0 and bladeEnabled then
-      set selectedCount to 1
-      if inspectorName is not "" then
-        set selectedName to inspectorName
-        set selectedRole to inspectorRole
-      end if
-    end if
     set focusedName to ""
     set focusedRole to ""
     set focusedDescription to ""
@@ -2575,7 +2668,7 @@ function inspectScript(): string {
       set focusedDescription to description of focusedElement as text
     end try
     set frontState to frontmost as text
-    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & frontWindowName & (ASCII character 31) & "false" & (ASCII character 31) & undoCommand
+    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & "true" & (ASCII character 31) & "true" & (ASCII character 31) & "timeline" & (ASCII character 31) & "0" & (ASCII character 31) & "false" & (ASCII character 31) & "true" & (ASCII character 31) & frontWindowName & (ASCII character 31) & "false" & (ASCII character 31) & undoCommand & (ASCII character 31) & selectedIdentity
   end tell
 end tell`;
 }
@@ -2592,7 +2685,11 @@ function searchMediaScript(query: string): string {
     set origin to position of mainWindow
     ${browserSearchFieldScript()}
     set searchQuery to ${appleScriptString(query)}
+    -- Assigning AXValue alone updates the visible text without always
+    -- dispatching Final Cut's Browser filter. Commit the value through the
+    -- focused field so the result collection observes the requested query.
     set value of searchField to searchQuery
+    key code 36
     delay 0.5
     set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, false, {}, "root")
     return output
@@ -2617,7 +2714,7 @@ function selectedBrowserMediaScript(): string {
     set seenSourceIdentities to {}
     set browserRoot to mainWindow
     try
-      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0)
+      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0, origin, size of mainWindow)
       if browserSearchResult is not missing value then set browserRoot to item 2 of browserSearchResult
     end try
     try
@@ -2667,20 +2764,32 @@ end tell`;
 function browserSearchFieldScript(): string {
   return `
     set origin to position of mainWindow
+    set windowSize to size of mainWindow
     set searchFieldFound to false
     set searchField to missing value
     set searchButton to missing value
     set browserRoot to mainWindow
+    -- The Transitions browser may already be open. Prefer the bounded
+    -- Browser search control so its Effects Library field cannot capture a
+    -- media query.
     try
-      set focusedCandidate to value of attribute "AXFocusedUIElement"
-      set focusedRole to role of focusedCandidate as text
-      set focusedDescription to ""
-      try
-        set focusedDescription to description of focusedCandidate as text
-      end try
-      if focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search")) then
-        set searchField to focusedCandidate
-        set searchFieldFound to true
+      set searchField to UI element 4 of UI element 5 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+      set searchFieldFound to true
+    on error
+      set searchField to missing value
+    end try
+    try
+      if not searchFieldFound then
+        set focusedCandidate to value of attribute "AXFocusedUIElement"
+        set focusedRole to role of focusedCandidate as text
+        set focusedDescription to ""
+        try
+          set focusedDescription to description of focusedCandidate as text
+        end try
+        if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) and my browserSearchCandidateVisible(focusedCandidate, origin, windowSize) then
+          set searchField to focusedCandidate
+          set searchFieldFound to true
+        end if
       end if
     end try
     if not searchFieldFound then
@@ -2709,7 +2818,7 @@ function browserSearchFieldScript(): string {
       if my revealBrowser(mainWindow, 0) then delay 0.5
     end try
     try
-      set searchControlResult to my findBrowserSearchControl(mainWindow, 0)
+      set searchControlResult to my findBrowserSearchControl(mainWindow, 0, origin, windowSize)
       if searchControlResult is not missing value then
         set searchControl to item 1 of searchControlResult
         set browserRoot to item 2 of searchControlResult
@@ -2724,7 +2833,7 @@ function browserSearchFieldScript(): string {
     end try
     if not searchFieldFound then
       try
-        set searchControlResult to my findBrowserSearchControl(mainWindow, 0)
+        set searchControlResult to my findBrowserSearchControl(mainWindow, 0, origin, windowSize)
         if searchControlResult is not missing value then
           set searchControl to item 1 of searchControlResult
           set browserRoot to item 2 of searchControlResult
@@ -2780,14 +2889,25 @@ function browserSearchFieldScript(): string {
 function browserSearchControlFinderScript(): string {
   return `
   using terms from application "System Events"
-    on findBrowserSearchControl(containerItem, depth)
+    on browserSearchCandidateVisible(candidate, mainOrigin, mainSize)
+      try
+        set candidatePosition to position of candidate
+        set candidateX to item 1 of candidatePosition
+        set candidateY to item 2 of candidatePosition
+        return candidateX is less than ((item 1 of mainOrigin) + ((item 1 of mainSize) * 0.60)) and candidateY is less than ((item 2 of mainOrigin) + ((item 2 of mainSize) * 0.60))
+      on error
+        return false
+      end try
+    end browserSearchCandidateVisible
+
+    on findBrowserSearchControl(containerItem, depth, mainOrigin, mainSize)
       if depth > 12 then return missing value
       set candidateItems to UI elements of containerItem
       repeat with candidateIndex in my orderedChildIndices(containerItem)
         try
           set candidate to item (contents of candidateIndex) of candidateItems
           set candidateRole to role of candidate as text
-          if candidateRole is "AXSearchField" then
+          if candidateRole is "AXSearchField" and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
             return {candidate, containerItem}
           end if
           if candidateRole is "AXTextField" then
@@ -2799,19 +2919,19 @@ function browserSearchControlFinderScript(): string {
             try
               set candidateDescription to description of candidate as text
             end try
-            if candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" then
+            if (candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search") and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
               return {candidate, containerItem}
             end if
           end if
           if candidateRole is "AXButton" then
             set candidateDescription to description of candidate as text
-            if candidateDescription contains "search" or candidateDescription contains "Search" then
+            if (candidateDescription contains "search" or candidateDescription contains "Search") and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
               return {candidate, containerItem}
             end if
           end if
         end try
         try
-          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1)
+          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1, mainOrigin, mainSize)
           if nestedCandidate is not missing value then
             return nestedCandidate
           end if
@@ -3281,10 +3401,63 @@ end tell`;
 }
 
 function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolean): string {
-  const timelineOffsets = scanAll
-    ? [40, 160, 224, 256, 400, 640, 880, 1120, 1360, 1500].join(", ")
-    : "800";
   return `
+  using terms from application "System Events"
+    on collectTimelineClipMatches(containerItem, depth, targetName, sourceIdentity, mainOrigin, mainSize)
+      if depth > 12 then return ""
+      set output to ""
+      set candidateItems to UI elements of containerItem
+      repeat with candidateRef in candidateItems
+        try
+          set candidate to contents of candidateRef
+          set candidateRole to role of candidate as text
+          set candidateDescription to ""
+          try
+            set candidateDescription to description of candidate as text
+          end try
+          if candidateRole is "AXLayoutItem" and candidateDescription contains ("Video-Clip:" & targetName) then
+            set candidatePosition to position of candidate
+            set candidateStart to ""
+            set candidateDuration to ""
+            try
+              set candidateDuration to value of candidate as text
+            end try
+            repeat with childRef in UI elements of candidate
+              try
+                set child to contents of childRef
+                set childRole to role of child as text
+                set childDescription to description of child as text
+                if childRole is "AXHandle" and childDescription is "Leading Edge" then set candidateStart to value of child as text
+              end try
+            end repeat
+            if candidateStart is not "" and candidateDuration is not "" then
+              set candidateOffset to ((item 1 of candidatePosition) + 10) - (item 1 of mainOrigin)
+              set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & sourceIdentity & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 30)
+            end if
+          else
+            set shouldDescend to false
+            try
+              set candidatePosition to position of candidate
+              set candidateSize to size of candidate
+              set candidateX to item 1 of candidatePosition
+              set candidateY to item 2 of candidatePosition
+              set candidateWidth to item 1 of candidateSize
+              set candidateHeight to item 2 of candidateSize
+              set timelineLeft to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.25)
+              set timelineTop to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.55)
+              set shouldDescend to (candidateX + candidateWidth) is greater than timelineLeft and (candidateY + candidateHeight) is greater than timelineTop
+            end try
+            if shouldDescend then set output to output & my collectTimelineClipMatches(candidate, depth + 1, targetName, sourceIdentity, mainOrigin, mainSize)
+          end if
+        on error
+          -- Accessibility nodes can disappear while Final Cut redraws the
+          -- timeline. Ignore that node and continue the bounded traversal.
+        end try
+      end repeat
+      return output
+    end collectTimelineClipMatches
+  end using terms from
+
   tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
@@ -3292,57 +3465,28 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
     if sourceIdentity is "" then error "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline lookup requires a shared source-media identifier"
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
-    set timelineSelection to click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
-    key code 115
-    repeat 30 times
-      key code 124
-    end repeat
-    set output to ""
-    set inMatch to false
-    set lastMatchIdentity to ""
-    repeat with xOffset in {${timelineOffsets}}
-      try
-        set candidate to click at {(item 1 of origin) + xOffset, (item 2 of origin) + 650}
-        set candidateRole to role of candidate as text
-        set candidateName to value of candidate as text
-        set candidateIdentity to ((position of candidate) as text) & "|" & ((size of candidate) as text)
-        set candidateSourceIdentity to ""
-        try
-          set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-        end try
-        if candidateSourceIdentity is sourceIdentity then
-          if candidateIdentity is not lastMatchIdentity then
-            set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & (xOffset as text) & (ASCII character 30)
-          end if
-          set lastMatchIdentity to candidateIdentity
-          set inMatch to true
-        else
-          set inMatch to false
-        end if
-      on error
-        set inMatch to false
-      end try
-    end repeat
-    if output is not "" then
-      click at {(item 1 of origin) + 800, (item 2 of origin) + 650}
-      key code 115
-      repeat 30 times
-        key code 124
-      end repeat
-    end if
-    return output
+    set windowSize to size of mainWindow
+    set targetName to ${appleScriptString(match.name)}
+    -- Make every occurrence visible before scanning. This keeps discovery
+    -- independent of the current timeline zoom/playhead viewport.
+    try
+      click menu bar item "View" of menu bar 1
+      click menu item "Zoom to Fit" of menu 1 of menu bar item "View" of menu bar 1
+      delay 0.5
+    end try
+    return my collectTimelineClipMatches(mainWindow, 0, targetName, sourceIdentity, origin, windowSize)
   end tell
 end tell`;
 }
 
 async function selectTimelineOccurrence(executor: (script: string) => Promise<string>, timelineOffset: number): Promise<void> {
   const coordinates = (await executor(timelineSelectionCoordinatesScript())).split("|").map(Number);
-  const [originX, originY] = coordinates;
-  if (!Number.isFinite(originX) || !Number.isFinite(originY)) {
+  const [originX, originY, windowWidth, windowHeight] = coordinates;
+  if (!Number.isFinite(originX) || !Number.isFinite(originY) || !Number.isFinite(windowWidth) || !Number.isFinite(windowHeight)) {
     throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
   }
   const x = Math.round(originX + timelineOffset);
-  const y = Math.round(originY + 650);
+  const y = Math.round(originY + (windowHeight * 0.77));
   try {
     await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
   } catch (error) {
@@ -3357,7 +3501,8 @@ tell application "System Events"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set origin to position of mainWindow
-    return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text)
+    set windowSize to size of mainWindow
+    return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text) & "|" & ((item 1 of windowSize) as text) & "|" & ((item 2 of windowSize) as text)
   end tell
 end tell`;
 }
@@ -3471,6 +3616,16 @@ function transitionSearchScript(query: string, identityQuery = false): string {
     ${transitionBrowserOpenScript()}
     ${transitionBrowserFocusScript()}
     set value of transitionSearchField to ${appleScriptString(searchQuery)}
+    if ${searchQuery === "" ? "false" : "true"} then
+      try
+        if (value of transitionSearchField as text) is not ${appleScriptString(searchQuery)} then
+          click at {(item 1 of mainOrigin) + ((item 1 of mainSize) * 0.72), (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.96)}
+          delay 0.15
+          set transitionSearchField to value of attribute "AXFocusedUIElement"
+          set value of transitionSearchField to ${appleScriptString(searchQuery)}
+        end if
+      end try
+    end if
     delay 0.6
     set seenIdentities to {}
     return my collectTransitionMatches(UI elements of mainWindow, 0, ${appleScriptString(identityQuery ? query : searchQuery)}, ${identityQuery ? "true" : "false"}, seenIdentities, mainOrigin, mainSize)
@@ -3478,7 +3633,7 @@ function transitionSearchScript(query: string, identityQuery = false): string {
   end tell`;
 }
 
-function transitionAssetSelectionScript(assetName: string): string {
+function transitionAssetSelectionScript(assetName: string, assetIdentity: string): string {
   return `
   ${transitionBrowserTraversalScript()}
   tell application "System Events"
@@ -3487,11 +3642,19 @@ function transitionAssetSelectionScript(assetName: string): string {
     set mainWindow to first window whose name is "Final Cut Pro"
     ${transitionBrowserFocusScript()}
     set value of transitionSearchField to ${appleScriptString(assetName)}
+    try
+      if (value of transitionSearchField as text) is not ${appleScriptString(assetName)} then
+        click at {(item 1 of mainOrigin) + ((item 1 of mainSize) * 0.72), (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.96)}
+        delay 0.15
+        set transitionSearchField to value of attribute "AXFocusedUIElement"
+        set value of transitionSearchField to ${appleScriptString(assetName)}
+      end if
+    end try
     delay 0.6
-    set exactCount to my countTransitionItems(UI elements of mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize)
+    set exactCount to my countTransitionItems(UI elements of mainWindow, 0, ${appleScriptString(assetIdentity)}, mainOrigin, mainSize)
     if exactCount is greater than 1 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_AMBIGUOUS: multiple exact transition matches were visible"
     if exactCount is 0 then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not visible"
-    if not my pressTransitionItem(UI elements of mainWindow, 0, ${appleScriptString(assetName)}, mainOrigin, mainSize) then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not selectable"
+    if not my pressTransitionItem(UI elements of mainWindow, 0, ${appleScriptString(assetIdentity)}, mainOrigin, mainSize) then error "FINAL_CUT_NATIVE_TRANSITION_ASSET_NOT_FOUND: installed transition was not selectable"
   end tell
   end tell`;
 }
@@ -3594,15 +3757,19 @@ function transitionBrowserTraversalScript(): string {
       return output
     end collectTransitionMatches
 
-    on countTransitionItems(nodes, depth, targetName, mainOrigin, mainSize)
+    on countTransitionItems(nodes, depth, targetIdentity, mainOrigin, mainSize)
       if depth > 12 then return 0
       set matchCount to 0
       repeat with candidateIndex from 1 to count of nodes
         try
           set candidate to contents of item candidateIndex of nodes
           if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
-            if my transitionCandidateName(candidate) is targetName then set matchCount to matchCount + 1
-            set matchCount to matchCount + my countTransitionItems(UI elements of candidate, depth + 1, targetName, mainOrigin, mainSize)
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            if candidateIdentity is targetIdentity then set matchCount to matchCount + 1
+            set matchCount to matchCount + my countTransitionItems(UI elements of candidate, depth + 1, targetIdentity, mainOrigin, mainSize)
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
@@ -3611,13 +3778,17 @@ function transitionBrowserTraversalScript(): string {
       return matchCount
     end countTransitionItems
 
-    on pressTransitionItem(nodes, depth, targetName, mainOrigin, mainSize)
+    on pressTransitionItem(nodes, depth, targetIdentity, mainOrigin, mainSize)
       if depth > 12 then return false
       repeat with candidateIndex from 1 to count of nodes
         try
           set candidate to contents of item candidateIndex of nodes
           if my transitionPaneVisible(candidate, mainOrigin, mainSize) then
-            if my transitionCandidateName(candidate) is targetName then
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            if candidateIdentity is targetIdentity then
               try
                 perform action "AXPress" of candidate
               on error
@@ -3625,7 +3796,7 @@ function transitionBrowserTraversalScript(): string {
               end try
               return true
             end if
-            if my pressTransitionItem(UI elements of candidate, depth + 1, targetName, mainOrigin, mainSize) then return true
+            if my pressTransitionItem(UI elements of candidate, depth + 1, targetIdentity, mainOrigin, mainSize) then return true
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
@@ -3661,6 +3832,7 @@ function transitionBrowserFocusScript(): string {
     -- transition query.
     try
       set transitionSearchField to UI element 3 of UI element 10 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+      perform action "AXPress" of transitionSearchField
       set value of attribute "AXFocused" of transitionSearchField to true
     on error
       set transitionSearchField to missing value
@@ -3730,6 +3902,22 @@ function applyTransitionScript(duration: RationalTime): string {
     -- Final Cut's duration editor for the selected transition.
     keystroke "t" using {command down}
     delay 0.5
+    -- Source clips without overlap handles trigger Final Cut's explicit
+    -- ripple-trim confirmation. Accept it for this requested transition;
+    -- Cancel remains the user's escape hatch outside automation.
+    set transitionConfirmation to missing value
+    repeat with candidateWindow in windows
+      try
+        if exists button "Create Transition" of candidateWindow then
+          set transitionConfirmation to candidateWindow
+          exit repeat
+        end if
+      end try
+    end repeat
+    if transitionConfirmation is not missing value then
+      click button "Create Transition" of transitionConfirmation
+      delay 0.5
+    end if
     keystroke "d" using {control down}
     delay 0.2
     set durationText to ${appleScriptString(`${duration.value}/${duration.timescale}`)}
@@ -3762,9 +3950,10 @@ function occurrenceRangeEndpointScript(timelineOffset: number, endpoint: "start"
     ${requireFrontmostAppleScript()}
     set mainWindow to first window whose name is "Final Cut Pro"
     set origin to position of mainWindow
+    set windowSize to size of mainWindow
     -- Framekit occurrence range ${endpoint}: select the actual clip and ask
     -- Final Cut for its range endpoint rather than inferring from pixels.
-    click at {(item 1 of origin) + ${Math.round(timelineOffset)}, (item 2 of origin) + 650}
+    click at {(item 1 of origin) + ${Math.round(timelineOffset)}, (item 2 of origin) + ((item 2 of windowSize) * 0.77)}
     delay 0.1
     keystroke "${shortcut}" using {shift down}
     delay 0.2
@@ -4063,17 +4252,20 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
     .map((record) => record.trim())
     .filter(Boolean)
     .map((record, index) => {
-      const [name = "", role = "", sourceIdentity = "", timelineOffsetOrDuration = "", legacyTimelineOffset] = record.split(String.fromCharCode(31));
-      const legacyRecord = legacyTimelineOffset !== undefined;
+      const fields = record.split(String.fromCharCode(31));
+      const [name = "", role = "", sourceIdentity = "", timelineOffsetOrDuration = "", legacyTimelineOffset, nativeDuration] = fields;
+      const nativeRange = nativeDuration !== undefined;
+      const legacyRecord = legacyTimelineOffset !== undefined && !nativeRange;
       const identityOrStart = sourceIdentity;
-      const timelineOffsetText = legacyRecord ? legacyTimelineOffset : timelineOffsetOrDuration;
-      const legacyRange = legacyRecord || (!legacyRecord && isRational(identityOrStart) && isRational(timelineOffsetOrDuration));
+      const timelineOffsetText = nativeRange ? timelineOffsetOrDuration : legacyRecord ? legacyTimelineOffset : timelineOffsetOrDuration;
+      const legacyRange = !nativeRange && (legacyRecord || (!legacyRecord && isRational(identityOrStart) && isRational(timelineOffsetOrDuration)));
       return {
         handle: opaqueHandle("occurrence"),
         mediaHandle,
         name,
         ...(role ? { role } : {}),
         ...(sourceIdentity && !legacyRange ? { sourceIdentity } : {}),
+        ...(nativeRange ? { start: legacyTimelineOffset, duration: nativeDuration } : {}),
         ...(legacyRange ? { start: identityOrStart, duration: timelineOffsetOrDuration } : {}),
         ...(timelineOffsetText && Number.isFinite(Number(timelineOffsetText)) ? { timelineOffset: Number(timelineOffsetText) } : {}),
       };
@@ -4082,6 +4274,22 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
 
 function isRational(value: string): boolean {
   return /^-?\d+\/\d+$/.test(value);
+}
+
+function timelineTimecodeToRational(
+  value: string,
+  sequence: EditorLiveState["sequence"] | undefined,
+  label: string,
+  absolute: boolean,
+): RationalTime {
+  const match = value.match(/^(\d+):(\d{2}):(\d{2}):(\d{2})$/);
+  if (!match || !sequence?.frameDuration || !sequence.startTime) {
+    throw new Error(`FINAL_CUT_NATIVE_EDIT_POINT_POSITION_UNAVAILABLE: Final Cut returned an unsupported ${label} ${value || "<empty>"}`);
+  }
+  const framesPerSecond = Math.max(1, Math.round(Number(sequence.frameDuration.timescale) / Number(sequence.frameDuration.value)));
+  const totalFrames = (((BigInt(match[1]!) * 60n + BigInt(match[2]!)) * 60n + BigInt(match[3]!)) * BigInt(framesPerSecond)) + BigInt(match[4]!);
+  const relative = normalizeRational(totalFrames * BigInt(sequence.frameDuration.value), BigInt(sequence.frameDuration.timescale));
+  return absolute ? addRational(sequence.startTime, relative) : relative;
 }
 
 function opaqueHandle(kind: string, suffix?: number): string {
