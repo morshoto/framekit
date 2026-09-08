@@ -3,9 +3,9 @@
 These repository-local skills follow the `SKILL.md` convention: each skill has
 concise instructions and optional executable helpers under `scripts/`.
 
-They describe repository-specific workflows for GitHub issues and pull
-requests. They are instructions for an agent using this checkout; they are not
-GitHub Actions or autonomous merge automation.
+They describe repository-specific delivery, validation, GitHub, release, and
+native Final Cut workflows. They are instructions for an agent using this
+checkout; they are not GitHub Actions or autonomous merge automation.
 
 ## Playbooks
 
@@ -16,6 +16,25 @@ GitHub Actions or autonomous merge automation.
 - [`skills/review-pr/SKILL.md`](./skills/review-pr/SKILL.md): review a pull
   request, validate findings, apply safe fixes, and record the final review
   decision.
+- [`skills/deliver-issue/SKILL.md`](./skills/deliver-issue/SKILL.md): deliver an
+  issue with an isolated worktree, TDD commits, validation, and PR follow-up.
+- [`skills/repair-pr-conflict/SKILL.md`](./skills/repair-pr-conflict/SKILL.md):
+  repair an active PR conflict and recheck the remote branch.
+- [`skills/triage-ci/SKILL.md`](./skills/triage-ci/SKILL.md): diagnose a live
+  CI failure or slow job and verify the smallest justified fix.
+
+## Validation and operations
+
+- [`skills/validate-framekit/SKILL.md`](./skills/validate-framekit/SKILL.md):
+  run the required repository and optional native gates.
+- [`skills/validate-mcp/SKILL.md`](./skills/validate-mcp/SKILL.md): audit MCP
+  contracts, capabilities, real calls, verification, and Undo by evidence tier.
+- [`skills/verify-final-cut-native/SKILL.md`](./skills/verify-final-cut-native/SKILL.md):
+  preflight and prove real headed Final Cut behavior safely.
+- [`skills/verify-release/SKILL.md`](./skills/verify-release/SKILL.md): verify
+  tags, release assets, workflows, npm publication, and client availability.
+- [`skills/clean-worktree/SKILL.md`](./skills/clean-worktree/SKILL.md): inspect
+  and restore only approved tracked paths while reporting divergence separately.
 
 ## Shared rules
 

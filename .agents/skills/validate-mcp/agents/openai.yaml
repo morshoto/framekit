@@ -1,0 +1,4 @@
+interface:
+  display_name: "Validate Framekit MCP"
+  short_description: "Audit MCP contracts, capabilities, and real tool behavior."
+  default_prompt: "Use $validate-mcp to perform an evidence-tiered QA audit of the Framekit MCP surface."

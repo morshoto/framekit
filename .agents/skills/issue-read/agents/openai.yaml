@@ -1,0 +1,4 @@
+interface:
+  display_name: "Read Framekit Issue"
+  short_description: "Inspect issue status and linked evidence without mutation."
+  default_prompt: "Use $issue-read to inspect a Framekit issue, linked pull requests, comments, acceptance criteria, and blockers."
