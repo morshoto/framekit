@@ -1,0 +1,4 @@
+interface:
+  display_name: "Triage Framekit CI"
+  short_description: "Diagnose live CI failures and verify bounded fixes."
+  default_prompt: "Use $triage-ci to inspect a Framekit PR or workflow run, reproduce the failing step, and verify the smallest fix."

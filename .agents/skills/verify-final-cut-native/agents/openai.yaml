@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Final Cut Native"
+  short_description: "Prove headed Final Cut behavior and Undo safely."
+  default_prompt: "Use $verify-final-cut-native to preflight and verify a real headed Final Cut operation without conflating fixture evidence."

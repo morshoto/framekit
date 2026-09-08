@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repair PR Conflict"
+  short_description: "Resolve an active PR conflict and revalidate it."
+  default_prompt: "Use $repair-pr-conflict to repair the active PR branch in place, validate it, push it, and recheck mergeability."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Framekit PR"
+  short_description: "Review, safely fix, and record a live PR decision."
+  default_prompt: "Use $review-pr to validate a Framekit pull request, address confirmed findings, update review threads, and record the decision."
