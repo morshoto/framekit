@@ -11,7 +11,7 @@ Configure npm Trusted Publishing for `@morshoto/framekit` with these values:
 - Organization or user: `morshoto`
 - Repository: `framekit`
 - Workflow filename: `release.yml`
-- Allowed action: `npm publish`
+- Allowed action: direct `npm publish` (not only `npm stage publish`)
 
 The same trust relationship can be configured from an authenticated npm CLI
 session after the package exists on the registry:
@@ -44,6 +44,20 @@ be repaired without presenting an incomplete release as public.
 
 If a retry finds a draft release whose tag is shown as `untagged-*`, the
 workflow associates that draft with the release tag before publishing it.
+
+After repairing the npm Trusted Publisher relationship, retry an existing tag
+without creating a new commit or version:
+
+```sh
+gh workflow run release.yml \
+  --repo morshoto/framekit \
+  --ref main \
+  -f release_tag=v0.1.3
+```
+
+The manual run verifies that the tag exists, checks out that exact tag, and
+skips `npm publish` if the matching version is already present. Registry errors
+other than a missing version fail closed.
 
 The npm Trusted Publisher relationship is configured in npm account settings;
 repository permissions alone cannot create or repair that relationship. The
