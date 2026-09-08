@@ -1,0 +1,119 @@
+.section {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 7.5rem 0;
+}
+
+.heading {
+  display: grid;
+  grid-template-columns: 0.58fr 1.35fr 1fr;
+  gap: 2rem;
+  align-items: start;
+  margin-bottom: 3.2rem;
+
+  p {
+    margin: 0;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  h2 {
+    max-width: 600px;
+    margin: 0;
+    font-size: clamp(2.35rem, 4.2vw, 4.3rem);
+    letter-spacing: -0.06em;
+    line-height: 1;
+  }
+
+  > span {
+    color: var(--color-muted-light);
+    font-size: 0.98rem;
+    line-height: 1.7;
+  }
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-line);
+  list-style: none;
+
+  li {
+    min-height: 17.5rem;
+    padding: 1.35rem 1.35rem 1.6rem;
+    border-right: 1px solid var(--color-line);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.014), transparent 55%);
+  }
+
+  li:last-child {
+    border-right: 0;
+  }
+
+  p {
+    margin: 4rem 0 0.65rem;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    letter-spacing: -0.03em;
+  }
+
+  li > span {
+    display: block;
+    margin-top: 0.75rem;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+}
+
+.number {
+  color: #496074;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+@media (max-width: 820px) {
+  .heading {
+    grid-template-columns: 1fr;
+  }
+
+  .steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .steps li:nth-child(2) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .section {
+    padding-block: 5rem;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .steps li {
+    min-height: 13.5rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .steps p {
+    margin-top: 2.8rem;
+  }
+}

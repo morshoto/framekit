@@ -1,0 +1,54 @@
+[
+  {
+    "id": "agent-connection",
+    "status": "available",
+    "source": "docs/mcp/README.md",
+    "title": {
+      "en": "Connect an AI agent",
+      "ja": "AIエージェントを接続"
+    },
+    "description": {
+      "en": "Use FrameKit's MCP server from supported agent clients and inspect the backend's machine-readable capabilities.",
+      "ja": "対応するAIクライアントからFrameKitのMCP serverを利用し、backendごとのcapabilityを確認できます。"
+    }
+  },
+  {
+    "id": "live-context",
+    "status": "available",
+    "source": "docs/COMPATIBILITY.md",
+    "title": {
+      "en": "Read live editing context",
+      "ja": "ライブ編集コンテキストを取得"
+    },
+    "description": {
+      "en": "The bundled Workflow Extension exposes active project and sequence metadata, playhead, selected range, and change events.",
+      "ja": "同梱のWorkflow Extensionから、アクティブなproject・sequence metadata、playhead、選択範囲、変更イベントを取得します。"
+    }
+  },
+  {
+    "id": "native-edits",
+    "status": "experimental",
+    "source": "docs/final-cut/installation.md",
+    "title": {
+      "en": "Run guarded native operations",
+      "ja": "保護されたnative操作を実行"
+    },
+    "description": {
+      "en": "Selection-scoped Final Cut UI operations require explicit opt-in, permissions, capability preflight, preview, and verification.",
+      "ja": "選択範囲へのFinal Cut UI操作には、明示的なopt-in、権限、capability事前確認、preview、検証が必要です。"
+    }
+  },
+  {
+    "id": "canonical-live-write",
+    "status": "coming-soon",
+    "source": "docs/COMPATIBILITY.md",
+    "title": {
+      "en": "Canonical live timeline editing",
+      "ja": "Canonicalなライブtimeline編集"
+    },
+    "description": {
+      "en": "The bundled Workflow Extension does not yet provide complete canonical timeline reads, writes, read-after-write, and rollback.",
+      "ja": "同梱のWorkflow Extensionは、完全なcanonical timeline read・write・read-after-write・rollbackにはまだ対応していません。"
+    }
+  }
+]

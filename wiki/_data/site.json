@@ -1,0 +1,7 @@
+{
+  "name": "FrameKit",
+  "url": "https://framekit.dev",
+  "defaultLocale": "en",
+  "locales": ["en", "ja"],
+  "repository": "https://github.com/morshoto/framekit"
+}
