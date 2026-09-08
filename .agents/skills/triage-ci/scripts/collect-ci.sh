@@ -19,7 +19,14 @@ case "$kind" in
     gh pr view "$target" --repo "$repo" \
       --json number,title,url,state,mergeable,mergeStateStatus,headRefName,headRefOid,baseRefName,statusCheckRollup
     printf '%s\n' '=== checks ==='
-    gh pr checks "$target" --repo "$repo" || true
+    set +e
+    gh pr checks "$target" --repo "$repo"
+    checks_status=$?
+    set -e
+    case "$checks_status" in
+      0|8) ;;
+      *) exit "$checks_status" ;;
+    esac
     head_branch=$(gh pr view "$target" --repo "$repo" --json headRefName --jq .headRefName)
     printf '%s\n' '=== recent branch runs ==='
     gh run list --repo "$repo" --branch "$head_branch" --limit 10 \
@@ -30,7 +37,7 @@ case "$kind" in
     gh run view "$target" --repo "$repo" \
       --json databaseId,name,event,status,conclusion,headBranch,headSha,createdAt,updatedAt,url,jobs
     printf '%s\n' '=== failed logs ==='
-    gh run view "$target" --repo "$repo" --log-failed || true
+    gh run view "$target" --repo "$repo" --log-failed
     ;;
   *) usage; exit 64 ;;
 esac

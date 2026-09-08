@@ -42,10 +42,23 @@ repository_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 command -v osascript >/dev/null 2>&1 || { printf '%s\n' 'error: osascript is required' >&2; exit 1; }
 pgrep -x 'Final Cut Pro' >/dev/null 2>&1 || { printf '%s\n' 'error: Final Cut Pro is not running' >&2; exit 1; }
 
-if /usr/sbin/ioreg -n Root -d1 2>/dev/null | grep -q '"CGSSessionScreenIsLocked" = Yes'; then
-  printf '%s\n' 'error: CGSSessionScreenIsLocked=true; unlock the console before native verification' >&2
+lock_probe=$(/usr/sbin/ioreg -n Root -d1 2>/dev/null) || {
+  printf '%s\n' 'error: unable to determine the macOS console lock state' >&2
   exit 1
-fi
+}
+lock_state=$(printf '%s\n' "$lock_probe" | sed -n \
+  's/.*"CGSSessionScreenIsLocked"[[:space:]]*=[[:space:]]*\([^,}[:space:]]*\).*/\1/p')
+case "$lock_state" in
+  No) ;;
+  Yes)
+    printf '%s\n' 'error: CGSSessionScreenIsLocked=true; unlock the console before native verification' >&2
+    exit 1
+    ;;
+  *)
+    printf 'error: unknown macOS console lock state: %s\n' "${lock_state:-missing}" >&2
+    exit 1
+    ;;
+esac
 
 frontmost=$(osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null || printf unavailable)
 printf 'worktree=%s\nhead=%s\nfrontmost=%s\n' "$repository_root" "$(git -C "$repository_root" rev-parse HEAD)" "$frontmost"

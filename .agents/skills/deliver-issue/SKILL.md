@@ -37,6 +37,8 @@ When the user asks for a commit at every step, create short reviewable commits. 
 
 ## Validate and deliver
 
+Continue past local validation only when the user's current request explicitly authorizes pushing and creating or updating a pull request. A request only to edit or implement code does not authorize remote delivery; stop with the validated branch and commits.
+
 1. Invoke `$validate-framekit`; include native gates when native files changed.
 2. Inspect the complete diff and confirm documentation and MCP contracts remain aligned.
 3. Push the delivery branch and create a non-draft PR from the repository template.

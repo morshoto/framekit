@@ -18,8 +18,8 @@ The helper exits nonzero when the tag, GitHub release, expected native assets, o
 1. Confirm the tag resolves to the intended commit.
 2. Confirm the GitHub release draft/prerelease state and matching target.
 3. Confirm `FramekitFinalCutWorkflow-VERSION.zip` and its `.sha256` asset exist.
-4. Confirm the relevant release workflow reached a terminal successful conclusion for the same tag/head.
-5. Confirm `npm view PACKAGE@VERSION version` returns the exact version.
+4. Confirm the `Release` workflow reached a terminal successful conclusion for the exact tag commit.
+5. Confirm `npm view --registry=https://registry.npmjs.org PACKAGE@VERSION version` returns the exact version.
 6. When end-user availability is the goal, run package/plugin and clean-client smoke tests against the published package.
 
 Keep repository workflow correctness separate from external npm Trusted Publisher or authentication state. A tag, release, or green build does not prove registry publication; registry publication does not prove a clean client can start the MCP server.

@@ -25,6 +25,9 @@ command -v git >/dev/null 2>&1 || die "git is required"
 
 repo=$1
 issue=$2
+owner=${repo%%/*}
+name=${repo#*/}
+[[ -n "$owner" && -n "$name" && "$name" != */* ]] || die "repository must be OWNER/REPO"
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(cd -- "$script_dir/../../../.." && pwd)
 issue_reader="$repository_root/.agents/skills/issue-read/scripts/read-issue.sh"
@@ -40,7 +43,14 @@ printf '%s\n' '=== live issue ==='
 printf '%s\n' '=== linked pull requests ==='
 gh issue view "$issue" --repo "$repo" \
   --json closedByPullRequestsReferences \
-  --jq '.closedByPullRequestsReferences[]? | {number,title,state,url}'
+  --jq '.closedByPullRequestsReferences[]? | select(.number != null) | {number,title,state,url}'
+issue_number=$(gh issue view "$issue" --repo "$repo" --json number --jq .number)
+gh api graphql \
+  -F owner="$owner" \
+  -F name="$name" \
+  -F number="$issue_number" \
+  -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT]){nodes{... on CrossReferencedEvent{source{... on PullRequest{number title state url}}}}}}}}' \
+  --jq '.data.repository.issue.timelineItems.nodes[]?.source // empty'
 
 printf '%s\n' '=== local worktrees ==='
 git -C "$repository_root" worktree list --porcelain

@@ -5,9 +5,10 @@ description: Audit the Framekit MCP contract and runtime behavior with determini
 
 # Validate the Framekit MCP
 
-Start with deterministic contract evidence:
+Provision the lockfile-pinned development dependencies, then collect deterministic contract evidence:
 
 ```sh
+pnpm install --frozen-lockfile
 .agents/skills/validate-mcp/scripts/validate-contract.sh
 ```
 

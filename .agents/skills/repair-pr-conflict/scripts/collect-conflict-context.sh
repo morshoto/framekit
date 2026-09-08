@@ -20,7 +20,14 @@ printf '%s\n' '=== changed paths ==='
 gh pr diff "$pr" --repo "$repo" --name-only
 
 printf '%s\n' '=== checks ==='
-gh pr checks "$pr" --repo "$repo" || true
+set +e
+gh pr checks "$pr" --repo "$repo"
+checks_status=$?
+set -e
+case "$checks_status" in
+  0|8) ;;
+  *) exit "$checks_status" ;;
+esac
 
 printf '%s\n' '=== local worktrees ==='
 if git rev-parse --git-dir >/dev/null 2>&1; then
