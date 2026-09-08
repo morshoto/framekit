@@ -45,11 +45,11 @@ gh issue view "$issue" --repo "$repo" \
   --json closedByPullRequestsReferences \
   --jq '.closedByPullRequestsReferences[]? | select(.number != null) | {number,title,state,url}'
 issue_number=$(gh issue view "$issue" --repo "$repo" --json number --jq .number)
-gh api graphql \
+gh api graphql --paginate \
   -F owner="$owner" \
   -F name="$name" \
   -F number="$issue_number" \
-  -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT]){nodes{... on CrossReferencedEvent{source{... on PullRequest{number title state url}}}}}}}}' \
+  -f query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,after:$endCursor,itemTypes:[CROSS_REFERENCED_EVENT]){nodes{... on CrossReferencedEvent{source{... on PullRequest{number title state url}}}} pageInfo{hasNextPage endCursor}}}}}' \
   --jq '.data.repository.issue.timelineItems.nodes[]?.source // empty'
 
 printf '%s\n' '=== local worktrees ==='

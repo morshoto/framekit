@@ -38,6 +38,19 @@ else
 fi
 
 if [[ -n "$manifest" ]]; then
+  manifest_dir=$(cd -- "$(dirname -- "$manifest")" && pwd -P)
+  manifest_name=$(basename -- "$manifest")
+  manifest_absolute="$manifest_dir/$manifest_name"
+  case "$manifest_absolute" in
+    "$repository_root"/*)
+      manifest_repository_path=${manifest_absolute#"$repository_root"/}
+      if git -C "$repository_root" ls-files --error-unmatch -- "$manifest_repository_path" >/dev/null 2>&1 ||
+         git -C "$repository_root" cat-file -e "HEAD:$manifest_repository_path" 2>/dev/null; then
+        printf 'error: manifest path is tracked by the repository: %s\n' "$manifest" >&2
+        exit 64
+      fi
+      ;;
+  esac
   [[ ! -e "$manifest" ]] || {
     printf 'error: manifest path already exists: %s\n' "$manifest" >&2
     exit 1
