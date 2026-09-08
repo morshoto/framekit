@@ -2,6 +2,31 @@
 
 This directory is the shareable knowledge base for Framekit.
 
+It is also Framekit's deep wiki: a place where users, integrators,
+contributors, and curious readers can understand what the project does, how it
+is built, and what has actually been validated.
+
+## Start here
+
+Choose the path that matches your question:
+
+- [Getting started](./getting-started/README.md) if you are new to Framekit.
+- [Guides](./guides/README.md) if you want to complete a task.
+- [Concepts](./concepts/README.md) if you want the ideas and product model.
+- [Integrations](./integrations/README.md) if you are connecting an editor or
+  an agent.
+- [Reference](./reference/README.md) if you need exact tools, protocols, or
+  compatibility details.
+- [Architecture](./architecture/README.md) if you want to understand the
+  implementation boundaries.
+- [Project](./project/README.md) for requirements, design documents, and ADRs.
+- [Validation](./validation/README.md) for evidence, test scope, and known
+  limitations.
+
+These index pages organize the knowledge base without replacing the existing
+documents. Content migration is incremental, and the established document
+paths remain available while links and readers move to the new structure.
+
 Repository-local GitHub agent playbooks are documented in
 [`../.agents/README.md`](../.agents/README.md).
 
