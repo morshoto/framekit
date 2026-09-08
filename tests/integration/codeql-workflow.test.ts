@@ -59,7 +59,7 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /os: ubuntu-latest/);
   assert.match(workflow, /analyze-swift:/);
   assert.match(workflow, /name: Analyze \(swift\)/);
-  assert.match(workflow, /runs-on: macos-15/);
+  assert.match(workflow, /runs-on: macos-26/);
   assert.match(workflow, /timeout-minutes: 40/);
   assert.match(workflow, /languages: swift/);
   assert.match(workflow, /build-mode: manual/);
