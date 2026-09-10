@@ -69,7 +69,7 @@ test("pre-commit hook animates only in color-capable terminals", async () => {
   assert.match(hook, /\\r\\033\[2K/);
 });
 
-test("the pinned pnpm manager is already recorded in the lockfile", async () => {
+test("pinned pnpm self-management is already recorded in the lockfile", async () => {
   const manifest = JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as { packageManager?: string };
   const version = manifest.packageManager?.replace(/^pnpm@/, "");
   assert.ok(version);
