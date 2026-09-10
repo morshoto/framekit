@@ -218,6 +218,10 @@ source identity, usable range, confidence, matched properties, and rationale.
 The planner is read-only; it produces planning data and does not add clips to a
 timeline.
 
+Range-taking analysis and planning tools require `end` to be greater than
+`start`. An invalid range returns an MCP input-validation error before the tool
+handler or analyzer runs.
+
 ## Music mixing workflow
 
 `music.add` is the high-level guarded entry point for the issue-11 music
