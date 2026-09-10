@@ -95,6 +95,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const canReadAfterWrite = Boolean(
       readAdapter?.readProject
       && readCapabilities?.editor.readAfterWrite
+      && operationCapabilities?.readAfterWrite
       && operationAdapter?.restore
       && operationCapabilities?.rollback,
     );
