@@ -70,7 +70,11 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   assert.match(scripts[0], /perform action "AXPress"/);
   assert.match(scripts[0], /keystroke "g" using \{command down, shift down\}/);
   assert.match(scripts[0], /text fields of pathSheet/);
-  assert.match(scripts[0], /set pathField to item 1 of pathFields/);
+  assert.match(scripts[0], /locateImportPathField/);
+  assert.match(scripts[0], /value of attribute "AXIdentifier"/);
+  assert.match(scripts[0], /description of candidate/);
+  assert.match(scripts[0], /FINAL_CUT_PUBLISH_PATH_CONTROL_AMBIGUOUS/);
+  assert.equal(scripts[0].includes("set pathField to item 1 of pathFields"), false);
   assert.match(scripts[0], /waitForImportSheetDismissal/);
   assert.match(scripts[0], /on error/);
   assert.match(scripts[0], /Cancel/);
