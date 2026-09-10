@@ -275,6 +275,9 @@ test("rough-cut planning excludes audio-only media from shots", async () => {
   const plan = await runtime.planRoughCut({ subject: "person" });
 
   assert.deepEqual(plan.shots, []);
+  assert.deepEqual(plan.warnings, [
+    "Excluded audio-only media from rough-cut shot candidates: media-semantic-1",
+  ]);
 });
 
 test("MCP exposes semantic indexing and rough-cut planning", async () => {
