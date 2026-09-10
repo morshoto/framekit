@@ -98,6 +98,8 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
     },
     toolResults: [
       { name: "editor.inspect", status: "passed" },
+      { name: "project.list", status: "passed" },
+      { name: "project.select", status: "passed" },
       { name: "project.inspect", status: "passed" },
       { name: "editor.timeline.edit", status: "VERIFIED" },
       { name: "edit.undo", status: "passed" },
@@ -397,6 +399,8 @@ const rawRun = {
   target: { occurrenceId: "final-cut:occurrence:one", mediaId: "final-cut:media:one" },
   toolResults: [
     { name: "editor.inspect", status: "passed" },
+    { name: "project.list", status: "passed" },
+    { name: "project.select", status: "passed" },
     { name: "project.inspect", status: "passed" },
     { name: "editor.timeline.edit", status: "VERIFIED" },
     { name: "edit.undo", status: "passed" },

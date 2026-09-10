@@ -33,6 +33,8 @@ const editorCapabilityKeys = [
 const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"];
 const requiredToolResults = [
   ["editor.inspect", "passed"],
+  ["project.list", "passed"],
+  ["project.select", "passed"],
   ["project.inspect", "passed"],
   ["editor.timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
