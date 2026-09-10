@@ -16,6 +16,7 @@ import type {
   NoiseAnalysis,
   NoiseMeasurement,
   SpeechAnalysis,
+  RevisionBoundSpeechAnalysis,
   VisualAnalysis,
 } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
@@ -25,6 +26,7 @@ import { ContextEngine } from "../context/context-engine.js";
 import { ProjectService } from "./project-service.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 import { planRoughCut } from "../planning/rough-cut.js";
+import { bindSpeechAnalysis } from "../speech/analysis.js";
 
 export class MediaAnalysisService {
   public constructor(
@@ -33,11 +35,11 @@ export class MediaAnalysisService {
     private readonly options: RuntimeOptions,
   ) {}
 
-  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<SpeechAnalysis> {
+  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<RevisionBoundSpeechAnalysis> {
     if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
-    return this.options.speechAnalyzer.analyze({ project, media }, range);
+    return this.analyzeSpeechForProject(project, media, range);
   }
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
@@ -142,7 +144,7 @@ export class MediaAnalysisService {
     const media = findMedia(project, mediaId);
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
-      settle(() => this.options.speechAnalyzer?.analyze(input)),
+      settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
       settle(() => this.options.audioAnalyzer?.analyze(input)),
       settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
@@ -271,6 +273,22 @@ export class MediaAnalysisService {
       }
     }
     return next;
+  }
+
+  private async analyzeSpeechForProject(
+    project: ProjectSnapshot,
+    media: MediaContext,
+    range?: TimeRange,
+  ): Promise<RevisionBoundSpeechAnalysis> {
+    const analyzer = this.options.speechAnalyzer;
+    if (!analyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
+    const input = { project, media };
+    const analysis = await analyzer.analyze(input, range);
+    return bindSpeechAnalysis(analysis, {
+      input,
+      range,
+      provider: analyzer.descriptor,
+    });
   }
 }
 
