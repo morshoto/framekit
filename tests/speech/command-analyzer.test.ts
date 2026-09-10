@@ -24,8 +24,10 @@ async function createWrapper(directory: string, output: unknown, capturePath?: s
   const capture = capturePath ? `await writeFile(${JSON.stringify(capturePath)}, JSON.stringify(request));` : "";
   await writeFile(wrapperPath, [
     "#!/usr/bin/env node",
-    'import { readFile, writeFile } from "node:fs/promises";',
-    'const request = JSON.parse(await readFile("/dev/stdin", "utf8"));',
+    'import { writeFile } from "node:fs/promises";',
+    'let input = "";',
+    'for await (const chunk of process.stdin) input += chunk;',
+    "const request = JSON.parse(input);",
     capture,
     `process.stdout.write(${JSON.stringify(JSON.stringify(output))});`,
   ].filter(Boolean).join("\n"));
