@@ -274,22 +274,22 @@ tell application "System Events"
     try
       if not frontmost then error number -1719
       set fileMenu to menu "File" of menu bar 1
-      set importMenuItem to waitForMenuItem(fileMenu, {"Import"}, 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: File > Import was not exposed")
+      set importMenuItem to my waitForMenuItem(fileMenu, {"Import"}, 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: File > Import was not exposed")
       perform action "AXPress" of importMenuItem
-      set importMenu to waitForSubmenu(importMenuItem, "Import", 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: Import submenu was not exposed")
-      set xmlMenuItem to waitForMenuItem(importMenu, {"XML…", "XML..."}, 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: Import XML command was not exposed")
+      set importMenu to my waitForSubmenu(importMenuItem, "Import", 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: Import submenu was not exposed")
+      set xmlMenuItem to my waitForMenuItem(importMenu, {"XML…", "XML..."}, 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: Import XML command was not exposed")
       perform action "AXPress" of xmlMenuItem
-      set importWindow to waitForWindow(finalCut, "Import XML", 10, "FINAL_CUT_PUBLISH_IMPORT_SHEET_TIMEOUT: Import XML sheet did not appear")
+      set importWindow to my waitForWindow(finalCut, "Import XML", 10, "FINAL_CUT_PUBLISH_IMPORT_SHEET_TIMEOUT: Import XML sheet did not appear")
       keystroke "g" using {command down, shift down}
-      set pathSheet to waitForImportSheet(importWindow, 10)
-      set pathField to locateImportPathField(pathSheet)
+      set pathSheet to my waitForImportSheet(importWindow, 10)
+      set pathField to my locateImportPathField(pathSheet)
       set value of pathField to ${appleScriptString(path)}
       key code 36
-      waitForImportSheetDismissal(importWindow, 10)
+      my waitForImportSheetDismissal(importWindow, 10)
       key code 36
-      waitForImportWindowDismissal(finalCut, 60)
+      my waitForImportWindowDismissal(finalCut, 60)
     on error errorMessage number errorNumber
-      cancelImportIfOpen(finalCut)
+      my cancelImportIfOpen(finalCut)
       error errorMessage number errorNumber
     end try
   end tell
