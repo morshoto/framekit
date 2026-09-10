@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   AgentVideoRuntime,
@@ -212,31 +213,78 @@ const verificationPolicySchema = z.object({
   loudnessToleranceDb: z.number().finite().nonnegative().optional(),
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
-const editToolInputSchema = z.object({
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "set-color-correction", "ripple-delete", "add-marker"]),
-  clipId: z.string().min(1).optional(),
-  name: z.string().min(1).optional(),
-  duration: z.number().positive().optional(),
-  durationTime: rationalTimeSchema.optional(),
-  gainDb: z.number().finite().optional(),
-  reductionDb: z.number().finite().positive().optional(),
-  correction: colorCorrectionSchema.shape.correction.optional(),
-  timelineId: z.string().min(1).optional(),
-  range: rangeSchema.optional(),
-  reason: z.string().optional(),
-  marker: markerSchema.optional(),
-  baseRevision: revisionSchema,
-  verification: verificationPolicySchema.optional(),
-}).strict();
-const artifactEditToolInputSchema = editToolInputSchema.extend({
+function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
+  options: Options,
+): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
+  const schema = z.discriminatedUnion("type", options as unknown as [
+    z.ZodDiscriminatedUnionOption<"type">,
+    ...z.ZodDiscriminatedUnionOption<"type">[],
+  ]);
+  // The MCP SDK only serializes schemas it recognizes as object-shaped.
+  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
+  return schema;
+}
+
+function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
+  target: Target = {} as Target,
+  baseRevision: z.ZodTypeAny = revisionSchema,
+) {
+  const options = [
+    renameClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    trimClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    setGainSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    reduceNoiseSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    colorCorrectionSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    rippleDeleteSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    addMarkerSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+  ] as const;
+  return mcpDiscriminatedUnion(options);
+}
+
+const editToolInputSchema = createEditToolInputSchema();
+const artifactEditToolInputSchema = createEditToolInputSchema({
   artifactPath: z.string().trim().min(1),
-  baseRevision: revisionValueSchema,
-}).strict();
-const editorTimelineEditToolInputSchema = editToolInputSchema.extend({
+}, revisionValueSchema);
+const editorTimelineEditToolInputSchema = createEditToolInputSchema({
   projectId: z.string().trim().min(1),
   sequenceId: z.string().trim().min(1),
-  baseRevision: revisionValueSchema,
-}).strict();
+}, revisionValueSchema);
+
+type JsonSchema = {
+  anyOf?: JsonSchema[];
+  properties?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function exposeObjectRoot(schema: unknown): unknown {
+  if (!isRecord(schema) || !Array.isArray(schema.anyOf)) return schema;
+  const properties: Record<string, unknown> = {};
+  for (const branch of schema.anyOf as JsonSchema[]) {
+    if (branch.properties) Object.assign(properties, branch.properties);
+  }
+  return { ...schema, type: "object", properties };
+}
+
+function installMcpSchemaCompatibility(server: McpServer): void {
+  type RequestHandler = (request: unknown, extra: unknown) => Promise<unknown>;
+  type ToolListResponse = { tools?: Array<Record<string, unknown>>; [key: string]: unknown };
+  const handlers = (server.server as unknown as { _requestHandlers?: Map<string, RequestHandler> })._requestHandlers;
+  const listToolsHandler = handlers?.get("tools/list");
+  if (!listToolsHandler) throw new Error("MCP tools/list handler was not initialized");
+
+  server.server.removeRequestHandler("tools/list");
+  server.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    const response = await listToolsHandler(request, extra) as ToolListResponse;
+    return {
+      ...response,
+      tools: response.tools?.map((tool) => ({
+        ...tool,
+        inputSchema: exposeObjectRoot(tool.inputSchema),
+      })) ?? [],
+    };
+  });
+}
+
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
@@ -1351,6 +1399,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => jsonResult(await runtime.undo(transactionId)));
 
+  installMcpSchemaCompatibility(server);
   return server;
 }
 

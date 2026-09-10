@@ -123,9 +123,15 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
       "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "type", "verification",
     ]);
-    assert.deepEqual(timelineEditTool?.inputSchema.required?.slice().sort(), ["baseRevision", "projectId", "sequenceId", "type"]);
+    const timelineEditTrim = (timelineEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
+      (branch) => branch.properties?.type?.const === "trim-clip",
+    );
+    assert.deepEqual(timelineEditTrim?.required?.slice().sort(), ["baseRevision", "clipId", "duration", "projectId", "sequenceId", "type"]);
     const artifactEditTool = tools.tools.find((tool) => tool.name === "artifact.edit");
-    assert.deepEqual(artifactEditTool?.inputSchema.required?.slice().sort(), ["artifactPath", "baseRevision", "type"]);
+    const artifactEditRename = (artifactEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
+      (branch) => branch.properties?.type?.const === "rename-clip",
+    );
+    assert.deepEqual(artifactEditRename?.required?.slice().sort(), ["artifactPath", "baseRevision", "clipId", "name", "type"]);
     const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
     assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
