@@ -211,7 +211,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         }
         this.applyOperation(operation as EditOperation);
       }
-      return this.readProject();
+      const preview = await this.readProject();
+      return preview;
     } finally {
       this.xml = originalXml;
       this.sequence = originalSequence;

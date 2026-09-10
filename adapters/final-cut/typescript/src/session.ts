@@ -14,12 +14,13 @@ import type {
   ProjectSelection,
   RuntimeCapabilities,
   ManagedArtifact,
+  WorkflowOperation,
 } from "@framekit/runtime";
 
 interface FinalCutSessionOptions {
   snapshot?: EditorPort;
   mutation?: EditorPort;
-  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore">> & {
+  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore" | "previewTransaction" | "applyTransaction">> & {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
@@ -73,23 +74,47 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       && this.options.live?.apply
       && this.options.live.restore
     );
-    const applyProviderCapabilities = hasExplicitDocumentPair
+    const operationRuntimeCapabilities = hasExplicitDocumentPair
       ? mutation
       : liveMutation
         ? live
         : snapshot;
+    const operationCapabilities = operationRuntimeCapabilities?.editor;
+    const operationAdapter = hasExplicitDocumentPair
+      ? this.options.mutation
+      : liveMutation
+        ? this.options.live
+        : this.options.snapshot;
+    const readCapabilities = snapshot ?? (liveSnapshot ? live : undefined);
+    const readAdapter = this.options.snapshot ?? (liveSnapshot ? this.options.live : undefined);
+    const hasTransactionMethods = Boolean(
+      operationAdapter
+      && typeof operationAdapter.previewTransaction === "function"
+      && typeof operationAdapter.applyTransaction === "function",
+    );
+    const canReadAfterWrite = Boolean(
+      readAdapter?.readProject
+      && readCapabilities?.editor.readAfterWrite
+      && operationAdapter?.restore
+      && operationCapabilities?.rollback,
+    );
+    const compositeTransactions = Boolean(
+      operationCapabilities?.compositeTransactions
+      && hasTransactionMethods
+      && canReadAfterWrite,
+    );
+    const operationFamilies = operationRuntimeCapabilities?.families;
+    const readFamilies = readCapabilities?.families;
     return withCapabilityFamilies({
       editor: {
+        ...operationCapabilities,
         projectRead: Boolean(snapshot?.editor.projectRead || (liveSnapshot && live?.editor.projectRead)),
-        timelineSnapshotRead: Boolean(snapshot?.editor.timelineSnapshotRead || liveSnapshot),
-        timelineWrite: Boolean((hasExplicitDocumentPair && mutation?.editor.timelineWrite) || liveMutation),
-        timelineArtifactWrite: Boolean(applyProviderCapabilities?.editor.timelineArtifactWrite),
-        readAfterWrite: Boolean(
-          (hasExplicitDocumentPair && snapshot?.editor.readAfterWrite && mutation?.editor.readAfterWrite)
-          || (liveMutation && live?.editor.readAfterWrite)
-        ),
+        timelineSnapshotRead: Boolean(readCapabilities?.editor.timelineSnapshotRead),
+        timelineWrite: Boolean(operationCapabilities?.timelineWrite),
+        timelineArtifactWrite: Boolean(operationCapabilities?.timelineArtifactWrite),
+        readAfterWrite: canReadAfterWrite,
         incrementalChanges: Boolean(live?.editor.incrementalChanges),
-        rollback: Boolean((hasExplicitDocumentPair && mutation?.editor.rollback) || liveMutation),
+        rollback: Boolean(operationCapabilities?.rollback && operationAdapter?.restore),
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
@@ -97,6 +122,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         playbackControl: Boolean(live?.editor.playbackControl),
         projectCatalogRead: Boolean(snapshot?.editor.projectCatalogRead || (!this.options.snapshot && live?.editor.projectCatalogRead)),
         projectSelection: Boolean(snapshot?.editor.projectSelection || (!this.options.snapshot && live?.editor.projectSelection)),
+        compositeTransactions,
       },
       analyzers: {
         speechTranscribe: Boolean(snapshot?.analyzers.speechTranscribe || mutation?.analyzers.speechTranscribe || live?.analyzers.speechTranscribe),
@@ -104,7 +130,43 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         audioLoudness: Boolean(snapshot?.analyzers.audioLoudness || mutation?.analyzers.audioLoudness || live?.analyzers.audioLoudness),
         visualTrack: Boolean(snapshot?.analyzers.visualTrack || mutation?.analyzers.visualTrack || live?.analyzers.visualTrack),
       },
-    }, { backend: "final-cut-session" });
+    }, {
+      backend: "final-cut-session",
+      canonicalDocument: {
+        read: readFamilies?.canonicalDocument.read ?? Boolean(readCapabilities?.editor.timelineSnapshotRead),
+        write: operationFamilies?.canonicalDocument.write ?? Boolean(operationCapabilities?.timelineWrite),
+        artifactWrite: operationFamilies?.canonicalDocument.artifactWrite ?? Boolean(operationCapabilities?.timelineArtifactWrite),
+      },
+      editing: {
+        compositeTransactions: compositeTransactions,
+        titlePlacement: operationFamilies?.editing.titlePlacement ?? Boolean(operationCapabilities?.titlePlacement),
+        pictureInPicture: operationFamilies?.editing.pictureInPicture ?? false,
+        masking: operationFamilies?.editing.masking ?? false,
+      },
+      editingBackend: operationFamilies?.editing.compositeTransactions.backend,
+    });
+  }
+
+  public async previewTransaction(
+    operations: WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<ProjectSnapshot> {
+    const provider = await this.routedTransactionProvider();
+    if (!provider?.previewTransaction) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
+    }
+    return provider.previewTransaction(operations, expectedRevision);
+  }
+
+  public async applyTransaction(
+    operations: WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<void> {
+    const provider = await this.routedTransactionProvider();
+    if (!provider?.applyTransaction) {
+      throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
+    }
+    await provider.applyTransaction(operations, expectedRevision);
   }
 
   public async read(): Promise<ProjectSnapshot> {
@@ -198,6 +260,18 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<EditorChange[]> {
     if (!this.options.live) throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
     return this.options.live.liveChangesSince(revision, waitMs);
+  }
+
+  private async routedTransactionProvider(): Promise<Partial<Pick<EditorPort, "previewTransaction" | "applyTransaction">> | undefined> {
+    if (this.options.snapshot && this.options.mutation) return this.options.mutation;
+    const liveCapabilities = await optionalCapabilities(this.options.live);
+    const liveMutation = Boolean(
+      liveCapabilities?.editor.canonicalTimelineMode === "canonical-write"
+      && this.options.live?.apply
+      && this.options.live.restore,
+    );
+    if (liveMutation && this.options.live) return this.options.live;
+    return this.options.snapshot;
   }
 }
 

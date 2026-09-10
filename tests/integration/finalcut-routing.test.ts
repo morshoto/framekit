@@ -61,10 +61,10 @@ test("Final Cut sessions route artifact composite transactions to the mutation p
 
     const preview = await runtime.previewArtifactEdit(artifactPath, {
       baseRevision: before.revision,
-      operations: [{ type: "rename-clip", clipId: "clip-routing", name: "Renamed" }],
+      operations: [{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }],
     });
     assert.equal(mutation.previewCalls, 1);
-    assert.equal(preview.expectedDiff.modified[0]?.after.name, "Renamed");
+    assert.equal(preview.expectedDiff.modified[0]?.after?.name, "Renamed");
 
     const transaction = await runtime.executeEdit(preview.previewToken);
     assert.equal(mutation.applyCalls, 1);

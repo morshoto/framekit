@@ -2,12 +2,29 @@ import { CAPABILITY_SCHEMA_VERSION } from "./domain/capabilities.js";
 import type {
   CapabilityDescriptor,
   CapabilityFamilies,
+  EditingCapabilityOperation,
+  EditorIdentity,
   NativeCapabilityOperation,
   RuntimeCapabilities,
   VersionedRuntimeCapabilities,
 } from "./domain/capabilities.js";
 
 export type CanonicalTimelineMode = "metadata-only" | "canonical-read" | "canonical-write";
+export type CapabilityProcessMode = "headless" | "headed";
+export type CapabilityPreflightMode =
+  | "fixture"
+  | "fcpxml-artifact"
+  | "metadata-only"
+  | "canonical-live"
+  | "native-write";
+
+export interface CapabilityPreflight {
+  mode: CapabilityPreflightMode;
+  documentMode: Exclude<CapabilityPreflightMode, "native-write">;
+  processMode: CapabilityProcessMode;
+  backend: string;
+  capabilities: CapabilityFamilies;
+}
 
 export function canonicalTimelineMode(capabilities: RuntimeCapabilities): CanonicalTimelineMode {
   const editor = capabilities.editor;
@@ -43,6 +60,8 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     exportBackend: previous.export.timeline.backend,
     analyzerBackend: previous.analyzers.speechTranscribe.backend,
     connection: previous.connection.status,
+    canonicalDocument: previous.canonicalDocument,
+    editing: previous.editing,
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
     export: previous.export.timeline,
@@ -56,6 +75,9 @@ export interface CapabilityFamilyOptions {
   publishingBackend?: string;
   exportBackend?: string;
   analyzerBackend?: string;
+  canonicalDocument?: Partial<Record<"read" | "write" | "artifactWrite", boolean | CapabilityDescriptor>>;
+  editing?: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>;
+  editingBackend?: string;
   connection?: boolean | CapabilityDescriptor;
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
@@ -85,6 +107,8 @@ export function withCapabilityFamilies(
     ...nativeAvailability(previous?.native),
     ...options.native,
   };
+  const canonicalDocument = options.canonicalDocument ?? {};
+  const editing = options.editing ?? {};
   const families: CapabilityFamilies = {
     connection: {
       status: descriptorFrom(
@@ -110,25 +134,26 @@ export function withCapabilityFamilies(
     },
     canonicalDocument: {
       read: descriptorFrom(
-        editor.canonicalTimelineMode === "canonical-read"
-          || editor.canonicalTimelineMode === "canonical-write",
+        canonicalDocument.read ?? (editor.canonicalTimelineMode === "canonical-read"
+          || editor.canonicalTimelineMode === "canonical-write"),
         backend,
         "canonical-read",
         "canonical timeline reads are unavailable",
       ),
       write: descriptorFrom(
-        editor.canonicalTimelineMode === "canonical-write",
+        canonicalDocument.write ?? (editor.canonicalTimelineMode === "canonical-write"),
         backend,
         "canonical-write",
         "canonical timeline writes are unavailable",
       ),
       artifactWrite: descriptorFrom(
-        editor.timelineArtifactWrite,
+        canonicalDocument.artifactWrite ?? editor.timelineArtifactWrite,
         backend,
         "artifact-write",
         "canonical artifact writes are unavailable",
       ),
     },
+    editing: editingFamily(editor, editing, options.editingBackend ?? backend),
     native: nativeFamily(native, options.nativeBackend ?? previous?.native.selectionWrite.backend ?? backend),
     publishing: {
       projectCreation: descriptorFrom(
@@ -155,6 +180,71 @@ export function withCapabilityFamilies(
     },
   };
   return { ...normalized, families };
+}
+
+function editingFamily(
+  editor: RuntimeCapabilities["editor"],
+  overrides: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>,
+  backend: string,
+): Record<EditingCapabilityOperation, CapabilityDescriptor> {
+  return {
+    compositeTransactions: descriptorFrom(
+      overrides.compositeTransactions ?? Boolean(editor.compositeTransactions),
+      backend,
+      "verified",
+      "composite editing transactions are unavailable",
+    ),
+    titlePlacement: descriptorFrom(
+      overrides.titlePlacement ?? Boolean(editor.titlePlacement),
+      backend,
+      "verified",
+      "title placement is unavailable",
+    ),
+    pictureInPicture: descriptorFrom(
+      overrides.pictureInPicture ?? false,
+      backend,
+      "verified",
+      "picture-in-picture editing is unavailable",
+    ),
+    masking: descriptorFrom(
+      overrides.masking ?? false,
+      backend,
+      "verified",
+      "masking is unavailable",
+    ),
+  };
+}
+
+export function createCapabilityPreflight(
+  identity: EditorIdentity,
+  capabilities: RuntimeCapabilities,
+  options: {
+    processMode?: CapabilityProcessMode;
+    nativeWrite?: boolean;
+  } = {},
+): CapabilityPreflight {
+  const normalized = capabilities.families
+    ? capabilities as VersionedRuntimeCapabilities
+    : withCapabilityFamilies(capabilities, { backend: identity.backend });
+  const editor = normalized.editor;
+  const documentMode: CapabilityPreflight["documentMode"] = identity.backend === "fixture"
+    ? "fixture"
+    : editor.timelineArtifactWrite && !editor.timelineWrite
+      ? "fcpxml-artifact"
+      : editor.canonicalTimelineMode === "metadata-only"
+        ? "metadata-only"
+        : "canonical-live";
+  const processMode = options.processMode ?? "headless";
+  const mode: CapabilityPreflightMode = options.nativeWrite && processMode === "headed"
+    ? "native-write"
+    : documentMode;
+  return {
+    mode,
+    documentMode,
+    processMode,
+    backend: identity.backend,
+    capabilities: normalized.families,
+  };
 }
 
 function descriptorFrom(
