@@ -57,6 +57,7 @@ test("speech binding attaches revision, range, identity, provider, and source ti
   }, { input, provider, range: { start: 2, end: 6 } });
 
   assert.deepEqual(result, {
+    schemaVersion: 1,
     mediaId: sourceIdentity.mediaId,
     sourceIdentity,
     revision: input.project.revision,
