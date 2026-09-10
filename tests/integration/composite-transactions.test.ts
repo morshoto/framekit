@@ -26,6 +26,31 @@ function createCompositeRuntime(options: ConstructorParameters<typeof AgentVideo
   return { adapter, runtime: new AgentVideoRuntime(adapter, options) };
 }
 
+function createTrimRuntime() {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-trim",
+    projectName: "Trim Fixture",
+    timelineId: "timeline-trim",
+    timelineName: "Main Edit",
+    clips: [{
+      id: "clip-video",
+      mediaId: "media-video",
+      name: "Video",
+      start: 0,
+      duration: 10,
+      track: 0,
+    }],
+    media: [{
+      mediaId: "media-video",
+      source: "/fixtures/video.mov",
+      mediaKind: "video",
+      duration: 10,
+      sourceDigest: "sha256:video",
+    }],
+  });
+  return { adapter, runtime: new AgentVideoRuntime(adapter) };
+}
+
 function workflowOperations(): WorkflowOperation[] {
   return [
     {
@@ -202,6 +227,101 @@ test("composite operations reject non-finite imported and placement timing", asy
     mutate(operations);
     await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations }), /INVALID_OPERATION/);
     assert.deepEqual(await runtime.inspectProject(), before);
+  }
+});
+
+test("single trim rejects non-positive rational durations before adapter mutation", async () => {
+  for (const value of ["0", "-1"]) {
+    const { adapter, runtime } = createTrimRuntime();
+    const before = await runtime.inspectProject();
+    let applyCalls = 0;
+    const apply = adapter.apply.bind(adapter);
+    adapter.apply = async (...args) => {
+      applyCalls += 1;
+      return apply(...args);
+    };
+
+    await assert.rejects(
+      runtime.edit({
+        type: "trim-clip",
+        clipId: "clip-video",
+        duration: 10,
+        durationTime: { value, timescale: "1" },
+        baseRevision: before.revision,
+      }),
+      /INVALID_OPERATION: clip duration must be positive/,
+    );
+    assert.equal(applyCalls, 0);
+    assert.deepEqual(await runtime.inspectProject(), before);
+  }
+});
+
+test("composite trim preview rejects non-positive rational durations before adapter preview", async () => {
+  for (const value of ["0", "-1"]) {
+    const { adapter, runtime } = createTrimRuntime();
+    const before = await runtime.inspectProject();
+    let previewCalls = 0;
+    const previewTransaction = adapter.previewTransaction.bind(adapter);
+    adapter.previewTransaction = async (...args) => {
+      previewCalls += 1;
+      return previewTransaction(...args);
+    };
+
+    await assert.rejects(
+      runtime.previewEdit({
+        baseRevision: before.revision,
+        operations: [{
+          type: "trim-clip",
+          clipId: "clip-video",
+          duration: 10,
+          durationTime: { value, timescale: "1" },
+        }],
+      }),
+      /INVALID_OPERATION: clip duration must be positive/,
+    );
+    assert.equal(previewCalls, 0);
+    assert.deepEqual(await runtime.inspectProject(), before);
+  }
+});
+
+test("MCP rejects non-positive rational trim durations before adapter mutation", async () => {
+  const { adapter, runtime } = createTrimRuntime();
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "trim-duration-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const before = await runtime.inspectProject();
+    let applyCalls = 0;
+    const apply = adapter.apply.bind(adapter);
+    adapter.apply = async (...args) => {
+      applyCalls += 1;
+      return apply(...args);
+    };
+
+    for (const value of ["0", "-1"]) {
+      const result = await client.callTool({
+        name: "editor.timeline.edit",
+        arguments: {
+          projectId: before.projectId,
+          sequenceId: before.timeline.id,
+          type: "trim-clip",
+          clipId: "clip-video",
+          duration: 10,
+          durationTime: { value, timescale: "1" },
+          baseRevision: before.revision,
+        },
+      });
+      assert.equal(result.isError, true);
+      assert.match(textFrom(result), /INVALID_OPERATION: clip duration must be positive/);
+    }
+
+    assert.equal(applyCalls, 0);
+    assert.deepEqual(await runtime.inspectProject(), before);
+  } finally {
+    await client.close();
+    await server.close();
   }
 });
 
