@@ -20,6 +20,9 @@ export interface Clip {
   name: string;
   start: number;
   duration: number;
+  /** Source-media start for trimmed occurrences; absent means zero. */
+  sourceStart?: number;
+  sourceStartTime?: RationalTime;
   track: number;
   gainDb?: number;
   noiseReductionDb?: number;

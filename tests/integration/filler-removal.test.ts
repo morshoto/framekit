@@ -174,6 +174,68 @@ test("filler preview maps media speech to a guarded timeline delete", async () =
   assert.deepEqual(await adapter.readProject(), before);
 });
 
+test("filler preview rejects stale speech evidence before planning a delete", async () => {
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ media }) => ({
+      revision: { id: "rev-old", sequence: -1, timestamp: "2026-09-09T00:00:00.000Z" },
+      words: structuredClone(media.speech!.words),
+    }),
+  };
+  const { adapter, runtime } = createFillerRuntime(analyzer);
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } }),
+    /STALE_CONTEXT/,
+  );
+  assert.deepEqual(await adapter.readProject(), before);
+});
+
+test("filler preview maps trimmed source speech onto an offset occurrence", async () => {
+  const analyzer: SpeechAnalyzer = { analyze: async ({ media }) => structuredClone(media.speech!) };
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-filler-trimmed",
+    projectName: "Trimmed Filler Fixture",
+    timelineId: "timeline-filler-trimmed",
+    timelineName: "Main Edit",
+    clips: [{
+      id: "clip-filler-trimmed",
+      mediaId: "media-filler-trimmed",
+      name: "Trimmed Interview",
+      start: 20,
+      duration: 3,
+      track: 0,
+      sourceStart: 10,
+      sourceStartTime: { value: "10", timescale: "1" },
+    }],
+    media: [{
+      mediaId: "media-filler-trimmed",
+      source: "interview-trimmed.wav",
+      speech: {
+        words: [
+          { text: "So", start: 10, end: 10.3, confidence: 0.99 },
+          { text: "um", start: 10.4, end: 10.7, confidence: 0.98, filler: true },
+          { text: "what", start: 11.6, end: 12, confidence: 0.99 },
+        ],
+      },
+    }],
+  });
+  const runtime = new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer });
+  const before = await runtime.inspectProject();
+
+  const preview = await runtime.previewFillerRemoval({
+    baseRevision: before.revision,
+    range: { start: 20, end: 23 },
+  });
+
+  assert.deepEqual((preview.operations[0] as { range?: unknown } | undefined)?.range, {
+    start: 20.4,
+    end: 21.1,
+    startTime: { value: "102", timescale: "5" },
+    durationTime: { value: "7", timescale: "10" },
+  });
+});
+
 test("filler execution reanalyzes continuity and returns a reversible verified transaction", async () => {
   let calls = 0;
   const analyzer: SpeechAnalyzer = {

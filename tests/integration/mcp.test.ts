@@ -213,6 +213,11 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
 
     const speech = await client.callTool({ name: "speech.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(speech)).words[0].filler, true);
+    const rangedSpeech = await client.callTool({
+      name: "speech.analyze",
+      arguments: { mediaId: "media-1", range: { start: 0, end: 0.3 } },
+    });
+    assert.deepEqual(JSON.parse(textFrom(rangedSpeech)).requestedRange, { start: 0, end: 0.3 });
     const audio = await client.callTool({ name: "audio.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(audio)).integratedLufs, -18);
     const visual = await client.callTool({ name: "visual.analyze", arguments: { mediaId: "media-1" } });
