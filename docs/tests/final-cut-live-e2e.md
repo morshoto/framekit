@@ -158,6 +158,31 @@ no private media paths, raw snapshots, transaction identifiers, credentials,
 or diagnostics. The runner and sanitizer both fail closed when the mutation,
 undo, required tool sequence, or full commit provenance is incomplete.
 
+## FCPXML publisher headed E2E
+
+Publisher validation is a separate workflow from native editing. Prepare a
+disposable FCPXML artifact and an existing Final Cut project, then run:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH="/absolute/path/to/disposable publisher.fcpxml" \
+FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT="Imported Publisher E2E" \
+FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE="Main" \
+pnpm run test:final-cut-publisher-headed \
+  > docs/tests/evidence/$(date +%F)-publisher-live.json
+```
+
+The runner checks the managed artifact, prepares it through a verified artifact
+transaction, calls `artifact.publish` with explicit confirmation, and compares
+the live project and sequence identities before and after import. The publisher
+Accessibility state machine discovers the nested Import XML command, targets the
+path control in the Import XML sheet, waits for the sheet and window to close,
+and returns a precise timeout or cleanup error. Paths containing spaces are
+supported.
+
+This runner does not call `editor.native.*`, create a native fixture project, or
+claim that a native timeline edit succeeded. Use the prepared disposable fixture
+project and the native runners below for native editing evidence.
+
 ## Disposable native edit evidence
 
 When the live bridge advertises a canonical read provider and native selection

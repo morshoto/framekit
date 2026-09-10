@@ -66,8 +66,10 @@ canonical workflow for the selected target. They never silently replace the
 currently open Final Cut project. A verified artifact can be published as a new project through
 `timeline.publish.new-project`, which requires a verified transaction and the
 configured `FinalCutProjectPublisher`. The publisher imports a temporary copy
-of the FCPXML artifact, verifies the resulting project identity when live state
-is available, and does not replace the active project.
+of the FCPXML artifact through an Accessibility-driven Import XML state machine,
+waits for the import sheet to disappear, verifies the resulting project and
+sequence identities against the prior active target, and does not replace the active project. A headed publisher E2E validates this workflow separately from
+the prepared disposable native-edit fixture.
 
 This separation means a fixture can prove rough-cut construction and an
 FCPXML-backed workflow can produce a verified artifact without implying that
