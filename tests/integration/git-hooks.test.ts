@@ -49,6 +49,37 @@ test("pre-commit hook is executable and shell-valid", async () => {
   await exec("bash", ["-n", hookPath]);
 });
 
+test("pre-commit hook presents grouped validation stages and failure diagnostics", async () => {
+  const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
+  assert.match(hook, /run_step\(\)/);
+  assert.match(hook, /#%d \[%d\/%d\]/);
+  assert.match(hook, /--test-reporter=dot/);
+  assert.match(hook, /mktemp -d/);
+  assert.match(hook, /cat \"\$log_file\" >&2/);
+  assert.doesNotMatch(hook, /corepack pnpm/);
+});
+
+test("pre-commit hook animates only in color-capable terminals", async () => {
+  const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
+  assert.match(hook, /-t 1 && -t 2/);
+  assert.match(hook, /NO_COLOR/);
+  assert.match(hook, /spinner_frames=/);
+  assert.match(hook, /kill -0/);
+  assert.match(hook, /sleep 0\.08/);
+  assert.match(hook, /\\r\\033\[2K/);
+});
+
+test("pinned pnpm self-management is already recorded in the lockfile", async () => {
+  const manifest = JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as { packageManager?: string };
+  const version = manifest.packageManager?.replace(/^pnpm@/, "");
+  assert.ok(version);
+  const lockfile = await readFile(join(repository, "pnpm-lock.yaml"), "utf8");
+  const escapedVersion = version.replaceAll(".", "\\.");
+  assert.match(lockfile, new RegExp(`(?:^|\\n)\\s+pnpm:\\n\\s+specifier: ${escapedVersion}\\n\\s+version: ${escapedVersion}`));
+  assert.match(lockfile, new RegExp(`(?:^|\\n)\\s+pnpm@${escapedVersion}:`));
+  assert.match(lockfile, new RegExp(`[\'\"]@pnpm/exe(?:\\.[^\'\"]+)?@${escapedVersion}[\'\"]`));
+});
+
 test("pre-commit hook forces headless fixture validation", async () => {
   const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
   assert.match(hook, /export FRAMEKIT_EDITOR=fixture/);

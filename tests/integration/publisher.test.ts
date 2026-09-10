@@ -55,8 +55,10 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
     changed: false,
   });
   assert.match(scripts[0], /Import/);
+  assert.match(scripts[0], /menu item "XML…" of menu "Import" of menu item "Import"/);
+  assert.match(scripts[0], /keystroke "g" using \{command down, shift down\}/);
   assert.equal(scripts[0].includes("focused text field"), false);
-  assert.match(scripts[0], /first text field of front window/);
+  assert.match(scripts[0], /first text field of sheet 1 of window "Import XML"/);
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
 });
 

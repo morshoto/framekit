@@ -128,6 +128,32 @@ test("media understanding cache rejects changed source identities", async () => 
   }
 });
 
+test("media understanding cache invalidates after a timeline revision", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  const before = await runtime.inspectProject();
+  const understanding = await runtime.understandMedia("media-semantic-1");
+  assert.equal(understanding.analysisRevision.id, before.revision.id);
+
+  const transaction = await runtime.edit({
+    type: "rename-clip",
+    clipId: "clip-semantic-1",
+    name: "Interview - Clean",
+  });
+  assert.equal(transaction.after.revision.id, "rev-1");
+  assert.equal(transaction.after.media[0]?.analysisRevision, transaction.after.revision.id);
+
+  const inspected = await runtime.inspectProject();
+  const media = inspected.media[0];
+  assert.equal(inspected.revision.id, transaction.after.revision.id);
+  assert.equal(media?.analysisRevision, undefined);
+  assert.equal(media?.semantic, undefined);
+  assert.equal(media?.analysis, undefined);
+});
+
 test("attached media understanding is isolated from returned snapshots", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
@@ -261,6 +287,53 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.deepEqual(shot?.range, fixture.usableRange);
   assert.deepEqual(shot?.matchedProperties, ["subject:person"]);
   assert.match(shot?.rationale ?? "", /subject "person"/);
+});
+
+test("rough-cut planning excludes audio-only media from shots", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ mediaKind: "audio" });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({ subject: "person" });
+
+  assert.deepEqual(plan.shots, []);
+  assert.deepEqual(plan.warnings, [
+    "Excluded audio-only media from rough-cut shot candidates: media-semantic-1",
+  ]);
+});
+
+test("MCP rough-cut planning reports excluded audio-only media", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ mediaKind: "audio" });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+  await runtime.understandMedia("media-semantic-1");
+
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "audio-rough-cut-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const plan = JSON.parse(textFrom(await client.callTool({
+      name: "rough-cut.plan",
+      arguments: { subject: "person" },
+    })));
+
+    assert.deepEqual(plan.shots, []);
+    assert.deepEqual(plan.warnings, [
+      "Excluded audio-only media from rough-cut shot candidates: media-semantic-1",
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
 
 test("MCP exposes semantic indexing and rough-cut planning", async () => {

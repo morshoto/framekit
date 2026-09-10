@@ -1,7 +1,7 @@
 {
   "name": "@morshoto/framekit",
-  "version": "0.1.3",
-  "packageManager": "pnpm@11.25.0",
+  "version": "0.1.4",
+  "packageManager": "pnpm@12.3.4",
   "private": false,
   "type": "module",
   "description": "Agentic video editing runtime and MCP server for Final Cut Pro",
@@ -44,7 +44,7 @@
     "mcp": "tsx apps/mcp-server/src/main.ts",
     "framekit": "node ./bin/framekit.mjs",
     "package:final-cut-release": "bash scripts/package-final-cut-release.sh",
-    "prepack": "pnpm run build:package",
+    "prepack": "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json",
     "xcode:check": "bash nix/check-xcode.sh",
     "check:boundaries": "node scripts/check-boundaries.mjs"
   },
