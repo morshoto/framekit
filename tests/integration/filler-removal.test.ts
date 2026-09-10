@@ -174,6 +174,23 @@ test("filler preview maps media speech to a guarded timeline delete", async () =
   assert.deepEqual(await adapter.readProject(), before);
 });
 
+test("filler preview rejects stale speech evidence before planning a delete", async () => {
+  const analyzer: SpeechAnalyzer = {
+    analyze: async ({ media }) => ({
+      revision: { id: "rev-old", sequence: -1, timestamp: "2026-09-09T00:00:00.000Z" },
+      words: structuredClone(media.speech!.words),
+    }),
+  };
+  const { adapter, runtime } = createFillerRuntime(analyzer);
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } }),
+    /STALE_CONTEXT/,
+  );
+  assert.deepEqual(await adapter.readProject(), before);
+});
+
 test("filler execution reanalyzes continuity and returns a reversible verified transaction", async () => {
   let calls = 0;
   const analyzer: SpeechAnalyzer = {
