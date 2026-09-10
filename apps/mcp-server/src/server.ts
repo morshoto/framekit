@@ -230,13 +230,13 @@ function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
   baseRevision: z.ZodTypeAny = revisionSchema,
 ) {
   const options = [
-    renameClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
-    trimClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
-    setGainSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
-    reduceNoiseSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
-    colorCorrectionSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
-    rippleDeleteSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
-    addMarkerSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }),
+    renameClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    trimClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    setGainSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    reduceNoiseSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    colorCorrectionSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    rippleDeleteSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    addMarkerSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
   ] as const;
   return mcpDiscriminatedUnion(options);
 }
