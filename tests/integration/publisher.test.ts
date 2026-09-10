@@ -66,15 +66,16 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   });
   assert.match(scripts[0], /waitForMenuItem/);
   assert.match(scripts[0], /waitForImportSheet/);
-  assert.match(scripts[0], /menu "Import" of importMenuItem/);
+  assert.match(scripts[0], /waitForSubmenu\(importMenuItem, "Import"/);
   assert.match(scripts[0], /perform action "AXPress"/);
   assert.match(scripts[0], /keystroke "g" using \{command down, shift down\}/);
-  assert.match(scripts[0], /first text field of pathSheet/);
+  assert.match(scripts[0], /text fields of pathSheet/);
+  assert.match(scripts[0], /set pathField to item 1 of pathFields/);
   assert.match(scripts[0], /waitForImportSheetDismissal/);
   assert.match(scripts[0], /on error/);
   assert.match(scripts[0], /Cancel/);
   assert.equal(scripts[0].includes("delay 0.4"), false);
-  assert.match(scripts[0], /artifact with spaces/);
+  assert.match(scripts[0], /published project\.fcpxml/);
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
 });
 
