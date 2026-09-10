@@ -84,6 +84,18 @@ test("speech binding preserves transcription-only capability without inventing V
   assert.deepEqual(result.observedRange, { start: 0, end: 12 });
 });
 
+test("speech binding fills omitted partial source identity fields", () => {
+  const result = bindSpeechAnalysis({
+    sourceIdentity: {
+      mediaId: sourceIdentity.mediaId,
+      source: sourceIdentity.source,
+    },
+    words: [],
+  }, { input, provider });
+
+  assert.deepEqual(result.sourceIdentity, sourceIdentity);
+});
+
 test("speech binding fails closed for stale or mismatched provenance", () => {
   const cases: Array<[string, Partial<SpeechAnalysis>]> = [
     ["media identity", { mediaId: "other-media" }],
