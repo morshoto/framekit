@@ -292,6 +292,13 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /families/);
   assert.match(documentation, /unavailableReason/);
   assert.match(documentation, /canonicalDocument/);
+  assert.match(documentation, /editing/);
+  assert.match(documentation, /pictureInPicture/);
+  assert.match(documentation, /masking/);
+  assert.match(documentation, /preflight/);
+  assert.match(documentation, /documentMode/);
+  assert.match(documentation, /processMode/);
+  assert.match(documentation, /native-write/);
   assert.match(documentation, /projectCreation/);
   assert.match(documentation, /clipInsertion/);
   assert.match(documentation, /clipMovement/);
