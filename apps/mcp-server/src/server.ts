@@ -228,6 +228,15 @@ function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, .
   return schema;
 }
 
+function mcpUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
+  options: Options,
+): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
+  const schema = z.union(options as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  // The MCP SDK only serializes schemas it recognizes as object-shaped.
+  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
+  return schema;
+}
+
 function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
   target: Target = {} as Target,
   baseRevision: z.ZodTypeAny = revisionSchema,
@@ -406,13 +415,9 @@ const musicDuckingSchema = z.object({
   dialogueClipIds: z.array(z.string().min(1)).optional(),
   reductionDb: z.number().finite().optional(),
 });
-const musicAddInputSchema = {
+const musicAddCommonInputSchema = {
   baseRevision: revisionValueSchema,
   occurrenceId: z.string().min(1),
-  mediaId: z.string().min(1).optional(),
-  import: musicImportSchema.optional(),
-  placement: z.enum(["append", "insert"]),
-  start: z.number().nonnegative().optional(),
   duration: z.number().positive().optional(),
   targetLane: z.number().int().refine((lane) => lane !== 0, "music requires a non-primary lane"),
   gainDb: z.number().finite().optional(),
@@ -421,6 +426,30 @@ const musicAddInputSchema = {
   ducking: musicDuckingSchema.optional(),
   verification: verificationPolicySchema.optional(),
 };
+const musicAddInputSchema = mcpUnion([
+  z.object({
+    ...musicAddCommonInputSchema,
+    mediaId: z.string().min(1),
+    placement: z.literal("append"),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    import: musicImportSchema,
+    placement: z.literal("append"),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    mediaId: z.string().min(1),
+    placement: z.literal("insert"),
+    start: z.number().nonnegative(),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    import: musicImportSchema,
+    placement: z.literal("insert"),
+    start: z.number().nonnegative(),
+  }).strict(),
+]);
 const fillerRemovalInputSchema = {
   baseRevision: revisionValueSchema,
   range: rangeSchema,
