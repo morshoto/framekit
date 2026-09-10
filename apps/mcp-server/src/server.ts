@@ -216,6 +216,12 @@ const verificationPolicySchema = z.object({
   loudnessToleranceDb: z.number().finite().nonnegative().optional(),
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
+function mcpObjectSchema<Schema extends z.ZodTypeAny>(schema: Schema): Schema {
+  // The MCP SDK only serializes schemas it recognizes as object-shaped.
+  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
+  return schema;
+}
+
 function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
   options: Options,
 ): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
@@ -223,18 +229,14 @@ function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, .
     z.ZodDiscriminatedUnionOption<"type">,
     ...z.ZodDiscriminatedUnionOption<"type">[],
   ]);
-  // The MCP SDK only serializes schemas it recognizes as object-shaped.
-  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
-  return schema;
+  return mcpObjectSchema(schema);
 }
 
 function mcpUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
   options: Options,
 ): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
   const schema = z.union(options as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
-  // The MCP SDK only serializes schemas it recognizes as object-shaped.
-  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
-  return schema;
+  return mcpObjectSchema(schema);
 }
 
 function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
