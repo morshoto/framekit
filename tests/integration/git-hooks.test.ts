@@ -75,7 +75,7 @@ test("pinned pnpm self-management is already recorded in the lockfile", async ()
   assert.ok(version);
   const lockfile = await readFile(join(repository, "pnpm-lock.yaml"), "utf8");
   assert.match(lockfile, new RegExp(`packageManagerDependencies:[\\s\\S]*?\\n\\s+pnpm:\\n\\s+specifier: ${version.replaceAll(".", "\\.")}`));
-  assert.match(lockfile, new RegExp(`@pnpm/exe@${version.replaceAll(".", "\\.")}`));
+  assert.match(lockfile, new RegExp(`pnpm@${version.replaceAll(".", "\\.")}`));
 });
 
 test("pre-commit hook forces headless fixture validation", async () => {
