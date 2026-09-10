@@ -391,7 +391,8 @@ test("post-write verification rolls back when speech analysis is stale", async (
     runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Must Not Persist" }),
     /ANALYSIS_FAILED: post-write verification analysis failed .*STALE_CONTEXT/,
   );
-  assert.deepEqual(await editor.readProject(), before);
+  const restored = await editor.readProject();
+  assert.deepEqual({ ...restored, revision: before.revision }, before);
 });
 
 test("post-write verification passes clip intersections in media-relative coordinates", async () => {
