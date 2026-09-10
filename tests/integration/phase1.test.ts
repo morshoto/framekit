@@ -318,6 +318,27 @@ test("FCPXML separates asset source starts from timeline offsets", async () => {
   assert.equal(snapshot.timeline.captions[0]?.start, 5);
 });
 
+test("FCPXML resource duration bounds silent full-media speech analysis", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-speech-duration-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources>
+    <asset id="r1" src="file:///silent.wav" duration="12s" />
+  </resources><library><event><project uid="project-speech-duration"><sequence uid="sequence-speech-duration" duration="3s"><spine>
+    <asset-clip ref="r1" duration="3s" />
+  </spine></sequence></project></event></library></fcpxml>`);
+
+  const adapter = new FcpxmlDocumentAdapter(path);
+  const runtime = new AgentVideoRuntime(adapter, {
+    speechAnalyzer: { analyze: async () => ({ words: [] }) },
+  });
+
+  const result = await runtime.analyzeSpeech("r1");
+
+  assert.equal((await adapter.readProject()).media[0]?.duration, 12);
+  assert.deepEqual(result.requestedRange, { start: 0, end: 12 });
+  assert.deepEqual(result.observedRange, { start: 0, end: 12 });
+});
+
 test("Final Cut session composes document snapshot and live state providers", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-session-"));
   const path = join(directory, "project.fcpxml");
