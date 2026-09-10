@@ -120,7 +120,7 @@ test("editor inspection exposes actionable artifact preflight provenance", async
     assert.equal(payload.preflight.mode, "fcpxml-artifact");
     assert.equal(payload.preflight.documentMode, "fcpxml-artifact");
     assert.equal(payload.preflight.processMode, "headless");
-    assert.equal(payload.preflight.backend, "final-cut-session");
+    assert.equal(payload.preflight.backend, "fcpxml-document");
     assert.equal(payload.preflight.capabilities.canonicalDocument.artifactWrite.backend, "fcpxml-document");
     assert.equal(payload.preflight.capabilities.editing.compositeTransactions.available, true);
     assert.equal(payload.preflight.capabilities.editing.compositeTransactions.backend, "fcpxml-document");

@@ -107,8 +107,14 @@ export function withCapabilityFamilies(
     ...nativeAvailability(previous?.native),
     ...options.native,
   };
-  const canonicalDocument = options.canonicalDocument ?? {};
-  const editing = options.editing ?? {};
+  const canonicalDocument = {
+    ...previous?.canonicalDocument,
+    ...options.canonicalDocument,
+  };
+  const editing = {
+    ...previous?.editing,
+    ...options.editing,
+  };
   const families: CapabilityFamilies = {
     connection: {
       status: descriptorFrom(
@@ -153,7 +159,11 @@ export function withCapabilityFamilies(
         "canonical artifact writes are unavailable",
       ),
     },
-    editing: editingFamily(editor, editing, options.editingBackend ?? backend),
+    editing: editingFamily(
+      editor,
+      editing,
+      options.editingBackend ?? previous?.editing?.compositeTransactions.backend ?? backend,
+    ),
     native: nativeFamily(native, options.nativeBackend ?? previous?.native.selectionWrite.backend ?? backend),
     publishing: {
       projectCreation: descriptorFrom(
