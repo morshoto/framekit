@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  mapSourceRangeToSequenceRange,
   mapSpeechAnalysisToOccurrence,
   type RevisionBoundSpeechAnalysis,
   type SpeechOccurrence,
@@ -74,6 +75,35 @@ test("speech mapping keeps repeated occurrences independent", () => {
   assert.equal(first.words[0]?.sequenceRange.start, 30.25);
   assert.equal(second.words[0]?.sequenceRange.start, 100.25);
   assert.notEqual(first.words[0]?.frameAlignedRange.startTime?.value, second.words[0]?.frameAlignedRange.startTime?.value);
+});
+
+test("speech mapping translates exact source ranges for edit planning", () => {
+  const mapped = mapSourceRangeToSequenceRange({
+    start: 4.2,
+    end: 4.9,
+    startTime: { value: "21", timescale: "5" },
+    durationTime: { value: "7", timescale: "10" },
+  }, {
+    sourceRange: {
+      start: 4,
+      end: 7,
+      startTime: { value: "4", timescale: "1" },
+      durationTime: { value: "3", timescale: "1" },
+    },
+    sequenceRange: {
+      start: 20,
+      end: 23,
+      startTime: { value: "20", timescale: "1" },
+      durationTime: { value: "3", timescale: "1" },
+    },
+  });
+
+  assert.deepEqual(mapped, {
+    start: 20.2,
+    end: 20.9,
+    startTime: { value: "101", timescale: "5" },
+    durationTime: { value: "7", timescale: "10" },
+  });
 });
 
 test("speech mapping fails closed for stale, ambiguous, and unsupported targets", () => {
