@@ -524,7 +524,36 @@ test("post-write speech reanalysis retains evidence outside changed ranges", asy
   ]);
   assert.deepEqual(speech?.requestedRange, { start: 0, end: 10 });
   assert.deepEqual(speech?.observedRange, { start: 0, end: 10 });
-  assert.equal(speech?.revision.id, transaction.after.revision.id);
+  assert.equal(speech?.revision?.id, transaction.after.revision.id);
+});
+
+test("post-write speech reanalysis coalesces overlapping source ranges", async () => {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const editor = new InMemoryEditorAdapter({
+    projectId: "project-coalesced-speech",
+    projectName: "Coalesced Speech Fixture",
+    timelineId: "timeline-coalesced-speech",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-coalesced-speech", mediaId: "media-coalesced-speech", name: "Interview", start: 0, duration: 10, track: 1 }],
+    media: [{ mediaId: "media-coalesced-speech", source: "interview.wav", duration: 10 }],
+  });
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: {
+      analyze: async (_input, range) => {
+        if (range) ranges.push(range);
+        return { words: [] };
+      },
+    },
+  });
+
+  const transaction = await runtime.edit({
+    type: "trim-clip",
+    clipId: "clip-coalesced-speech",
+    duration: 9,
+  });
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(ranges, [{ start: 0, end: 9 }]);
 });
 
 test("missing live context reports the Framekit capability name", async () => {

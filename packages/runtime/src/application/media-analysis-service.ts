@@ -27,6 +27,7 @@ import { ProjectService } from "./project-service.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { parseRational } from "../timeline/rational-time.js";
 
 export class MediaAnalysisService {
   public constructor(
@@ -253,19 +254,10 @@ export class MediaAnalysisService {
         )));
         const latest = analyses[analyses.length - 1];
         if (latest) {
-          media.speech = {
-            ...latest,
-            words: analyses.flatMap((analysis) => analysis.words),
-            ...(analyses.some((analysis) => analysis.vadSegments)
-              ? { vadSegments: analyses.flatMap((analysis) => analysis.vadSegments ?? []) }
-              : {}),
-            ...(analyses.some((analysis) => analysis.silenceSegments)
-              ? { silenceSegments: analyses.flatMap((analysis) => analysis.silenceSegments ?? []) }
-              : {}),
-            ...(analyses.some((analysis) => analysis.protectedSegments)
-              ? { protectedSegments: analyses.flatMap((analysis) => analysis.protectedSegments ?? []) }
-              : {}),
-          };
+          media.speech = mergeSpeechAnalyses(media.speech, analyses, ranges, {
+            input,
+            provider: this.options.speechAnalyzer!.descriptor,
+          });
         }
       }
       if (this.options.audioAnalyzer) {
@@ -319,6 +311,92 @@ function sourceIdentityOf(media: MediaContext): MediaSourceIdentity {
     ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
     ...(media.duration !== undefined ? { duration: media.duration } : {}),
   };
+}
+
+function mergeSpeechAnalyses(
+  previous: SpeechAnalysis | undefined,
+  analyses: RevisionBoundSpeechAnalysis[],
+  updatedRanges: TimeRange[],
+  context: Parameters<typeof bindSpeechAnalysis>[1],
+): RevisionBoundSpeechAnalysis {
+  const latest = analyses[analyses.length - 1];
+  if (!latest) throw new Error("ANALYSIS_INVALID: speech reanalysis returned no results");
+  if (previous?.provider && !sameDescriptor(previous.provider, latest.provider)) {
+    throw new Error("ANALYSIS_INVALID: speech evidence providers cannot be combined");
+  }
+  if (previous?.sourceTimebase && !sameRational(previous.sourceTimebase, latest.sourceTimebase)) {
+    throw new Error("ANALYSIS_INVALID: speech evidence timebases cannot be combined");
+  }
+
+  const requestedRange = encompassingRange([
+    ...(previous?.requestedRange ? [previous.requestedRange] : []),
+    ...analyses.map((analysis) => analysis.requestedRange),
+  ]);
+  const observedRange = encompassingRange([
+    ...(previous?.observedRange ? [previous.observedRange] : []),
+    ...analyses.map((analysis) => analysis.observedRange),
+  ]);
+  const words = mergeSpeechEvidence(
+    previous?.words,
+    analyses.map((analysis) => analysis.words),
+    updatedRanges,
+  );
+  const hasVad = previous?.vadSegments !== undefined || analyses.some((analysis) => analysis.vadSegments !== undefined);
+  const vadSegments = hasVad
+    ? mergeSpeechEvidence(previous?.vadSegments, analyses.map((analysis) => analysis.vadSegments ?? []), updatedRanges)
+    : undefined;
+  const hasSilence = previous?.silenceSegments !== undefined || analyses.some((analysis) => analysis.silenceSegments !== undefined);
+  const silenceSegments = hasSilence
+    ? mergeSpeechEvidence(previous?.silenceSegments, analyses.map((analysis) => analysis.silenceSegments ?? []), updatedRanges)
+    : undefined;
+  const hasProtected = previous?.protectedSegments !== undefined || analyses.some((analysis) => analysis.protectedSegments !== undefined);
+  const protectedSegments = hasProtected
+    ? mergeSpeechEvidence(previous?.protectedSegments, analyses.map((analysis) => analysis.protectedSegments ?? []), updatedRanges)
+    : undefined;
+
+  return bindSpeechAnalysis({
+    ...latest,
+    requestedRange,
+    observedRange,
+    capability: vadSegments ? "transcription-plus-vad" : latest.capability,
+    words,
+    ...(vadSegments ? { vadSegments } : {}),
+    ...(silenceSegments ? { silenceSegments } : {}),
+    ...(protectedSegments ? { protectedSegments } : {}),
+  }, context);
+}
+
+function mergeSpeechEvidence<T extends { start: number; end: number }>(
+  previous: T[] | undefined,
+  fresh: T[][],
+  updatedRanges: TimeRange[],
+): T[] {
+  return [
+    ...(previous ?? []).filter((evidence) => !updatedRanges.some((range) => rangesOverlap(evidence, range))),
+    ...fresh.flat(),
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
+function rangesOverlap(left: { start: number; end: number }, right: TimeRange): boolean {
+  return left.end > right.start && left.start < right.end;
+}
+
+function encompassingRange(ranges: TimeRange[]): TimeRange {
+  if (ranges.length === 0) throw new Error("ANALYSIS_INVALID: speech evidence needs a range");
+  return {
+    start: Math.min(...ranges.map((range) => range.start)),
+    end: Math.max(...ranges.map((range) => range.end)),
+  };
+}
+
+function sameDescriptor(left: AnalyzerDescriptor, right: AnalyzerDescriptor): boolean {
+  return left.id === right.id && left.provider === right.provider && left.version === right.version;
+}
+
+function sameRational(left: { value: string; timescale: string }, right: { value: string; timescale: string }): boolean {
+  const leftParts = parseRational(left, "ANALYSIS_INVALID");
+  const rightParts = parseRational(right, "ANALYSIS_INVALID");
+  return leftParts.value * rightParts.timescale === rightParts.value * leftParts.timescale;
 }
 
 function semanticFromAnalyses(
