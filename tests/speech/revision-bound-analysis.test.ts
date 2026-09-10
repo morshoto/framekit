@@ -161,6 +161,35 @@ test("runtime binds legacy analyzer output before returning speech analysis", as
   assert.equal(result.capability, "transcription-only");
 });
 
+test("runtime forwards and binds requested speech ranges", async () => {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Ranged speech fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [{ ...sourceIdentity }],
+  });
+  let receivedRange;
+  const runtime = new AgentVideoRuntime(adapter, {
+    speechAnalyzer: {
+      analyze: async (_input, range) => {
+        receivedRange = range;
+        return {
+          requestedRange: range,
+          observedRange: range,
+          words: [{ text: "hello", start: 2, end: 2.5, confidence: 0.98 }],
+        };
+      },
+    },
+  });
+
+  const result = await runtime.analyzeSpeech("media-1", { start: 2, end: 6 });
+
+  assert.deepEqual(receivedRange, { start: 2, end: 6 });
+  assert.deepEqual(result.requestedRange, { start: 2, end: 6 });
+});
+
 test("runtime rejects stale revisions returned by a speech provider", async () => {
   const adapter = new InMemoryEditorAdapter({
     projectId: "project-1",
