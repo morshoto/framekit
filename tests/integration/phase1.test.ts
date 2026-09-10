@@ -458,6 +458,75 @@ test("post-write verification passes clip intersections in media-relative coordi
   });
 });
 
+test("post-write speech reanalysis retains evidence outside changed ranges", async () => {
+  const sourceIdentity = {
+    mediaId: "media-retained-speech",
+    source: "interview.wav",
+    mediaKind: "audio" as const,
+    duration: 10,
+  };
+  const editor = new InMemoryEditorAdapter({
+    projectId: "project-retained-speech",
+    projectName: "Retained Speech Fixture",
+    timelineId: "timeline-retained-speech",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-retained-speech", mediaId: sourceIdentity.mediaId, name: "Interview", start: 0, duration: 10, track: 1 }],
+    media: [{
+      ...sourceIdentity,
+      speech: {
+        schemaVersion: 1,
+        mediaId: sourceIdentity.mediaId,
+        sourceIdentity,
+        requestedRange: { start: 0, end: 10 },
+        observedRange: { start: 0, end: 10 },
+        revision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+        provider: { id: "fixture.speech", provider: "fixture" },
+        sourceTimebase: { value: "1", timescale: "1000" },
+        capability: "transcription-plus-vad",
+        words: [
+          { text: "before", start: 1, end: 1.5, confidence: 0.99 },
+          { text: "old-middle", start: 4.1, end: 4.4, confidence: 0.8 },
+          { text: "after", start: 7, end: 7.5, confidence: 0.99 },
+        ],
+        vadSegments: [
+          { start: 1, end: 1.5, kind: "speech" },
+          { start: 4.1, end: 4.4, kind: "speech" },
+          { start: 7, end: 7.5, kind: "speech" },
+        ],
+      },
+    }],
+  });
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: {
+      descriptor: { id: "fixture.speech", provider: "fixture" },
+      analyze: async (_input, range) => ({
+        requestedRange: range,
+        observedRange: range,
+        words: [{ text: "new-middle", start: 4.2, end: 4.6, confidence: 0.98 }],
+        vadSegments: [{ start: 4.2, end: 4.6, kind: "speech" }],
+      }),
+    },
+  });
+
+  const transaction = await runtime.edit({
+    type: "add-marker",
+    timelineId: "timeline-retained-speech",
+    marker: { id: "marker-retained-speech", start: 4, duration: 1, name: "Review" },
+  });
+
+  const speech = transaction.after.media[0]?.speech;
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(speech?.words.map(({ text }) => text), ["before", "new-middle", "after"]);
+  assert.deepEqual(speech?.vadSegments?.map(({ start, end }) => ({ start, end })), [
+    { start: 1, end: 1.5 },
+    { start: 4.2, end: 4.6 },
+    { start: 7, end: 7.5 },
+  ]);
+  assert.deepEqual(speech?.requestedRange, { start: 0, end: 10 });
+  assert.deepEqual(speech?.observedRange, { start: 0, end: 10 });
+  assert.equal(speech?.revision.id, transaction.after.revision.id);
+});
+
 test("missing live context reports the Framekit capability name", async () => {
   await assert.rejects(
     new AgentVideoRuntime(fixtureAdapter()).inspectLiveEditor(),
