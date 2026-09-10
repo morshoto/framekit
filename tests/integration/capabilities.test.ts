@@ -106,6 +106,7 @@ test("capability normalization invalidates stale descriptors after a downgrade",
     editor: {
       ...artifactCapabilities.editor,
       timelineWrite: true,
+      timelineArtifactWrite: false,
       readAfterWrite: true,
       rollback: true,
       projectRead: true,
