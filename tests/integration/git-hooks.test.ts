@@ -73,7 +73,7 @@ test("pinned pnpm self-management is already recorded in the lockfile", async ()
   const manifest = JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as { packageManager?: string };
   const version = manifest.packageManager?.replace(/^pnpm@/, "");
   assert.ok(version);
-  const lockfile = await readFile(join(repository, "pnpm-lock.yaml"), "utf8");
+  const lockfile = (await exec("git", ["show", "HEAD:pnpm-lock.yaml"], { cwd: repository })).stdout;
   assert.match(lockfile, new RegExp(`['"]@pnpm/exe['"][\\s\\S]*?specifier: ${version.replaceAll(".", "\\.")}`));
   assert.match(lockfile, new RegExp(`@pnpm/exe@${version.replaceAll(".", "\\.")}`));
 });
