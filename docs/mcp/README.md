@@ -25,6 +25,8 @@ invoke the external renderer.
 - [Rough-cut duration policy](../rough-cut/duration-policy.md): explicit duration tradeoffs for planning workflows.
 - [Capabilities and errors](./capabilities-and-errors.md): fail-closed rules.
 - [Final Cut live backend](./final-cut-live.md): selecting and probing it.
+- [Local speech analysis](../speech-analysis.md): configuring a local
+  Whisper/VAD-compatible wrapper and its revision-bound JSON contract.
 
 The default `pnpm run mcp` configuration uses the deterministic in-memory
 fixture. Set `FRAMEKIT_EDITOR=final-cut-live` to select the live Final Cut
