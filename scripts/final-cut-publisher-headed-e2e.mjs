@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
@@ -90,20 +91,9 @@ try {
     confirm: true,
   });
   published = true;
-  if (result.verified !== true || result.createdTarget?.projectName !== expectedProject) {
-    throw new Error("FINAL_CUT_E2E_PUBLISH_VERIFICATION_FAILED: publisher did not return the requested project identity");
-  }
-  if (result.createdTarget?.sequenceName !== (expectedSequence ?? sourceSequence)) {
-    throw new Error("FINAL_CUT_E2E_PUBLISH_SEQUENCE_VERIFICATION_FAILED: publisher did not return the requested sequence identity");
-  }
-  if (result.activeProject?.before?.id !== beforeLive.project.id || result.activeProject?.after?.id !== result.createdTarget?.projectId) {
-    throw new Error("FINAL_CUT_E2E_PUBLISH_TARGET_VERIFICATION_FAILED: active project identity was not changed to the imported project");
-  }
 
   const afterLive = await callJson("editor.live.inspect");
-  if (afterLive.project?.id !== result.createdTarget?.projectId || afterLive.sequence?.id !== result.createdTarget?.sequenceId) {
-    throw new Error("FINAL_CUT_E2E_PUBLISH_LIVE_STATE_MISMATCH: live state does not match the imported target");
-  }
+  verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence });
 
   process.stdout.write(`${JSON.stringify({
     passed: true,
