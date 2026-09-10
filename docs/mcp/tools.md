@@ -79,7 +79,7 @@ this routing tool.
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
-| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, and audio presence | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; existing outputs require `overwrite: true` |
+| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
@@ -173,6 +173,22 @@ non-empty `uid` attributes; otherwise project inspection and catalog operations
 fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
 `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
+
+The headed project-selection acceptance gate is opt-in and never uses project
+names as IDs:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID="final-cut-project-id" \
+FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut-sequence-id" \
+pnpm run test:final-cut-project-selection-headed
+```
+
+It requires `projectCatalogRead` and `projectSelection`, enumerates the live
+catalog, selects the explicit project and sequence, and records only the
+allowlisted IDs, counts, capability payload, Final Cut version, and commit.
+With the bundled metadata-only Workflow Extension it fails closed with
+`CAPABILITY_UNAVAILABLE`; that failure is the expected current result until a
+bridge with real catalog and selection support is installed.
 
 `media.search` remains canonical snapshot search. Live Browser import and search
 use the explicit `editor.native.media.*` tools because Browser media identity and

@@ -71,6 +71,10 @@ jobs:
       - name: Run unit and integration tests
         run: pnpm run test
 
+      - name: Run Basic Final Cut Editing MVP gate
+        if: ${{ always() }}
+        run: pnpm exec tsx --test tests/integration/basic-editing-mvp.test.ts
+
       - name: Run deterministic MCP evaluation
         run: pnpm run evaluate
 
