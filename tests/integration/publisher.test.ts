@@ -67,6 +67,14 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   assert.match(scripts[0], /waitForMenuItem/);
   assert.match(scripts[0], /waitForImportSheet/);
   assert.match(scripts[0], /waitForSubmenu\(importMenuItem, "Import"/);
+  assert.match(scripts[0], /my waitForMenuItem/);
+  assert.match(scripts[0], /my waitForSubmenu/);
+  assert.match(scripts[0], /my waitForWindow/);
+  assert.match(scripts[0], /my waitForImportSheet/);
+  assert.match(scripts[0], /my locateImportPathField/);
+  assert.match(scripts[0], /my waitForImportSheetDismissal/);
+  assert.match(scripts[0], /my waitForImportWindowDismissal/);
+  assert.match(scripts[0], /my cancelImportIfOpen/);
   assert.match(scripts[0], /perform action "AXPress"/);
   assert.match(scripts[0], /keystroke "g" using \{command down, shift down\}/);
   assert.match(scripts[0], /text fields of pathSheet/);
