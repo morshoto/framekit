@@ -34,6 +34,9 @@ const rationalTimeSchema = z.object({
 const rangeSchema = z.object({
   start: z.number().nonnegative(),
   end: z.number().positive(),
+}).refine((range) => range.end > range.start, {
+  message: "end must be greater than start",
+  path: ["end"],
 });
 const mediaIndexQuerySchema = z.object({
   query: z.string().optional(),
