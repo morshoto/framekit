@@ -19,6 +19,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
     bin?: Record<string, string>;
     dependencies?: Record<string, string>;
     files?: string[];
+    scripts?: Record<string, string>;
   };
 
   assert.equal(manifest.name, "@morshoto/framekit");
@@ -26,6 +27,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.equal(manifest.bin?.framekit, "./bin/framekit.mjs");
   assert.equal(manifest.dependencies?.tsx, undefined, "published CLI must not depend on the development loader");
   assert.deepEqual(manifest.files, ["bin", "dist-package"]);
+  assert.equal(manifest.scripts?.prepack, "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json");
 
   const { stdout } = await exec("npm", ["pack", "--dry-run", "--json"], { cwd: repository });
   const [packed] = JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>;
