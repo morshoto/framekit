@@ -113,8 +113,15 @@ test("release workflow can retry an exact existing tag", async () => {
     workflow.indexOf("name: Resolve requested release tag"),
     workflow.indexOf("name: Detect release tag on HEAD"),
   );
+  assert.match(workflow, /concurrency:\s+group: release\s+cancel-in-progress: false/);
+  assert.match(workflow, /fetch-depth: 0/);
   assert.match(requestedTag, /REQUESTED_TAG: \$\{\{ inputs\.release_tag \}\}/);
   assert.match(requestedTag, /refs\/tags\/\$\{REQUESTED_TAG\}\^\{commit\}/);
+  assert.match(
+    requestedTag,
+    /git merge-base --is-ancestor "refs\/tags\/\$\{REQUESTED_TAG\}\^\{commit\}" origin\/main/,
+  );
+  assert.match(requestedTag, /Requested release tag is not reachable from main/);
   assert.match(requestedTag, /tag=\$\{REQUESTED_TAG\}/);
   assert.match(
     workflow,

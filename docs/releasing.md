@@ -55,9 +55,10 @@ gh workflow run release.yml \
   -f release_tag=v0.1.3
 ```
 
-The manual run verifies that the tag exists, checks out that exact tag, and
-skips `npm publish` if the matching version is already present. Registry errors
-other than a missing version fail closed.
+The manual run verifies that the tag exists and points to a commit reachable
+from `main`, checks out that exact tag, and skips `npm publish` if the matching
+version is already present. Registry errors other than a missing version fail
+closed.
 
 The npm Trusted Publisher relationship is configured in npm account settings;
 repository permissions alone cannot create or repair that relationship. The

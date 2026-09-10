@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -45,6 +49,10 @@ jobs:
           if ! git check-ref-format "refs/tags/${REQUESTED_TAG}" \
             || ! git rev-parse --verify --quiet "refs/tags/${REQUESTED_TAG}^{commit}" >/dev/null; then
             echo "Requested release tag does not exist: ${REQUESTED_TAG}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "refs/tags/${REQUESTED_TAG}^{commit}" origin/main; then
+            echo "Requested release tag is not reachable from main: ${REQUESTED_TAG}" >&2
             exit 1
           fi
           echo "tag=${REQUESTED_TAG}" >> "$GITHUB_OUTPUT"
