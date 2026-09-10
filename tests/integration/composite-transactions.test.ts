@@ -284,6 +284,47 @@ test("composite trim preview rejects non-positive rational durations before adap
   }
 });
 
+test("MCP rejects non-positive rational trim durations before adapter mutation", async () => {
+  const { adapter, runtime } = createTrimRuntime();
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "trim-duration-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const before = await runtime.inspectProject();
+    let applyCalls = 0;
+    const apply = adapter.apply.bind(adapter);
+    adapter.apply = async (...args) => {
+      applyCalls += 1;
+      return apply(...args);
+    };
+
+    for (const value of ["0", "-1"]) {
+      const result = await client.callTool({
+        name: "editor.timeline.edit",
+        arguments: {
+          projectId: before.projectId,
+          sequenceId: before.timeline.id,
+          type: "trim-clip",
+          clipId: "clip-video",
+          duration: 10,
+          durationTime: { value, timescale: "1" },
+          baseRevision: before.revision,
+        },
+      });
+      assert.equal(result.isError, true);
+      assert.match(textFrom(result), /INVALID_OPERATION: clip duration must be positive/);
+    }
+
+    assert.equal(applyCalls, 0);
+    assert.deepEqual(await runtime.inspectProject(), before);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("composite execute consumes tokens and rejects stale, expired, and unavailable workflows before mutation", async () => {
   let now = 1_000;
   const { adapter, runtime } = createCompositeRuntime({ now: () => now, previewTtlMs: 10 });
