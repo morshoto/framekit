@@ -255,7 +255,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         baseRevision: transaction.after.revision,
       },
     });
-    assert.equal(JSON.parse(textFrom(markerEdit)).diff.markerChanges[0].type, "MARKER_ADDED");
+    const markerTransaction = JSON.parse(textFrom(markerEdit));
+    assert.equal(markerTransaction.diff.markerChanges[0].type, "MARKER_ADDED");
 
     const staleUndo = await client.callTool({ name: "edit.undo", arguments: { transactionId: transaction.id } });
     assert.equal(staleUndo.isError, true);
@@ -263,7 +264,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     const preserved = await client.callTool({ name: "project.inspect", arguments: {} });
     assert.equal(JSON.parse(textFrom(preserved)).timeline.clips[0].name, "Interview - Clean");
 
-    const undone = await client.callTool({ name: "edit.undo", arguments: { transactionId: JSON.parse(textFrom(markerEdit)).id } });
+    const undone = await client.callTool({ name: "edit.undo", arguments: { transactionId: markerTransaction.id } });
     assert.equal(JSON.parse(textFrom(undone)).timeline.clips[0].name, "Interview - Clean");
   } finally {
     await client.close();
