@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deliver Framekit Issue"
+  short_description: "Plan and deliver an issue through a verified PR."
+  default_prompt: "Use $deliver-issue to implement a Framekit issue with TDD, incremental commits, validation, and live PR follow-through."

@@ -282,6 +282,83 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
   }
 });
 
+test("Final Cut MCP resolves transition search ids back through native discovery", async () => {
+  const registryAsset = {
+    id: "transition-registry-cross-dissolve",
+    kind: "transition" as const,
+    name: "Cross Dissolve",
+    vendor: "Final Cut Pro",
+    metadata: { path: "/Motion Templates.localized/Transitions.localized/Cross Dissolve.motr" },
+  };
+  const nativeMatch = {
+    id: "final-cut:transition:fcp://transition/cross",
+    kind: "transition" as const,
+    name: "Cross Dissolve",
+    vendor: "Final Cut Pro",
+    identity: "fcp://transition/cross",
+  };
+  const queries: string[] = [];
+  const requests: unknown[] = [];
+  const nativeEditor = {
+    searchTransitions: async (query: string) => {
+      queries.push(query);
+      return query === nativeMatch.id || query === registryAsset.name ? [nativeMatch] : [];
+    },
+    previewTransitionAdd: async (request: unknown) => {
+      requests.push(request);
+      return { previewToken: "transition-preview", asset: nativeMatch, command: "Add native transition" };
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Transition Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+    assets: [registryAsset],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "transition-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const search = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.transition.search",
+      arguments: { query: "Cross Dissolve" },
+    })));
+    assert.deepEqual(search, [nativeMatch]);
+
+    await client.callTool({
+      name: "editor.native.transition.add.preview",
+      arguments: {
+        assetId: nativeMatch.id,
+        beforeOccurrenceHandle: "before-occurrence",
+        afterOccurrenceHandle: "after-occurrence",
+        duration: { value: "1", timescale: "1" },
+      },
+    });
+    await client.callTool({
+      name: "editor.native.transition.add.preview",
+      arguments: {
+        assetId: registryAsset.id,
+        beforeOccurrenceHandle: "before-occurrence",
+        afterOccurrenceHandle: "after-occurrence",
+        duration: { value: "1", timescale: "1" },
+      },
+    });
+    assert.deepEqual(queries, ["Cross Dissolve", registryAsset.name]);
+    assert.equal(requests.length, 2);
+    assert.deepEqual((requests[0] as { asset: unknown }).asset, nativeMatch);
+    assert.deepEqual((requests[1] as { asset: unknown }).asset, nativeMatch);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("local analyzer commands fail closed for unavailable media and invalid output", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-analyzer-errors-"));
   const mediaPath = join(directory, "media.wav");

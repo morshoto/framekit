@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clean Framekit Worktree"
+  short_description: "Inspect and safely restore explicit worktree changes."
+  default_prompt: "Use $clean-worktree to inspect a Framekit worktree, restore only approved paths, and report divergence separately."
