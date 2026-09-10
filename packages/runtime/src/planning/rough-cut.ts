@@ -19,6 +19,7 @@ export function planRoughCut(
   }
 
   const candidates = entries
+    .filter((entry) => entry.sourceIdentity.mediaKind !== "audio")
     .flatMap((entry) => entry.semantic.usableRanges.map((range) => ({ entry, range })))
     .sort((left, right) => {
       const mediaOrder = left.entry.sourceIdentity.mediaId.localeCompare(right.entry.sourceIdentity.mediaId);
@@ -27,9 +28,14 @@ export function planRoughCut(
       return left.range.end - right.range.end;
     });
   const shots = candidates.slice(0, maxShots).map(({ entry, range }, index) => shotFor(entry, range, request, index + 1));
-  const warnings = entries.length > 0 && candidates.length === 0
-    ? ["No matching media has an explicitly analyzed usable range"]
-    : [];
+  const excludedAudioMediaIds = entries
+    .filter((entry) => entry.sourceIdentity.mediaKind === "audio" && entry.semantic.usableRanges.length > 0)
+    .map((entry) => entry.sourceIdentity.mediaId);
+  const warnings = excludedAudioMediaIds.length > 0
+    ? [`Excluded audio-only media from rough-cut shot candidates: ${excludedAudioMediaIds.join(", ")}`]
+    : entries.length > 0 && candidates.length === 0
+      ? ["No matching media has an explicitly analyzed usable range"]
+      : [];
 
   return {
     planner: { id: "framekit.rough-cut", version: 1 },
