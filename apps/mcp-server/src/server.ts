@@ -263,7 +263,9 @@ function exposeObjectRoot(schema: unknown): unknown {
   if (!isRecord(schema) || !Array.isArray(schema.anyOf)) return schema;
   const properties: Record<string, unknown> = {};
   for (const branch of schema.anyOf as JsonSchema[]) {
-    if (branch.properties) Object.assign(properties, branch.properties);
+    for (const [key, value] of Object.entries(branch.properties ?? {})) {
+      if (key !== "type") properties[key] = value;
+    }
   }
   return { ...schema, type: "object", properties };
 }
