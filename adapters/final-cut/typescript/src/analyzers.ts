@@ -46,6 +46,7 @@ export function createCommandAnalyzers(options: {
 
 export class CommandSpeechAnalyzer implements SpeechAnalyzer {
   public readonly descriptor = { id: "command.speech", provider: "command" };
+  public readonly capabilities = { transcription: true, vad: true };
 
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 

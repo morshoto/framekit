@@ -52,6 +52,7 @@ export interface EditorCapabilities {
 export interface AnalyzerCapabilities {
   speechTranscribe: boolean;
   speechVad: boolean;
+  speechCapability?: "unavailable" | "transcription-only" | "transcription-plus-vad";
   audioLoudness: boolean;
   audioNoise?: boolean;
   visualTrack: boolean;

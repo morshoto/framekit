@@ -25,6 +25,11 @@ export const SPEECH_ANALYSIS_SCHEMA_VERSION = 1 as const;
 
 export type SpeechAnalysisCapability = "transcription-only" | "transcription-plus-vad";
 
+export interface SpeechAnalyzerCapabilities {
+  transcription: boolean;
+  vad: boolean;
+}
+
 export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "noise" | "visual";
 
 export interface SemanticTag {
@@ -311,6 +316,7 @@ export interface AnalysisInput {
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
   readonly descriptor?: AnalyzerDescriptor;
+  readonly capabilities?: SpeechAnalyzerCapabilities;
 }
 
 export interface AudioAnalyzer {
