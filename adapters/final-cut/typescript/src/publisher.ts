@@ -202,6 +202,31 @@ on waitForImportSheet(importWindow, timeoutSeconds)
   end repeat
 end waitForImportSheet
 
+on matchesImportPathField(candidate)
+  set candidateIdentifier to ""
+  set candidateDescription to ""
+  try
+    set candidateIdentifier to value of attribute "AXIdentifier" of candidate as text
+  end try
+  try
+    set candidateDescription to description of candidate as text
+  end try
+  if candidateIdentifier is "path" or candidateIdentifier is "location" then return true
+  if candidateDescription contains "Go to the folder" then return true
+  if candidateDescription contains "path" or candidateDescription contains "location" then return true
+  return false
+end matchesImportPathField
+
+on locateImportPathField(pathSheet)
+  set matchingFields to {}
+  repeat with candidate in (text fields of pathSheet)
+    if matchesImportPathField(candidate) then set end of matchingFields to candidate
+  end repeat
+  if (count of matchingFields) is 0 then error "FINAL_CUT_PUBLISH_PATH_CONTROL_UNAVAILABLE: Import XML path control had no accessibility identifier or description"
+  if (count of matchingFields) is not 1 then error "FINAL_CUT_PUBLISH_PATH_CONTROL_AMBIGUOUS: Import XML path control was not unique"
+  return item 1 of matchingFields
+end locateImportPathField
+
 on waitForImportSheetDismissal(importWindow, timeoutSeconds)
   set deadline to (current date) + timeoutSeconds
   repeat
@@ -257,9 +282,7 @@ tell application "System Events"
       set importWindow to waitForWindow(finalCut, "Import XML", 10, "FINAL_CUT_PUBLISH_IMPORT_SHEET_TIMEOUT: Import XML sheet did not appear")
       keystroke "g" using {command down, shift down}
       set pathSheet to waitForImportSheet(importWindow, 10)
-      set pathFields to text fields of pathSheet
-      if (count of pathFields) is 0 then error "FINAL_CUT_PUBLISH_PATH_CONTROL_UNAVAILABLE: Import XML path control was not exposed"
-      set pathField to item 1 of pathFields
+      set pathField to locateImportPathField(pathSheet)
       set value of pathField to ${appleScriptString(path)}
       key code 36
       waitForImportSheetDismissal(importWindow, 10)
