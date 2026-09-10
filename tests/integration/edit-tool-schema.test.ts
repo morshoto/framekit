@@ -96,7 +96,7 @@ test("editor.timeline.edit validates trim duration before its handler", async ()
     });
     assert.equal(invalid.isError, true);
     assert.match(textFrom(invalid), /Input validation error/);
-    assert.match(textFrom(invalid), /duration.*Required/);
+    assert.match(textFrom(invalid), /Required at duration/);
 
     const valid = await client.callTool({
       name: "editor.timeline.edit",
