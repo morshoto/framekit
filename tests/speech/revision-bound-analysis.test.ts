@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AgentVideoRuntime,
   bindSpeechAnalysis,
   type AnalysisInput,
   type AnalyzerDescriptor,
   type MediaSourceIdentity,
   type SpeechAnalysis,
 } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 const sourceIdentity: MediaSourceIdentity = {
   mediaId: "media-1",
@@ -131,4 +133,50 @@ test("speech binding rejects unordered, overlapping, and invalid evidence", () =
       /ANALYSIS_INVALID/,
     );
   }
+});
+
+test("runtime binds legacy analyzer output before returning speech analysis", async () => {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Runtime speech fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [{ ...sourceIdentity }],
+  });
+  const runtime = new AgentVideoRuntime(adapter, {
+    speechAnalyzer: {
+      descriptor: provider,
+      analyze: async () => ({ words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }] }),
+    },
+  });
+
+  const result = await runtime.analyzeSpeech("media-1");
+
+  assert.equal(result.mediaId, "media-1");
+  assert.deepEqual(result.sourceIdentity, sourceIdentity);
+  assert.deepEqual(result.revision, (await adapter.readProject()).revision);
+  assert.deepEqual(result.provider, provider);
+  assert.equal(result.capability, "transcription-only");
+});
+
+test("runtime rejects stale revisions returned by a speech provider", async () => {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Stale speech fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [{ ...sourceIdentity }],
+  });
+  const runtime = new AgentVideoRuntime(adapter, {
+    speechAnalyzer: {
+      analyze: async () => ({
+        revision: { id: "rev-old", sequence: 1, timestamp: "2026-09-09T00:00:00.000Z" },
+        words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+      }),
+    },
+  });
+
+  await assert.rejects(runtime.analyzeSpeech("media-1"), /STALE_CONTEXT/);
 });
