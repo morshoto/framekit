@@ -128,6 +128,32 @@ test("media understanding cache rejects changed source identities", async () => 
   }
 });
 
+test("media understanding cache invalidates after a timeline revision", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  const before = await runtime.inspectProject();
+  const understanding = await runtime.understandMedia("media-semantic-1");
+  assert.equal(understanding.analysisRevision.id, before.revision.id);
+
+  const transaction = await runtime.edit({
+    type: "rename-clip",
+    clipId: "clip-semantic-1",
+    name: "Interview - Clean",
+  });
+  assert.equal(transaction.after.revision.id, "rev-1");
+  assert.equal(transaction.after.media[0]?.analysisRevision, transaction.after.revision.id);
+
+  const inspected = await runtime.inspectProject();
+  const media = inspected.media[0];
+  assert.equal(inspected.revision.id, transaction.after.revision.id);
+  assert.equal(media?.analysisRevision, undefined);
+  assert.equal(media?.semantic, undefined);
+  assert.equal(media?.analysis, undefined);
+});
+
 test("attached media understanding is isolated from returned snapshots", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
