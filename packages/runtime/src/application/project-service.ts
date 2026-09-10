@@ -108,8 +108,11 @@ export class ProjectService {
   public async inspectEditor() {
     const identity = await this.adapter.getIdentity();
     const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(), { backend: identity.backend });
-    const speechTranscribe = capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer?.capabilities?.transcription) || Boolean(this.options.speechAnalyzer);
-    const speechVad = capabilities.analyzers.speechVad || Boolean(this.options.speechAnalyzer?.capabilities?.vad);
+    const speechAnalyzer = this.options.speechAnalyzer;
+    const speechTranscribe = capabilities.analyzers.speechTranscribe
+      || (speechAnalyzer ? speechAnalyzer.capabilities?.transcription ?? true : false);
+    const speechVad = capabilities.analyzers.speechVad
+      || (speechAnalyzer?.capabilities?.vad ?? false);
     const analyzers = {
       ...capabilities.analyzers,
       speechTranscribe,
