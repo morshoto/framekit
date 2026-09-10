@@ -3,6 +3,7 @@ import type { AgentContext, ContextDiff, EditorChange, EditorLiveState } from ".
 import type { AssetSearchQuery, EditorPort } from "../domain/ports.js";
 import type { ContextRevision } from "../domain/primitives.js";
 import { sameMediaSourceIdentity, type MediaUnderstanding } from "../domain/media.js";
+import { sameRevision } from "./revision.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { RuntimeCapabilities } from "../domain/capabilities.js";
 import type { TimelineDiff } from "../domain/diff.js";
@@ -120,7 +121,12 @@ export class ContextEngine {
     const next = structuredClone(snapshot);
     next.media = next.media.map((media) => {
       const understanding = this.mediaUnderstanding.get(media.mediaId);
-      if (!understanding || !sameMediaSourceIdentity(understanding.sourceIdentity, media)) return media;
+      if (!understanding) return media;
+      if (!sameMediaSourceIdentity(understanding.sourceIdentity, media)
+        || !sameRevision(understanding.analysisRevision, snapshot.revision)) {
+        this.mediaUnderstanding.delete(media.mediaId);
+        return media;
+      }
       const attached = structuredClone(understanding);
       return {
         ...media,
