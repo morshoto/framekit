@@ -138,11 +138,14 @@ test("media understanding cache invalidates after a timeline revision", async ()
   const understanding = await runtime.understandMedia("media-semantic-1");
   assert.equal(understanding.analysisRevision.id, before.revision.id);
 
-  const transaction = await runtime.edit({
-    type: "rename-clip",
-    clipId: "clip-semantic-1",
-    name: "Interview - Clean",
-  });
+  const transaction = await runtime.edit(
+    {
+      type: "rename-clip",
+      clipId: "clip-semantic-1",
+      name: "Interview - Clean",
+    },
+    { assertions: [{ type: "visual-content", mediaId: "media-semantic-1", label: "person" }] },
+  );
   assert.equal(transaction.after.revision.id, "rev-1");
   assert.equal(transaction.after.media[0]?.analysisRevision, transaction.after.revision.id);
 

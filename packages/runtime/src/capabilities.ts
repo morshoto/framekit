@@ -68,7 +68,13 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     nativeBackend: previous.native.selectionWrite.backend,
     publishingBackend: previous.publishing.projectCreation.backend,
     exportBackend: previous.export.timeline.backend,
-    analyzerBackend: previous.analyzers.speechTranscribe.backend,
+    analyzerBackends: {
+      speechTranscribe: previous.analyzers.speechTranscribe.backend,
+      speechVad: previous.analyzers.speechVad.backend,
+      audioLoudness: previous.analyzers.audioLoudness.backend,
+      audioNoise: previous.analyzers.audioNoise?.backend,
+      visualTrack: previous.analyzers.visualTrack.backend,
+    },
     connection: previous.connection.status,
     canonicalDocument: {
       read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
@@ -104,6 +110,7 @@ export interface CapabilityFamilyOptions {
   publishingBackend?: string;
   exportBackend?: string;
   analyzerBackend?: string;
+  analyzerBackends?: Partial<Record<keyof CapabilityFamilies["analyzers"], string | undefined>>;
   canonicalDocument?: Partial<Record<"read" | "write" | "artifactWrite", boolean | CapabilityDescriptor>>;
   editing?: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>;
   editingBackend?: string;
@@ -132,6 +139,11 @@ export function withCapabilityFamilies(
     },
   };
   const editor = normalized.editor;
+  const analyzerBackend = (operation: keyof CapabilityFamilies["analyzers"]): string =>
+    options.analyzerBackends?.[operation]
+    ?? options.analyzerBackend
+    ?? previous?.analyzers[operation]?.backend
+    ?? backend;
   const native = {
     ...nativeAvailability(previous?.native),
     ...options.native,
@@ -211,11 +223,11 @@ export function withCapabilityFamilies(
       ),
     },
     analyzers: {
-      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, options.analyzerBackend ?? backend, "speech transcription"),
-      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, options.analyzerBackend ?? backend, "speech VAD"),
-      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, options.analyzerBackend ?? backend, "audio loudness analysis"),
-      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), options.analyzerBackend ?? backend, "audio noise analysis"),
-      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, options.analyzerBackend ?? backend, "visual analysis"),
+      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, analyzerBackend("speechTranscribe"), "speech transcription"),
+      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, analyzerBackend("speechVad"), "speech VAD"),
+      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, analyzerBackend("audioLoudness"), "audio loudness analysis"),
+      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), analyzerBackend("audioNoise"), "audio noise analysis"),
+      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, analyzerBackend("visualTrack"), "visual analysis"),
     },
   };
   return { ...normalized, families };

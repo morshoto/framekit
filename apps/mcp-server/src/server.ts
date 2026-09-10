@@ -23,6 +23,7 @@ import {
   type EditorRoutingContext,
   type EditingRouteOperation,
 } from "./routing.js";
+import { FRAMEKIT_VERSION } from "./version.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -637,7 +638,7 @@ export interface McpServerOptions {
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
   const server = new McpServer(
-    { name: "framekit", version: "0.1.0" },
+    { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
