@@ -255,9 +255,15 @@ function validateSourceIdentity(value: unknown, expected: MediaSourceIdentity): 
   const candidate: MediaSourceIdentity = {
     mediaId: identity.mediaId,
     source: identity.source,
-    ...(identity.sourceDigest !== undefined ? { sourceDigest: optionalString(identity.sourceDigest, "speech source digest") } : {}),
-    ...(identity.mediaKind !== undefined ? { mediaKind: identity.mediaKind as MediaSourceIdentity["mediaKind"] } : {}),
-    ...(identity.duration !== undefined ? { duration: numberValue(identity.duration, "speech source duration") } : {}),
+    ...(identity.sourceDigest !== undefined
+      ? { sourceDigest: optionalString(identity.sourceDigest, "speech source digest") }
+      : expected.sourceDigest !== undefined ? { sourceDigest: expected.sourceDigest } : {}),
+    ...(identity.mediaKind !== undefined
+      ? { mediaKind: identity.mediaKind as MediaSourceIdentity["mediaKind"] }
+      : expected.mediaKind !== undefined ? { mediaKind: expected.mediaKind } : {}),
+    ...(identity.duration !== undefined
+      ? { duration: numberValue(identity.duration, "speech source duration") }
+      : expected.duration !== undefined ? { duration: expected.duration } : {}),
   };
   if (!sameMediaSourceIdentity(candidate, expected)) {
     throw new Error("TARGET_MISMATCH: speech analysis source identity does not match the requested media");
