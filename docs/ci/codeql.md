@@ -13,6 +13,21 @@ Pull-request scans cancel an older active scan for the same pull request when a
 newer pull-request event arrives. This bounds work for obsolete pull-request
 commits while leaving different pull requests independent.
 
+## Pull-request path filtering
+
+Pull requests first run the lightweight `Detect CodeQL paths` job on
+`ubuntu-latest`. The JavaScript/TypeScript analysis runs when a JavaScript or
+TypeScript source, its package or TypeScript configuration, the CodeQL
+configuration, or this workflow changes. The Swift analysis runs when the
+Swift bridge, the CodeQL configuration, or this workflow changes.
+
+Pushes to `main`, scheduled scans, and manual scans analyze both languages so
+that path filtering does not reduce default-branch coverage. The language jobs
+use job-level conditions rather than workflow-level path filters: a skipped
+job reports success for a required pull-request check, while a skipped
+workflow would leave its check pending and block merging. If path detection
+fails, both language jobs deliberately fall back to a full scan.
+
 The policy intentionally does not suppress genuine CodeQL failures, delete
 historical analyses, or change the configured security rules and query suites.
 
