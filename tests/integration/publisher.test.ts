@@ -123,6 +123,49 @@ test("FCPXML publisher requires live project and sequence verification", async (
   }), /FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE/);
 });
 
+test("FCPXML publisher waits for the imported project identity to settle", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-poll-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  const states = [
+    { project: { id: "before-project", name: "Existing" }, sequence: { id: "before-sequence", name: "Existing" } },
+    { project: { id: "before-project", name: "Existing" }, sequence: { id: "before-sequence", name: "Existing" } },
+    { project: { id: "imported-project", name: "Published Edit" }, sequence: { id: "imported-sequence", name: "Main" } },
+  ];
+  let stateIndex = 0;
+
+  const result = await new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 100,
+    pollIntervalMs: 0,
+    executor: async () => "imported",
+    liveState: async () => {
+      const state = states[Math.min(stateIndex++, states.length - 1)]!;
+      return {
+        ...state,
+        sequence: {
+          ...state.sequence,
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${stateIndex}`, sequence: stateIndex, timestamp: new Date(0).toISOString() },
+      };
+    },
+  }).publishNewProject({
+    sourceTransactionId: "txn-poll",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    confirm: true,
+  });
+
+  assert.equal(result.createdTarget.projectId, "imported-project");
+  assert.equal(result.createdTarget.sequenceId, "imported-sequence");
+  assert.equal(stateIndex, 3);
+});
+
 test("FCPXML publisher rejects invalid artifacts before automation", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-invalid-"));
   const sourcePath = join(directory, "invalid.fcpxml");
