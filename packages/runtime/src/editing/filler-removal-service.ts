@@ -15,6 +15,7 @@ import { sameRevision } from "../context/revision.js";
 import { translateRationalRange } from "../timeline/rational-time.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 import { planFillerRemoval } from "../speech/filler-removal.js";
+import { bindSpeechAnalysis } from "../speech/analysis.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
@@ -58,7 +59,10 @@ export class FillerRemovalService {
         end: Math.min(clip.duration, selectedRange.end - clip.start),
       };
       if (localRange.end <= localRange.start) continue;
-      const speech = await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange);
+      const speech = bindSpeechAnalysis(
+        await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange),
+        { input: { project: before, media }, range: localRange, provider: this.options.speechAnalyzer!.descriptor },
+      );
       analysisRangesByClip.set(clip.id, structuredClone(localRange));
       for (const candidate of planFillerRemoval(speech.words, localRange, request)) {
         candidates.push({
@@ -216,9 +220,9 @@ export class FillerRemovalService {
         analysisRange,
         deletes,
       );
-      const speech = await this.options.speechAnalyzer!.analyze(
-        { project: next, media },
-        postEditRange,
+      const speech = bindSpeechAnalysis(
+        await this.options.speechAnalyzer!.analyze({ project: next, media }, postEditRange),
+        { input: { project: next, media }, range: postEditRange, provider: this.options.speechAnalyzer!.descriptor },
       );
       const retainedWords = transaction.before.media
         .find((candidate) => candidate.mediaId === beforeClip.mediaId)
@@ -227,6 +231,7 @@ export class FillerRemovalService {
         .filter((word) => !fillerCandidates.some((candidate) => sameSpeechWord(word, candidate.word)))
         .map((word) => translateSpeechWordAfterDeletes(word, deletes));
       media.speech = {
+        ...speech,
         words: [
           ...translatedRetainedWords.filter((word) => !rangesOverlap(
             word.start,
