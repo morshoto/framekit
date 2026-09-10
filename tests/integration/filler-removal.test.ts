@@ -228,7 +228,7 @@ test("filler preview maps trimmed source speech onto an offset occurrence", asyn
     range: { start: 20, end: 23 },
   });
 
-  assert.deepEqual(preview.operations[0]?.range, {
+  assert.deepEqual((preview.operations[0] as { range?: unknown } | undefined)?.range, {
     start: 20.4,
     end: 21.1,
     startTime: { value: "102", timescale: "5" },

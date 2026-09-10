@@ -338,12 +338,17 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   private clipFromXml(entry: TimelineEntry, timelineId: string): Clip {
     const { node, kind, path, startTime, durationTime } = entry;
     const gain = firstChild(node, "adjust-volume");
+    const sourceStartValue = attribute(node, "start");
+    const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
+    const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
+    if (sourceStart !== undefined && sourceStart < 0) throw new Error("FCPXML_INVALID_TIME: source clip start cannot be negative");
     return {
       id: this.instanceId(node, kind, path, timelineId),
       mediaId: attribute(node, "ref") === undefined ? undefined : String(attribute(node, "ref")),
       name: String(attribute(node, "name") ?? attribute(node, "ref") ?? `Clip ${path.includes(".") ? path : path + 1}`),
       start: rationalSeconds(startTime),
       duration: rationalSeconds(durationTime),
+      ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
       startTime,
       durationTime,

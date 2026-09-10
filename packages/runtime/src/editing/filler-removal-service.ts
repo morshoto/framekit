@@ -12,7 +12,7 @@ import type {
   FillerRemovalTarget,
 } from "../speech/filler-removal.js";
 import { sameRevision } from "../context/revision.js";
-import { translateRationalRange } from "../timeline/rational-time.js";
+import { subtractRationalTimes, translateRationalRange } from "../timeline/rational-time.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 import { planFillerRemoval } from "../speech/filler-removal.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
@@ -59,18 +59,23 @@ export class FillerRemovalService {
         end: Math.min(clip.duration, selectedRange.end - clip.start),
       };
       if (localRange.end <= localRange.start) continue;
+      const sourceStart = clip.sourceStart ?? 0;
+      const sourceRange = {
+        start: sourceStart + localRange.start,
+        end: sourceStart + localRange.end,
+      };
       const speech = bindSpeechAnalysis(
-        await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange),
-        { input: { project: before, media }, range: localRange, provider: this.options.speechAnalyzer!.descriptor },
+        await this.options.speechAnalyzer!.analyze({ project: before, media }, sourceRange),
+        { input: { project: before, media }, range: sourceRange, provider: this.options.speechAnalyzer!.descriptor },
       );
-      analysisRangesByClip.set(clip.id, structuredClone(localRange));
-      for (const candidate of planFillerRemoval(speech.words, localRange, request)) {
+      analysisRangesByClip.set(clip.id, structuredClone(sourceRange));
+      for (const candidate of planFillerRemoval(speech.words, sourceRange, request)) {
         candidates.push({
           ...candidate,
           clipId: clip.id,
           mediaId: clip.mediaId,
           sourceRange: structuredClone(candidate.range),
-          range: translateRationalRange(clip.startTime, clip.start, candidate.range),
+          range: translateSourceRangeToSequence(clip, candidate.range),
         });
       }
     }
@@ -355,7 +360,7 @@ function verifyFillerSpeechContinuity(
       if (expected.text.trim().toLowerCase() !== actual.text.trim().toLowerCase()
         || Math.abs(expected.start - actual.start) > 0.02
         || Math.abs(expected.end - actual.end) > 0.02
-        || actual.end > afterClip.duration + 0.02) {
+        || actual.end > (afterClip.sourceStart ?? 0) + afterClip.duration + 0.02) {
         return {
           name: "filler-speech-continuity",
           passed: false,
@@ -373,4 +378,39 @@ function verifyFillerSpeechContinuity(
 
 function sameSpeechWord(left: SpeechWord, right: SpeechWord): boolean {
   return left.text === right.text && left.start === right.start && left.end === right.end;
+}
+
+function translateSourceRangeToSequence(clip: ProjectSnapshot["timeline"]["clips"][number], sourceRange: TimeRange): TimeRange {
+  if (!sourceRange.startTime || !sourceRange.durationTime) {
+    throw new Error("ANALYSIS_INVALID: filler range is missing rational timing");
+  }
+  const sourceStart = clip.sourceStart ?? 0;
+  const sourceStartTime = clip.sourceStartTime ?? secondsToRational(sourceStart);
+  return translateRationalRange(clip.startTime, clip.start, {
+    start: sourceRange.start - sourceStart,
+    end: sourceRange.end - sourceStart,
+    startTime: subtractRationalTimes(sourceRange.startTime, sourceStartTime),
+    durationTime: { ...sourceRange.durationTime },
+  });
+}
+
+function secondsToRational(seconds: number): { value: string; timescale: string } {
+  const text = seconds.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  if (!text.includes(".")) return { value: text || "0", timescale: "1" };
+  const [whole, fraction = ""] = text.split(".");
+  let numerator = BigInt(`${whole}${fraction}`);
+  let denominator = 10n ** BigInt(fraction.length);
+  const divisor = greatestCommonDivisor(numerator < 0n ? -numerator : numerator, denominator);
+  numerator /= divisor;
+  denominator /= divisor;
+  return { value: String(numerator), timescale: String(denominator) };
+}
+
+function greatestCommonDivisor(left: bigint, right: bigint): bigint {
+  while (right !== 0n) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left || 1n;
 }
