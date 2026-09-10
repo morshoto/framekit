@@ -613,6 +613,18 @@ test("Phase 1 verifies successful transactions and supports undo", async () => {
   assert.equal((await runtime.inspectProject()).timeline.clips[0]?.name, "Interview");
 });
 
+test("Phase 1 rejects stale undo without mutating later edits", async () => {
+  const runtime = new AgentVideoRuntime(fixtureAdapter());
+  const first = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "A" });
+  const second = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "B" });
+
+  await assert.rejects(runtime.undo(first.id), /STALE_CONTEXT/);
+
+  const current = await runtime.inspectProject();
+  assert.equal(current.timeline.clips[0]?.name, "B");
+  assert.deepEqual(current.revision, second.after.revision);
+});
+
 test("Phase 1 rolls back when a verification policy fails", async () => {
   const runtime = new AgentVideoRuntime(fixtureAdapter());
   const transaction = await runtime.edit(

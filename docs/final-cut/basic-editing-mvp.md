@@ -176,6 +176,9 @@ export manifest and output digest. The required verification tiers are:
 `edit.undo` must restore the pre-edit snapshot for a completed transaction.
 The transaction is scoped to its original project and sequence; if another
 target is active, undo fails with `TARGET_MISMATCH` before requesting a restore.
+Undo must also verify that the active revision still matches the transaction's
+post-edit revision; otherwise it fails with `STALE_CONTEXT` before requesting a
+restore and leaves the current timeline unchanged.
 After undo, `project.inspect` must show the original timeline digest and no
 MVP-created media or title occurrence may remain. A failed verification must
 rollback before returning a failed result.
@@ -233,7 +236,7 @@ verification record for the all-or-nothing workflow.
 | Preview | Base revision and capabilities are valid | No | Preview token, expected diff, warnings |
 | Execute | Token and revision still match | Yes | Transaction ID, after snapshot, diff |
 | Verify | Output and policy checks pass | No | `VerificationReport` and export manifest |
-| Undo | Transaction is known and current state is compatible | Yes | Restored snapshot and matching original digest |
+| Undo | Transaction is known and target and post-edit revision still match | Yes | Restored snapshot and matching original digest |
 
 Every mutation is guarded by a revision check. Preview tokens are scoped to
 the operation and backend, expire, and cannot be reused after execute or undo.
