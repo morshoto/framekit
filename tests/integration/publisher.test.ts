@@ -178,6 +178,47 @@ test("FCPXML publisher waits for the imported project identity to settle", async
   assert.equal(stateIndex, 3);
 });
 
+test("FCPXML publisher retries transient live-state errors", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-transient-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Published Edit"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let liveStateCalls = 0;
+
+  const result = await new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 100,
+    pollIntervalMs: 0,
+    executor: async () => "imported",
+    liveState: async () => {
+      liveStateCalls += 1;
+      if (liveStateCalls === 2) throw new Error("temporary bridge unavailable");
+      const imported = liveStateCalls >= 3;
+      return {
+        project: { id: imported ? "imported-project" : "before-project", name: imported ? "Published Edit" : "Existing" },
+        sequence: {
+          id: imported ? "imported-sequence" : "before-sequence",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  }).publishNewProject({
+    sourceTransactionId: "txn-transient",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    confirm: true,
+  });
+
+  assert.equal(result.createdTarget.projectId, "imported-project");
+  assert.equal(result.createdTarget.sequenceId, "imported-sequence");
+  assert.equal(liveStateCalls, 3);
+});
+
 test("FCPXML publisher rejects invalid artifacts before automation", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-invalid-"));
   const sourcePath = join(directory, "invalid.fcpxml");
