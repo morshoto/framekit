@@ -34,7 +34,7 @@ function createRoleRuntime() {
       },
     ],
   });
-  return { adapter, runtime: new AgentVideoRuntime(adapter) };
+  return new AgentVideoRuntime(adapter);
 }
 
 function mediaAddOperations(): WorkflowOperation[] {
@@ -70,7 +70,7 @@ function mediaAddOperations(): WorkflowOperation[] {
 }
 
 test("media additions preserve video, audio, and music roles in canonical clips", async () => {
-  const { runtime } = createRoleRuntime();
+  const runtime = createRoleRuntime();
   const before = await runtime.inspectProject();
   const preview = await runtime.previewEdit({
     baseRevision: before.revision,
@@ -91,13 +91,13 @@ test("media additions preserve video, audio, and music roles in canonical clips"
 });
 
 test("music clips reject moves to the primary storyline", async () => {
-  const { runtime } = createRoleRuntime();
+  const runtime = createRoleRuntime();
   const before = await runtime.inspectProject();
   const addPreview = await runtime.previewEdit({
     baseRevision: before.revision,
     operations: [mediaAddOperations()[2]!],
   });
-  const added = await runtime.executeEdit(addPreview.previewToken);
+  await runtime.executeEdit(addPreview.previewToken);
   const beforeMove = await runtime.inspectProject();
 
   await assert.rejects(
