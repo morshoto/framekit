@@ -243,9 +243,9 @@ export class MediaAnalysisService {
     for (const mediaId of mediaIds) {
       const media = next.media.find((candidate) => candidate.mediaId === mediaId);
       if (!media) continue;
-      const ranges = affectedMediaRanges
+      const ranges = mergeRanges(affectedMediaRanges
         .filter((affected) => affected.mediaId === mediaId)
-        .map((affected) => affected.range);
+        .map((affected) => affected.range));
       const input = { project: next, media };
       if (this.options.speechAnalyzer) {
         const analyses = await Promise.all(ranges.map(async (range) => bindSpeechAnalysis(
@@ -387,6 +387,19 @@ function encompassingRange(ranges: TimeRange[]): TimeRange {
     start: Math.min(...ranges.map((range) => range.start)),
     end: Math.max(...ranges.map((range) => range.end)),
   };
+}
+
+function mergeRanges(ranges: TimeRange[]): TimeRange[] {
+  const merged: TimeRange[] = [];
+  for (const range of [...ranges].sort((left, right) => left.start - right.start || left.end - right.end)) {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.start > previous.end) {
+      merged.push({ start: range.start, end: range.end });
+      continue;
+    }
+    previous.end = Math.max(previous.end, range.end);
+  }
+  return merged;
 }
 
 function sameDescriptor(left: AnalyzerDescriptor, right: AnalyzerDescriptor): boolean {
