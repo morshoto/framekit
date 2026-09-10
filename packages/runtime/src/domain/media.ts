@@ -21,6 +21,10 @@ export interface SpeechSegment {
   confidence?: number;
 }
 
+export const SPEECH_ANALYSIS_SCHEMA_VERSION = 1 as const;
+
+export type SpeechAnalysisCapability = "transcription-only" | "transcription-plus-vad";
+
 export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "noise" | "visual";
 
 export interface SemanticTag {
@@ -134,10 +138,31 @@ export interface RoughCutPlan {
 }
 
 export interface SpeechAnalysis {
+  /** Provenance fields are optional for backwards-compatible provider ports. */
+  mediaId?: string;
+  sourceIdentity?: MediaSourceIdentity;
+  requestedRange?: TimeRange;
+  observedRange?: TimeRange;
+  revision?: ContextRevision;
+  provider?: AnalyzerDescriptor;
+  sourceTimebase?: RationalTime;
+  capability?: SpeechAnalysisCapability;
   words: SpeechWord[];
   vadSegments?: SpeechSegment[];
   silenceSegments?: SpeechSegment[];
   protectedSegments?: SpeechSegment[];
+}
+
+/** Speech evidence that is safe to use for a specific editor revision. */
+export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
+  mediaId: string;
+  sourceIdentity: MediaSourceIdentity;
+  requestedRange: TimeRange;
+  observedRange: TimeRange;
+  revision: ContextRevision;
+  provider: AnalyzerDescriptor;
+  sourceTimebase: RationalTime;
+  capability: SpeechAnalysisCapability;
 }
 
 export interface AudioAnalysis {
