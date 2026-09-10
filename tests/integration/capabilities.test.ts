@@ -4,6 +4,7 @@ import test from "node:test";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
+  CommandVisualAnalyzer,
   FcpxmlDocumentAdapter,
   FinalCutConnectionManager,
   FinalCutLiveAdapter,
@@ -277,6 +278,35 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
     assert.equal(payload.capabilities.families.publishing.projectCreation.backend, "fcpxml-publisher");
     assert.equal(payload.capabilities.families.export.timeline.available, true);
     assert.equal(payload.capabilities.families.export.timeline.backend, "final-cut-native-export");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP editor inspection preserves configured analyzer provider provenance", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Analyzer Provenance Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }), {
+    visualAnalyzer: new CommandVisualAnalyzer({ command: "/usr/bin/true" }),
+  });
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "analyzer-provenance-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "editor.inspect", arguments: {} });
+    const payload = JSON.parse(textFrom(result));
+
+    assert.equal(payload.identity.backend, "fixture");
+    assert.equal(payload.capabilities.families.analyzers.visualTrack.available, true);
+    assert.equal(payload.capabilities.families.analyzers.visualTrack.backend, "command");
   } finally {
     await client.close();
     await server.close();
