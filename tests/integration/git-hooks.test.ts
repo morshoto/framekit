@@ -59,6 +59,16 @@ test("pre-commit hook presents grouped validation stages and failure diagnostics
   assert.doesNotMatch(hook, /corepack pnpm/);
 });
 
+test("pre-commit hook animates only in color-capable terminals", async () => {
+  const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
+  assert.match(hook, /-t 1 && -t 2/);
+  assert.match(hook, /NO_COLOR/);
+  assert.match(hook, /spinner_frames=/);
+  assert.match(hook, /kill -0/);
+  assert.match(hook, /sleep 0\.08/);
+  assert.match(hook, /\\r\\033\[2K/);
+});
+
 test("pre-commit hook forces headless fixture validation", async () => {
   const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
   assert.match(hook, /export FRAMEKIT_EDITOR=fixture/);
