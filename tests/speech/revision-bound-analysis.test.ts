@@ -126,6 +126,10 @@ test("speech binding rejects unordered, overlapping, and invalid evidence", () =
         { start: 1, end: 3, kind: "silence" },
       ],
     },
+    {
+      words: [{ text: "word", start: 0, end: 1, confidence: 0.9 }],
+      vadSegments: [{ start: 0, end: 13, kind: "speech" }],
+    },
   ];
 
   for (const analysis of invalidAnalyses) {
