@@ -8,6 +8,7 @@ import {
 
 const revision = { id: "rev-4", sequence: 4, timestamp: "2026-09-10T00:00:00.000Z" };
 const analysis: RevisionBoundSpeechAnalysis = {
+  schemaVersion: 1,
   mediaId: "media-1",
   sourceIdentity: { mediaId: "media-1", source: "/media/interview.wav", duration: 60 },
   requestedRange: { start: 0, end: 60 },
