@@ -313,6 +313,55 @@ test("MCP editor inspection preserves configured analyzer provider provenance", 
   }
 });
 
+test("editor inspection preserves each configured analyzer provider backend", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Analyzer Provider Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }), {
+    speechAnalyzer: {
+      descriptor: { id: "speech.test", provider: "speech-provider" },
+      capabilities: { transcription: true, vad: true },
+      analyze: async () => ({ words: [] }),
+    },
+    audioAnalyzer: {
+      descriptor: { id: "audio.test", provider: "audio-provider" },
+      analyze: async () => ({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }),
+    },
+    noiseAnalyzer: {
+      descriptor: { id: "noise.test", provider: "noise-provider" },
+      analyze: async () => ({
+        noiseFloorDb: -60,
+        affectedRanges: [],
+        recommendedReductionDb: 0,
+        confidence: 1,
+      }),
+    },
+    visualAnalyzer: {
+      descriptor: { id: "visual.test", provider: "visual-provider" },
+      analyze: async () => ({ scenes: [], subjects: [], keyframes: [] }),
+    },
+  });
+  const inspected = await runtime.inspectEditor();
+  const analyzers = inspected.capabilities.families.analyzers;
+
+  assert.deepEqual({
+    speechTranscribe: analyzers.speechTranscribe.backend,
+    speechVad: analyzers.speechVad.backend,
+    audioLoudness: analyzers.audioLoudness.backend,
+    audioNoise: analyzers.audioNoise?.backend,
+    visualTrack: analyzers.visualTrack.backend,
+  }, {
+    speechTranscribe: "speech-provider",
+    speechVad: "speech-provider",
+    audioLoudness: "audio-provider",
+    audioNoise: "noise-provider",
+    visualTrack: "visual-provider",
+  });
+});
+
 test("capability documentation describes the versioned operation contract", async () => {
   const architecture = await readFile(join(process.cwd(), "docs/architecture/capability-model.md"), "utf8");
   const mcp = await readFile(join(process.cwd(), "docs/mcp/capabilities-and-errors.md"), "utf8");
