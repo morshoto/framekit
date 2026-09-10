@@ -386,14 +386,39 @@ test("post-write verification invokes analyzers for affected ranges", async () =
   const editor = fixtureAdapter();
   let speechCalls = 0;
   let audioCalls = 0;
+  let visualCalls = 0;
   const runtime = new AgentVideoRuntime(editor, {
     speechAnalyzer: { analyze: async ({ media }) => { speechCalls += 1; return structuredClone(media.speech!); } },
     audioAnalyzer: { analyze: async ({ media }) => { audioCalls += 1; return structuredClone(media.audio!); } },
+    visualAnalyzer: { analyze: async () => { visualCalls += 1; throw new Error("ANALYZER_MEDIA_UNAVAILABLE"); } },
   });
-  const transaction = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Analyzed" });
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "clip-1", name: "Analyzed" },
+    { requireSpeechContinuity: true, targetLufs: -18 },
+  );
   assert.equal(transaction.status, "VERIFIED");
   assert.ok(speechCalls > 0);
   assert.ok(audioCalls > 0);
+  assert.equal(visualCalls, 0);
+});
+
+test("unrelated edits ignore optional analyzer failures without verification policy", async () => {
+  const editor = fixtureAdapter();
+  let visualCalls = 0;
+  const runtime = new AgentVideoRuntime(editor, {
+    visualAnalyzer: {
+      analyze: async () => {
+        visualCalls += 1;
+        throw new Error("ANALYZER_MEDIA_UNAVAILABLE");
+      },
+    },
+  });
+
+  const transaction = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Independent" });
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.after.timeline.clips[0]?.name, "Independent");
+  assert.equal(visualCalls, 0);
 });
 
 test("post-write verification rolls back when speech analysis is stale", async () => {
@@ -409,7 +434,10 @@ test("post-write verification rolls back when speech analysis is stale", async (
   });
 
   await assert.rejects(
-    runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Must Not Persist" }),
+    runtime.edit(
+      { type: "rename-clip", clipId: "clip-1", name: "Must Not Persist" },
+      { requireSpeechContinuity: true },
+    ),
     /ANALYSIS_FAILED: post-write verification analysis failed .*STALE_CONTEXT/,
   );
   const restored = await editor.readProject();
@@ -441,15 +469,22 @@ test("post-write verification passes clip intersections in media-relative coordi
     } },
     visualAnalyzer: { analyze: async (_input, range) => {
       if (range) ranges.visual.push(range);
-      return { scenes: [], subjects: [], keyframes: [] };
+      return { scenes: [], subjects: [{ id: "subject-person", label: "person", confidence: 1 }], keyframes: [] };
     } },
   });
 
-  await runtime.edit({
-    type: "add-marker",
-    timelineId: "timeline-analysis-range",
-    marker: { id: "marker-analysis", start: 8, duration: 4, name: "Review" },
-  });
+  await runtime.edit(
+    {
+      type: "add-marker",
+      timelineId: "timeline-analysis-range",
+      marker: { id: "marker-analysis", start: 8, duration: 4, name: "Review" },
+    },
+    {
+      requireSpeechContinuity: true,
+      targetLufs: -18,
+      assertions: [{ type: "visual-content", mediaId: "media-analysis", label: "person" }],
+    },
+  );
 
   assert.deepEqual(ranges, {
     speech: [{ start: 0, end: 2 }],
@@ -508,11 +543,14 @@ test("post-write speech reanalysis retains evidence outside changed ranges", asy
     },
   });
 
-  const transaction = await runtime.edit({
-    type: "add-marker",
-    timelineId: "timeline-retained-speech",
-    marker: { id: "marker-retained-speech", start: 4, duration: 1, name: "Review" },
-  });
+  const transaction = await runtime.edit(
+    {
+      type: "add-marker",
+      timelineId: "timeline-retained-speech",
+      marker: { id: "marker-retained-speech", start: 4, duration: 1, name: "Review" },
+    },
+    { requireSpeechContinuity: true },
+  );
 
   const speech = transaction.after.media[0]?.speech;
   assert.equal(transaction.status, "VERIFIED");
@@ -546,11 +584,14 @@ test("post-write speech reanalysis coalesces overlapping source ranges", async (
     },
   });
 
-  const transaction = await runtime.edit({
-    type: "trim-clip",
-    clipId: "clip-coalesced-speech",
-    duration: 9,
-  });
+  const transaction = await runtime.edit(
+    {
+      type: "trim-clip",
+      clipId: "clip-coalesced-speech",
+      duration: 9,
+    },
+    { requireSpeechContinuity: true },
+  );
 
   assert.equal(transaction.status, "VERIFIED");
   assert.deepEqual(ranges, [{ start: 0, end: 9 }]);
