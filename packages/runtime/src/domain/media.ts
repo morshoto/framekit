@@ -144,6 +144,7 @@ export interface RoughCutPlan {
 
 export interface SpeechAnalysis {
   /** Provenance fields are optional for backwards-compatible provider ports. */
+  schemaVersion?: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
   mediaId?: string;
   sourceIdentity?: MediaSourceIdentity;
   requestedRange?: TimeRange;
@@ -160,6 +161,7 @@ export interface SpeechAnalysis {
 
 /** Speech evidence that is safe to use for a specific editor revision. */
 export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
+  schemaVersion: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
   mediaId: string;
   sourceIdentity: MediaSourceIdentity;
   requestedRange: TimeRange;

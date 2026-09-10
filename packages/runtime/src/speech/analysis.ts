@@ -1,3 +1,4 @@
+import { SPEECH_ANALYSIS_SCHEMA_VERSION } from "../domain/media.js";
 import type {
   AnalysisInput,
   AnalyzerDescriptor,
@@ -33,6 +34,9 @@ export function bindSpeechAnalysis(
   context: SpeechBindingContext,
 ): RevisionBoundSpeechAnalysis {
   const record = asRecord(value, "speech result must be an object");
+  if (record.schemaVersion !== undefined && record.schemaVersion !== SPEECH_ANALYSIS_SCHEMA_VERSION) {
+    throw new Error("ANALYSIS_INVALID: unsupported speech analysis schema version");
+  }
   const inputIdentity = sourceIdentityOf(context.input.media);
   const mediaId = optionalString(record.mediaId, "speech media ID");
   if (mediaId !== undefined && mediaId !== inputIdentity.mediaId) {
@@ -65,6 +69,7 @@ export function bindSpeechAnalysis(
     : validateSourceTimebase(record.sourceTimebase);
 
   return {
+    schemaVersion: SPEECH_ANALYSIS_SCHEMA_VERSION,
     mediaId: inputIdentity.mediaId,
     sourceIdentity: structuredClone(sourceIdentity),
     requestedRange: structuredClone(requestedRange),
