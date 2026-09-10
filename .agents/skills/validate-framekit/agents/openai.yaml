@@ -1,0 +1,4 @@
+interface:
+  display_name: "Validate Framekit"
+  short_description: "Run deterministic repository and native validation gates."
+  default_prompt: "Use $validate-framekit to run the required Framekit validation gates and summarize the evidence."

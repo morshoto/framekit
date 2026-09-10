@@ -143,8 +143,12 @@ and explicit `confirm: true`. It is not an export and does not mean that the
 currently open Final Cut timeline is directly writable.
 The current live MCP implementation exposes `timeline.export` with explicit
 `outputPath` and `preset` values, and verifies the rendered file with `ffprobe`.
-The richer transaction-bound export manifest described above remains a tracked
-MVP contract gap.
+When `transactionId` is supplied, the MCP export path requires that the
+transaction is verified and still targets the active project and sequence. It
+returns the transaction-bound manifest described above, including the output
+format and a `sha256:` digest of the verified output. Calls without a
+transaction ID remain available for standalone native timeline export but are
+not sufficient evidence for this deterministic MVP gate.
 
 Semantic export assertions are supplied under `expected.assertions`. A
 configured semantic export analyzer may provide audio analysis, visual labels,

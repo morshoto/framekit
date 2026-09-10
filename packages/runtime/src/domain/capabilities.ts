@@ -1,3 +1,5 @@
+import type { SkillOperation } from "./skills.js";
+
 export interface EditorIdentity {
   name: string;
   version: string;
@@ -41,12 +43,17 @@ export interface EditorCapabilities {
   transitionPlacement?: boolean;
   audioAttachment?: boolean;
   audioMixing?: boolean;
+  noiseReduction?: boolean;
+  colorCorrection?: boolean;
+  /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
+  semanticOperations?: Partial<Record<SkillOperation, boolean>>;
 }
 
 export interface AnalyzerCapabilities {
   speechTranscribe: boolean;
   speechVad: boolean;
   audioLoudness: boolean;
+  audioNoise?: boolean;
   visualTrack: boolean;
   metadataDescribe?: boolean;
 }
@@ -86,7 +93,9 @@ export type NativeCapabilityOperation =
   | "timelineFocus"
   | "projectCreation"
   | "clipInsertion"
-  | "clipMovement";
+  | "clipMovement"
+  | "transitionDiscovery"
+  | "transitionPlacement";
 
 export interface CapabilityFamilies {
   connection: {
@@ -112,6 +121,7 @@ export interface CapabilityFamilies {
     speechTranscribe: CapabilityDescriptor;
     speechVad: CapabilityDescriptor;
     audioLoudness: CapabilityDescriptor;
+    audioNoise?: CapabilityDescriptor;
     visualTrack: CapabilityDescriptor;
   };
 }

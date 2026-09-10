@@ -1,12 +1,17 @@
 import CoreMedia
 import Foundation
+
+#if !FRAMEKIT_CODEQL
 import AppKit
+#endif
 
 #if os(macOS)
 import Darwin
 #endif
 
+#if !FRAMEKIT_CODEQL
 import ProExtensionHost
+#endif
 
 private let protocolVersion = 1
 
@@ -80,6 +85,8 @@ private struct EditorCapabilities: Codable {
     let playheadWrite: Bool
     let frameCapture: Bool
     let playbackControl: Bool
+    let projectCatalogRead: Bool
+    let projectSelection: Bool
 }
 
 private struct AnalyzerCapabilities: Codable {
@@ -125,6 +132,8 @@ private struct NativeCapabilities: Codable {
     let mediaAppend: CapabilityDescriptor
     let mediaInsert: CapabilityDescriptor
     let titlePlacement: CapabilityDescriptor
+    let transitionDiscovery: CapabilityDescriptor
+    let transitionPlacement: CapabilityDescriptor
     let timelineFocus: CapabilityDescriptor
     let projectCreation: CapabilityDescriptor
     let clipInsertion: CapabilityDescriptor
@@ -230,6 +239,8 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
             mediaAppend: unavailableCapability(backend: nativeBackend, operation: "native media append"),
             mediaInsert: unavailableCapability(backend: nativeBackend, operation: "native media insert"),
             titlePlacement: unavailableCapability(backend: nativeBackend, operation: "native title placement"),
+            transitionDiscovery: unavailableCapability(backend: nativeBackend, operation: "native transition discovery"),
+            transitionPlacement: unavailableCapability(backend: nativeBackend, operation: "native transition placement"),
             timelineFocus: unavailableCapability(backend: nativeBackend, operation: "native timeline focus"),
             projectCreation: unavailableCapability(backend: nativeBackend, operation: "native project creation"),
             clipInsertion: unavailableCapability(backend: nativeBackend, operation: "native clip insertion"),
@@ -441,7 +452,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false),
+            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
             schemaVersion: 1,
             families: metadataOnlyCapabilityFamilies()

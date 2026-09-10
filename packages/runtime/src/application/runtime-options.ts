@@ -1,5 +1,6 @@
 import type {
   AudioAnalyzer,
+  NoiseAnalyzer,
   MetadataAnalyzer,
   SpeechAnalyzer,
   VisualAnalyzer,
@@ -9,6 +10,7 @@ import type { VerificationEngine } from "../domain/verification.js";
 export interface RuntimeOptions {
   speechAnalyzer?: SpeechAnalyzer;
   audioAnalyzer?: AudioAnalyzer;
+  noiseAnalyzer?: NoiseAnalyzer;
   visualAnalyzer?: VisualAnalyzer;
   metadataAnalyzer?: MetadataAnalyzer;
   verificationEngine?: VerificationEngine;

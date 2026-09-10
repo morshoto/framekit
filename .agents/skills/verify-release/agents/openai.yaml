@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Framekit Release"
+  short_description: "Verify tags, releases, workflows, assets, and npm publication."
+  default_prompt: "Use $verify-release to confirm the complete Framekit release state for a specific version."

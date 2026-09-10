@@ -46,3 +46,10 @@ Final Cut support.
 
 The CI report keeps deterministic correctness, adapter coverage, live Final Cut
 evidence, and unsupported capabilities in separate fields.
+
+The Basic Final Cut Editing MVP has a separate executable fixture gate. Run it
+with `pnpm exec tsx --test tests/integration/basic-editing-mvp.test.ts` to
+verify import, placement, preview, execute, verification, transaction-bound
+export evidence, and Undo without Final Cut. CI reports this gate separately
+from the broad unit/integration suite; its fixture results do not promote live
+Final Cut capability.
