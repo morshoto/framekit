@@ -4,6 +4,7 @@ import test from "node:test";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
+  CommandVisualAnalyzer,
   FcpxmlDocumentAdapter,
   FinalCutConnectionManager,
   FinalCutLiveAdapter,
@@ -281,6 +282,84 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
     await client.close();
     await server.close();
   }
+});
+
+test("MCP editor inspection preserves configured analyzer provider provenance", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Analyzer Provenance Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }), {
+    visualAnalyzer: new CommandVisualAnalyzer({ command: "/usr/bin/true" }),
+  });
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "analyzer-provenance-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "editor.inspect", arguments: {} });
+    const payload = JSON.parse(textFrom(result));
+
+    assert.equal(payload.identity.backend, "fixture");
+    assert.equal(payload.capabilities.families.analyzers.visualTrack.available, true);
+    assert.equal(payload.capabilities.families.analyzers.visualTrack.backend, "command");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("editor inspection preserves each configured analyzer provider backend", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Analyzer Provider Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }), {
+    speechAnalyzer: {
+      descriptor: { id: "speech.test", provider: "speech-provider" },
+      capabilities: { transcription: true, vad: true },
+      analyze: async () => ({ words: [] }),
+    },
+    audioAnalyzer: {
+      descriptor: { id: "audio.test", provider: "audio-provider" },
+      analyze: async () => ({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }),
+    },
+    noiseAnalyzer: {
+      descriptor: { id: "noise.test", provider: "noise-provider" },
+      analyze: async () => ({
+        noiseFloorDb: -60,
+        affectedRanges: [],
+        recommendedReductionDb: 0,
+        confidence: 1,
+      }),
+    },
+    visualAnalyzer: {
+      descriptor: { id: "visual.test", provider: "visual-provider" },
+      analyze: async () => ({ scenes: [], subjects: [], keyframes: [] }),
+    },
+  });
+  const inspected = await runtime.inspectEditor();
+  const analyzers = inspected.capabilities.families.analyzers;
+
+  assert.deepEqual({
+    speechTranscribe: analyzers.speechTranscribe.backend,
+    speechVad: analyzers.speechVad.backend,
+    audioLoudness: analyzers.audioLoudness.backend,
+    audioNoise: analyzers.audioNoise?.backend,
+    visualTrack: analyzers.visualTrack.backend,
+  }, {
+    speechTranscribe: "speech-provider",
+    speechVad: "speech-provider",
+    audioLoudness: "audio-provider",
+    audioNoise: "noise-provider",
+    visualTrack: "visual-provider",
+  });
 });
 
 test("capability documentation describes the versioned operation contract", async () => {

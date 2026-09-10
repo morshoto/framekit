@@ -125,10 +125,20 @@ export class ProjectService {
       visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
       metadataDescribe: capabilities.analyzers.metadataDescribe || Boolean(this.options.metadataAnalyzer),
     };
+    const analyzerBackends = {
+      speechTranscribe: speechAnalyzer?.descriptor?.provider,
+      speechVad: speechAnalyzer?.descriptor?.provider,
+      audioLoudness: this.options.audioAnalyzer?.descriptor?.provider,
+      audioNoise: this.options.noiseAnalyzer?.descriptor?.provider,
+      visualTrack: this.options.visualAnalyzer?.descriptor?.provider,
+    };
     return {
       identity,
       capabilities: {
-        ...withCapabilityFamilies({ ...capabilities, analyzers }, { backend: identity.backend }),
+        ...withCapabilityFamilies({ ...capabilities, analyzers }, {
+          backend: identity.backend,
+          analyzerBackends,
+        }),
       },
     };
   }
