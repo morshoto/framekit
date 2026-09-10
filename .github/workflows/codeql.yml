@@ -26,8 +26,65 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Detect CodeQL paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      javascript_typescript: ${{ steps.filter.outputs.javascript_typescript }}
+      swift: ${{ steps.filter.outputs.swift }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine affected languages
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            {
+              echo 'javascript_typescript=true'
+              echo 'swift=true'
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed="$(git diff --name-only "$BASE_SHA...$CURRENT_SHA")"
+          printf '%s\n' "$changed"
+
+          javascript_pattern='(^|/)[^/]+\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$|(^|/)(package\.json|pnpm-lock\.yaml|tsconfig[^/]*\.json)$|^\.github/(codeql/|workflows/codeql\.yml$)'
+          swift_pattern='^adapters/final-cut/swift-bridge/|^\.github/(codeql/|workflows/codeql\.yml$)'
+
+          if printf '%s\n' "$changed" | grep -Eq "$javascript_pattern"; then
+            javascript_typescript=true
+          else
+            javascript_typescript=false
+          fi
+
+          if printf '%s\n' "$changed" | grep -Eq "$swift_pattern"; then
+            swift=true
+          else
+            swift=false
+          fi
+
+          {
+            echo "javascript_typescript=$javascript_typescript"
+            echo "swift=$swift"
+          } >> "$GITHUB_OUTPUT"
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: changes
+    # A detector failure must fail open to a full scan, not skip a required check.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.javascript_typescript == 'true') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -55,6 +112,9 @@ jobs:
 
   analyze-swift:
     name: Analyze (swift)
+    needs: changes
+    # A detector failure must fail open to a full scan, not skip a required check.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.swift == 'true') }}
     runs-on: macos-26
     timeout-minutes: 40
 
