@@ -56,9 +56,9 @@ export function bindSpeechAnalysis(
   validateObservedRange(observedRange, requestedRange, context.input.media.duration);
 
   const words = validateWords(record.words, observedRange, context.input.media.duration);
-  const vadSegments = validateOptionalSegments(record.vadSegments, "VAD");
-  const silenceSegments = validateOptionalSegments(record.silenceSegments, "silence");
-  const protectedSegments = validateOptionalSegments(record.protectedSegments, "protected");
+  const vadSegments = validateOptionalSegments(record.vadSegments, "VAD", observedRange, context.input.media.duration);
+  const silenceSegments = validateOptionalSegments(record.silenceSegments, "silence", observedRange, context.input.media.duration);
+  const protectedSegments = validateOptionalSegments(record.protectedSegments, "protected", observedRange, context.input.media.duration);
   const capability = validateCapability(record.capability, vadSegments);
   const sourceTimebase = record.sourceTimebase === undefined
     ? structuredClone(DEFAULT_SPEECH_SOURCE_TIMEBASE)
@@ -164,11 +164,17 @@ function validateWord(value: unknown, index: number): SpeechWord {
   };
 }
 
-function validateOptionalSegments(value: unknown, label: string): SpeechSegment[] | undefined {
+function validateOptionalSegments(
+  value: unknown,
+  label: string,
+  observed: TimeRange,
+  duration: number | undefined,
+): SpeechSegment[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new Error(`ANALYSIS_INVALID: ${label} segments must be an array`);
   const segments = value.map((entry, index) => validateSegment(entry, index, label));
   validateOrderedRanges(segments, `${label} segments`);
+  validateEvidenceBounds(segments, observed, duration, `${label} segment`);
   return segments;
 }
 
