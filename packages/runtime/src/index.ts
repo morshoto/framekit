@@ -17,3 +17,4 @@ export type { RuntimeOptions } from "./application/runtime-options.js";
 export * from "./speech/filler-detector.js";
 export * from "./speech/safe-cut-resolver.js";
 export * from "./speech/analysis.js";
+export * from "./speech/mapping.js";
