@@ -1,5 +1,45 @@
 # Changelog
 
+## [v0.1.3](https://github.com/morshoto/framekit/compare/v0.1.2...v0.1.3) - 2026-09-08
+
+- chore(deps): pin dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/122
+- chore: automerge pinned dev dependencies by @morshoto in https://github.com/morshoto/framekit/pull/123
+- chore(deps): update dependency @types/node to v24 by @renovate[bot] in https://github.com/morshoto/framekit/pull/126
+- chore(deps): update pnpm to v11.24.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/125
+- fix(ci): use packageManager pnpm version in assign workflow by @morshoto in https://github.com/morshoto/framekit/pull/127
+- fix: recover tagged npm releases by @morshoto in https://github.com/morshoto/framekit/pull/129
+- fix(ci): use packageManager pnpm version across workflows by @morshoto in https://github.com/morshoto/framekit/pull/128
+- perf: streamline Swift CodeQL extraction by @morshoto in https://github.com/morshoto/framekit/pull/131
+- chore(deps): pin dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/121
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/146
+- feat: define the editor-independent Skill contract by @morshoto in https://github.com/morshoto/framekit/pull/148
+- feat: resolve Skill requirements against runtime capabilities by @morshoto in https://github.com/morshoto/framekit/pull/149
+- feat: add the generic Skill runtime by @morshoto in https://github.com/morshoto/framekit/pull/150
+- feat: route generic Skill tools through the runtime by @morshoto in https://github.com/morshoto/framekit/pull/151
+- feat: add the v0.0.2 Skill conformance gate by @morshoto in https://github.com/morshoto/framekit/pull/152
+- feat: add the audio noise reduction Skill by @morshoto in https://github.com/morshoto/framekit/pull/153
+- feat: add the basic color correction Skill by @morshoto in https://github.com/morshoto/framekit/pull/154
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/155
+- chore(deps): update pnpm to v11.25.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/147
+- chore(deps): update dependency typescript to v7 by @renovate[bot] in https://github.com/morshoto/framekit/pull/156
+- docs: add deep wiki navigation without deleting content by @morshoto in https://github.com/morshoto/framekit/pull/61
+- chore(deps): update github actions (major) by @renovate[bot] in https://github.com/morshoto/framekit/pull/157
+- feat: add repository agent workflow skills by @morshoto in https://github.com/morshoto/framekit/pull/158
+
+## [v0.1.2](https://github.com/morshoto/framekit/compare/v0.1.1...v0.1.2) - 2026-08-30
+
+- chore: run Renovate daily at 7am by @morshoto in https://github.com/morshoto/framekit/pull/106
+- ci: preserve default-branch CodeQL analyses by @morshoto in https://github.com/morshoto/framekit/pull/111
+- [Fix] Fail closed on untrusted live snapshots by @morshoto in https://github.com/morshoto/framekit/pull/112
+- [Improvement] Harden sanitized headed evidence digests by @morshoto in https://github.com/morshoto/framekit/pull/113
+- fix: guard npm release publishing by @morshoto in https://github.com/morshoto/framekit/pull/114
+- fix: preserve partial filler analysis ranges by @morshoto in https://github.com/morshoto/framekit/pull/117
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/116
+- chore: enable Renovate automerge for safe updates by @morshoto in https://github.com/morshoto/framekit/pull/120
+- feat: add deterministic filler safe cuts by @morshoto in https://github.com/morshoto/framekit/pull/118
+- feat: add v0.0.3 speech editing release gate by @morshoto in https://github.com/morshoto/framekit/pull/119
+- ci: restore reliable Swift CodeQL coverage by @morshoto in https://github.com/morshoto/framekit/pull/115
+
 ## [v0.1.1](https://github.com/morshoto/framekit/compare/v0.1.0...v0.1.1) - 2026-08-30
 
 - chore: automate npm and GitHub releases by @morshoto in https://github.com/morshoto/framekit/pull/84

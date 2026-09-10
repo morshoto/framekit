@@ -150,6 +150,7 @@ export function withCapabilityFamilies(
       speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, options.analyzerBackend ?? backend, "speech transcription"),
       speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, options.analyzerBackend ?? backend, "speech VAD"),
       audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, options.analyzerBackend ?? backend, "audio loudness analysis"),
+      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), options.analyzerBackend ?? backend, "audio noise analysis"),
       visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, options.analyzerBackend ?? backend, "visual analysis"),
     },
   };
@@ -194,6 +195,8 @@ function nativeFamily(
     "projectCreation",
     "clipInsertion",
     "clipMovement",
+    "transitionDiscovery",
+    "transitionPlacement",
   ];
   return Object.fromEntries(nativeOperations.map((operation) => [
     operation,

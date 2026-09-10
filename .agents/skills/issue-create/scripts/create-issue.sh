@@ -5,6 +5,11 @@ usage() {
   printf 'Usage: %s OWNER/REPO TITLE BODY_FILE [--label LABEL]...\n' "$0" >&2
 }
 
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  usage
+  exit 0
+fi
+
 if (($# < 3)); then
   usage
   exit 64

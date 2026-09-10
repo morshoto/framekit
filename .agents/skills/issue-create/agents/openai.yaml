@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Framekit Issue"
+  short_description: "Draft approved issues from repository evidence."
+  default_prompt: "Use $issue-create to draft a Framekit issue, obtain approval, create it, and verify its metadata."

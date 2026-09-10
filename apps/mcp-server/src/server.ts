@@ -12,6 +12,7 @@ import type {
   FinalCutProjectPublisher,
   FinalCutVideoExporter,
   NativeFinalCutEditor,
+  NativeFinalCutTransitionMatch,
 } from "@framekit/final-cut";
 import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
@@ -43,7 +44,7 @@ const mediaIndexQuerySchema = z.object({
   mood: z.string().optional(),
   motion: z.enum(["static", "low", "medium", "high"]).optional(),
   range: rangeSchema.optional(),
-  capabilities: z.array(z.enum(["metadata", "speech", "audio", "visual"])).optional(),
+  capabilities: z.array(z.enum(["metadata", "speech", "audio", "noise", "visual"])).optional(),
 });
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
@@ -84,6 +85,26 @@ const trimClipSchema = z.object({
     baseRevision: revisionSchema,
 });
 const setGainSchema = z.object({ type: z.literal("set-gain"), clipId: z.string().min(1), gainDb: z.number().finite(), baseRevision: revisionSchema });
+const reduceNoiseSchema = z.object({
+  type: z.literal("reduce-noise"),
+  clipId: z.string().min(1),
+  range: rangeSchema,
+  reductionDb: z.number().finite().positive(),
+  baseRevision: revisionSchema,
+});
+const colorCorrectionSchema = z.object({
+  type: z.literal("set-color-correction"),
+  clipId: z.string().min(1),
+  correction: z.object({
+    exposure: z.number().finite().min(-4).max(4),
+    contrast: z.number().finite().min(-1).max(1),
+    saturation: z.number().finite().min(-1).max(1),
+    temperature: z.number().finite().min(-100).max(100),
+    tint: z.number().finite().min(-100).max(100),
+    preset: z.enum(["neutral", "warm", "cool", "high-contrast"]).optional(),
+  }),
+  baseRevision: revisionSchema,
+});
 const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
 const roughCutImportSchema = z.object({
@@ -108,6 +129,8 @@ const editOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
   setGainSchema,
+  reduceNoiseSchema,
+  colorCorrectionSchema,
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
@@ -130,6 +153,24 @@ const verificationAssertionSchema = z.discriminatedUnion("type", [
     mediaId: z.string().min(1),
     targetLufs: z.number().finite(),
     toleranceDb: z.number().finite().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("audio-noise"),
+    mediaId: z.string().min(1),
+    maxNoiseFloorDb: z.number().finite(),
+    minConfidence: z.number().finite().min(0).max(1).optional(),
+  }),
+  z.object({
+    type: z.literal("color-correction"),
+    clipId: z.string().min(1),
+    expected: z.object({
+      exposure: z.number().finite().min(-4).max(4),
+      contrast: z.number().finite().min(-1).max(1),
+      saturation: z.number().finite().min(-1).max(1),
+      temperature: z.number().finite().min(-100).max(100),
+      tint: z.number().finite().min(-100).max(100),
+      preset: z.enum(["neutral", "warm", "cool", "high-contrast"]).optional(),
+    }),
   }),
   z.object({
     type: z.literal("audio-source"),
@@ -172,12 +213,14 @@ const verificationPolicySchema = z.object({
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
 const editToolInputSchema = z.object({
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "ripple-delete", "add-marker"]),
+  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "set-color-correction", "ripple-delete", "add-marker"]),
   clipId: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   duration: z.number().positive().optional(),
   durationTime: rationalTimeSchema.optional(),
   gainDb: z.number().finite().optional(),
+  reductionDb: z.number().finite().positive().optional(),
+  correction: colorCorrectionSchema.shape.correction.optional(),
   timelineId: z.string().min(1).optional(),
   range: rangeSchema.optional(),
   reason: z.string().optional(),
@@ -203,6 +246,8 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
   trimClipSchema,
   setGainSchema,
+  reduceNoiseSchema,
+  colorCorrectionSchema,
   rippleDeleteSchema,
   addMarkerSchema,
   z.object({
@@ -341,6 +386,24 @@ const dialogueNormalizationInputSchema = {
   maxGainDb: z.number().finite(),
   minDialogueDurationSeconds: z.number().finite().nonnegative(),
 };
+const noiseReductionInputSchema = {
+  mediaId: z.string().trim().min(1),
+  occurrenceId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  noiseThresholdDb: z.number().finite(),
+  maxReductionDb: z.number().finite().positive(),
+  minConfidence: z.number().finite().min(0).max(1),
+};
+const colorCorrectionInputSchema = {
+  clipId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  preset: z.enum(["neutral", "warm", "cool", "high-contrast"]).optional(),
+  exposure: z.number().finite().min(-4).max(4).optional(),
+  contrast: z.number().finite().min(-1).max(1).optional(),
+  saturation: z.number().finite().min(-1).max(1).optional(),
+  temperature: z.number().finite().min(-100).max(100).optional(),
+  tint: z.number().finite().min(-100).max(100).optional(),
+};
 const nativeEditSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename-selected-clip"), name: z.string().min(1) }),
   z.object({ type: z.literal("trim-selected-clip-to-playhead"), edge: z.enum(["start", "end"]) }),
@@ -356,6 +419,12 @@ const nativeTitlePreviewSchema = {
   assetId: z.string().min(1),
   text: z.string().trim().min(1),
   start: rationalTimeSchema.optional(),
+  duration: rationalTimeSchema,
+};
+const nativeTransitionPreviewSchema = {
+  assetId: z.string().min(1),
+  beforeOccurrenceHandle: z.string().min(1),
+  afterOccurrenceHandle: z.string().min(1),
   duration: rationalTimeSchema,
 };
 const exportAssertionSchema = z.discriminatedUnion("type", [
@@ -414,31 +483,38 @@ const nativeEditToolInputSchema = z.object({
   duration: z.number().nonnegative().optional(),
 }).strict();
 
-const skillIds = ["filler-removal", "dialogue-normalization"] as const;
-const skillIdSchema = z.enum(skillIds);
-const skillManifests = [
-  {
-    id: "filler-removal",
-    version: 1,
-    description: "Remove high-confidence filler words through a guarded closed-loop transaction.",
-    previewTool: "skill.preview",
-    executeTool: "skill.execute",
-    requires: ["canonical timeline read", "speech analysis", "ripple-delete", "rollback"],
-  },
-  {
-    id: "dialogue-normalization",
-    version: 1,
-    description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
-    previewTool: "skill.preview",
-    executeTool: "skill.execute",
-    requires: ["canonical timeline read", "dialogue audio analysis", "set-gain", "rollback"],
-  },
-] as const;
-
 function jsonResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
   };
+}
+
+function skillErrorResult(error: unknown) {
+  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof z.ZodError
+    ? "SKILL_INPUT_INVALID"
+    : typeof value.code === "string" ? value.code : message.split(":", 1)[0] || "SKILL_ERROR";
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code,
+        message,
+        ...(value.availability ? { availability: value.availability } : {}),
+      }),
+    }],
+  };
+}
+
+function skillPreviewResult(preview: Awaited<ReturnType<AgentVideoRuntime["previewSkill"]>>) {
+  const details = preview.plan.details ?? {};
+  return jsonResult({
+    ...preview,
+    ...details,
+    plan: { ...preview.plan, ...details },
+  });
 }
 
 function normalizeConnectionStatus(value: unknown): unknown {
@@ -502,10 +578,12 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
+  runtime.registerBuiltinSkills();
   const server = new McpServer(
     { name: "framekit", version: "0.1.0" },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
+  const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
@@ -513,39 +591,65 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
 
   server.registerTool("skill.list", {
-    description: "List versioned Framekit Skills available through the generic MCP surface.",
+    description: "List registered versioned Framekit Skills with current capability availability.",
     inputSchema: {},
-  }, async () => jsonResult(skillManifests));
+  }, async () => {
+    try {
+      return jsonResult((await runtime.listSkillAvailability()).map(({ manifest, availability }) => ({
+        ...manifest,
+        availability,
+      })));
+    } catch (error) {
+      return skillErrorResult(error);
+    }
+  });
 
   server.registerTool("skill.inspect", {
-    description: "Inspect one versioned Framekit Skill and its generic preview and execute tools.",
-    inputSchema: { skill: skillIdSchema },
-  }, async ({ skill }) => jsonResult(skillManifests.find((manifest) => manifest.id === skill)));
+    description: "Inspect one registered Framekit Skill version and its current capability availability.",
+    inputSchema: { skill: z.string().min(1), version: z.string().min(1).optional() },
+  }, async ({ skill, version }) => {
+    try {
+      const { manifest, availability } = await runtime.inspectSkillAvailability(skill, version);
+      return jsonResult({ ...manifest, availability });
+    } catch (error) {
+      return skillErrorResult(error);
+    }
+  });
 
   server.registerTool("skill.preview", {
-    description: "Preview a versioned Framekit Skill through its generic MCP contract without mutating the editor.",
+    description: "Validate and preview a registered Skill without mutating the editor.",
     inputSchema: {
-      skill: skillIdSchema,
+      skill: z.string().min(1),
+      version: z.string().min(1).optional(),
       arguments: z.record(z.unknown()),
     },
-  }, async ({ skill, arguments: skillArguments }) => {
-    if (skill === "filler-removal") {
-      return jsonResult(await runtime.previewFillerRemoval(z.object(fillerRemovalInputSchema).parse(skillArguments)));
+  }, async ({ skill, version, arguments: skillArguments }) => {
+    try {
+      const baseRevision = revisionValueSchema.parse(skillArguments.baseRevision);
+      const { baseRevision: _baseRevision, ...input } = skillArguments;
+      return skillPreviewResult(await runtime.previewSkill({
+        skillId: skill,
+        ...(version ? { version } : {}),
+        baseRevision,
+        input,
+      }));
+    } catch (error) {
+      return skillErrorResult(error);
     }
-    return jsonResult(await runtime.previewDialogueNormalization(
-      z.object(dialogueNormalizationInputSchema).parse(skillArguments),
-    ));
   });
 
   server.registerTool("skill.execute", {
-    description: "Execute one generic Framekit Skill preview token and return its verified or rolled-back transaction.",
+    description: "Execute only a runtime-issued Skill preview token and return verification/rollback evidence.",
     inputSchema: {
-      skill: skillIdSchema,
       previewToken: z.string().min(1),
     },
-  }, async ({ skill, previewToken }) => jsonResult(skill === "filler-removal"
-    ? await runtime.executeFillerRemoval(previewToken)
-    : await runtime.executeDialogueNormalization(previewToken)));
+  }, async ({ previewToken }) => {
+    try {
+      return jsonResult(await runtime.executeSkill(previewToken));
+    } catch (error) {
+      return skillErrorResult(error);
+    }
+  });
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
@@ -686,6 +790,41 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
     return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
+  });
+
+  server.registerTool("editor.native.transition.search", {
+    description: "Search the visible Final Cut Transitions browser and return only transitions with stable native identities.",
+    inputSchema: { query: z.string().trim().min(1) },
+  }, async ({ query }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition discovery is not configured");
+    const matches = await options.nativeEditor.searchTransitions(query);
+    for (const match of matches) {
+      nativeTransitionAssets.set(match.id, match);
+      nativeTransitionAssets.set(`final-cut:transition:${match.identity}`, match);
+    }
+    return jsonResult(matches);
+  });
+
+  server.registerTool("editor.native.transition.add.preview", {
+    description: "Preview adding a discovered native transition between two adjacent occurrence handles at an exact duration.",
+    inputSchema: nativeTransitionPreviewSchema,
+  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
+    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets);
+    return jsonResult(await options.nativeEditor.previewTransitionAdd({
+      asset,
+      beforeOccurrenceHandle,
+      afterOccurrenceHandle,
+      duration,
+    }));
+  });
+
+  server.registerTool("editor.native.transition.add.execute", {
+    description: "Execute a previously previewed native transition placement and return verified revision and Undo state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
+    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken));
   });
 
   server.registerTool("editor.native.undo", {
@@ -1111,6 +1250,45 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { mediaId: z.string().min(1) },
   }, async ({ mediaId }) => jsonResult(await runtime.analyzeAudio(mediaId)));
 
+  server.registerTool("audio.noise.analyze", {
+    description: "Analyze unwanted background noise for one media item when a noise analyzer is configured.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeNoise(mediaId, range)));
+
+  server.registerTool("audio.noise.reduce.preview", {
+    description: "Preview a bounded noise-reduction adjustment and its affected ranges without mutating the editor.",
+    inputSchema: noiseReductionInputSchema,
+  }, async (request) => {
+    const { baseRevision, ...input } = request;
+    return skillPreviewResult(await runtime.previewSkill({
+      skillId: "audio-noise-reduction",
+      baseRevision,
+      input,
+    }));
+  });
+
+  server.registerTool("audio.noise.reduce.execute", {
+    description: "Execute one previewed noise-reduction adjustment and return post-write measurement verification and rollback state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
+
+  server.registerTool("color.correction.preview", {
+    description: "Preview a clip-scoped basic color correction with before/after values without mutating the editor.",
+    inputSchema: colorCorrectionInputSchema,
+  }, async (request) => {
+    const { baseRevision, ...input } = request;
+    return skillPreviewResult(await runtime.previewSkill({
+      skillId: "color-correction",
+      baseRevision,
+      input,
+    }));
+  });
+
+  server.registerTool("color.correction.execute", {
+    description: "Execute one previewed basic color correction and return the target verification, diff, and rollback state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
+
   server.registerTool("edit.diff", {
     description: "Read the deterministic diff for a completed edit transaction.",
     inputSchema: { transactionId: z.string().min(1) },
@@ -1135,6 +1313,38 @@ async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: stri
   if (!asset) throw new Error(`TITLE_ASSET_NOT_FOUND: installed title asset ${assetId} was not discovered`);
   if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${assetId} is not an installed Final Cut title asset`);
   return asset;
+}
+
+async function resolveNativeTransitionAsset(
+  runtime: AgentVideoRuntime,
+  nativeEditor: NativeFinalCutEditor,
+  assetId: string,
+  nativeTransitionAssets: Map<string, NativeFinalCutTransitionMatch> = new Map(),
+) {
+  const cachedAsset = nativeTransitionAssets.get(assetId);
+  if (cachedAsset) return cachedAsset;
+  let assets: Awaited<ReturnType<AgentVideoRuntime["listAssets"]>> = [];
+  try {
+    assets = await runtime.listAssets({ kind: "transition" });
+  } catch {
+    // A native-only session may not expose the runtime asset registry. Native
+    // discovery below remains the source of truth in that case.
+  }
+  const asset = assets.find((candidate) => candidate.id === assetId);
+  // The runtime registry identifies installed assets by filesystem metadata;
+  // transition placement must use the stable identity returned by Final Cut's
+  // Transitions browser. Resolve registry assets back through native discovery
+  // instead of fabricating a native identity from the registry id.
+  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId);
+  const matchingNativeMatches = asset
+    ? nativeMatches.filter((candidate) => candidate.name === asset.name)
+    : nativeMatches.filter((candidate) => candidate.id === assetId || candidate.identity === assetId);
+  if (asset && matchingNativeMatches.length > 1) {
+    throw new Error(`TRANSITION_ASSET_AMBIGUOUS: native transition name ${asset.name} has multiple stable identities`);
+  }
+  const nativeMatch = matchingNativeMatches[0];
+  if (!nativeMatch) throw new Error(`TRANSITION_ASSET_NOT_FOUND: installed transition asset ${assetId} was not discovered`);
+  return nativeMatch;
 }
 
 async function connectionStatus(options: McpServerOptions): Promise<McpConnectionStatus> {
@@ -1181,6 +1391,8 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
         mediaAppend: Boolean(native?.mediaAppend),
         mediaInsert: Boolean(native?.mediaInsert),
         titlePlacement: Boolean(native?.titlePlacement),
+        transitionDiscovery: Boolean(native?.transitionDiscovery),
+        transitionPlacement: Boolean(native?.transitionPlacement),
         timelineFocus: Boolean(native?.timelineFocus),
         projectCreation: false,
         clipInsertion: false,

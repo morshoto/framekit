@@ -371,4 +371,6 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /titlePlacement: CapabilityDescriptor/);
   assert.match(swift, /projectCatalogRead: Bool/);
   assert.match(swift, /projectSelection: Bool/);
+  assert.match(swift, /transitionDiscovery: CapabilityDescriptor/);
+  assert.match(swift, /transitionPlacement: CapabilityDescriptor/);
 });

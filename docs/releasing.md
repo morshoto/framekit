@@ -32,7 +32,8 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 
 1. Merge the tagpr release pull request into `main`.
 2. The `tagpr` job creates the version tag and a draft GitHub release with
-   generated notes.
+   generated notes. If the merge already placed the release tag on `HEAD`,
+   the workflow reuses that tag instead of trying to create it again.
 3. The `publish-npm` job installs npm 11.5.1, publishes the matching package,
    and verifies the version on the public registry.
 4. Only after npm verification succeeds, the workflow publishes the GitHub
@@ -40,6 +41,13 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 
 If npm publishing fails, the GitHub release remains a draft so the failure can
 be repaired without presenting an incomplete release as public.
+
+If a retry finds a draft release whose tag is shown as `untagged-*`, the
+workflow associates that draft with the release tag before publishing it.
+
+The npm Trusted Publisher relationship is configured in npm account settings;
+repository permissions alone cannot create or repair that relationship. The
+workflow can only use the OIDC identity after the relationship exists.
 
 ## Local validation
 

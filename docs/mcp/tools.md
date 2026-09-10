@@ -37,6 +37,9 @@ this routing tool.
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
+| `editor.native.transition.search` | Search the visible Final Cut Transitions browser | Returns only transitions with stable native identities; native writes required |
+| `editor.native.transition.add.preview` | Preview adding a discovered transition between two adjacent timeline occurrences | Requires occurrence handles, exact rational timing, unchanged live revision, and native writes opt-in |
+| `editor.native.transition.add.execute` | Add the previewed transition and verify selection, revision, and Undo | Requires unchanged sequence and timeline revision; returns a native Undo operation ID |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
 | `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle |
 | `editor.native.media.search` | Search the active Final Cut Browser | Automatically focuses the Browser and returns short-lived media handles; native writes required |
@@ -82,6 +85,11 @@ this routing tool.
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
+| `audio.noise.analyze` | Noise-floor analysis and affected ranges | Requires a configured noise analyzer |
+| `audio.noise.reduce.preview` | Preview a bounded noise-reduction adjustment for one audio occurrence | Requires noise analysis, native noise-reduction capability, and canonical transaction guarantees |
+| `audio.noise.reduce.execute` | Execute the noise preview and return post-write measurement verification/rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
+| `color.correction.preview` | Preview exposure, contrast, saturation, white balance, or a basic preset on one clip | Requires explicit clip targeting and advertised color-correction capability |
+| `color.correction.execute` | Execute the color preview and return before/after diff, verification, and rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
 | `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
@@ -298,6 +306,9 @@ preview tokens. An unrecognized or ambiguous destructive request returns
 ## Generic Skills
 
 The versioned Skill surface is `skill.list`, `skill.inspect`, `skill.preview`,
-and `skill.execute`. See [Generic MCP Skills](./skills.md) for the
-`filler-removal` and `dialogue-normalization` contracts. Skills use runtime
+and `skill.execute`. Discovery and inspection include current capability
+availability and structured missing requirements. Preview accepts a Skill ID,
+optional semantic version, and an argument object containing the inspected base
+revision; execute accepts only the runtime-issued preview token. See
+[Generic MCP Skills](./skills.md) for the full contract. Skills use runtime
 capabilities and never embed Final Cut-specific commands.

@@ -112,6 +112,7 @@ export class ProjectService {
       ...capabilities.analyzers,
       speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
       audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
+      audioNoise: capabilities.analyzers.audioNoise || Boolean(this.options.noiseAnalyzer),
       visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
       metadataDescribe: capabilities.analyzers.metadataDescribe || Boolean(this.options.metadataAnalyzer),
     };
