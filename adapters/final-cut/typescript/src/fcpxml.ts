@@ -418,13 +418,17 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const resources = findElement(this.xml ?? [], "resources");
     return storyEntries(resources ?? {})
       .filter(({ kind }) => kind === "asset" || kind === "media" || kind === "effect")
-      .map(({ node }) => ({
-        mediaId: String(attribute(node, "id") ?? ""),
-        source: resolveMediaSource(
-          String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
-          this.filePath,
-        ),
-      }))
+      .map(({ node }) => {
+        const durationValue = attribute(node, "duration");
+        return {
+          mediaId: String(attribute(node, "id") ?? ""),
+          source: resolveMediaSource(
+            String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
+            this.filePath,
+          ),
+          ...(durationValue !== undefined ? { duration: parseSeconds(durationValue) } : {}),
+        };
+      })
       .filter((media) => media.mediaId.length > 0);
   }
 
