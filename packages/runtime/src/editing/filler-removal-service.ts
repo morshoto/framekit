@@ -12,10 +12,10 @@ import type {
   FillerRemovalTarget,
 } from "../speech/filler-removal.js";
 import { sameRevision } from "../context/revision.js";
-import { subtractRationalTimes, translateRationalRange } from "../timeline/rational-time.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 import { planFillerRemoval } from "../speech/filler-removal.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { mapSourceRangeToSequenceRange } from "../speech/mapping.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
@@ -381,36 +381,19 @@ function sameSpeechWord(left: SpeechWord, right: SpeechWord): boolean {
 }
 
 function translateSourceRangeToSequence(clip: ProjectSnapshot["timeline"]["clips"][number], sourceRange: TimeRange): TimeRange {
-  if (!sourceRange.startTime || !sourceRange.durationTime) {
-    throw new Error("ANALYSIS_INVALID: filler range is missing rational timing");
-  }
   const sourceStart = clip.sourceStart ?? 0;
-  const sourceStartTime = clip.sourceStartTime ?? secondsToRational(sourceStart);
-  return translateRationalRange(clip.startTime, clip.start, {
-    start: sourceRange.start - sourceStart,
-    end: sourceRange.end - sourceStart,
-    startTime: subtractRationalTimes(sourceRange.startTime, sourceStartTime),
-    durationTime: { ...sourceRange.durationTime },
+  return mapSourceRangeToSequenceRange(sourceRange, {
+    sourceRange: {
+      start: sourceStart,
+      end: sourceStart + clip.duration,
+      startTime: clip.sourceStartTime,
+      durationTime: clip.durationTime,
+    },
+    sequenceRange: {
+      start: clip.start,
+      end: clip.start + clip.duration,
+      startTime: clip.startTime,
+      durationTime: clip.durationTime,
+    },
   });
-}
-
-function secondsToRational(seconds: number): { value: string; timescale: string } {
-  const text = seconds.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
-  if (!text.includes(".")) return { value: text || "0", timescale: "1" };
-  const [whole, fraction = ""] = text.split(".");
-  let numerator = BigInt(`${whole}${fraction}`);
-  let denominator = 10n ** BigInt(fraction.length);
-  const divisor = greatestCommonDivisor(numerator < 0n ? -numerator : numerator, denominator);
-  numerator /= divisor;
-  denominator /= divisor;
-  return { value: String(numerator), timescale: String(denominator) };
-}
-
-function greatestCommonDivisor(left: bigint, right: bigint): bigint {
-  while (right !== 0n) {
-    const remainder = left % right;
-    left = right;
-    right = remainder;
-  }
-  return left || 1n;
 }

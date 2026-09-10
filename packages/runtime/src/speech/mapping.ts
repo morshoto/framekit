@@ -4,7 +4,7 @@ import type {
   SpeechWord,
 } from "../domain/media.js";
 import type { ContextRevision, RationalTime, TimeRange } from "../domain/primitives.js";
-import { addRationalTimes, parseRational } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational, subtractRationalTimes } from "../timeline/rational-time.js";
 
 export interface SpeechOccurrence {
   occurrenceId: string;
@@ -78,7 +78,7 @@ export function mapSpeechAnalysisToOccurrence(
   if (Math.abs(sourceDuration - sequenceDuration) > 0.000000001) {
     throw new Error("AMBIGUOUS_MAPPING: source and sequence occurrence durations differ");
   }
-  const sequenceStartTime = validateSequenceRationalRange(occurrence.sequenceRange);
+  validateSequenceRationalRange(occurrence.sequenceRange);
 
   return {
     occurrenceId: occurrence.occurrenceId,
@@ -89,23 +89,41 @@ export function mapSpeechAnalysisToOccurrence(
     sourceTimebase,
     sequenceFrameDuration: frame,
     capability: analysis.capability,
-    words: mapEvidence(analysis.words, occurrence, sequenceStartTime, frame, "speech word", (word) => word),
+    words: mapEvidence(analysis.words, occurrence, frame, "speech word", (word) => word),
     ...(analysis.vadSegments
-      ? { vadSegments: mapEvidence(analysis.vadSegments, occurrence, sequenceStartTime, frame, "VAD segment", (segment) => segment) }
+      ? { vadSegments: mapEvidence(analysis.vadSegments, occurrence, frame, "VAD segment", (segment) => segment) }
       : {}),
     ...(analysis.silenceSegments
-      ? { silenceSegments: mapEvidence(analysis.silenceSegments, occurrence, sequenceStartTime, frame, "silence segment", (segment) => segment) }
+      ? { silenceSegments: mapEvidence(analysis.silenceSegments, occurrence, frame, "silence segment", (segment) => segment) }
       : {}),
     ...(analysis.protectedSegments
-      ? { protectedSegments: mapEvidence(analysis.protectedSegments, occurrence, sequenceStartTime, frame, "protected segment", (segment) => segment) }
+      ? { protectedSegments: mapEvidence(analysis.protectedSegments, occurrence, frame, "protected segment", (segment) => segment) }
       : {}),
   };
+}
+
+/** Map one source range onto an exact timeline occurrence. */
+export function mapSourceRangeToSequenceRange(
+  sourceRange: TimeRange,
+  occurrence: Pick<SpeechOccurrence, "sourceRange" | "sequenceRange">,
+): TimeRange {
+  validateRange(sourceRange, "source range");
+  validateRange(occurrence.sourceRange, "source occurrence range");
+  validateRange(occurrence.sequenceRange, "sequence occurrence range");
+  const sourceDuration = occurrence.sourceRange.end - occurrence.sourceRange.start;
+  const sequenceDuration = occurrence.sequenceRange.end - occurrence.sequenceRange.start;
+  if (Math.abs(sourceDuration - sequenceDuration) > 0.000000001) {
+    throw new Error("AMBIGUOUS_MAPPING: source and sequence occurrence durations differ");
+  }
+  const relation = relationToRange(sourceRange, occurrence.sourceRange);
+  if (relation === "outside") throw new Error("AMBIGUOUS_MAPPING: source range is outside the occurrence");
+  if (relation === "partial") throw new Error("AMBIGUOUS_MAPPING: source range crosses the occurrence boundary");
+  return translateRange(sourceRange, occurrence, validateSequenceRationalRange(occurrence.sequenceRange));
 }
 
 function mapEvidence<T extends { start: number; end: number }, M>(
   evidence: T[],
   occurrence: SpeechOccurrence,
-  sequenceStartTime: RationalTime,
   frame: RationalTime,
   label: string,
   clone: (value: T) => M,
@@ -118,7 +136,7 @@ function mapEvidence<T extends { start: number; end: number }, M>(
       throw new Error(`AMBIGUOUS_MAPPING: ${label} crosses the occurrence source boundary`);
     }
     const sourceRange = { start: value.start, end: value.end };
-    const sequenceRange = translateRange(sourceRange, occurrence, sequenceStartTime);
+    const sequenceRange = mapSourceRangeToSequenceRange(sourceRange, occurrence);
     const frameAlignedRange = alignRange(sequenceRange, frame);
     if (!containsRange(occurrence.sequenceRange, frameAlignedRange)) {
       throw new Error(`AMBIGUOUS_MAPPING: ${label} cannot be frame-aligned inside the occurrence`);
@@ -134,15 +152,21 @@ function mapEvidence<T extends { start: number; end: number }, M>(
   return mapped;
 }
 
-function translateRange(source: TimeRange, occurrence: SpeechOccurrence, sequenceStartTime: RationalTime): TimeRange {
+function translateRange(
+  source: TimeRange,
+  occurrence: Pick<SpeechOccurrence, "sourceRange" | "sequenceRange">,
+  sequenceStartTime: RationalTime,
+): TimeRange {
   const offset = source.start - occurrence.sourceRange.start;
   const duration = source.end - source.start;
-  const startTime = addRationalTimes(sequenceStartTime, secondsToRational(offset));
+  const offsetTime = source.startTime && occurrence.sourceRange.startTime
+    ? subtractRationalTimes(source.startTime, occurrence.sourceRange.startTime)
+    : secondsToRational(offset);
   return {
     start: occurrence.sequenceRange.start + offset,
-    end: occurrence.sequenceRange.start + offset + duration,
-    startTime,
-    durationTime: secondsToRational(duration),
+    end: occurrence.sequenceRange.start + (source.end - occurrence.sourceRange.start),
+    startTime: addRationalTimes(sequenceStartTime, offsetTime),
+    durationTime: source.durationTime ? { ...source.durationTime } : secondsToRational(duration),
   };
 }
 
