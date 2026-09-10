@@ -96,7 +96,13 @@ function resolveRequestedRange(
   media: AnalysisInput["media"],
   record: Record<string, unknown>,
 ): TimeRange {
-  if (result !== undefined) return validateRange(result, "requested speech range");
+  if (result !== undefined) {
+    const resultRange = validateRange(result, "requested speech range");
+    if (requested && (resultRange.start !== requested.start || resultRange.end !== requested.end)) {
+      throw new Error("ANALYSIS_INVALID: speech requested range does not match the runtime request");
+    }
+    return resultRange;
+  }
   if (requested) return structuredClone(requested);
   if (media.duration !== undefined) return { start: 0, end: media.duration };
   const evidenceEnd = evidenceMaximumEnd(record);
@@ -119,8 +125,8 @@ function evidenceMaximumEnd(record: Record<string, unknown>): number {
 }
 
 function validateObservedRange(observed: TimeRange, requested: TimeRange, duration: number | undefined): void {
-  if (observed.start > requested.start || observed.end < requested.end) {
-    throw new Error("ANALYSIS_INVALID: observed speech range does not cover the requested range");
+  if (observed.end <= requested.start || observed.start >= requested.end) {
+    throw new Error("ANALYSIS_INVALID: observed speech range does not overlap the requested range");
   }
   if (duration !== undefined && observed.end > duration) {
     throw new Error("ANALYSIS_INVALID: observed speech range exceeds media duration");

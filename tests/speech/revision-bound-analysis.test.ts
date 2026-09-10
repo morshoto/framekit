@@ -97,7 +97,7 @@ test("speech binding fails closed for stale or mismatched provenance", () => {
       () => bindSpeechAnalysis({
         words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
         ...patch,
-      }, { input, provider }),
+      }, { input, provider, range: { start: 2, end: 6 } }),
       /ANALYSIS_INVALID|STALE_CONTEXT|TARGET_MISMATCH/,
       label,
     );
