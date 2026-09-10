@@ -263,6 +263,53 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.match(shot?.rationale ?? "", /subject "person"/);
 });
 
+test("rough-cut planning excludes audio-only media from shots", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ mediaKind: "audio" });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({ subject: "person" });
+
+  assert.deepEqual(plan.shots, []);
+  assert.deepEqual(plan.warnings, [
+    "Excluded audio-only media from rough-cut shot candidates: media-semantic-1",
+  ]);
+});
+
+test("MCP rough-cut planning reports excluded audio-only media", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ mediaKind: "audio" });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+  await runtime.understandMedia("media-semantic-1");
+
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "audio-rough-cut-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const plan = JSON.parse(textFrom(await client.callTool({
+      name: "rough-cut.plan",
+      arguments: { subject: "person" },
+    })));
+
+    assert.deepEqual(plan.shots, []);
+    assert.deepEqual(plan.warnings, [
+      "Excluded audio-only media from rough-cut shot candidates: media-semantic-1",
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("MCP exposes semantic indexing and rough-cut planning", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
