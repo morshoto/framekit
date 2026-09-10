@@ -41,7 +41,6 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     nativeBackend: previous.native.selectionWrite.backend,
     publishingBackend: previous.publishing.projectCreation.backend,
     exportBackend: previous.export.timeline.backend,
-    analyzerBackend: previous.analyzers.speechTranscribe.backend,
     connection: previous.connection.status,
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
@@ -56,6 +55,7 @@ export interface CapabilityFamilyOptions {
   publishingBackend?: string;
   exportBackend?: string;
   analyzerBackend?: string;
+  analyzerBackends?: Partial<Record<keyof CapabilityFamilies["analyzers"], string | undefined>>;
   connection?: boolean | CapabilityDescriptor;
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
@@ -81,6 +81,11 @@ export function withCapabilityFamilies(
     },
   };
   const editor = normalized.editor;
+  const analyzerBackend = (operation: keyof CapabilityFamilies["analyzers"]): string =>
+    options.analyzerBackends?.[operation]
+    ?? options.analyzerBackend
+    ?? previous?.analyzers[operation]?.backend
+    ?? backend;
   const native = {
     ...nativeAvailability(previous?.native),
     ...options.native,
@@ -147,11 +152,11 @@ export function withCapabilityFamilies(
       ),
     },
     analyzers: {
-      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, options.analyzerBackend ?? backend, "speech transcription"),
-      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, options.analyzerBackend ?? backend, "speech VAD"),
-      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, options.analyzerBackend ?? backend, "audio loudness analysis"),
-      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), options.analyzerBackend ?? backend, "audio noise analysis"),
-      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, options.analyzerBackend ?? backend, "visual analysis"),
+      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, analyzerBackend("speechTranscribe"), "speech transcription"),
+      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, analyzerBackend("speechVad"), "speech VAD"),
+      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, analyzerBackend("audioLoudness"), "audio loudness analysis"),
+      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), analyzerBackend("audioNoise"), "audio noise analysis"),
+      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, analyzerBackend("visualTrack"), "visual analysis"),
     },
   };
   return { ...normalized, families };
