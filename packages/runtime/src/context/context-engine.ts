@@ -122,8 +122,7 @@ export class ContextEngine {
     next.media = next.media.map((media) => {
       const understanding = this.mediaUnderstanding.get(media.mediaId);
       if (!understanding) return media;
-      if (!sameMediaSourceIdentity(understanding.sourceIdentity, media)
-        || !sameRevision(understanding.analysisRevision, snapshot.revision)) {
+      if (!isCurrentUnderstanding(understanding, media, snapshot.revision)) {
         this.mediaUnderstanding.delete(media.mediaId);
         return media;
       }
@@ -141,6 +140,15 @@ export class ContextEngine {
     });
     return next;
   }
+}
+
+function isCurrentUnderstanding(
+  understanding: MediaUnderstanding,
+  media: ProjectSnapshot["media"][number],
+  revision: ContextRevision,
+): boolean {
+  return sameMediaSourceIdentity(understanding.sourceIdentity, media)
+    && sameRevision(understanding.analysisRevision, revision);
 }
 
 function isOptionalLiveUnavailable(error: unknown): boolean {
