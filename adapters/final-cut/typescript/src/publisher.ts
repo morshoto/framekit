@@ -151,6 +151,8 @@ async function runAppleScript(script: string): Promise<string> {
 
 function importXmlScript(path: string): string {
   return `
+using terms from application "System Events"
+
 on waitForMenuItem(container, expectedNames, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
@@ -237,6 +239,8 @@ on cancelImportIfOpen(finalCut)
     end if
   end try
 end cancelImportIfOpen
+
+end using terms from
 
 tell application "System Events"
   tell process "Final Cut Pro"
