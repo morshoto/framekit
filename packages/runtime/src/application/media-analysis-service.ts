@@ -226,11 +226,12 @@ export class MediaAnalysisService {
         const intersectionStart = Math.max(range.start, clip.start);
         const intersectionEnd = Math.min(range.end, clip.start + clip.duration);
         if (!clip.mediaId || intersectionStart >= intersectionEnd) return [];
+        const sourceStart = clip.sourceStart ?? 0;
         return [{
           mediaId: clip.mediaId,
           range: {
-            start: intersectionStart - clip.start,
-            end: intersectionEnd - clip.start,
+            start: sourceStart + intersectionStart - clip.start,
+            end: sourceStart + intersectionEnd - clip.start,
           },
         }];
       }),
@@ -246,8 +247,26 @@ export class MediaAnalysisService {
         .map((affected) => affected.range);
       const input = { project: next, media };
       if (this.options.speechAnalyzer) {
-        const analyses = await Promise.all(ranges.map((range) => this.options.speechAnalyzer!.analyze(input, range)));
-        media.speech = { words: analyses.flatMap((analysis) => analysis.words) };
+        const analyses = await Promise.all(ranges.map(async (range) => bindSpeechAnalysis(
+          await this.options.speechAnalyzer!.analyze(input, range),
+          { input, range, provider: this.options.speechAnalyzer!.descriptor },
+        )));
+        const latest = analyses[analyses.length - 1];
+        if (latest) {
+          media.speech = {
+            ...latest,
+            words: analyses.flatMap((analysis) => analysis.words),
+            ...(analyses.some((analysis) => analysis.vadSegments)
+              ? { vadSegments: analyses.flatMap((analysis) => analysis.vadSegments ?? []) }
+              : {}),
+            ...(analyses.some((analysis) => analysis.silenceSegments)
+              ? { silenceSegments: analyses.flatMap((analysis) => analysis.silenceSegments ?? []) }
+              : {}),
+            ...(analyses.some((analysis) => analysis.protectedSegments)
+              ? { protectedSegments: analyses.flatMap((analysis) => analysis.protectedSegments ?? []) }
+              : {}),
+          };
+        }
       }
       if (this.options.audioAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
