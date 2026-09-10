@@ -46,6 +46,19 @@ class TrackingFcpxmlAdapter extends FcpxmlDocumentAdapter {
   }
 }
 
+class UnsynchronizedFcpxmlAdapter extends FcpxmlDocumentAdapter {
+  public override async getCapabilities() {
+    const capabilities = await super.getCapabilities();
+    return {
+      ...capabilities,
+      editor: {
+        ...capabilities.editor,
+        readAfterWrite: false,
+      },
+    };
+  }
+}
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
@@ -100,6 +113,26 @@ test("Final Cut sessions route artifact composite transactions to the mutation p
     assert.equal(transaction.status, "VERIFIED");
     assert.equal(transaction.after.timeline.clips[0]?.name, "Renamed");
     assert.equal(transaction.verification?.passed, true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("split-provider sessions require mutation read-after-write guarantees", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-finalcut-routing-guarantee-"));
+  const artifactPath = join(directory, "project.fcpxml");
+
+  try {
+    await writeFile(artifactPath, FCPXML);
+    const session = new FinalCutSessionAdapter({
+      snapshot: new FcpxmlDocumentAdapter(artifactPath),
+      mutation: new UnsynchronizedFcpxmlAdapter(artifactPath),
+    });
+    const capabilities = await session.getCapabilities();
+
+    assert.equal(capabilities.editor.readAfterWrite, false);
+    assert.equal(capabilities.editor.compositeTransactions, false);
+    assert.equal(capabilities.families?.editing.compositeTransactions.available, false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
