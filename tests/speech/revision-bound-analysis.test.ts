@@ -1,0 +1,134 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  bindSpeechAnalysis,
+  type AnalysisInput,
+  type AnalyzerDescriptor,
+  type MediaSourceIdentity,
+  type SpeechAnalysis,
+} from "@framekit/runtime";
+
+const sourceIdentity: MediaSourceIdentity = {
+  mediaId: "media-1",
+  source: "/media/interview.wav",
+  sourceDigest: "sha256:interview",
+  mediaKind: "audio",
+  duration: 12,
+};
+
+const input: AnalysisInput = {
+  project: {
+    projectId: "project-1",
+    projectName: "Speech contract fixture",
+    timeline: {
+      id: "timeline-1",
+      name: "Main",
+      duration: 12,
+      clips: [],
+      storyElements: [],
+      markers: [],
+      captions: [],
+    },
+    media: [{ mediaId: sourceIdentity.mediaId, source: sourceIdentity.source, sourceDigest: sourceIdentity.sourceDigest, mediaKind: sourceIdentity.mediaKind, duration: sourceIdentity.duration }],
+    revision: { id: "rev-7", sequence: 7, timestamp: "2026-09-10T00:00:00.000Z" },
+  },
+  media: { ...sourceIdentity },
+};
+
+const provider: AnalyzerDescriptor = {
+  id: "local.whisper-silero",
+  provider: "local-wrapper",
+  version: "2.1.0",
+};
+
+test("speech binding attaches revision, range, identity, provider, and source timebase", () => {
+  const result = bindSpeechAnalysis({
+    mediaId: sourceIdentity.mediaId,
+    sourceIdentity,
+    revision: input.project.revision,
+    requestedRange: { start: 2, end: 6 },
+    observedRange: { start: 2, end: 6 },
+    provider,
+    sourceTimebase: { value: "1", timescale: "1000" },
+    words: [{ text: "hello", start: 2, end: 2.5, confidence: 0.98 }],
+    vadSegments: [{ start: 2, end: 2.5, kind: "speech" }],
+  }, { input, provider, range: { start: 2, end: 6 } });
+
+  assert.deepEqual(result, {
+    mediaId: sourceIdentity.mediaId,
+    sourceIdentity,
+    revision: input.project.revision,
+    requestedRange: { start: 2, end: 6 },
+    observedRange: { start: 2, end: 6 },
+    provider,
+    sourceTimebase: { value: "1", timescale: "1000" },
+    capability: "transcription-plus-vad",
+    words: [{ text: "hello", start: 2, end: 2.5, confidence: 0.98 }],
+    vadSegments: [{ start: 2, end: 2.5, kind: "speech" }],
+  });
+});
+
+test("speech binding preserves transcription-only capability without inventing VAD", () => {
+  const result = bindSpeechAnalysis({
+    words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+  }, { input, provider });
+
+  assert.equal(result.capability, "transcription-only");
+  assert.equal(result.vadSegments, undefined);
+  assert.deepEqual(result.sourceIdentity, sourceIdentity);
+  assert.deepEqual(result.revision, input.project.revision);
+  assert.deepEqual(result.requestedRange, { start: 0, end: 12 });
+  assert.deepEqual(result.observedRange, { start: 0, end: 12 });
+});
+
+test("speech binding fails closed for stale or mismatched provenance", () => {
+  const cases: Array<[string, Partial<SpeechAnalysis>]> = [
+    ["media identity", { mediaId: "other-media" }],
+    ["source identity", { sourceIdentity: { ...sourceIdentity, sourceDigest: "sha256:other" } }],
+    ["revision", { revision: { ...input.project.revision, id: "rev-6", sequence: 6 } }],
+    ["observed range", { observedRange: { start: 0, end: 13 } }],
+  ];
+
+  for (const [label, patch] of cases) {
+    assert.throws(
+      () => bindSpeechAnalysis({
+        words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+        ...patch,
+      }, { input, provider }),
+      /ANALYSIS_INVALID|STALE_CONTEXT|TARGET_MISMATCH/,
+      label,
+    );
+  }
+});
+
+test("speech binding rejects unordered, overlapping, and invalid evidence", () => {
+  const invalidAnalyses: SpeechAnalysis[] = [
+    {
+      words: [
+        { text: "later", start: 2, end: 3, confidence: 0.9 },
+        { text: "earlier", start: 1, end: 2, confidence: 0.9 },
+      ],
+    },
+    {
+      words: [
+        { text: "one", start: 0, end: 2, confidence: 0.9 },
+        { text: "two", start: 1, end: 3, confidence: 0.9 },
+      ],
+    },
+    { words: [{ text: "outside", start: 0, end: 13, confidence: 0.9 }] },
+    {
+      words: [{ text: "word", start: 0, end: 1, confidence: 0.9 }],
+      vadSegments: [
+        { start: 0, end: 2, kind: "speech" },
+        { start: 1, end: 3, kind: "silence" },
+      ],
+    },
+  ];
+
+  for (const analysis of invalidAnalyses) {
+    assert.throws(
+      () => bindSpeechAnalysis(analysis, { input, provider }),
+      /ANALYSIS_INVALID/,
+    );
+  }
+});
