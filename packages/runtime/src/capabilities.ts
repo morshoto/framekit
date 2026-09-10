@@ -53,6 +53,16 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
   };
   const previous = capabilities.families;
   if (!previous) return normalized;
+  const canonicalRead = normalized.editor.canonicalTimelineMode === "canonical-read"
+    || normalized.editor.canonicalTimelineMode === "canonical-write";
+  const canonicalWrite = normalized.editor.canonicalTimelineMode === "canonical-write";
+  const compositeTransactions = Boolean(
+    normalized.editor.compositeTransactions
+    && normalized.editor.timelineSnapshotRead
+    && normalized.editor.readAfterWrite
+    && normalized.editor.rollback
+    && (normalized.editor.timelineArtifactWrite || canonicalWrite),
+  );
   return withCapabilityFamilies(normalized, {
     backend: previous.connection.status.backend,
     nativeBackend: previous.native.selectionWrite.backend,
@@ -60,12 +70,31 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     exportBackend: previous.export.timeline.backend,
     analyzerBackend: previous.analyzers.speechTranscribe.backend,
     connection: previous.connection.status,
-    canonicalDocument: previous.canonicalDocument,
-    editing: previous.editing,
+    canonicalDocument: {
+      read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
+      write: refreshDescriptor(canonicalWrite, previous.canonicalDocument.write, "canonical-write", "canonical timeline writes are unavailable"),
+      artifactWrite: refreshDescriptor(normalized.editor.timelineArtifactWrite, previous.canonicalDocument.artifactWrite, "artifact-write", "canonical artifact writes are unavailable"),
+    },
+    editing: {
+      compositeTransactions: refreshDescriptor(compositeTransactions, previous.editing.compositeTransactions, "verified", "composite editing transactions are unavailable"),
+      titlePlacement: refreshDescriptor(Boolean(normalized.editor.titlePlacement), previous.editing.titlePlacement, "verified", "title placement is unavailable"),
+      pictureInPicture: previous.editing.pictureInPicture,
+      masking: previous.editing.masking,
+    },
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
     export: previous.export.timeline,
   });
+}
+
+function refreshDescriptor(
+  available: boolean,
+  previous: CapabilityDescriptor,
+  guarantee: Exclude<CapabilityDescriptor["guarantee"], "none">,
+  unavailableReason: string,
+): CapabilityDescriptor {
+  if (available && previous.available) return previous;
+  return descriptorFrom(available, previous.backend, guarantee, unavailableReason);
 }
 
 export interface CapabilityFamilyOptions {
