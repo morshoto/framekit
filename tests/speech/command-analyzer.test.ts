@@ -4,7 +4,8 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { CommandSpeechAnalyzer } from "@framekit/final-cut";
-import type { AnalysisInput } from "@framekit/runtime";
+import { AgentVideoRuntime, type AnalysisInput } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function createInput(mediaSource: string): AnalysisInput {
   return {
@@ -80,6 +81,24 @@ test("command speech analyzer keeps transcription-only output distinct", async (
 
   assert.equal(result.capability, "transcription-only");
   assert.equal(result.vadSegments, undefined);
+});
+
+test("command speech analyzer advertises only guaranteed capabilities", async () => {
+  const analyzer = new CommandSpeechAnalyzer({ command: "/usr/bin/true" });
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Command capability fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [{ mediaId: "media-1", source: "/fixtures/interview.wav", duration: 12 }],
+  }), { speechAnalyzer: analyzer });
+
+  const inspected = await runtime.inspectEditor();
+
+  assert.equal(inspected.capabilities.analyzers.speechTranscribe, true);
+  assert.equal(inspected.capabilities.analyzers.speechVad, false);
+  assert.equal(inspected.capabilities.analyzers.speechCapability, "transcription-only");
 });
 
 test("command speech analyzer fails closed for missing executables and malformed VAD", async () => {
