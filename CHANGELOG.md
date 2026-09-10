@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.1.4](https://github.com/morshoto/framekit/compare/v0.1.3...v0.1.4) - 2026-09-10
+
+- feat: add guarded native Final Cut transitions by @morshoto in https://github.com/morshoto/framekit/pull/142
+- test: add deterministic Basic Editing MVP gate by @morshoto in https://github.com/morshoto/framekit/pull/143
+- test: add live project selection acceptance gate by @morshoto in https://github.com/morshoto/framekit/pull/144
+- test: require explicit targets in live canonical evidence by @morshoto in https://github.com/morshoto/framekit/pull/145
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/160
+- chore(deps): update pnpm to v12 by @renovate[bot] in https://github.com/morshoto/framekit/pull/161
+
 ## [v0.1.3](https://github.com/morshoto/framekit/compare/v0.1.2...v0.1.3) - 2026-09-08
 
 - chore(deps): pin dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/122
