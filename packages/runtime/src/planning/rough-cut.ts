@@ -19,6 +19,7 @@ export function planRoughCut(
   }
 
   const candidates = entries
+    .filter((entry) => entry.sourceIdentity.mediaKind !== "audio")
     .flatMap((entry) => entry.semantic.usableRanges.map((range) => ({ entry, range })))
     .sort((left, right) => {
       const mediaOrder = left.entry.sourceIdentity.mediaId.localeCompare(right.entry.sourceIdentity.mediaId);
