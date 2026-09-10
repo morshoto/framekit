@@ -338,13 +338,20 @@ async function waitForImportedProject(
 ): Promise<EditorLiveState> {
   const deadline = Date.now() + timeoutMs;
   let latest: EditorLiveState | undefined;
+  let lastError: unknown;
   do {
-    latest = await readLiveState(liveState, "after import");
-    if (isImportedProject(latest, identity, before)) return latest;
+    try {
+      latest = await readLiveState(liveState, "after import");
+      lastError = undefined;
+      if (isImportedProject(latest, identity, before)) return latest;
+    } catch (error) {
+      lastError = error;
+    }
     if (Date.now() >= deadline) break;
     await delay(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())));
   } while (true);
 
+  if (lastError) throw lastError;
   const observedProject = latest?.project?.name ?? "none";
   const observedSequence = latest?.sequence?.name ?? "none";
   throw new Error(
