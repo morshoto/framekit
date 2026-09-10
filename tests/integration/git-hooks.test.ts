@@ -69,13 +69,15 @@ test("pre-commit hook animates only in color-capable terminals", async () => {
   assert.match(hook, /\\r\\033\[2K/);
 });
 
-test("pinned pnpm self-management is already recorded in the lockfile", async () => {
+test("the pinned pnpm manager is already recorded in the lockfile", async () => {
   const manifest = JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as { packageManager?: string };
   const version = manifest.packageManager?.replace(/^pnpm@/, "");
   assert.ok(version);
   const lockfile = await readFile(join(repository, "pnpm-lock.yaml"), "utf8");
-  assert.match(lockfile, new RegExp(`packageManagerDependencies:\\s*\\n\\s+(?:['"]@pnpm/exe['"]|pnpm):\\s*\\n\\s+specifier:\\s*${version.replaceAll(".", "\\.")}`));
-  assert.match(lockfile, new RegExp(`[\'\"]@pnpm/exe(?:\\.[^\'\"]+)?@${version.replaceAll(".", "\\.")}[\'\"]`));
+  const escapedVersion = version.replaceAll(".", "\\.");
+  assert.match(lockfile, new RegExp(`(?:^|\\n)\\s+pnpm:\\n\\s+specifier: ${escapedVersion}\\n\\s+version: ${escapedVersion}`));
+  assert.match(lockfile, new RegExp(`(?:^|\\n)\\s+pnpm@${escapedVersion}:`));
+  assert.match(lockfile, new RegExp(`[\'\"]@pnpm/exe(?:\\.[^\'\"]+)?@${escapedVersion}[\'\"]`));
 });
 
 test("pre-commit hook forces headless fixture validation", async () => {
