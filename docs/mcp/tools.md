@@ -211,10 +211,12 @@ match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free tex
 overlapping usable `range`, and required analyzer `capabilities`. Every analyzed
 status carries the analyzer ID/provider and source identity used to produce it.
 
-`rough-cut.plan` consumes the same index and returns deterministic shots sorted
-by media ID and source range. Each shot includes its exact source identity,
-usable range, confidence, matched properties, and rationale. The planner is
-read-only; it produces planning data and does not add clips to a timeline.
+`rough-cut.plan` consumes the same index and returns deterministic video shots
+sorted by media ID and source range. Audio-only entries with usable ranges are
+excluded from the shots and reported in `warnings`. Each shot includes its exact
+source identity, usable range, confidence, matched properties, and rationale.
+The planner is read-only; it produces planning data and does not add clips to a
+timeline.
 
 ## Music mixing workflow
 
