@@ -109,7 +109,7 @@ try {
     passed: true,
     workflow: "fcpxml-publisher",
     artifact: basename(artifactPath),
-    sourceTarget: result.sourceTarget,
+    sourceTarget: { kind: result.sourceTarget.kind, artifactPath: basename(result.sourceTarget.artifactPath) },
     createdTarget: result.createdTarget,
     activeProject: result.activeProject,
     beforeLive: { projectId: beforeLive.project.id, sequenceId: beforeLive.sequence.id },
