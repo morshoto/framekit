@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -23,4 +24,19 @@ test("publisher headed E2E is a separate FCPXML workflow", async () => {
   assert.equal(publisherRunner.includes("editor.native."), false);
   assert.equal(nativeRunner.includes("artifact.publish"), false);
   assert.match(nativeRunner, /FRAMEKIT_FCPXML_PATH: ""/);
+});
+
+test("publisher headed E2E rejects missing post-import identities", () => {
+  assert.throws(() => verifyPublishedTarget({
+    result: {
+      verified: true,
+      createdTarget: { projectName: "Imported", sequenceName: "Main" },
+      activeProject: { before: { id: "before-project" }, after: {} },
+    },
+    beforeLive: { project: { id: "before-project" }, sequence: { id: "before-sequence" } },
+    afterLive: { project: { name: "Imported" }, sequence: { name: "Main" } },
+    expectedProject: "Imported",
+    expectedSequence: "Main",
+    sourceSequence: "Main",
+  }), /FINAL_CUT_E2E_PUBLISH_TARGET_VERIFICATION_FAILED/);
 });
