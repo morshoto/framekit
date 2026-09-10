@@ -116,3 +116,27 @@ test("editor.timeline.edit validates trim duration before its handler", async ()
     await server.close();
   }
 });
+
+test("single-edit tools reject fields from another operation", async () => {
+  const { client, server } = await connectedClient();
+  try {
+    const project = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+    const invalid = await client.callTool({
+      name: "editor.timeline.edit",
+      arguments: {
+        projectId: project.projectId,
+        sequenceId: project.timeline.id,
+        type: "rename-clip",
+        clipId: "schema-clip",
+        name: "Interview Clean",
+        duration: 5,
+        baseRevision: project.revision,
+      },
+    });
+    assert.equal(invalid.isError, true);
+    assert.match(textFrom(invalid), /Unrecognized key\(s\).*duration/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
