@@ -263,6 +263,20 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.match(shot?.rationale ?? "", /subject "person"/);
 });
 
+test("rough-cut planning excludes audio-only media from shots", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ mediaKind: "audio" });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({ subject: "person" });
+
+  assert.deepEqual(plan.shots, []);
+});
+
 test("MCP exposes semantic indexing and rough-cut planning", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
