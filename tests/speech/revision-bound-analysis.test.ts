@@ -88,6 +88,7 @@ test("speech binding fails closed for stale or mismatched provenance", () => {
     ["media identity", { mediaId: "other-media" }],
     ["source identity", { sourceIdentity: { ...sourceIdentity, sourceDigest: "sha256:other" } }],
     ["revision", { revision: { ...input.project.revision, id: "rev-6", sequence: 6 } }],
+    ["requested range", { requestedRange: { start: 0, end: 1 } }],
     ["observed range", { observedRange: { start: 0, end: 13 } }],
   ];
 
