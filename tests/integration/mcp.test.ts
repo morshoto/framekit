@@ -121,7 +121,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     );
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "type", "verification",
+      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
     ]);
     const timelineEditTrim = (timelineEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
       (branch) => branch.properties?.type?.const === "trim-clip",

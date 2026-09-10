@@ -8,7 +8,7 @@ import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 type JsonSchema = {
   anyOf?: JsonSchema[];
-  properties?: Record<string, { const?: string }>;
+  properties?: Record<string, { const?: unknown }>;
   required?: string[];
 };
 
@@ -37,6 +37,14 @@ function branchFor(schema: JsonSchema, type: string): JsonSchema {
   const branch = schema.anyOf?.find((candidate) => candidate.properties?.type?.const === type);
   assert.ok(branch, `missing ${type} schema branch`);
   return branch;
+}
+
+function matchesPublishedSchema(schema: JsonSchema, value: Record<string, unknown>): boolean {
+  if (schema.required?.some((key) => !(key in value))) return false;
+  for (const [key, property] of Object.entries(schema.properties ?? {})) {
+    if (property.const !== undefined && value[key] !== property.const) return false;
+  }
+  return schema.anyOf?.some((branch) => matchesPublishedSchema(branch, value)) ?? true;
 }
 
 async function connectedClient() {
@@ -72,6 +80,41 @@ test("single-edit tools advertise operation-specific required fields", async () 
           ...(toolName === "editor.timeline.edit" ? ["baseRevision", "projectId", "sequenceId"] : []),
         ].sort(), `${toolName} ${type}`);
       }
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("published root schema validates non-last edit operations", async () => {
+  const { client, server } = await connectedClient();
+  try {
+    const tools = await client.listTools();
+    const tool = tools.tools.find((candidate) => candidate.name === "editor.timeline.edit");
+    assert.ok(tool);
+    const schema = tool.inputSchema as JsonSchema;
+    assert.equal(schema.properties?.type, undefined);
+
+    for (const request of [
+      {
+        type: "rename-clip",
+        clipId: "schema-clip",
+        name: "Interview Clean",
+        baseRevision: "1",
+        projectId: "schema-project",
+        sequenceId: "schema-timeline",
+      },
+      {
+        type: "trim-clip",
+        clipId: "schema-clip",
+        duration: 5,
+        baseRevision: "1",
+        projectId: "schema-project",
+        sequenceId: "schema-timeline",
+      },
+    ]) {
+      assert.equal(matchesPublishedSchema(schema, request), true, request.type);
     }
   } finally {
     await client.close();
