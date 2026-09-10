@@ -11,6 +11,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   const backendSelection = await readFile(join(repositoryRoot, "docs/architecture/backend-selection.md"), "utf8");
   const mcpTools = await readFile(join(repositoryRoot, "docs/mcp/tools.md"), "utf8");
   const liveE2e = await readFile(join(repositoryRoot, "docs/tests/final-cut-live-e2e.md"), "utf8");
+  const roughCutConstruction = await readFile(join(repositoryRoot, "docs/architecture/rough-cut-construction.md"), "utf8");
 
   assert.match(compatibility, /## Editing surface semantics/);
   assert.match(compatibility, /Target[\s\S]*Revision[\s\S]*Read-after-write[\s\S]*Undo[\s\S]*Resulting project state/);
@@ -28,4 +29,6 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH/);
   assert.match(liveE2e, /test:final-cut-publisher-headed/);
   assert.match(liveE2e, /prepared disposable fixture[\s\S]*project/);
+  assert.match(roughCutConstruction, /Final Cut makes the imported project active/);
+  assert.match(roughCutConstruction, /It never modifies the previously open project/);
 });
