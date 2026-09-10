@@ -312,6 +312,8 @@ test("FCPXML separates asset source starts from timeline offsets", async () => {
   assert.equal(snapshot.timeline.duration, 3);
   assert.deepEqual(snapshot.timeline.clips[0]?.startTime, { value: "0", timescale: "1" });
   assert.equal(snapshot.timeline.clips[0]?.start, 0);
+  assert.equal(snapshot.timeline.clips[0]?.sourceStart, 4);
+  assert.deepEqual(snapshot.timeline.clips[0]?.sourceStartTime, { value: "4", timescale: "1" });
   assert.equal(snapshot.timeline.markers[0]?.start, 2);
   assert.equal(snapshot.timeline.captions[0]?.start, 5);
 });
