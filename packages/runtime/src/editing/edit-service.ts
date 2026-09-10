@@ -328,6 +328,9 @@ export class EditService {
         `TARGET_MISMATCH: cannot undo ${transaction.before.projectId}/${transaction.before.timeline.id} while ${current.projectId}/${current.timeline.id} is active`,
       );
     }
+    if (!sameRevision(current.revision, transaction.after.revision)) {
+      throw new Error(`STALE_CONTEXT: transaction ${transactionId} changed after edit`);
+    }
     await this.adapter.restore(transaction.before, current.revision);
     const restored = await this.project.inspectProject();
     this.assertRestored(transaction.before, restored);
