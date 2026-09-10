@@ -256,8 +256,8 @@ export class AgentVideoRuntime {
     return this.contexts.contextChangesSince(revision, waitMs);
   }
 
-  public async analyzeSpeech(mediaId: string): Promise<SpeechAnalysis> {
-    return this.media.analyzeSpeech(mediaId);
+  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<SpeechAnalysis> {
+    return this.media.analyzeSpeech(mediaId, range);
   }
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {

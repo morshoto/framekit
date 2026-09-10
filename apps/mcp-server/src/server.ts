@@ -1278,9 +1278,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("speech.analyze", {
-    description: "Analyze speech words and filler markers for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.analyzeSpeech(mediaId)));
+    description: "Analyze speech words, filler markers, and optional VAD for one media item or source range.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeSpeech(mediaId, range)));
 
   server.registerTool("speech.filler.remove.preview", {
     description: "Analyze a selected canonical timeline range and preview removal of high-confidence filler words with safe rational delete ranges.",
