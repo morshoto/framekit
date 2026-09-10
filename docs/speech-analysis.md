@@ -78,6 +78,12 @@ is optional:
 }
 ```
 
+The normalized runtime and MCP response adds `schemaVersion: 1`, `mediaId`,
+`sourceIdentity`, `requestedRange`, `observedRange`, `revision`, `provider`,
+`sourceTimebase`, and `capability` to that evidence. A provider may omit these
+fields because Framekit fills them from the trusted request; conflicting values
+are rejected.
+
 Timestamps are source-media seconds. Words and each segment list must be
 finite, ordered, positive, non-overlapping, and within the observed media
 range. Word confidence and optional segment confidence are between `0` and
