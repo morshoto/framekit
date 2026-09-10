@@ -29,6 +29,13 @@ import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
 
+export interface PostWriteAnalysisRequirements {
+  speech?: boolean;
+  audio?: boolean;
+  noise?: boolean;
+  visual?: boolean;
+}
+
 export class MediaAnalysisService {
   public constructor(
     private readonly project: ProjectService,
@@ -221,7 +228,10 @@ export class MediaAnalysisService {
       .filter((entry) => matchesMediaIndexQuery(entry, query));
   }
 
-  public async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
+  public async reanalyzeAffectedRanges(
+    transaction: EditTransaction,
+    requirements: PostWriteAnalysisRequirements,
+  ): Promise<ProjectSnapshot> {
     const affectedMediaRanges = transaction.diff.affectedRanges.flatMap((range) =>
       transaction.attemptedAfter.timeline.clips.flatMap((clip) => {
         const intersectionStart = Math.max(range.start, clip.start);
@@ -247,7 +257,7 @@ export class MediaAnalysisService {
         .filter((affected) => affected.mediaId === mediaId)
         .map((affected) => affected.range));
       const input = { project: next, media };
-      if (this.options.speechAnalyzer) {
+      if (requirements.speech && this.options.speechAnalyzer) {
         const analyses = await Promise.all(ranges.map(async (range) => bindSpeechAnalysis(
           await this.options.speechAnalyzer!.analyze(input, range),
           { input, range, provider: this.options.speechAnalyzer!.descriptor },
@@ -260,15 +270,15 @@ export class MediaAnalysisService {
           });
         }
       }
-      if (this.options.audioAnalyzer) {
+      if (requirements.audio && this.options.audioAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
         if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
       }
-      if (this.options.noiseAnalyzer) {
+      if (requirements.noise && this.options.noiseAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.noiseAnalyzer!.analyze(input, range)));
         if (analyses[analyses.length - 1]) media.noise = analyses[analyses.length - 1];
       }
-      if (this.options.visualAnalyzer) {
+      if (requirements.visual && this.options.visualAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.visualAnalyzer!.analyze(input, range)));
         media.visual = {
           scenes: analyses.flatMap((analysis) => analysis.scenes),
@@ -277,7 +287,10 @@ export class MediaAnalysisService {
           motion: analyses[analyses.length - 1]?.motion,
         };
       }
-      if (this.options.speechAnalyzer || this.options.audioAnalyzer || this.options.noiseAnalyzer || this.options.visualAnalyzer) {
+      if ((requirements.speech && this.options.speechAnalyzer)
+        || (requirements.audio && this.options.audioAnalyzer)
+        || (requirements.noise && this.options.noiseAnalyzer)
+        || (requirements.visual && this.options.visualAnalyzer)) {
         for (const candidate of next.media) {
           if (candidate.mediaId === mediaId) candidate.analysisRevision = next.revision.id;
         }
