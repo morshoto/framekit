@@ -12,6 +12,7 @@ import type {
   FinalCutProjectPublisher,
   FinalCutVideoExporter,
   NativeFinalCutEditor,
+  NativeFinalCutTransitionMatch,
 } from "@framekit/final-cut";
 import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
@@ -33,6 +34,9 @@ const rationalTimeSchema = z.object({
 const rangeSchema = z.object({
   start: z.number().nonnegative(),
   end: z.number().positive(),
+}).refine((range) => range.end > range.start, {
+  message: "end must be greater than start",
+  path: ["end"],
 });
 const mediaIndexQuerySchema = z.object({
   query: z.string().optional(),
@@ -420,6 +424,12 @@ const nativeTitlePreviewSchema = {
   start: rationalTimeSchema.optional(),
   duration: rationalTimeSchema,
 };
+const nativeTransitionPreviewSchema = {
+  assetId: z.string().min(1),
+  beforeOccurrenceHandle: z.string().min(1),
+  afterOccurrenceHandle: z.string().min(1),
+  duration: rationalTimeSchema,
+};
 const exportAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio-audibility"),
@@ -463,6 +473,7 @@ const exportExpectationSchema = z.object({
   hasAudio: z.boolean().optional(),
   assertions: z.array(exportAssertionSchema).optional(),
 }).optional();
+const exportTransactionSchema = z.string().trim().min(1).optional();
 const nativeEditToolInputSchema = z.object({
   type: z.enum([
     "rename-selected-clip",
@@ -576,6 +587,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { name: "framekit", version: "0.1.0" },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
+  const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
@@ -784,6 +796,41 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
   });
 
+  server.registerTool("editor.native.transition.search", {
+    description: "Search the visible Final Cut Transitions browser and return only transitions with stable native identities.",
+    inputSchema: { query: z.string().trim().min(1) },
+  }, async ({ query }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition discovery is not configured");
+    const matches = await options.nativeEditor.searchTransitions(query);
+    for (const match of matches) {
+      nativeTransitionAssets.set(match.id, match);
+      nativeTransitionAssets.set(`final-cut:transition:${match.identity}`, match);
+    }
+    return jsonResult(matches);
+  });
+
+  server.registerTool("editor.native.transition.add.preview", {
+    description: "Preview adding a discovered native transition between two adjacent occurrence handles at an exact duration.",
+    inputSchema: nativeTransitionPreviewSchema,
+  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
+    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets);
+    return jsonResult(await options.nativeEditor.previewTransitionAdd({
+      asset,
+      beforeOccurrenceHandle,
+      afterOccurrenceHandle,
+      duration,
+    }));
+  });
+
+  server.registerTool("editor.native.transition.add.execute", {
+    description: "Execute a previously previewed native transition placement and return verified revision and Undo state.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
+    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken));
+  });
+
   server.registerTool("editor.native.undo", {
     description: "Undo a previously accepted native Final Cut UI edit using Final Cut's native Undo command.",
     inputSchema: { operationId: z.string().min(1) },
@@ -965,16 +1012,62 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("timeline.export", {
-    description: "Export the active Final Cut timeline to a local video file, wait for completion, and verify its media metadata.",
+    description: "Export the active Final Cut timeline to a local video file, wait for completion, verify its media metadata, and optionally bind the result to a verified edit transaction.",
     inputSchema: {
       outputPath: z.string().trim().min(1),
       preset: z.enum(["master", "web"]),
       overwrite: z.boolean().optional(),
       expected: exportExpectationSchema,
+      transactionId: exportTransactionSchema,
     },
-  }, async ({ outputPath, preset, overwrite, expected }) => {
+  }, async ({ outputPath, preset, overwrite, expected, transactionId }) => {
     if (!options.videoExporter?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut video export is not configured");
-    return jsonResult(await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected }));
+    const transaction = transactionId ? runtime.getTransaction(transactionId) : undefined;
+    if (transactionId) {
+      if (!transaction) throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} was not found`);
+      if (transaction.status !== "VERIFIED") {
+        throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} is not verified`);
+      }
+      const verification = await runtime.verifyTransaction(transactionId);
+      if (!verification.passed) {
+        throw new Error(`FINAL_CUT_EXPORT_TRANSACTION_INVALID: transaction ${transactionId} did not pass verification`);
+      }
+      const current = await runtime.inspectProject();
+      if (current.projectId !== transaction.after.projectId
+        || current.timeline.id !== transaction.after.timeline.id
+        || current.revision.id !== transaction.after.revision.id
+        || current.revision.sequence !== transaction.after.revision.sequence) {
+        throw new Error(`TARGET_MISMATCH: transaction ${transactionId} is not for the active project and sequence`);
+      }
+    }
+    const result = await options.videoExporter.exportVideo({ outputPath, preset, overwrite, expected });
+    if (!transaction || !transactionId) return jsonResult(result);
+    const currentAfterExport = await runtime.inspectProject();
+    if (currentAfterExport.projectId !== transaction.after.projectId
+      || currentAfterExport.timeline.id !== transaction.after.timeline.id
+      || currentAfterExport.revision.id !== transaction.after.revision.id
+      || currentAfterExport.revision.sequence !== transaction.after.revision.sequence) {
+      throw new Error(`STALE_CONTEXT: transaction ${transactionId} changed while the export was running`);
+    }
+    return jsonResult({
+      ...result,
+      manifest: {
+        schemaVersion: 1,
+        transactionId,
+        sourceRevision: transaction.after.revision,
+        project: { id: transaction.after.projectId, name: transaction.after.projectName },
+        sequence: { id: transaction.after.timeline.id, name: transaction.after.timeline.name },
+        timelineDurationSeconds: transaction.after.timeline.duration,
+        media: transaction.after.media.map((media) => ({
+          mediaId: media.mediaId,
+          ...(media.sourceDigest ? { sourceDigest: media.sourceDigest } : {}),
+        })),
+        output: {
+          format: result.metadata.format,
+          digest: result.metadata.outputDigest,
+        },
+      },
+    });
   });
 
   server.registerTool("context.inspect", {
@@ -1272,6 +1365,38 @@ async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: stri
   return asset;
 }
 
+async function resolveNativeTransitionAsset(
+  runtime: AgentVideoRuntime,
+  nativeEditor: NativeFinalCutEditor,
+  assetId: string,
+  nativeTransitionAssets: Map<string, NativeFinalCutTransitionMatch> = new Map(),
+) {
+  const cachedAsset = nativeTransitionAssets.get(assetId);
+  if (cachedAsset) return cachedAsset;
+  let assets: Awaited<ReturnType<AgentVideoRuntime["listAssets"]>> = [];
+  try {
+    assets = await runtime.listAssets({ kind: "transition" });
+  } catch {
+    // A native-only session may not expose the runtime asset registry. Native
+    // discovery below remains the source of truth in that case.
+  }
+  const asset = assets.find((candidate) => candidate.id === assetId);
+  // The runtime registry identifies installed assets by filesystem metadata;
+  // transition placement must use the stable identity returned by Final Cut's
+  // Transitions browser. Resolve registry assets back through native discovery
+  // instead of fabricating a native identity from the registry id.
+  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId);
+  const matchingNativeMatches = asset
+    ? nativeMatches.filter((candidate) => candidate.name === asset.name)
+    : nativeMatches.filter((candidate) => candidate.id === assetId || candidate.identity === assetId);
+  if (asset && matchingNativeMatches.length > 1) {
+    throw new Error(`TRANSITION_ASSET_AMBIGUOUS: native transition name ${asset.name} has multiple stable identities`);
+  }
+  const nativeMatch = matchingNativeMatches[0];
+  if (!nativeMatch) throw new Error(`TRANSITION_ASSET_NOT_FOUND: installed transition asset ${assetId} was not discovered`);
+  return nativeMatch;
+}
+
 async function connectionStatus(options: McpServerOptions): Promise<McpConnectionStatus> {
   return await options.connectionStatus?.() ?? {
     state: "ready",
@@ -1316,6 +1441,8 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
         mediaAppend: Boolean(native?.mediaAppend),
         mediaInsert: Boolean(native?.mediaInsert),
         titlePlacement: Boolean(native?.titlePlacement),
+        transitionDiscovery: Boolean(native?.transitionDiscovery),
+        transitionPlacement: Boolean(native?.transitionPlacement),
         timelineFocus: Boolean(native?.timelineFocus),
         projectCreation: false,
         clipInsertion: false,

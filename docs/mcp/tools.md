@@ -37,6 +37,9 @@ this routing tool.
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
+| `editor.native.transition.search` | Search the visible Final Cut Transitions browser | Returns only transitions with stable native identities; native writes required |
+| `editor.native.transition.add.preview` | Preview adding a discovered transition between two adjacent timeline occurrences | Requires occurrence handles, exact rational timing, unchanged live revision, and native writes opt-in |
+| `editor.native.transition.add.execute` | Add the previewed transition and verify selection, revision, and Undo | Requires unchanged sequence and timeline revision; returns a native Undo operation ID |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
 | `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle |
 | `editor.native.media.search` | Search the active Final Cut Browser | Automatically focuses the Browser and returns short-lived media handles; native writes required |
@@ -76,7 +79,7 @@ this routing tool.
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
-| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, and audio presence | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; existing outputs require `overwrite: true` |
+| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
@@ -171,6 +174,22 @@ fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
 `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
 
+The headed project-selection acceptance gate is opt-in and never uses project
+names as IDs:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID="final-cut-project-id" \
+FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut-sequence-id" \
+pnpm run test:final-cut-project-selection-headed
+```
+
+It requires `projectCatalogRead` and `projectSelection`, enumerates the live
+catalog, selects the explicit project and sequence, and records only the
+allowlisted IDs, counts, capability payload, Final Cut version, and commit.
+With the bundled metadata-only Workflow Extension it fails closed with
+`CAPABILITY_UNAVAILABLE`; that failure is the expected current result until a
+bridge with real catalog and selection support is installed.
+
 `media.search` remains canonical snapshot search. Live Browser import and search
 use the explicit `editor.native.media.*` tools because Browser media identity and
 timeline occurrence identity are different. Imported media handles are stable
@@ -192,10 +211,16 @@ match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free tex
 overlapping usable `range`, and required analyzer `capabilities`. Every analyzed
 status carries the analyzer ID/provider and source identity used to produce it.
 
-`rough-cut.plan` consumes the same index and returns deterministic shots sorted
-by media ID and source range. Each shot includes its exact source identity,
-usable range, confidence, matched properties, and rationale. The planner is
-read-only; it produces planning data and does not add clips to a timeline.
+`rough-cut.plan` consumes the same index and returns deterministic video shots
+sorted by media ID and source range. Audio-only entries with usable ranges are
+excluded from the shots and reported in `warnings`. Each shot includes its exact
+source identity, usable range, confidence, matched properties, and rationale.
+The planner is read-only; it produces planning data and does not add clips to a
+timeline.
+
+Range-taking analysis and planning tools require `end` to be greater than
+`start`. An invalid range returns an MCP input-validation error before the tool
+handler or analyzer runs.
 
 ## Music mixing workflow
 

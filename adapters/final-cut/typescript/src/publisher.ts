@@ -144,11 +144,14 @@ function importXmlScript(path: string): string {
 tell application "System Events"
   tell process "Final Cut Pro"
     if not frontmost then error number -1719
-    click menu item "XML..." of menu item "Import" of menu "File" of menu bar 1
-    delay 0.4
-    keystroke "g" using {command down}
+    set fileMenu to menu "File" of menu bar 1
+    click menu item "Import" of fileMenu
     delay 0.2
-    set value of first text field of front window to ${appleScriptString(path)}
+    click menu item "XML…" of menu "Import" of menu item "Import" of fileMenu
+    delay 0.4
+    keystroke "g" using {command down, shift down}
+    delay 0.2
+    set value of first text field of sheet 1 of window "Import XML" to ${appleScriptString(path)}
     key code 36
     delay 0.5
     key code 36

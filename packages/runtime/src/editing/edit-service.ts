@@ -23,6 +23,7 @@ import { MediaAnalysisService } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
+import { parseRational } from "../timeline/rational-time.js";
 import { assertValidVerificationPolicy } from "../verification/verification.js";
 
 export class EditService {
@@ -80,6 +81,7 @@ export class EditService {
     if (operation.baseRevision && !sameRevision(operation.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: operation base revision does not match current editor state");
     }
+    assertValidWorkflowOperation(operation);
 
     this.assertSurfaceCapability(target, capabilities.editor);
     if (!capabilities.editor.timelineSnapshotRead || !capabilities.editor.readAfterWrite || !capabilities.editor.rollback) {
@@ -189,6 +191,7 @@ export class EditService {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
     }
     if (request.operations.length === 0) throw new Error("INVALID_OPERATION: composite edit requires operations");
+    request.operations.forEach(assertValidWorkflowOperation);
     await this.assertCompositeCapabilities(request.operations, target.kind, capabilities.editor);
     if (!this.adapter.previewTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
@@ -232,6 +235,7 @@ export class EditService {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
     }
     this.assertTarget(preview.target, before);
+    preview.operations.forEach(assertValidWorkflowOperation);
     await this.assertCompositeCapabilities(preview.operations, preview.target.kind);
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
@@ -323,6 +327,9 @@ export class EditService {
       throw new Error(
         `TARGET_MISMATCH: cannot undo ${transaction.before.projectId}/${transaction.before.timeline.id} while ${current.projectId}/${current.timeline.id} is active`,
       );
+    }
+    if (!sameRevision(current.revision, transaction.after.revision)) {
+      throw new Error(`STALE_CONTEXT: transaction ${transactionId} changed after edit`);
     }
     await this.adapter.restore(transaction.before, current.revision);
     const restored = await this.project.inspectProject();
@@ -470,5 +477,17 @@ export class EditService {
     for (const [previewToken, preview] of this.editPreviews) {
       if (now > Date.parse(preview.expiresAt)) this.editPreviews.delete(previewToken);
     }
+  }
+}
+
+function assertValidWorkflowOperation(operation: WorkflowOperation): void {
+  if (operation.type !== "trim-clip") return;
+  if (!Number.isFinite(operation.duration) || operation.duration <= 0) {
+    throw new Error("INVALID_OPERATION: clip duration must be positive");
+  }
+  if (!operation.durationTime) return;
+  const duration = parseRational(operation.durationTime, "INVALID_OPERATION");
+  if (duration.value <= 0n) {
+    throw new Error("INVALID_OPERATION: clip duration must be positive");
   }
 }

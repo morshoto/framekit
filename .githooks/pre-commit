@@ -4,9 +4,10 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-# pnpm 11 requires Node.js >=22.14. Git hooks often inherit a narrower PATH
-# than an interactive shell, so select a compatible Node installation before
-# invoking the Corepack pnpm shim.
+# pnpm 12 requires Node.js >=18, while the repository's CI and native tooling
+# use Node.js >=22.14. Git hooks often inherit a narrower PATH than an
+# interactive shell, so select a compatible Node installation before invoking
+# pnpm.
 node_bin=""
 while IFS= read -r candidate; do
   [[ -x "$candidate" ]] || continue
@@ -20,12 +21,27 @@ while IFS= read -r candidate; do
 done < <(type -a -p node 2>/dev/null | awk '!seen[$0]++')
 
 if [[ -z "$node_bin" ]]; then
-  echo "Framekit pre-commit: Node.js >=22.14 is required by pnpm 11.10.0." >&2
+  echo "Framekit pre-commit: Node.js >=22.14 is required by the repository toolchain." >&2
   echo "Install a compatible Node.js version and retry the commit." >&2
   exit 1
 fi
 
 export PATH="$node_bin:$PATH"
+
+required_pnpm_version="$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '')")"
+pnpm_path="$(command -v pnpm || true)"
+if [[ -z "$pnpm_path" ]]; then
+  echo "Framekit pre-commit: pnpm@$required_pnpm_version is required but pnpm was not found." >&2
+  echo "Install the pinned toolchain or enter the repository's Nix shell and retry." >&2
+  exit 1
+fi
+
+installed_pnpm_version="$(pnpm --version 2>/dev/null || true)"
+if [[ "$installed_pnpm_version" != "$required_pnpm_version" ]]; then
+  echo "Framekit pre-commit: pnpm@$required_pnpm_version is required; found pnpm ${installed_pnpm_version:-unknown} at $pnpm_path." >&2
+  echo "Enter the repository's Nix shell or install the pinned pnpm version and retry." >&2
+  exit 1
+fi
 
 # Keep commit validation deterministic even when the developer's shell is
 # configured to run the live Final Cut MCP. No commit check may launch or
@@ -36,28 +52,111 @@ export FRAMEKIT_FINAL_CUT_HEADLESS=1
 export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0
 export FRAMEKIT_AUTO_CONNECT=0
 
-echo "Framekit pre-commit: build"
-corepack pnpm run build
+native_changes="$(node scripts/staged-native-changes.mjs)"
+total_steps=3
+if [[ "$native_changes" == "true" && "$(uname -s)" == "Darwin" ]]; then
+  total_steps=5
+fi
 
-echo "Framekit pre-commit: tests"
-corepack pnpm run test
+log_dir="$(mktemp -d "${TMPDIR:-/tmp}/framekit-pre-commit.XXXXXX")"
+cleanup() {
+  rm -rf "$log_dir"
+}
+trap cleanup EXIT
 
-echo "Framekit pre-commit: package boundaries"
-corepack pnpm run check:boundaries
+animate=false
+if [[ -t 1 && -t 2 && -z "${NO_COLOR+x}" && "${TERM:-dumb}" != "dumb" ]]; then
+  animate=true
+  bold=$'\033[1m'
+  cyan=$'\033[36m'
+  green=$'\033[32m'
+  red=$'\033[31m'
+  yellow=$'\033[33m'
+  muted=$'\033[2m'
+  reset=$'\033[0m'
+else
+  bold=""
+  cyan=""
+  green=""
+  red=""
+  yellow=""
+  muted=""
+  reset=""
+fi
 
-if [[ "$(node scripts/staged-native-changes.mjs)" != "true" ]]; then
+spinner_frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+spinner_index=0
+
+step=0
+run_step() {
+  local label="$1"
+  shift
+  step=$((step + 1))
+  local log_file="$log_dir/$step.log"
+  local started_at="$SECONDS"
+
+  printf '%s#%d [%d/%d] %s%s%s\n' "$bold" "$step" "$step" "$total_steps" "$cyan" "$label" "$reset"
+
+  if [[ "$animate" == true ]]; then
+    "$@" >"$log_file" 2>&1 &
+    local command_pid=$!
+    while kill -0 "$command_pid" 2>/dev/null; do
+      printf '\r%s  %s%s%s running...%s' "$muted" "${spinner_frames[$spinner_index]}" "$cyan" "$label" "$reset"
+      spinner_index=$(((spinner_index + 1) % ${#spinner_frames[@]}))
+      sleep 0.08
+    done
+  fi
+
+  local exit_code=0
+  if [[ "$animate" == true ]]; then
+    if wait "$command_pid"; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+    printf '\r\033[2K'
+  elif "$@" >"$log_file" 2>&1; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+
+  if [[ "$exit_code" -eq 0 ]]; then
+    printf '%s  %s✔%s %s%s%s (%ss)\n' "$muted" "$green" "$reset" "$label" "$muted" "$reset" "$((SECONDS - started_at))"
+    return 0
+  fi
+
+  printf '%s  %s✖%s %s failed (%ss)\n' "$muted" "$red" "$reset" "$label" "$((SECONDS - started_at))" >&2
+  printf '\n%s--- %s output ---%s\n' "$red" "$label" "$reset" >&2
+  cat "$log_file" >&2
+  exit "$exit_code"
+}
+
+run_step "build" pnpm run build
+
+test_node_options="--test-reporter=dot"
+if [[ -n "${NODE_OPTIONS:-}" ]]; then
+  test_node_options="$NODE_OPTIONS $test_node_options"
+fi
+run_step "tests" env NODE_OPTIONS="$test_node_options" pnpm run test
+
+run_step "package boundaries" pnpm run check:boundaries
+
+if [[ "$native_changes" != "true" ]]; then
+  printf '\n%s✔ Framekit pre-commit checks passed%s\n' "$green" "$reset"
   exit 0
 fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "Framekit pre-commit: staged native files detected; Xcode checks require macOS and will run in CI." >&2
+  printf '\n%s⚠ staged native files detected; Xcode checks require macOS and will run in CI.%s\n' "$yellow" "$reset"
+  printf '%s✔ Framekit pre-commit checks passed%s\n' "$green" "$reset"
   exit 0
 fi
 
-echo "Framekit pre-commit: Xcode toolchain"
-corepack pnpm run xcode:check
+run_step "Xcode toolchain" pnpm run xcode:check
 
-echo "Framekit pre-commit: Xcode project"
-xcodebuild \
+run_step "Xcode project" xcodebuild \
   -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj \
   -list
+
+printf '\n%s✔ Framekit pre-commit checks passed%s\n' "$green" "$reset"

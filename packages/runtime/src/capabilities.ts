@@ -195,6 +195,8 @@ function nativeFamily(
     "projectCreation",
     "clipInsertion",
     "clipMovement",
+    "transitionDiscovery",
+    "transitionPlacement",
   ];
   return Object.fromEntries(nativeOperations.map((operation) => [
     operation,

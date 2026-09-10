@@ -142,7 +142,7 @@ Important error codes include:
 - `FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT`: Final Cut did not respond to a native AppleEvent; reopen or bring Final Cut Pro to the front and retry.
 - `FINAL_CUT_LIVE_PROTOCOL`: framing, JSON, or version failure.
 - `EDITOR_NOT_CONNECTED`: no usable editor backend is connected.
-- `STALE_CONTEXT`: an edit used an old revision.
+- `STALE_CONTEXT`: an edit or undo used an old revision.
 - `TARGET_MISMATCH`: restore or undo targets a different project or sequence
   from the active editor target.
 - `ANALYZER_MEDIA_UNAVAILABLE`: the configured analyzer cannot read the media source.

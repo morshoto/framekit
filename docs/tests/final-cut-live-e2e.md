@@ -140,9 +140,10 @@ pnpm run test:final-cut-canonical-headed \
   > docs/tests/evidence/$(date +%F)-canonical-live.json
 ```
 
-The runner disables FCPXML composition, verifies the exact project and
-occurrence before mutation, renames that occurrence, and performs compensating
-undo. It emits a sanitized evidence document using an allowlisted summary
+The runner disables FCPXML composition, requires a canonical-write bridge to
+enumerate the live project catalog and explicitly select the active project and
+sequence, verifies the exact project and occurrence before mutation, renames
+that occurrence, and performs compensating undo. It emits a sanitized evidence document using an allowlisted summary
 rather than the raw snapshots returned by the MCP tools. The document records
 the Framekit version, full Git commit, runtime environment, Final Cut
 identity/version, capability payload, required tool results, target IDs,
@@ -179,6 +180,32 @@ missing canonical target, stale revision, changed native selection, failed
 read-after-write, or failed restoration stops without claiming evidence. The
 current metadata-only Swift bridge therefore cannot produce this evidence until
 canonical live enumeration is available.
+
+## Native transition placement evidence
+
+For PRs that change native transition discovery or placement, run the headed
+transition workflow against a disposable project with two adjacent media
+occurrences. The media queries and transition query must each resolve to one
+visible Final Cut result:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Transition E2E" \
+FRAMEKIT_FINAL_CUT_E2E_BEFORE_QUERY="before-clip" \
+FRAMEKIT_FINAL_CUT_E2E_AFTER_QUERY="after-clip" \
+FRAMEKIT_FINAL_CUT_E2E_TRANSITION_QUERY="Cross Dissolve" \
+FRAMEKIT_FINAL_CUT_E2E_TRANSITION_DURATION="1/1" \
+pnpm run test:final-cut-transition-headed \
+  > docs/tests/evidence/$(date +%F)-transition-live.json
+```
+
+The runner checks the active project and frontmost timeline, searches and
+selects both media items, requires one occurrence per side, and confirms that
+the transition preview exposes exact rational ranges and an edit point. It
+then executes the native transition, verifies a new live revision plus the
+duration read back from Final Cut, and calls native Undo to verify restoration.
+The output is an allowlisted summary; it does not include raw snapshots,
+operation handles, media paths, or credentials. Headless fixtures and FCPXML
+reads do not satisfy this headed evidence requirement.
 
 ## Canonical live read evidence
 

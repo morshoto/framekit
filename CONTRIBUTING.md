@@ -8,7 +8,7 @@ For first-time setup, install the local pre-commit hook with
 Requirements:
 
 - Node.js 20 or newer (CI runs Node.js 22);
-- pnpm 11.10.0;
+- pnpm 12.3.4;
 - Xcode 16.4 and the macOS 15.5 SDK for native work.
 
 Install dependencies and run the standard checks:
@@ -86,6 +86,10 @@ The hook also forces `FRAMEKIT_EDITOR=fixture`,
 `FRAMEKIT_AUTO_CONNECT=0` while running validation. This prevents inherited
 shell configuration from launching or activating Final Cut Pro during a
 commit.
+
+When attached to an interactive terminal, the hook displays colored stages and
+an animated spinner while each check runs. Set `NO_COLOR=1` to disable both
+colors and animation.
 
 
 ## Pull requests
