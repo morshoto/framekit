@@ -40,6 +40,14 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+type PublishedMusicSchema = {
+  anyOf?: Array<{
+    additionalProperties?: boolean;
+    properties?: Record<string, { const?: unknown }>;
+    required?: string[];
+  }>;
+};
+
 test("music workflow previews, mixes, verifies, and undoes an appended music bed", async () => {
   const { runtime } = createMusicRuntime();
   const before = await runtime.inspectProject();
@@ -148,6 +156,60 @@ test("MCP exposes guarded music preview, execute, verification, and undo", async
     assert.equal(ducked.isError, true);
     assert.match(textFrom(ducked), /CAPABILITY_UNAVAILABLE: dialogue ducking/);
     assert.deepEqual(await runtime.inspectProject(), undone);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("music.add publishes source and placement constraints", async () => {
+  const { runtime } = createMusicRuntime();
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "music-schema-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const tools = await client.listTools();
+    const musicAdd = tools.tools.find((tool) => tool.name === "music.add");
+    assert.ok(musicAdd);
+    const schema = musicAdd.inputSchema as PublishedMusicSchema;
+    const variants = (schema.anyOf ?? []).map((branch) => ({
+      placement: branch.properties?.placement?.const,
+      requiresMediaId: branch.required?.includes("mediaId") ?? false,
+      requiresImport: branch.required?.includes("import") ?? false,
+      requiresStart: branch.required?.includes("start") ?? false,
+      forbidsExtraFields: branch.additionalProperties === false,
+    }));
+    assert.deepEqual(variants.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))), [
+      { placement: "append", requiresMediaId: true, requiresImport: false, requiresStart: false, forbidsExtraFields: true },
+      { placement: "append", requiresMediaId: false, requiresImport: true, requiresStart: false, forbidsExtraFields: true },
+      { placement: "insert", requiresMediaId: true, requiresImport: false, requiresStart: true, forbidsExtraFields: true },
+      { placement: "insert", requiresMediaId: false, requiresImport: true, requiresStart: true, forbidsExtraFields: true },
+    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))));
+
+    const before = await runtime.inspectProject();
+    const shared = {
+      baseRevision: before.revision,
+      occurrenceId: "invalid-schema-request",
+      targetLane: -1,
+      duration: 1,
+    };
+    for (const arguments_ of [
+      { ...shared, placement: "append" },
+      {
+        ...shared,
+        mediaId: "media-dialogue",
+        import: { mediaId: "media-import", source: "music.wav", duration: 1, sourceDigest: "sha256:music" },
+        placement: "append",
+      },
+      { ...shared, mediaId: "media-dialogue", placement: "insert" },
+      { ...shared, mediaId: "media-dialogue", placement: "append", start: 0 },
+    ]) {
+      const result = await client.callTool({ name: "music.add", arguments: arguments_ });
+      assert.equal(result.isError, true);
+      assert.match(textFrom(result), /Input validation error/);
+    }
   } finally {
     await client.close();
     await server.close();
