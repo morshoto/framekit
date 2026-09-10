@@ -375,6 +375,25 @@ test("post-write verification invokes analyzers for affected ranges", async () =
   assert.ok(audioCalls > 0);
 });
 
+test("post-write verification rolls back when speech analysis is stale", async () => {
+  const editor = fixtureAdapter();
+  const before = await editor.readProject();
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: {
+      analyze: async ({ media }) => ({
+        revision: { id: "rev-stale", sequence: -1, timestamp: "2026-09-09T00:00:00.000Z" },
+        words: structuredClone(media.speech?.words ?? []),
+      }),
+    },
+  });
+
+  await assert.rejects(
+    runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Must Not Persist" }),
+    /ANALYSIS_FAILED: post-write verification analysis failed .*STALE_CONTEXT/,
+  );
+  assert.deepEqual(await editor.readProject(), before);
+});
+
 test("post-write verification passes clip intersections in media-relative coordinates", async () => {
   const ranges = {
     speech: [] as Array<{ start: number; end: number }>,
