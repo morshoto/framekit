@@ -80,9 +80,10 @@ test("speech mapping fails closed for stale, ambiguous, and unsupported targets"
   const mismatched = { ...occurrence(30), mediaId: "other-media" };
   const unequal = { ...occurrence(30), sequenceRange: { ...occurrence(30).sequenceRange, end: 33 } };
   const missingRational = { ...occurrence(30), sequenceRange: { start: 30, end: 32 } };
+  const mismatchedTimebase = { ...occurrence(30), sourceTimebase: { value: "1", timescale: "30" } };
   const partialWord = { ...analysis, words: [{ text: "cut", start: 9.9, end: 10.1, confidence: 0.9 }] };
 
-  for (const target of [stale, mismatched, unequal, missingRational]) {
+  for (const target of [stale, mismatched, unequal, missingRational, mismatchedTimebase]) {
     assert.throws(
       () => mapSpeechAnalysisToOccurrence(analysis, target, { sequenceFrameDuration: { value: "1", timescale: "10" } }),
       /STALE_CONTEXT|TARGET_MISMATCH|AMBIGUOUS_MAPPING|ANALYSIS_INVALID/,
