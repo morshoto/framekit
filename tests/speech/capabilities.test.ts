@@ -37,3 +37,12 @@ test("editor inspection reports a configured transcription-plus-VAD provider", a
   assert.equal(inspected.capabilities.analyzers.speechCapability, "transcription-plus-vad");
   assert.equal(inspected.capabilities.families.analyzers.speechVad.available, true);
 });
+
+test("editor inspection honors an explicit unavailable speech provider", async () => {
+  const runtime = runtimeWithSpeechCapabilities({ transcription: false, vad: false });
+  const inspected = await runtime.inspectEditor();
+
+  assert.equal(inspected.capabilities.analyzers.speechTranscribe, false);
+  assert.equal(inspected.capabilities.analyzers.speechVad, false);
+  assert.equal(inspected.capabilities.analyzers.speechCapability, "unavailable");
+});
