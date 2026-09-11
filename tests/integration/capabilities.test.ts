@@ -4,13 +4,14 @@ import test from "node:test";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
+  CommandVisualAnalyzer,
   FcpxmlDocumentAdapter,
   FinalCutConnectionManager,
   FinalCutLiveAdapter,
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
-import { AgentVideoRuntime, withCapabilityFamilies } from "@framekit/runtime";
+import { AgentVideoRuntime, withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { join } from "node:path";
@@ -99,6 +100,39 @@ test("canonical writes retain canonical-read guarantees and asset discovery is n
   assert.equal(canonicalWrite.families.canonicalDocument.read.guarantee, "canonical-read");
   assert.equal(canonicalWrite.families.canonicalDocument.write.available, true);
   assert.equal(assetOnly.families.observation.media.available, false);
+});
+
+test("capability normalization invalidates stale descriptors after a downgrade", () => {
+  const canonicalWrite = withCapabilityFamilies({
+    editor: {
+      ...artifactCapabilities.editor,
+      timelineWrite: true,
+      timelineArtifactWrite: false,
+      readAfterWrite: true,
+      rollback: true,
+      projectRead: true,
+      projectCatalogRead: true,
+      projectSelection: true,
+      compositeTransactions: true,
+    },
+    analyzers: artifactCapabilities.analyzers,
+  }, { backend: "canonical-live-ipc" });
+
+  const downgraded = withCanonicalTimelineMode({
+    ...canonicalWrite,
+    editor: {
+      ...canonicalWrite.editor,
+      timelineWrite: false,
+      projectCatalogRead: false,
+      projectSelection: false,
+    },
+  });
+
+  assert.equal(downgraded.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(downgraded.families?.canonicalDocument.write.available, false);
+  assert.equal(downgraded.families?.canonicalDocument.write.backend, "canonical-live-ipc");
+  assert.equal(downgraded.families?.editing.compositeTransactions.available, false);
+  assert.equal(downgraded.families?.editing.compositeTransactions.backend, "canonical-live-ipc");
 });
 
 test("unavailable capability operations explain their fail-closed reason", () => {
@@ -283,6 +317,84 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
   }
 });
 
+test("MCP editor inspection preserves configured analyzer provider provenance", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Analyzer Provenance Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }), {
+    visualAnalyzer: new CommandVisualAnalyzer({ command: "/usr/bin/true" }),
+  });
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "analyzer-provenance-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "editor.inspect", arguments: {} });
+    const payload = JSON.parse(textFrom(result));
+
+    assert.equal(payload.identity.backend, "fixture");
+    assert.equal(payload.capabilities.families.analyzers.visualTrack.available, true);
+    assert.equal(payload.capabilities.families.analyzers.visualTrack.backend, "command");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("editor inspection preserves each configured analyzer provider backend", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Analyzer Provider Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }), {
+    speechAnalyzer: {
+      descriptor: { id: "speech.test", provider: "speech-provider" },
+      capabilities: { transcription: true, vad: true },
+      analyze: async () => ({ words: [] }),
+    },
+    audioAnalyzer: {
+      descriptor: { id: "audio.test", provider: "audio-provider" },
+      analyze: async () => ({ integratedLufs: -18, truePeakDb: -3, silenceMs: 0 }),
+    },
+    noiseAnalyzer: {
+      descriptor: { id: "noise.test", provider: "noise-provider" },
+      analyze: async () => ({
+        noiseFloorDb: -60,
+        affectedRanges: [],
+        recommendedReductionDb: 0,
+        confidence: 1,
+      }),
+    },
+    visualAnalyzer: {
+      descriptor: { id: "visual.test", provider: "visual-provider" },
+      analyze: async () => ({ scenes: [], subjects: [], keyframes: [] }),
+    },
+  });
+  const inspected = await runtime.inspectEditor();
+  const analyzers = inspected.capabilities.families.analyzers;
+
+  assert.deepEqual({
+    speechTranscribe: analyzers.speechTranscribe.backend,
+    speechVad: analyzers.speechVad.backend,
+    audioLoudness: analyzers.audioLoudness.backend,
+    audioNoise: analyzers.audioNoise?.backend,
+    visualTrack: analyzers.visualTrack.backend,
+  }, {
+    speechTranscribe: "speech-provider",
+    speechVad: "speech-provider",
+    audioLoudness: "audio-provider",
+    audioNoise: "noise-provider",
+    visualTrack: "visual-provider",
+  });
+});
+
 test("capability documentation describes the versioned operation contract", async () => {
   const architecture = await readFile(join(process.cwd(), "docs/architecture/capability-model.md"), "utf8");
   const mcp = await readFile(join(process.cwd(), "docs/mcp/capabilities-and-errors.md"), "utf8");
@@ -292,6 +404,13 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /families/);
   assert.match(documentation, /unavailableReason/);
   assert.match(documentation, /canonicalDocument/);
+  assert.match(documentation, /editing/);
+  assert.match(documentation, /pictureInPicture/);
+  assert.match(documentation, /masking/);
+  assert.match(documentation, /preflight/);
+  assert.match(documentation, /documentMode/);
+  assert.match(documentation, /processMode/);
+  assert.match(documentation, /native-write/);
   assert.match(documentation, /projectCreation/);
   assert.match(documentation, /clipInsertion/);
   assert.match(documentation, /clipMovement/);

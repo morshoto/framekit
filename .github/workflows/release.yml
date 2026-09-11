@@ -92,12 +92,6 @@ jobs:
           ref: ${{ needs.tagpr.outputs.release-tag }}
           persist-credentials: false
 
-      - name: Validate release package
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
-        run: node scripts/validate-release-contract.mjs
-
       - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -113,6 +107,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build release package
+        run: pnpm run build:package
+
+      - name: Validate release package
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        run: node scripts/validate-release-contract.mjs
+
+      - name: Validate MCP server version
+        run: node scripts/validate-mcp-server-version.mjs
 
       - id: npm-status
         name: Check npm publication status
@@ -136,7 +142,6 @@ jobs:
             cat "${error_log}" >&2
             exit 1
           fi
-
       - name: Publish npm package
         if: steps.npm-status.outputs.published != 'true'
         run: |

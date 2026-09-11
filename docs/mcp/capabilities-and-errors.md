@@ -65,6 +65,7 @@ The families are:
 | `connection` | `status` | Bridge connection availability only |
 | `observation` | `timeline`, `media` | Live metadata or canonical observation |
 | `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
+| `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking` | Routed editing operations and explicit unsupported boundaries |
 | `native` | `selectionWrite`, `projectCreation`, `clipInsertion`, `clipMovement`, `titlePlacement` | Individual Final Cut Accessibility operations |
 | `publishing` | `projectCreation` | Importing a verified artifact as a new project |
 | `export` | `timeline` | Verified local video export |
@@ -76,6 +77,17 @@ project creation, clip insertion, or clip movement remains present with
 media insertion operation does not imply that any other native operation is
 available. `ready` is only a connection state and never implies arbitrary
 editability.
+
+`editor.inspect` also returns an inspect-time `preflight` report. Its `mode` is
+`fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or
+`native-write`; `documentMode` preserves the underlying document mode when a
+headed native-write surface is active. `processMode` is `headed` or `headless`.
+The report repeats the effective `capabilities` families so agents can see the
+backend, guarantee, and unavailable reason for connection, canonical reads and
+writes, composite editing, speech, audio, visual analysis, title placement, PIP,
+and masking in one response. `native-write` is only reported for an explicitly
+headed process with a native write capability; deterministic, metadata-only, and
+FCPXML artifact results remain separate evidence tiers.
 
 ```json
 {

@@ -71,6 +71,8 @@ Run the standard checks before merging a release pull request:
 ```sh
 pnpm install --frozen-lockfile
 pnpm run build
+pnpm run build:package
+node scripts/validate-mcp-server-version.mjs
 pnpm run test
 pnpm run check:boundaries
 npm pack --dry-run

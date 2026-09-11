@@ -312,8 +312,31 @@ test("FCPXML separates asset source starts from timeline offsets", async () => {
   assert.equal(snapshot.timeline.duration, 3);
   assert.deepEqual(snapshot.timeline.clips[0]?.startTime, { value: "0", timescale: "1" });
   assert.equal(snapshot.timeline.clips[0]?.start, 0);
+  assert.equal(snapshot.timeline.clips[0]?.sourceStart, 4);
+  assert.deepEqual(snapshot.timeline.clips[0]?.sourceStartTime, { value: "4", timescale: "1" });
   assert.equal(snapshot.timeline.markers[0]?.start, 2);
   assert.equal(snapshot.timeline.captions[0]?.start, 5);
+});
+
+test("FCPXML resource duration bounds silent full-media speech analysis", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-speech-duration-"));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, `<?xml version="1.0"?><fcpxml><resources>
+    <asset id="r1" src="file:///silent.wav" duration="12s" />
+  </resources><library><event><project uid="project-speech-duration"><sequence uid="sequence-speech-duration" duration="3s"><spine>
+    <asset-clip ref="r1" duration="3s" />
+  </spine></sequence></project></event></library></fcpxml>`);
+
+  const adapter = new FcpxmlDocumentAdapter(path);
+  const runtime = new AgentVideoRuntime(adapter, {
+    speechAnalyzer: { analyze: async () => ({ words: [] }) },
+  });
+
+  const result = await runtime.analyzeSpeech("r1");
+
+  assert.equal((await adapter.readProject()).media[0]?.duration, 12);
+  assert.deepEqual(result.requestedRange, { start: 0, end: 12 });
+  assert.deepEqual(result.observedRange, { start: 0, end: 12 });
 });
 
 test("Final Cut session composes document snapshot and live state providers", async () => {
@@ -363,14 +386,62 @@ test("post-write verification invokes analyzers for affected ranges", async () =
   const editor = fixtureAdapter();
   let speechCalls = 0;
   let audioCalls = 0;
+  let visualCalls = 0;
   const runtime = new AgentVideoRuntime(editor, {
     speechAnalyzer: { analyze: async ({ media }) => { speechCalls += 1; return structuredClone(media.speech!); } },
     audioAnalyzer: { analyze: async ({ media }) => { audioCalls += 1; return structuredClone(media.audio!); } },
+    visualAnalyzer: { analyze: async () => { visualCalls += 1; throw new Error("ANALYZER_MEDIA_UNAVAILABLE"); } },
   });
-  const transaction = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Analyzed" });
+  const transaction = await runtime.edit(
+    { type: "rename-clip", clipId: "clip-1", name: "Analyzed" },
+    { requireSpeechContinuity: true, targetLufs: -18 },
+  );
   assert.equal(transaction.status, "VERIFIED");
   assert.ok(speechCalls > 0);
   assert.ok(audioCalls > 0);
+  assert.equal(visualCalls, 0);
+});
+
+test("unrelated edits ignore optional analyzer failures without verification policy", async () => {
+  const editor = fixtureAdapter();
+  let visualCalls = 0;
+  const runtime = new AgentVideoRuntime(editor, {
+    visualAnalyzer: {
+      analyze: async () => {
+        visualCalls += 1;
+        throw new Error("ANALYZER_MEDIA_UNAVAILABLE");
+      },
+    },
+  });
+
+  const transaction = await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Independent" });
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.after.timeline.clips[0]?.name, "Independent");
+  assert.equal(visualCalls, 0);
+});
+
+test("post-write verification rolls back when speech analysis is stale", async () => {
+  const editor = fixtureAdapter();
+  const before = await editor.readProject();
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: {
+      analyze: async ({ media }) => ({
+        revision: { id: "rev-stale", sequence: -1, timestamp: "2026-09-09T00:00:00.000Z" },
+        words: structuredClone(media.speech?.words ?? []),
+      }),
+    },
+  });
+
+  await assert.rejects(
+    runtime.edit(
+      { type: "rename-clip", clipId: "clip-1", name: "Must Not Persist" },
+      { requireSpeechContinuity: true },
+    ),
+    /ANALYSIS_FAILED: post-write verification analysis failed .*STALE_CONTEXT/,
+  );
+  const restored = await editor.readProject();
+  assert.deepEqual({ ...restored, revision: before.revision }, before);
 });
 
 test("post-write verification passes clip intersections in media-relative coordinates", async () => {
@@ -398,21 +469,132 @@ test("post-write verification passes clip intersections in media-relative coordi
     } },
     visualAnalyzer: { analyze: async (_input, range) => {
       if (range) ranges.visual.push(range);
-      return { scenes: [], subjects: [], keyframes: [] };
+      return { scenes: [], subjects: [{ id: "subject-person", label: "person", confidence: 1 }], keyframes: [] };
     } },
   });
 
-  await runtime.edit({
-    type: "add-marker",
-    timelineId: "timeline-analysis-range",
-    marker: { id: "marker-analysis", start: 8, duration: 4, name: "Review" },
-  });
+  await runtime.edit(
+    {
+      type: "add-marker",
+      timelineId: "timeline-analysis-range",
+      marker: { id: "marker-analysis", start: 8, duration: 4, name: "Review" },
+    },
+    {
+      requireSpeechContinuity: true,
+      targetLufs: -18,
+      assertions: [{ type: "visual-content", mediaId: "media-analysis", label: "person" }],
+    },
+  );
 
   assert.deepEqual(ranges, {
     speech: [{ start: 0, end: 2 }],
     audio: [{ start: 0, end: 2 }],
     visual: [{ start: 0, end: 2 }],
   });
+});
+
+test("post-write speech reanalysis retains evidence outside changed ranges", async () => {
+  const sourceIdentity = {
+    mediaId: "media-retained-speech",
+    source: "interview.wav",
+    mediaKind: "audio" as const,
+    duration: 10,
+  };
+  const editor = new InMemoryEditorAdapter({
+    projectId: "project-retained-speech",
+    projectName: "Retained Speech Fixture",
+    timelineId: "timeline-retained-speech",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-retained-speech", mediaId: sourceIdentity.mediaId, name: "Interview", start: 0, duration: 10, track: 1 }],
+    media: [{
+      ...sourceIdentity,
+      speech: {
+        schemaVersion: 1,
+        mediaId: sourceIdentity.mediaId,
+        sourceIdentity,
+        requestedRange: { start: 0, end: 10 },
+        observedRange: { start: 0, end: 10 },
+        revision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+        provider: { id: "fixture.speech", provider: "fixture" },
+        sourceTimebase: { value: "1", timescale: "1000" },
+        capability: "transcription-plus-vad",
+        words: [
+          { text: "before", start: 1, end: 1.5, confidence: 0.99 },
+          { text: "old-middle", start: 4.1, end: 4.4, confidence: 0.8 },
+          { text: "after", start: 7, end: 7.5, confidence: 0.99 },
+        ],
+        vadSegments: [
+          { start: 1, end: 1.5, kind: "speech" },
+          { start: 4.1, end: 4.4, kind: "speech" },
+          { start: 7, end: 7.5, kind: "speech" },
+        ],
+      },
+    }],
+  });
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: {
+      descriptor: { id: "fixture.speech", provider: "fixture" },
+      analyze: async (_input, range) => ({
+        requestedRange: range,
+        observedRange: range,
+        words: [{ text: "new-middle", start: 4.2, end: 4.6, confidence: 0.98 }],
+        vadSegments: [{ start: 4.2, end: 4.6, kind: "speech" }],
+      }),
+    },
+  });
+
+  const transaction = await runtime.edit(
+    {
+      type: "add-marker",
+      timelineId: "timeline-retained-speech",
+      marker: { id: "marker-retained-speech", start: 4, duration: 1, name: "Review" },
+    },
+    { requireSpeechContinuity: true },
+  );
+
+  const speech = transaction.after.media[0]?.speech;
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(speech?.words.map(({ text }) => text), ["before", "new-middle", "after"]);
+  assert.deepEqual(speech?.vadSegments?.map(({ start, end }) => ({ start, end })), [
+    { start: 1, end: 1.5 },
+    { start: 4.2, end: 4.6 },
+    { start: 7, end: 7.5 },
+  ]);
+  assert.deepEqual(speech?.requestedRange, { start: 0, end: 10 });
+  assert.deepEqual(speech?.observedRange, { start: 0, end: 10 });
+  assert.equal(speech?.revision?.id, transaction.after.revision.id);
+});
+
+test("post-write speech reanalysis coalesces overlapping source ranges", async () => {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const editor = new InMemoryEditorAdapter({
+    projectId: "project-coalesced-speech",
+    projectName: "Coalesced Speech Fixture",
+    timelineId: "timeline-coalesced-speech",
+    timelineName: "Main Edit",
+    clips: [{ id: "clip-coalesced-speech", mediaId: "media-coalesced-speech", name: "Interview", start: 0, duration: 10, track: 1 }],
+    media: [{ mediaId: "media-coalesced-speech", source: "interview.wav", duration: 10 }],
+  });
+  const runtime = new AgentVideoRuntime(editor, {
+    speechAnalyzer: {
+      analyze: async (_input, range) => {
+        if (range) ranges.push(range);
+        return { words: [] };
+      },
+    },
+  });
+
+  const transaction = await runtime.edit(
+    {
+      type: "trim-clip",
+      clipId: "clip-coalesced-speech",
+      duration: 9,
+    },
+    { requireSpeechContinuity: true },
+  );
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.deepEqual(ranges, [{ start: 0, end: 9 }]);
 });
 
 test("missing live context reports the Framekit capability name", async () => {

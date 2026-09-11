@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.1.5](https://github.com/morshoto/framekit/compare/v0.1.4...v0.1.5) - 2026-09-11
+
+- test: align pnpm lockfile assertion by @morshoto in https://github.com/morshoto/framekit/pull/174
+- fix: exclude audio-only rough-cut shots by @morshoto in https://github.com/morshoto/framekit/pull/170
+- fix: reject non-positive rational trim durations by @morshoto in https://github.com/morshoto/framekit/pull/171
+- fix: reject inverted analysis ranges by @morshoto in https://github.com/morshoto/framekit/pull/169
+- fix: invalidate cached media understanding after edits by @morshoto in https://github.com/morshoto/framekit/pull/175
+- fix: reject stale edit.undo by @morshoto in https://github.com/morshoto/framekit/pull/168
+- perf: run CodeQL only for affected languages by @morshoto in https://github.com/morshoto/framekit/pull/177
+- fix: Expose operation-specific requirements in single-edit MCP schemas by @morshoto in https://github.com/morshoto/framekit/pull/173
+- feat: add revision-bound speech and VAD analysis by @morshoto in https://github.com/morshoto/framekit/pull/176
+- fix: align MCP server version with package by @morshoto in https://github.com/morshoto/framekit/pull/172
+- fix: decouple edits from optional analyzers by @morshoto in https://github.com/morshoto/framekit/pull/180
+- fix: preserve analyzer-provider provenance by @morshoto in https://github.com/morshoto/framekit/pull/179
+- fix: preserve media roles in canonical clips by @morshoto in https://github.com/morshoto/framekit/pull/178
+- fix: preserve routed capabilities and preflight by @morshoto in https://github.com/morshoto/framekit/pull/183
+- fix: make FCPXML publishing state-driven by @morshoto in https://github.com/morshoto/framekit/pull/182
+- perf: advertise music.add cross-field constraints by @morshoto in https://github.com/morshoto/framekit/pull/181
+
 ## [v0.1.4](https://github.com/morshoto/framekit/compare/v0.1.3...v0.1.4) - 2026-09-10
 
 - feat: add guarded native Final Cut transitions by @morshoto in https://github.com/morshoto/framekit/pull/142

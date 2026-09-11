@@ -342,7 +342,7 @@ function createScenarioSpeechAnalyzer(scenario: FillerRemovalScenario): SpeechAn
       const words = editApplied && scenario.category === "success"
         ? originalWords.flatMap((word) => mapWordAfterDelete(word, scenario.range))
         : originalWords.map((word) => ({ ...word }));
-      return { words: range ? words.filter((word) => overlaps(word, range)) : words };
+      return { words: range ? words.filter((word) => word.start >= range.start && word.end <= range.end) : words };
     },
   };
 }
@@ -354,10 +354,6 @@ function mapWordAfterDelete(word: SpeechWord, range: TimeRange): SpeechWord[] {
     return [{ ...word, start: word.start - removedDuration, end: word.end - removedDuration }];
   }
   return [];
-}
-
-function overlaps(word: SpeechWord, range: TimeRange): boolean {
-  return word.end > range.start && word.start < range.end;
 }
 
 function transcriptMatches(expected: string[], actual: string[]): boolean {

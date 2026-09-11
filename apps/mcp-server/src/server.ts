@@ -1,9 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   AgentVideoRuntime,
+  createCapabilityPreflight,
   resolveEditingIntent,
   withCapabilityFamilies,
+  type CapabilityProcessMode,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
@@ -20,6 +23,7 @@ import {
   type EditorRoutingContext,
   type EditingRouteOperation,
 } from "./routing.js";
+import { FRAMEKIT_VERSION } from "./version.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -215,31 +219,91 @@ const verificationPolicySchema = z.object({
   loudnessToleranceDb: z.number().finite().nonnegative().optional(),
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
-const editToolInputSchema = z.object({
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "set-color-correction", "ripple-delete", "add-marker"]),
-  clipId: z.string().min(1).optional(),
-  name: z.string().min(1).optional(),
-  duration: z.number().positive().optional(),
-  durationTime: rationalTimeSchema.optional(),
-  gainDb: z.number().finite().optional(),
-  reductionDb: z.number().finite().positive().optional(),
-  correction: colorCorrectionSchema.shape.correction.optional(),
-  timelineId: z.string().min(1).optional(),
-  range: rangeSchema.optional(),
-  reason: z.string().optional(),
-  marker: markerSchema.optional(),
-  baseRevision: revisionSchema,
-  verification: verificationPolicySchema.optional(),
-}).strict();
-const artifactEditToolInputSchema = editToolInputSchema.extend({
+function mcpObjectSchema<Schema extends z.ZodTypeAny>(schema: Schema): Schema {
+  // The MCP SDK only serializes schemas it recognizes as object-shaped.
+  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
+  return schema;
+}
+
+function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
+  options: Options,
+): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
+  const schema = z.discriminatedUnion("type", options as unknown as [
+    z.ZodDiscriminatedUnionOption<"type">,
+    ...z.ZodDiscriminatedUnionOption<"type">[],
+  ]);
+  return mcpObjectSchema(schema);
+}
+
+function mcpUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
+  options: Options,
+): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
+  const schema = z.union(options as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  return mcpObjectSchema(schema);
+}
+
+function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
+  target: Target = {} as Target,
+  baseRevision: z.ZodTypeAny = revisionSchema,
+) {
+  const options = [
+    renameClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    trimClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    setGainSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    reduceNoiseSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    colorCorrectionSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    rippleDeleteSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    addMarkerSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+  ] as const;
+  return mcpDiscriminatedUnion(options);
+}
+
+const editToolInputSchema = createEditToolInputSchema();
+const artifactEditToolInputSchema = createEditToolInputSchema({
   artifactPath: z.string().trim().min(1),
-  baseRevision: revisionValueSchema,
-}).strict();
-const editorTimelineEditToolInputSchema = editToolInputSchema.extend({
+}, revisionValueSchema);
+const editorTimelineEditToolInputSchema = createEditToolInputSchema({
   projectId: z.string().trim().min(1),
   sequenceId: z.string().trim().min(1),
-  baseRevision: revisionValueSchema,
-}).strict();
+}, revisionValueSchema);
+
+type JsonSchema = {
+  anyOf?: JsonSchema[];
+  properties?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function exposeObjectRoot(schema: unknown): unknown {
+  if (!isRecord(schema) || !Array.isArray(schema.anyOf)) return schema;
+  const properties: Record<string, unknown> = {};
+  for (const branch of schema.anyOf as JsonSchema[]) {
+    for (const [key, value] of Object.entries(branch.properties ?? {})) {
+      if (key !== "type") properties[key] = value;
+    }
+  }
+  return { ...schema, type: "object", properties };
+}
+
+function installMcpSchemaCompatibility(server: McpServer): void {
+  type RequestHandler = (request: unknown, extra: unknown) => Promise<unknown>;
+  type ToolListResponse = { tools?: Array<Record<string, unknown>>; [key: string]: unknown };
+  const handlers = (server.server as unknown as { _requestHandlers?: Map<string, RequestHandler> })._requestHandlers;
+  const listToolsHandler = handlers?.get("tools/list");
+  if (!listToolsHandler) throw new Error("MCP tools/list handler was not initialized");
+
+  server.server.removeRequestHandler("tools/list");
+  server.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    const response = await listToolsHandler(request, extra) as ToolListResponse;
+    return {
+      ...response,
+      tools: response.tools?.map((tool) => ({
+        ...tool,
+        inputSchema: exposeObjectRoot(tool.inputSchema),
+      })) ?? [],
+    };
+  });
+}
+
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
@@ -356,13 +420,9 @@ const musicDuckingSchema = z.object({
   dialogueClipIds: z.array(z.string().min(1)).optional(),
   reductionDb: z.number().finite().optional(),
 });
-const musicAddInputSchema = {
+const musicAddCommonInputSchema = {
   baseRevision: revisionValueSchema,
   occurrenceId: z.string().min(1),
-  mediaId: z.string().min(1).optional(),
-  import: musicImportSchema.optional(),
-  placement: z.enum(["append", "insert"]),
-  start: z.number().nonnegative().optional(),
   duration: z.number().positive().optional(),
   targetLane: z.number().int().refine((lane) => lane !== 0, "music requires a non-primary lane"),
   gainDb: z.number().finite().optional(),
@@ -371,6 +431,30 @@ const musicAddInputSchema = {
   ducking: musicDuckingSchema.optional(),
   verification: verificationPolicySchema.optional(),
 };
+const musicAddInputSchema = mcpUnion([
+  z.object({
+    ...musicAddCommonInputSchema,
+    mediaId: z.string().min(1),
+    placement: z.literal("append"),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    import: musicImportSchema,
+    placement: z.literal("append"),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    mediaId: z.string().min(1),
+    placement: z.literal("insert"),
+    start: z.number().nonnegative(),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    import: musicImportSchema,
+    placement: z.literal("insert"),
+    start: z.number().nonnegative(),
+  }).strict(),
+]);
 const fillerRemovalInputSchema = {
   baseRevision: revisionValueSchema,
   range: rangeSchema,
@@ -574,6 +658,7 @@ export interface McpConnectionStatus {
 }
 
 export interface McpServerOptions {
+  processMode?: CapabilityProcessMode;
   connectionStatus?: () => McpConnectionStatus | undefined | Promise<McpConnectionStatus | undefined>;
   nativeEditor?: NativeFinalCutEditor;
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
@@ -584,7 +669,7 @@ export interface McpServerOptions {
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
   const server = new McpServer(
-    { name: "framekit", version: "0.1.0" },
+    { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
@@ -1281,9 +1366,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("speech.analyze", {
-    description: "Analyze speech words and filler markers for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.analyzeSpeech(mediaId)));
+    description: "Analyze speech words, filler markers, and optional VAD for one media item or source range.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeSpeech(mediaId, range)));
 
   server.registerTool("speech.filler.remove.preview", {
     description: "Analyze a selected canonical timeline range and preview removal of high-confidence filler words with safe rational delete ranges.",
@@ -1354,6 +1439,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => jsonResult(await runtime.undo(transactionId)));
 
+  installMcpSchemaCompatibility(server);
   return server;
 }
 
@@ -1414,44 +1500,49 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
+  const capabilities = withCapabilityFamilies({
+    ...inspected.capabilities,
+    editor: {
+      ...inspected.capabilities.editor,
+      artifactPublish: publishingAvailable,
+      ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
+      videoExport: exportAvailable,
+    },
+  }, {
+    backend: inspected.identity.backend,
+    nativeBackend: "final-cut-accessibility",
+    native: {
+      selectionWrite: Boolean(native?.selectionEdit),
+      undo: Boolean(native?.undo),
+      mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
+      mediaImport: Boolean(native?.mediaImport),
+      mediaSelection: Boolean(native?.mediaSelection),
+      mediaAppendSelected: Boolean(native?.mediaAppendSelected),
+      timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
+      bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
+      deleteRange: Boolean(native?.deleteRange),
+      trimToDuration: Boolean(native?.trimToDuration),
+      mediaAppend: Boolean(native?.mediaAppend),
+      mediaInsert: Boolean(native?.mediaInsert),
+      titlePlacement: Boolean(native?.titlePlacement),
+      transitionDiscovery: Boolean(native?.transitionDiscovery),
+      transitionPlacement: Boolean(native?.transitionPlacement),
+      timelineFocus: Boolean(native?.timelineFocus),
+      projectCreation: false,
+      clipInsertion: false,
+      clipMovement: false,
+    },
+    publishing: publishingAvailable,
+    publishingBackend: "fcpxml-publisher",
+    export: exportAvailable,
+    exportBackend: "final-cut-native-export",
+  });
   return {
     ...inspected,
-    capabilities: withCapabilityFamilies({
-      ...inspected.capabilities,
-      editor: {
-        ...inspected.capabilities.editor,
-        artifactPublish: publishingAvailable,
-        ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
-        videoExport: exportAvailable,
-      },
-    }, {
-      backend: inspected.identity.backend,
-      nativeBackend: "final-cut-accessibility",
-      native: {
-        selectionWrite: Boolean(native?.selectionEdit),
-        undo: Boolean(native?.undo),
-        mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
-        mediaImport: Boolean(native?.mediaImport),
-        mediaSelection: Boolean(native?.mediaSelection),
-        mediaAppendSelected: Boolean(native?.mediaAppendSelected),
-        timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
-        bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
-        deleteRange: Boolean(native?.deleteRange),
-        trimToDuration: Boolean(native?.trimToDuration),
-        mediaAppend: Boolean(native?.mediaAppend),
-        mediaInsert: Boolean(native?.mediaInsert),
-        titlePlacement: Boolean(native?.titlePlacement),
-        transitionDiscovery: Boolean(native?.transitionDiscovery),
-        transitionPlacement: Boolean(native?.transitionPlacement),
-        timelineFocus: Boolean(native?.timelineFocus),
-        projectCreation: false,
-        clipInsertion: false,
-        clipMovement: false,
-      },
-      publishing: publishingAvailable,
-      publishingBackend: "fcpxml-publisher",
-      export: exportAvailable,
-      exportBackend: "final-cut-native-export",
+    capabilities,
+    preflight: createCapabilityPreflight(inspected.identity, capabilities, {
+      processMode: options.processMode ?? (native ? "headed" : "headless"),
+      nativeWrite: Boolean(native?.selectionEdit),
     }),
     ...(native ? { native } : {}),
   };

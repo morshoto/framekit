@@ -156,6 +156,21 @@ test("release retries do not republish an existing npm version", async () => {
   assert.match(publicationStep, /if: steps\.npm-status\.outputs\.published != 'true'/);
 });
 
+test("release workflow validates the built MCP server version before publishing", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const build = workflow.indexOf("pnpm run build:package");
+  const validation = workflow.indexOf("node scripts/validate-mcp-server-version.mjs");
+  const publication = workflow.indexOf("npm publish");
+
+  assert.notEqual(build, -1, "release workflow must build the package before MCP validation");
+  assert.notEqual(validation, -1, "release workflow must validate MCP server provenance");
+  assert.ok(build < validation, "MCP validation must inspect the built package");
+  assert.ok(validation < publication, "MCP validation must run before npm publish");
+
+  const documentation = await readFile(resolve(repository, "docs/releasing.md"), "utf8");
+  assert.match(documentation, /node scripts\/validate-mcp-server-version\.mjs/);
+});
+
 test("release documentation provides the exact npm trust command", async () => {
   const documentation = await readFile(resolve(repository, "docs/releasing.md"), "utf8");
   assert.match(documentation, /npm trust github @morshoto\/framekit/);

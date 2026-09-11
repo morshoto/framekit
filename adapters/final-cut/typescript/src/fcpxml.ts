@@ -211,7 +211,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         }
         this.applyOperation(operation as EditOperation);
       }
-      return this.readProject();
+      const preview = await this.readProject();
+      return preview;
     } finally {
       this.xml = originalXml;
       this.sequence = originalSequence;
@@ -338,12 +339,17 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   private clipFromXml(entry: TimelineEntry, timelineId: string): Clip {
     const { node, kind, path, startTime, durationTime } = entry;
     const gain = firstChild(node, "adjust-volume");
+    const sourceStartValue = attribute(node, "start");
+    const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
+    const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
+    if (sourceStart !== undefined && sourceStart < 0) throw new Error("FCPXML_INVALID_TIME: source clip start cannot be negative");
     return {
       id: this.instanceId(node, kind, path, timelineId),
       mediaId: attribute(node, "ref") === undefined ? undefined : String(attribute(node, "ref")),
       name: String(attribute(node, "name") ?? attribute(node, "ref") ?? `Clip ${path.includes(".") ? path : path + 1}`),
       start: rationalSeconds(startTime),
       duration: rationalSeconds(durationTime),
+      ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
       startTime,
       durationTime,
@@ -413,13 +419,17 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const resources = findElement(this.xml ?? [], "resources");
     return storyEntries(resources ?? {})
       .filter(({ kind }) => kind === "asset" || kind === "media" || kind === "effect")
-      .map(({ node }) => ({
-        mediaId: String(attribute(node, "id") ?? ""),
-        source: resolveMediaSource(
-          String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
-          this.filePath,
-        ),
-      }))
+      .map(({ node }) => {
+        const durationValue = attribute(node, "duration");
+        return {
+          mediaId: String(attribute(node, "id") ?? ""),
+          source: resolveMediaSource(
+            String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
+            this.filePath,
+          ),
+          ...(durationValue !== undefined ? { duration: parseSeconds(durationValue) } : {}),
+        };
+      })
       .filter((media) => media.mediaId.length > 0);
   }
 

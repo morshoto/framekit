@@ -16,6 +16,7 @@ import type {
   NoiseAnalysis,
   NoiseMeasurement,
   SpeechAnalysis,
+  RevisionBoundSpeechAnalysis,
   VisualAnalysis,
 } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
@@ -25,6 +26,15 @@ import { ContextEngine } from "../context/context-engine.js";
 import { ProjectService } from "./project-service.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 import { planRoughCut } from "../planning/rough-cut.js";
+import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { parseRational } from "../timeline/rational-time.js";
+
+export interface PostWriteAnalysisRequirements {
+  speech?: boolean;
+  audio?: boolean;
+  noise?: boolean;
+  visual?: boolean;
+}
 
 export class MediaAnalysisService {
   public constructor(
@@ -33,11 +43,11 @@ export class MediaAnalysisService {
     private readonly options: RuntimeOptions,
   ) {}
 
-  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<SpeechAnalysis> {
+  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<RevisionBoundSpeechAnalysis> {
     if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
-    return this.options.speechAnalyzer.analyze({ project, media }, range);
+    return this.analyzeSpeechForProject(project, media, range);
   }
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
@@ -142,7 +152,7 @@ export class MediaAnalysisService {
     const media = findMedia(project, mediaId);
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
-      settle(() => this.options.speechAnalyzer?.analyze(input)),
+      settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
       settle(() => this.options.audioAnalyzer?.analyze(input)),
       settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
@@ -218,17 +228,21 @@ export class MediaAnalysisService {
       .filter((entry) => matchesMediaIndexQuery(entry, query));
   }
 
-  public async reanalyzeAffectedRanges(transaction: EditTransaction): Promise<ProjectSnapshot> {
+  public async reanalyzeAffectedRanges(
+    transaction: EditTransaction,
+    requirements: PostWriteAnalysisRequirements,
+  ): Promise<ProjectSnapshot> {
     const affectedMediaRanges = transaction.diff.affectedRanges.flatMap((range) =>
       transaction.attemptedAfter.timeline.clips.flatMap((clip) => {
         const intersectionStart = Math.max(range.start, clip.start);
         const intersectionEnd = Math.min(range.end, clip.start + clip.duration);
         if (!clip.mediaId || intersectionStart >= intersectionEnd) return [];
+        const sourceStart = clip.sourceStart ?? 0;
         return [{
           mediaId: clip.mediaId,
           range: {
-            start: intersectionStart - clip.start,
-            end: intersectionEnd - clip.start,
+            start: sourceStart + intersectionStart - clip.start,
+            end: sourceStart + intersectionEnd - clip.start,
           },
         }];
       }),
@@ -239,23 +253,32 @@ export class MediaAnalysisService {
     for (const mediaId of mediaIds) {
       const media = next.media.find((candidate) => candidate.mediaId === mediaId);
       if (!media) continue;
-      const ranges = affectedMediaRanges
+      const ranges = mergeRanges(affectedMediaRanges
         .filter((affected) => affected.mediaId === mediaId)
-        .map((affected) => affected.range);
+        .map((affected) => affected.range));
       const input = { project: next, media };
-      if (this.options.speechAnalyzer) {
-        const analyses = await Promise.all(ranges.map((range) => this.options.speechAnalyzer!.analyze(input, range)));
-        media.speech = { words: analyses.flatMap((analysis) => analysis.words) };
+      if (requirements.speech && this.options.speechAnalyzer) {
+        const analyses = await Promise.all(ranges.map(async (range) => bindSpeechAnalysis(
+          await this.options.speechAnalyzer!.analyze(input, range),
+          { input, range, provider: this.options.speechAnalyzer!.descriptor },
+        )));
+        const latest = analyses[analyses.length - 1];
+        if (latest) {
+          media.speech = mergeSpeechAnalyses(media.speech, analyses, ranges, {
+            input,
+            provider: this.options.speechAnalyzer!.descriptor,
+          });
+        }
       }
-      if (this.options.audioAnalyzer) {
+      if (requirements.audio && this.options.audioAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
         if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
       }
-      if (this.options.noiseAnalyzer) {
+      if (requirements.noise && this.options.noiseAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.noiseAnalyzer!.analyze(input, range)));
         if (analyses[analyses.length - 1]) media.noise = analyses[analyses.length - 1];
       }
-      if (this.options.visualAnalyzer) {
+      if (requirements.visual && this.options.visualAnalyzer) {
         const analyses = await Promise.all(ranges.map((range) => this.options.visualAnalyzer!.analyze(input, range)));
         media.visual = {
           scenes: analyses.flatMap((analysis) => analysis.scenes),
@@ -264,13 +287,32 @@ export class MediaAnalysisService {
           motion: analyses[analyses.length - 1]?.motion,
         };
       }
-      if (this.options.speechAnalyzer || this.options.audioAnalyzer || this.options.noiseAnalyzer || this.options.visualAnalyzer) {
+      if ((requirements.speech && this.options.speechAnalyzer)
+        || (requirements.audio && this.options.audioAnalyzer)
+        || (requirements.noise && this.options.noiseAnalyzer)
+        || (requirements.visual && this.options.visualAnalyzer)) {
         for (const candidate of next.media) {
           if (candidate.mediaId === mediaId) candidate.analysisRevision = next.revision.id;
         }
       }
     }
     return next;
+  }
+
+  private async analyzeSpeechForProject(
+    project: ProjectSnapshot,
+    media: MediaContext,
+    range?: TimeRange,
+  ): Promise<RevisionBoundSpeechAnalysis> {
+    const analyzer = this.options.speechAnalyzer;
+    if (!analyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
+    const input = { project, media };
+    const analysis = await analyzer.analyze(input, range);
+    return bindSpeechAnalysis(analysis, {
+      input,
+      range,
+      provider: analyzer.descriptor,
+    });
   }
 }
 
@@ -282,6 +324,105 @@ function sourceIdentityOf(media: MediaContext): MediaSourceIdentity {
     ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
     ...(media.duration !== undefined ? { duration: media.duration } : {}),
   };
+}
+
+function mergeSpeechAnalyses(
+  previous: SpeechAnalysis | undefined,
+  analyses: RevisionBoundSpeechAnalysis[],
+  updatedRanges: TimeRange[],
+  context: Parameters<typeof bindSpeechAnalysis>[1],
+): RevisionBoundSpeechAnalysis {
+  const latest = analyses[analyses.length - 1];
+  if (!latest) throw new Error("ANALYSIS_INVALID: speech reanalysis returned no results");
+  if (previous?.provider && !sameDescriptor(previous.provider, latest.provider)) {
+    throw new Error("ANALYSIS_INVALID: speech evidence providers cannot be combined");
+  }
+  if (previous?.sourceTimebase && !sameRational(previous.sourceTimebase, latest.sourceTimebase)) {
+    throw new Error("ANALYSIS_INVALID: speech evidence timebases cannot be combined");
+  }
+
+  const requestedRange = encompassingRange([
+    ...(previous?.requestedRange ? [previous.requestedRange] : []),
+    ...analyses.map((analysis) => analysis.requestedRange),
+  ]);
+  const observedRange = encompassingRange([
+    ...(previous?.observedRange ? [previous.observedRange] : []),
+    ...analyses.map((analysis) => analysis.observedRange),
+  ]);
+  const words = mergeSpeechEvidence(
+    previous?.words,
+    analyses.map((analysis) => analysis.words),
+    updatedRanges,
+  );
+  const hasVad = previous?.vadSegments !== undefined || analyses.some((analysis) => analysis.vadSegments !== undefined);
+  const vadSegments = hasVad
+    ? mergeSpeechEvidence(previous?.vadSegments, analyses.map((analysis) => analysis.vadSegments ?? []), updatedRanges)
+    : undefined;
+  const hasSilence = previous?.silenceSegments !== undefined || analyses.some((analysis) => analysis.silenceSegments !== undefined);
+  const silenceSegments = hasSilence
+    ? mergeSpeechEvidence(previous?.silenceSegments, analyses.map((analysis) => analysis.silenceSegments ?? []), updatedRanges)
+    : undefined;
+  const hasProtected = previous?.protectedSegments !== undefined || analyses.some((analysis) => analysis.protectedSegments !== undefined);
+  const protectedSegments = hasProtected
+    ? mergeSpeechEvidence(previous?.protectedSegments, analyses.map((analysis) => analysis.protectedSegments ?? []), updatedRanges)
+    : undefined;
+
+  return bindSpeechAnalysis({
+    ...latest,
+    requestedRange,
+    observedRange,
+    capability: vadSegments ? "transcription-plus-vad" : latest.capability,
+    words,
+    ...(vadSegments ? { vadSegments } : {}),
+    ...(silenceSegments ? { silenceSegments } : {}),
+    ...(protectedSegments ? { protectedSegments } : {}),
+  }, context);
+}
+
+function mergeSpeechEvidence<T extends { start: number; end: number }>(
+  previous: T[] | undefined,
+  fresh: T[][],
+  updatedRanges: TimeRange[],
+): T[] {
+  return [
+    ...(previous ?? []).filter((evidence) => !updatedRanges.some((range) => rangesOverlap(evidence, range))),
+    ...fresh.flat(),
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
+function rangesOverlap(left: { start: number; end: number }, right: TimeRange): boolean {
+  return left.end > right.start && left.start < right.end;
+}
+
+function encompassingRange(ranges: TimeRange[]): TimeRange {
+  if (ranges.length === 0) throw new Error("ANALYSIS_INVALID: speech evidence needs a range");
+  return {
+    start: Math.min(...ranges.map((range) => range.start)),
+    end: Math.max(...ranges.map((range) => range.end)),
+  };
+}
+
+function mergeRanges(ranges: TimeRange[]): TimeRange[] {
+  const merged: TimeRange[] = [];
+  for (const range of [...ranges].sort((left, right) => left.start - right.start || left.end - right.end)) {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.start > previous.end) {
+      merged.push({ start: range.start, end: range.end });
+      continue;
+    }
+    previous.end = Math.max(previous.end, range.end);
+  }
+  return merged;
+}
+
+function sameDescriptor(left: AnalyzerDescriptor, right: AnalyzerDescriptor): boolean {
+  return left.id === right.id && left.provider === right.provider && left.version === right.version;
+}
+
+function sameRational(left: { value: string; timescale: string }, right: { value: string; timescale: string }): boolean {
+  const leftParts = parseRational(left, "ANALYSIS_INVALID");
+  const rightParts = parseRational(right, "ANALYSIS_INVALID");
+  return leftParts.value * rightParts.timescale === rightParts.value * leftParts.timescale;
 }
 
 function semanticFromAnalyses(

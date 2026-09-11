@@ -52,6 +52,7 @@ export interface EditorCapabilities {
 export interface AnalyzerCapabilities {
   speechTranscribe: boolean;
   speechVad: boolean;
+  speechCapability?: "unavailable" | "transcription-only" | "transcription-plus-vad";
   audioLoudness: boolean;
   audioNoise?: boolean;
   visualTrack: boolean;
@@ -75,6 +76,12 @@ export interface CapabilityDescriptor {
   guarantee: CapabilityGuarantee;
   unavailableReason?: string;
 }
+
+export type EditingCapabilityOperation =
+  | "compositeTransactions"
+  | "titlePlacement"
+  | "pictureInPicture"
+  | "masking";
 
 export type NativeCapabilityOperation =
   | "selectionWrite"
@@ -110,6 +117,7 @@ export interface CapabilityFamilies {
     write: CapabilityDescriptor;
     artifactWrite: CapabilityDescriptor;
   };
+  editing: Record<EditingCapabilityOperation, CapabilityDescriptor>;
   native: Record<NativeCapabilityOperation, CapabilityDescriptor>;
   publishing: {
     projectCreation: CapabilityDescriptor;
