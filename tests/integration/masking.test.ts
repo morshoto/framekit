@@ -154,6 +154,13 @@ test("MCP exposes guarded masking preview, execute, diff, verify, and undo", asy
     assert.ok(tools.tools.find((tool) => tool.name === "timeline.mask.add.preview"));
     assert.ok(tools.tools.find((tool) => tool.name === "timeline.mask.add.execute"));
 
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.mask.add" },
+    })));
+    assert.equal(route.status, "editor-selected");
+    assert.ok(route.requiredCapabilities.includes("editor.masking"));
+
     const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
     const preview = JSON.parse(textFrom(await client.callTool({
       name: "timeline.mask.add.preview",
