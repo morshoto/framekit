@@ -28,7 +28,7 @@ function createFixture(options: {
   analyzedDurationSeconds?: number;
   sourceStart?: number;
   duration?: number;
-  clips?: Array<{ id: string; mediaId: string; start: number; duration: number; sourceStart?: number }>;
+  clips?: Array<{ id: string; mediaId: string; start: number; duration: number; sourceStart?: number; gainDb?: number }>;
   analyze?: AudioAnalyzer["analyze"];
 } = {}) {
   const clips = options.clips ?? [{
@@ -142,6 +142,26 @@ test("dialogue preview resolves defaults and targets one complete occurrence ran
   assert.equal(preview.previewToken.startsWith("skill-preview-"), true);
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
   assert.equal(analyzer.descriptor?.provider, "fixture");
+});
+
+test("dialogue normalization converts the planned delta to an absolute gain", async () => {
+  const { runtime, adapter } = createFixture({
+    clips: [{ id: "dialogue-occurrence", mediaId: "dialogue-media", start: 0, duration: 10, gainDb: 2 }],
+  });
+  runtime.registerBuiltinSkills();
+
+  const { preview } = await previewDialogue(runtime);
+  const operation = preview.plan.operations[0];
+
+  assert.equal(preview.plan.details?.currentLufs, -18);
+  assert.equal(preview.plan.details?.clampedGainDb, 2);
+  assert.equal(operation?.type, "set-gain");
+  assert.equal(operation?.type === "set-gain" ? operation.gainDb : undefined, 4);
+
+  const result = await runtime.executeSkill(preview.previewToken);
+
+  assert.equal(result.status, "VERIFIED");
+  assert.equal((await adapter.readProject()).timeline.clips[0]?.gainDb, 4);
 });
 
 test("already-normalized dialogue executes as a verified no-op", async () => {
