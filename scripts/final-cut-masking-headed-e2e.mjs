@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { evidenceEnvironment } from "./final-cut-evidence.mjs";
+import { evidenceEnvironment, sanitizeMaskEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
@@ -81,13 +81,10 @@ try {
   }
   operationId = undefined;
 
-  const environment = await evidenceEnvironment(root);
-  process.stdout.write(`${JSON.stringify({
-    schemaVersion: 1,
+  const evidence = sanitizeMaskEvidence({
     evidenceType: "headed-native-mask-placement",
     passed: true,
     recordedAt: new Date().toISOString(),
-    environment,
     project: expectedProject,
     target: summarizeOccurrence(preview.occurrence),
     mask: {
@@ -109,7 +106,8 @@ try {
       strategy: "allowlisted-summary",
       omitted: ["raw native contexts", "media paths", "operation handles", "diagnostics"],
     },
-  }, null, 2)}\n`);
+  }, await evidenceEnvironment(root));
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
   if (operationId) {
     try {
@@ -175,6 +173,7 @@ function sameMask(left, right) {
 
 function summarizeOccurrence(occurrence) {
   return {
+    occurrenceId: occurrence.identity,
     name: occurrence.name,
     start: occurrence.start,
     duration: occurrence.duration,

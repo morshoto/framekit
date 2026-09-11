@@ -134,6 +134,7 @@ export function summarizeHeadedEvidence(
       }
     : undefined;
   const target = extractTarget(raw);
+  assertHeadedTarget(target, workflow.id);
   const revision = extractRevisions(raw);
   const verification = extractVerification(raw);
 
@@ -250,12 +251,16 @@ function checksumLineMatches(content: string, archiveName: string, archiveSha256
 function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"] {
   const project = raw.project;
   const target = raw.target ?? raw.placement?.target;
-  const projectValue = typeof project === "string" ? project : project?.name ?? raw.placement?.project;
-  const projectId = typeof project === "object" ? project?.id : undefined;
+  const projectValue = [
+    typeof project === "string" ? project : project?.name,
+    raw.placement?.project,
+    target?.project,
+  ].find((candidate) => safeProjectString(candidate));
+  const projectId = typeof project === "object" ? project?.id : target?.projectId;
   const sequenceId = typeof project === "object" ? project?.sequenceId : target?.sequenceId;
-  const occurrenceId = target?.occurrenceId;
+  const occurrenceId = target?.occurrenceId ?? raw.placement?.occurrenceId;
   const occurrenceName = target?.occurrenceName ?? target?.name;
-  const safeProject = safeTargetString(projectValue);
+  const safeProject = safeProjectString(projectValue);
   const safeProjectId = safeTargetString(projectId);
   const safeSequenceId = safeTargetString(sequenceId);
   const safeOccurrenceId = safeTargetString(occurrenceId);
@@ -269,6 +274,12 @@ function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"
   };
 }
 
+function assertHeadedTarget(target: HeadedEvidenceSummary["target"], workflowId: string): void {
+  assert.ok(target.project, `${workflowId}: headed project identity is missing`);
+  assert.ok(target.sequenceId, `${workflowId}: headed sequence identity is missing`);
+  assert.ok(target.occurrenceId, `${workflowId}: headed occurrence identity is missing`);
+}
+
 function safeTargetString(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined;
   if (value.startsWith("/") || value.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\")) {
@@ -277,8 +288,15 @@ function safeTargetString(value: unknown): string | undefined {
   return value;
 }
 
+function safeProjectString(value: unknown): string | undefined {
+  const result = safeTargetString(value);
+  if (!result || result.includes("/") || result.includes("\\") || result.startsWith("~")) return undefined;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(result)) return undefined;
+  return result;
+}
+
 function extractRevisions(raw: Record<string, any>): HeadedEvidenceSummary["revision"] {
-  const source = raw.revisions ?? raw.placement ?? raw.removal ?? raw.mutation;
+  const source = raw.revisions ?? raw.revision ?? raw.placement ?? raw.removal ?? raw.mutation;
   const before = revisionId(source?.before ?? source?.beforeRevision);
   const after = revisionId(source?.after ?? source?.afterRevision);
   const restored = revisionId(source?.restored ?? raw.restoration?.restoredRevision ?? raw.placement?.undoRevision);
@@ -295,11 +313,14 @@ function extractVerification(raw: Record<string, any>): HeadedEvidenceSummary["v
     || raw.placement?.verified === true
     || raw.removal?.continuityVerified === true
     || raw.mutation?.status === "VERIFIED"
+    || raw.verification?.execute === true
     || raw.verification?.execute?.verified === true;
   const undo = raw.placement?.undoVerified?.verified === true
     || raw.mask?.undo?.verified === true
     || raw.placement?.undo?.verified === true
     || raw.undo?.verified === true
+    || raw.verification?.undo === true
+    || raw.restoration?.status === "VERIFIED"
     || raw.restoration?.restored === true;
   assert.equal(execute, true, "headed execute verification is missing");
   assert.equal(undo, true, "headed Undo or rollback verification is missing");

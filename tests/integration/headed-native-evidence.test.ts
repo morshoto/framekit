@@ -1,0 +1,282 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import test from "node:test";
+import {
+  sanitizeFillerRemovalEvidence,
+  sanitizeMaskEvidence,
+  sanitizeNativeTitleEvidence,
+  sanitizePictureInPictureEvidence,
+} from "../../scripts/final-cut-evidence.mjs";
+
+const environment = {
+  framekitVersion: "0.1.6",
+  finalCutVersion: "10.7.1",
+  gitCommit: "a".repeat(40),
+  nodeVersion: "v22.14.0",
+  platform: "darwin",
+  architecture: "arm64",
+  osVersion: "Darwin",
+};
+
+test("headed PIP evidence keeps the exact target and removes native secrets", () => {
+  const evidence = sanitizePictureInPictureEvidence({
+    schemaVersion: 1,
+    evidenceType: "headed-native-picture-in-picture",
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: { nativePictureInPicture: true, nativeUndo: true, nativeTimelineOccurrenceLocate: true },
+    target: {
+      project: "Disposable PIP",
+      sequenceId: "sequence-1",
+      occurrenceId: "occurrence-anchor",
+      occurrenceName: "Anchor",
+      start: "0/1",
+      duration: "10/1",
+    },
+    placement: {
+      requested: { start: "2/1", duration: "4/1", position: { x: 320, y: -180 }, scale: 0.35 },
+      observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+      beforeRevision: { id: "rev-1" },
+      afterRevision: { id: "rev-2" },
+      undoRevision: "rev-3",
+      undoVerified: { verified: true },
+      anchorOccurrence: { handle: "private-handle" },
+      pipMedia: { sourceIdentity: "/private/media/guest.mov" },
+      operationId: "private-operation",
+    },
+    toolResults: [
+      { name: "editor.native.picture-in-picture.preview", status: "passed" },
+      { name: "editor.native.picture-in-picture.execute", status: "passed" },
+      { name: "editor.native.undo", status: "passed" },
+    ],
+  }, environment);
+
+  assert.equal(evidence.target.occurrenceId, "occurrence-anchor");
+  assert.deepEqual(evidence.revisions, { before: "rev-1", after: "rev-2", restored: "rev-3" });
+  assert.deepEqual(evidence.verification, { execute: true, undo: true });
+  assert.doesNotMatch(JSON.stringify(evidence), /private-handle|sourceIdentity|private-operation|\/private\/media/);
+});
+
+test("headed PIP evidence rejects a no-op mutation revision", () => {
+  const run = pictureInPictureRun();
+  run.placement.afterRevision = { id: "rev-1" };
+
+  assert.throws(
+    () => sanitizePictureInPictureEvidence(run, environment),
+    /revision did not advance/,
+  );
+});
+
+test("headed PIP evidence requires every native capability", () => {
+  for (const key of ["nativePictureInPicture", "nativeUndo", "nativeTimelineOccurrenceLocate"]) {
+    const missing = pictureInPictureRun();
+    delete missing.capabilities[key];
+    assert.throws(
+      () => sanitizePictureInPictureEvidence(missing, environment),
+      /capability is required/,
+    );
+
+    const disabled = pictureInPictureRun();
+    disabled.capabilities[key] = false;
+    assert.throws(
+      () => sanitizePictureInPictureEvidence(disabled, environment),
+      /capability is required/,
+    );
+  }
+});
+
+test("headed title evidence keeps the project, sequence, and discovered asset", () => {
+  const evidence = sanitizeNativeTitleEvidence({
+    evidenceType: "headed-native-title-discovery-and-placement",
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    project: "Disposable Titles",
+    discovery: {
+      id: "final-cut:title:basic-title",
+      name: "Basic Title",
+      vendor: "Final Cut Pro",
+      identity: "basic-title",
+      backend: "final-cut-accessibility",
+      guarantee: "observed",
+    },
+    target: { sequenceId: "sequence-2", occurrenceId: "occurrence-title" },
+    placement: {
+      text: "Framekit title proof",
+      target: "playhead",
+      start: "1/24",
+      duration: "3/1",
+      beforeRevision: "rev-4",
+      afterRevision: "rev-5",
+      undoRevision: "rev-6",
+      verified: true,
+      undo: { command: "Undo", verified: true },
+    },
+  }, environment);
+
+  assert.deepEqual(evidence.target, {
+    project: "Disposable Titles",
+    sequenceId: "sequence-2",
+    occurrenceId: "occurrence-title",
+  });
+  assert.equal(evidence.discovery.assetId, "final-cut:title:basic-title");
+  assert.deepEqual(evidence.revisions, { before: "rev-4", after: "rev-5", restored: "rev-6" });
+  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|sourceIdentity|native-operation-secret/i);
+});
+
+test("headed title evidence rejects a zero rational timescale", () => {
+  assert.throws(
+    () => sanitizeNativeTitleEvidence({
+      passed: true,
+      recordedAt: "2026-09-11T00:00:00.000Z",
+      project: "Disposable Titles",
+      discovery: {
+        id: "final-cut:title:basic-title",
+        name: "Basic Title",
+        vendor: "Final Cut Pro",
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      target: { sequenceId: "sequence-2", occurrenceId: "occurrence-title" },
+      placement: {
+        text: "Framekit title proof",
+        target: "playhead",
+        start: "1/0",
+        duration: "3/1",
+        beforeRevision: "rev-4",
+        afterRevision: "rev-5",
+        undoRevision: "rev-6",
+        verified: true,
+        undo: { verified: true },
+      },
+    }, environment),
+    /rational value\/timescale/,
+  );
+});
+
+test("headed masking evidence keeps the stable occurrence identity", () => {
+  const evidence = sanitizeMaskEvidence({
+    evidenceType: "headed-native-mask-placement",
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    project: "Disposable Mask",
+    target: {
+      occurrenceId: "occurrence-mask",
+      occurrenceName: "Subject",
+      sequenceId: "sequence-3",
+      start: "0/1",
+      duration: "10/1",
+    },
+    mask: {
+      requested: { mode: "rectangle", bounds: { x: 0.1, y: 0.2, width: 0.6, height: 0.7 } },
+      observed: { mode: "rectangle", bounds: { x: 0.1, y: 0.2, width: 0.6, height: 0.7 } },
+    },
+    revisions: { before: "rev-7", after: "rev-8", restored: "rev-9" },
+    verification: { execute: { verified: true }, undo: { verified: true } },
+    toolResults: [{ name: "editor.native.undo", status: "passed" }],
+  }, environment);
+
+  assert.equal(evidence.target.occurrenceId, "occurrence-mask");
+  assert.deepEqual(evidence.revisions, { before: "rev-7", after: "rev-8", restored: "rev-9" });
+  assert.deepEqual(evidence.verification, { execute: true, undo: true });
+});
+
+test("headed filler evidence keeps rollback proof without private state", () => {
+  const evidence = sanitizeFillerRemovalEvidence({
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: {
+      editor: {
+        canonicalTimelineMode: "canonical-write",
+        projectRead: true,
+        timelineSnapshotRead: true,
+        timelineWrite: true,
+        readAfterWrite: true,
+        rollback: true,
+        projectCatalogRead: true,
+        projectSelection: true,
+        privateDiagnostic: "/Users/private/diagnostic.log",
+      },
+      analyzers: { speechTranscribe: true },
+    },
+    project: {
+      id: "project-filler",
+      name: "Disposable Filler",
+      sequenceId: "sequence-filler",
+      occurrenceId: "occurrence-filler",
+    },
+    selection: { start: 2, end: 4 },
+    toolResults: [
+      { name: "editor.inspect", status: "passed" },
+      { name: "editor.live.inspect", status: "passed" },
+      { name: "speech.filler.remove.preview", status: "passed" },
+      { name: "speech.filler.remove.execute", status: "VERIFIED" },
+      { name: "edit.undo", status: "passed" },
+    ],
+    removal: {
+      status: "VERIFIED",
+      candidateCount: 1,
+      operationCount: 1,
+      removedDurationSeconds: 0.5,
+      affectedRangeCount: 1,
+      continuityVerified: true,
+      beforeRevision: { id: "rev-10" },
+      afterRevision: { id: "rev-11" },
+      operationId: "private-operation",
+    },
+    restoration: {
+      status: "VERIFIED",
+      restored: true,
+      restoredRevision: { id: "rev-12" },
+      rawSnapshot: { source: "/private/media/audio.wav" },
+    },
+  }, environment);
+
+  assert.deepEqual(evidence.target, {
+    project: "Disposable Filler",
+    projectId: "project-filler",
+    sequenceId: "sequence-filler",
+    occurrenceId: "occurrence-filler",
+  });
+  assert.deepEqual(evidence.revisions, { before: "rev-10", after: "rev-11", restored: "rev-12" });
+  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|\/private\/media/);
+});
+
+test("all claimed headed runners publish through an allowlisted sanitizer", async () => {
+  const root = process.cwd();
+  const runners = await Promise.all([
+    readFile(join(root, "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8"),
+    readFile(join(root, "scripts/final-cut-picture-in-picture-headed-e2e.mjs"), "utf8"),
+    readFile(join(root, "scripts/final-cut-title-discovery-headed-e2e.mjs"), "utf8"),
+    readFile(join(root, "scripts/final-cut-masking-headed-e2e.mjs"), "utf8"),
+    readFile(join(root, "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8"),
+  ]);
+
+  assert.match(runners[0], /sanitizeCanonicalEvidence/);
+  assert.match(runners[1], /sanitizePictureInPictureEvidence/);
+  assert.match(runners[2], /sanitizeNativeTitleEvidence/);
+  assert.match(runners[3], /sanitizeMaskEvidence/);
+  assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
+  assert.match(runners[2], /occurrenceId:\s*executed\.after\.target\.identity/);
+  assert.match(runners[4], /occurrenceId[,:]/);
+});
+
+function pictureInPictureRun(): Record<string, any> {
+  return {
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: { nativePictureInPicture: true, nativeUndo: true, nativeTimelineOccurrenceLocate: true },
+    target: { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    placement: {
+      requested: { start: "2/1", duration: "4/1", position: { x: 320, y: -180 }, scale: 0.35 },
+      observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+      beforeRevision: { id: "rev-1" },
+      afterRevision: { id: "rev-2" },
+      undoRevision: "rev-3",
+      undoVerified: { verified: true },
+    },
+  };
+}

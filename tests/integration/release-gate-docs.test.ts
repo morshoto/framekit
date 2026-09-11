@@ -25,6 +25,25 @@ test("release gate documentation records commands and evidence boundaries", asyn
   }
 });
 
+test("release gate documentation lists every required headed-native runner", async () => {
+  const documentation = await readFile("docs/tests/release-gate.md", "utf8");
+
+  for (const command of [
+    "test:final-cut-canonical-headed",
+    "test:final-cut-pip-headed",
+    "test:final-cut-title-headed",
+    "test:final-cut-masking-headed",
+    "test:final-cut-filler-headed",
+  ]) {
+    assert.match(documentation, new RegExp(command.replaceAll(".", "\\.")));
+  }
+  assert.match(documentation, /headed-native=verified/);
+  assert.match(documentation, /mkdir -p artifacts\/final-cut-headed/);
+  assert.match(documentation, /sanitized/i);
+  assert.match(documentation, /disposable project/i);
+  assert.match(documentation, /dialogue-normalization.*non-native|non-native.*dialogue-normalization/i);
+});
+
 test("Skill documentation describes only the generic MCP workflow", async () => {
   const documentation = await readFile("docs/mcp/skills.md", "utf8");
 

@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { evidenceEnvironment } from "./final-cut-evidence.mjs";
+import { evidenceEnvironment, sanitizePictureInPictureEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
@@ -42,11 +42,14 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const client = new Client({ name: "framekit-picture-in-picture-headed-e2e", version: "0.1.0" });
+let operationId;
 
 try {
+  const toolResults = [];
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
-  if (editor.identity?.name !== "Final Cut Pro" && editor.identity?.backend !== "final-cut-live") {
+  toolResults.push({ name: "editor.inspect", status: "passed" });
+  if (editor.identity?.name !== "Final Cut Pro" || editor.identity?.backend !== "final-cut-live") {
     throw new Error("FINAL_CUT_E2E_EDITOR_MISMATCH: expected the Final Cut live editor");
   }
   if (editor.native?.pictureInPicture !== true) {
@@ -54,6 +57,7 @@ try {
   }
 
   const focused = await callJson("editor.native.focus");
+  toolResults.push({ name: "editor.native.focus", status: "passed" });
   if (!focused.available || !focused.frontmost || !focused.timelineFocused) {
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${focused.error?.code ?? "timeline focus failed"}`);
   }
@@ -62,23 +66,28 @@ try {
   }
 
   const anchorMatches = await callJson("editor.native.media.search", { query: anchorQuery });
+  toolResults.push({ name: "editor.native.media.search", status: "passed" });
   if (!Array.isArray(anchorMatches) || anchorMatches.length !== 1) {
     throw new Error("FINAL_CUT_E2E_ANCHOR_MEDIA_AMBIGUOUS: anchor query must return exactly one Browser result");
   }
   const anchorMedia = anchorMatches[0];
   await callJson("editor.native.media.select", { mediaHandle: anchorMedia.handle });
+  toolResults.push({ name: "editor.native.media.select", status: "passed" });
   const located = await callJson("editor.native.timeline.locate", { mediaHandle: anchorMedia.handle });
+  toolResults.push({ name: "editor.native.timeline.locate", status: "passed" });
   if (located.status !== "unique" || located.occurrences?.length !== 1) {
     throw new Error("FINAL_CUT_E2E_ANCHOR_OCCURRENCE_AMBIGUOUS: anchor query must locate exactly one timeline occurrence");
   }
   const anchorOccurrence = located.occurrences[0];
 
   const pipMatches = await callJson("editor.native.media.search", { query: pipQuery });
+  toolResults.push({ name: "editor.native.media.search", status: "passed" });
   if (!Array.isArray(pipMatches) || pipMatches.length !== 1) {
     throw new Error("FINAL_CUT_E2E_PIP_MEDIA_AMBIGUOUS: PIP query must return exactly one Browser result");
   }
   const pipMedia = pipMatches[0];
   await callJson("editor.native.media.select", { mediaHandle: pipMedia.handle });
+  toolResults.push({ name: "editor.native.media.select", status: "passed" });
   const preview = await callJson("editor.native.picture-in-picture.preview", {
     mediaHandle: pipMedia.handle,
     anchorOccurrenceHandle: anchorOccurrence.handle,
@@ -88,11 +97,14 @@ try {
     scale: 0.35,
     frame: { style: "solid", color: "#FFFFFF", width: 8 },
   });
+  toolResults.push({ name: "editor.native.picture-in-picture.preview", status: "passed" });
   if (!preview.previewToken || preview.anchorOccurrence?.handle !== anchorOccurrence.handle) {
     throw new Error("FINAL_CUT_E2E_PIP_PREVIEW_FAILED: preview did not preserve stable native bindings");
   }
 
   const executed = await callJson("editor.native.picture-in-picture.execute", { previewToken: preview.previewToken });
+  toolResults.push({ name: "editor.native.picture-in-picture.execute", status: executed.verification?.verified ? "passed" : "failed" });
+  operationId = executed.operationId;
   if (!executed.verification?.verified || executed.afterRevision?.id === executed.beforeRevision?.id) {
     throw new Error("FINAL_CUT_E2E_PIP_EXECUTE_FAILED: native placement was not verified");
   }
@@ -103,46 +115,55 @@ try {
     throw new Error("FINAL_CUT_E2E_PIP_FRAME_READBACK_FAILED: white frame was not read back");
   }
 
-  const undone = await callJson("editor.native.undo", { operationId: executed.operationId });
+  const undone = await callJson("editor.native.undo", { operationId });
+  toolResults.push({ name: "editor.native.undo", status: undone.verification?.verified === true ? "passed" : "failed" });
   if (!undone.undone || undone.verification?.verified !== true) {
     throw new Error("FINAL_CUT_E2E_PIP_UNDO_FAILED: native Undo did not verify");
   }
 
-  process.stdout.write(`${JSON.stringify({
-    schemaVersion: 1,
+  operationId = undefined;
+  const evidence = sanitizePictureInPictureEvidence({
     evidenceType: "headed-native-picture-in-picture",
     passed: true,
     recordedAt: new Date().toISOString(),
-    environment: await evidenceEnvironment(root),
     editor: {
       name: editor.identity?.name,
       version: editor.identity?.version,
       backend: editor.identity?.backend,
+    },
+    target: {
+      sequenceId: anchorOccurrence.sequenceId,
+      occurrenceId: anchorOccurrence.identity,
+      occurrenceName: anchorOccurrence.name,
+      project: expectedProject,
+      start: anchorOccurrence.start,
+      duration: anchorOccurrence.duration,
     },
     capabilities: {
       nativePictureInPicture: editor.native.pictureInPicture,
       nativeUndo: editor.native.undo,
       nativeTimelineOccurrenceLocate: editor.native.timelineOccurrenceLocate,
     },
-    target: {
-      sequenceId: anchorOccurrence.sequenceId,
-      occurrenceName: anchorOccurrence.name,
-    },
     placement: {
-      project: expectedProject,
-      anchorMedia: { name: anchorMedia.name, sourceIdentity: anchorMedia.sourceIdentity },
-      anchorOccurrence: { handle: anchorOccurrence.handle, start: anchorOccurrence.start, duration: anchorOccurrence.duration },
-      pipMedia: { name: pipMedia.name, sourceIdentity: pipMedia.sourceIdentity },
-      requested: { start, duration, position: { x: 320, y: -180 }, scale: 0.35, frame: { color: "#FFFFFF", width: 8 } },
+      requested: { start, duration, position: { x: 320, y: -180 }, scale: 0.35, frame: { style: "solid", color: "#FFFFFF", width: 8 } },
       observed: executed.observed,
       beforeRevision: executed.beforeRevision,
       afterRevision: executed.afterRevision,
-      operationId: executed.operationId,
-      undoOperationId: undone.operationId,
       undoVerified: undone.verification,
       undoRevision: undone.context?.revision?.id,
     },
-  }, null, 2)}\n`);
+    toolResults,
+  }, await evidenceEnvironment(root));
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
+} catch (error) {
+  if (operationId) {
+    try {
+      await callJson("editor.native.undo", { operationId });
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], "Native picture-in-picture E2E failed and compensating Undo also failed");
+    }
+  }
+  throw error;
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});

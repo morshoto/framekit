@@ -36,6 +36,41 @@ The headed runners must be invoked separately with the required disposable
 project and consent configuration. Their JSON output can then be supplied to
 the gate; no headed UI mutation occurs by default.
 
+### Required headed-native evidence bundle
+
+The headed-native tier claims exactly five workflows. Run each command against
+its own disposable Final Cut project, redirecting stdout to a fresh JSON file:
+
+```sh
+mkdir -p artifacts/final-cut-headed
+
+pnpm run test:final-cut-canonical-headed > artifacts/final-cut-headed/canonical-live.json
+pnpm run test:final-cut-pip-headed > artifacts/final-cut-headed/picture-in-picture.json
+pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title-discovery.json
+pnpm run test:final-cut-masking-headed > artifacts/final-cut-headed/masking.json
+pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
+```
+
+Supply the workflow-specific disposable project, query, range, and explicit
+mutation-consent variables documented in [Final Cut live E2E](./final-cut-live-e2e.md).
+Every runner emits an allowlisted sanitized record containing its exact project,
+sequence, and occurrence target, Framekit
+and Final Cut versions, the full Git commit, before/after/restored revisions,
+verification, and native Undo or rollback. The record omits private paths,
+credentials, native handles, transaction IDs, raw snapshots, and diagnostics.
+
+Then run the gate with that directory:
+
+```sh
+pnpm run release-gate \
+  --output-dir artifacts/release-gate/headed-run \
+  --headed-evidence-dir artifacts/final-cut-headed
+```
+
+Completion requires the summary to report both
+`headed-native=verified` and `headed_native_status=verified`. Missing, failed,
+or unavailable workflows keep the tier failed or unrun. `dialogue-normalization` remains explicitly non-native because no headed runner is registered for it.
+
 ## Evidence tiers
 
 | Tier | Mode | Guarantee | Default status |
