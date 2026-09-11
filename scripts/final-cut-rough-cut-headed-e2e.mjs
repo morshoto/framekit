@@ -81,9 +81,6 @@ const stepResults = [
 ].map((name) => ({ name, status: "unrun" }));
 const toolResults = [];
 
-let operationId;
-let animationOperationId;
-
 const exitCode = await run();
 process.exitCode = exitCode;
 
@@ -124,7 +121,7 @@ async function run() {
       return result;
     });
 
-    const nativeBefore = await runStep("editor.native.inspect", async () => {
+    await runStep("editor.native.inspect", async () => {
       const result = await callJson("editor.native.inspect");
       recordTool("editor.native.inspect");
       if (!result.available || !result.frontmost || !result.timelineWindowAvailable || !result.timelineFocused || result.focusTarget !== "timeline") {
@@ -233,7 +230,6 @@ async function run() {
         beforeDuration: mediaPlacement.beforeDuration,
         afterDuration: mediaPlacement.afterDuration,
         verified: mediaPlacement.result.verification.verified,
-        operationId,
       },
       animation: {
         kind: "title",
@@ -334,7 +330,6 @@ async function placeMedia(mediaHandle) {
     if (!next.verification?.verified || !next.afterDuration || next.beforeRevision?.id === next.afterRevision?.id) {
       throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: media placement was not verified with a new revision and duration");
     }
-    operationId = next.operationId;
     return next;
   });
   const duration = subtractRational(result.afterDuration, result.beforeDuration);
@@ -382,7 +377,6 @@ async function placeTitle() {
   const result = await runStep("animation.execute", async () => {
     const next = await callJson("editor.native.title.add.execute", { previewToken: preview.previewToken });
     recordTool("editor.native.title.add.execute");
-    animationOperationId = next.operationId;
     if (!next.verification?.verified
       || next.asset?.id !== assets.id
       || !next.after?.target?.identity
@@ -469,7 +463,19 @@ function subtractRational(left, right) {
 }
 
 function sameRational(left, right) {
-  return BigInt(left.value) * BigInt(right.timescale) === BigInt(right.value) * BigInt(left.timescale);
+  const leftRational = rationalObject(left);
+  const rightRational = rationalObject(right);
+  return BigInt(leftRational.value) * BigInt(rightRational.timescale)
+    === BigInt(rightRational.value) * BigInt(leftRational.timescale);
+}
+
+function rationalObject(value) {
+  if (typeof value === "string") {
+    const match = /^(\d+)\/(\d+)$/.exec(value);
+    if (!match || match[2] === "0") throw new Error("FINAL_CUT_E2E_RATIONAL_INVALID: native occurrence range is not rational");
+    return { value: match[1], timescale: match[2] };
+  }
+  return value;
 }
 
 function compareRational(left, right) {

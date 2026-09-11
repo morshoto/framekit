@@ -86,6 +86,10 @@ test("rough-cut headed evidence preserves the verified workflow without private 
     revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
     verification: { import: true, placement: true, animation: true, undo: true },
     rollback: { status: "passed", restored: true },
+    stepResults: [
+      { name: "media.resolve", status: "passed" },
+      { name: "media.placement.execute", status: "passed" },
+    ],
     toolResults: [
       { name: "connection.status", status: "passed" },
       { name: "editor.inspect", status: "passed" },
@@ -114,6 +118,10 @@ test("rough-cut headed evidence preserves the verified workflow without private 
   assert.equal(evidence.media.occurrence.id, "occurrence-rough-cut");
   assert.deepEqual(evidence.placement.range, { start: "10/1", duration: "5/1" });
   assert.deepEqual(evidence.verification, { import: true, placement: true, animation: true, undo: true });
+  assert.deepEqual(evidence.steps, [
+    { name: "media.resolve", status: "passed" },
+    { name: "media.placement.execute", status: "passed" },
+  ]);
 
   const serialized = JSON.stringify(evidence);
   assert.doesNotMatch(serialized, /private-media-handle|private-operation|secret-source\.mov|native operation secret|privateDiagnostic/);

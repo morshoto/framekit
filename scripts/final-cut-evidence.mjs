@@ -405,6 +405,7 @@ export function sanitizeRoughCutEvidence(run, environment) {
       status: requireSafeIdentity(run.rollback.status, "rough-cut rollback status"),
       restored: true,
     },
+    steps: sanitizeToolResultList(run.stepResults ?? run.toolResults),
     toolResults: sanitizeToolResultList(run.toolResults),
     sanitization: {
       strategy: "allowlisted-summary",
