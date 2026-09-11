@@ -57,6 +57,19 @@ export interface FinalCutConnectionOptions {
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
+export interface CanonicalProviderConfiguration {
+  required: boolean;
+  fcpxmlPath?: string;
+}
+
+export function assertCanonicalProviderConfiguration(options: CanonicalProviderConfiguration): void {
+  if (options.required && options.fcpxmlPath?.trim()) {
+    throw new Error(
+      "FINAL_CUT_CANONICAL_FALLBACK_CONFLICT: canonical provider mode cannot use FRAMEKIT_FCPXML_PATH",
+    );
+  }
+}
+
 export interface FinalCutActivationOptions {
   signal?: AbortSignal;
   timeoutMs?: number;

@@ -6,6 +6,7 @@ import {
   FcpxmlDocumentAdapter,
   FinalCutAssetRegistry,
   FinalCutConnectionManager,
+  assertCanonicalProviderConfiguration,
   FinalCutNativeAutomationAdapter,
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
@@ -66,7 +67,11 @@ const fixture = new InMemoryEditorAdapter({
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
 const headlessFinalCut = liveMode && process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
 const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
-const connection = liveMode ? new FinalCutConnectionManager({ headless: headlessFinalCut }) : undefined;
+const canonicalProviderRequired = liveMode && process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1";
+assertCanonicalProviderConfiguration({ required: canonicalProviderRequired, fcpxmlPath });
+const connection = liveMode
+  ? new FinalCutConnectionManager({ headless: headlessFinalCut, canonicalProviderRequired })
+  : undefined;
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();
 const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
