@@ -26,8 +26,13 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*confirm/);
   assert.match(mcpTools, /PUBLISH_CONFIRMATION_REQUIRED/);
   assert.match(finalCutInstallation, /FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED/);
+  assert.match(finalCutInstallation, /FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native/);
+  assert.match(finalCutInstallation, /File > Export XML/);
+  assert.match(finalCutInstallation, /native Undo/);
   assert.match(finalCutInstallation, /FINAL_CUT_CANONICAL_FALLBACK_CONFLICT/);
   assert.match(finalCutLive, /canonical-write/);
+  assert.match(finalCutLive, /FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native/);
+  assert.match(finalCutLive, /Export XML/);
   assert.match(finalCutLive, /metadata-only/);
   assert.doesNotMatch(mcpTools, /\| `timeline\.edit` \|/);
   assert.doesNotMatch(mcpTools, /\| `timeline\.publish\.new-project` \|/);
