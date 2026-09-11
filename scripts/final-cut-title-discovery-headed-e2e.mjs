@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { evidenceEnvironment } from "./final-cut-evidence.mjs";
+import { evidenceEnvironment, sanitizeNativeTitleEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
@@ -47,8 +47,10 @@ const client = new Client({ name: "framekit-title-discovery-headed-e2e", version
 let operationId;
 
 try {
+  const toolResults = [];
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
+  toolResults.push({ name: "editor.inspect", status: "passed" });
   if (editor.native?.titleDiscovery !== true) {
     throw new Error("CAPABILITY_UNAVAILABLE: native title discovery is not enabled");
   }
@@ -66,6 +68,7 @@ try {
   }
 
   const assets = await callJson("editor.assets", { kind: "title", query: titleQuery });
+  toolResults.push({ name: "editor.assets", status: "passed" });
   const title = Array.isArray(assets)
     ? assets.find((asset) => asset.id?.startsWith("final-cut:title:"))
     : undefined;
@@ -83,11 +86,13 @@ try {
     text: titleText,
     duration,
   });
+  toolResults.push({ name: "editor.native.title.add.preview", status: "passed" });
   if (preview.asset?.id !== title.id || preview.target !== "playhead" || !preview.revision) {
     throw new Error("FINAL_CUT_E2E_TITLE_PREVIEW_FAILED: preview lost the discovered identity or live target");
   }
 
   const executed = await callJson("editor.native.title.add.execute", { previewToken: preview.previewToken });
+  toolResults.push({ name: "editor.native.title.add.execute", status: executed.verification?.verified ? "passed" : "failed" });
   operationId = executed.operationId;
   if (!executed.verification?.verified
     || executed.asset?.id !== title.id
@@ -98,18 +103,16 @@ try {
   }
 
   const undone = await callJson("editor.native.undo", { operationId });
+  toolResults.push({ name: "editor.native.undo", status: undone.verification?.verified === true ? "passed" : "failed" });
   if (!undone.undone || !undone.verification?.verified) {
     throw new Error("FINAL_CUT_E2E_TITLE_UNDO_FAILED: native Undo did not verify restoration");
   }
   operationId = undefined;
 
-  const environment = await evidenceEnvironment(root);
-  process.stdout.write(`${JSON.stringify({
-    schemaVersion: 1,
+  const evidence = sanitizeNativeTitleEvidence({
     evidenceType: "headed-native-title-discovery-and-placement",
     passed: true,
     recordedAt: new Date().toISOString(),
-    environment,
     project: expectedProject,
     discovery: {
       id: title.id,
@@ -131,7 +134,9 @@ try {
       verified: executed.verification.verified,
       undo: { command: executed.undoCommand, verified: undone.verification.verified },
     },
-  }, null, 2)}\n`);
+    toolResults,
+  }, await evidenceEnvironment(root));
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
   if (operationId) {
     try {

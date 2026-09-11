@@ -61,6 +61,7 @@ test("headed evidence is reduced to a target, revision, verification, and restor
     },
     editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
     capabilities: { nativePictureInPicture: true, nativeUndo: true },
+    target: { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
     placement: {
       project: "Disposable PIP",
       anchorOccurrence: { handle: "private-occurrence-handle", start: "0/1", duration: "10/1" },
@@ -78,7 +79,7 @@ test("headed evidence is reduced to a target, revision, verification, and restor
   assert.equal(summary.workflowId, "picture-in-picture");
   assert.equal(summary.evidenceType, "headed-native-picture-in-picture");
   assert.equal(summary.status, "verified");
-  assert.deepEqual(summary.target, { project: "Disposable PIP" });
+  assert.deepEqual(summary.target, { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1" });
   assert.deepEqual(summary.revision, { before: "rev-1", after: "rev-2", restored: "rev-3" });
   assert.deepEqual(summary.verification, { execute: true, undo: true });
   assert.equal(summary.environment.gitCommit, "a".repeat(40));
@@ -93,11 +94,12 @@ test("headed evidence omits path-like target identities", () => {
     evidenceType: "headed-native-picture-in-picture",
     passed: true,
     environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
-    project: "/Users/example/Disposable PIP.fcpbundle",
+    project: "Disposable PIP",
     target: {
-      sequenceId: "/home/example/sequence",
-      occurrenceId: "C:\\Users\\example\\clip",
+      sequenceId: "sequence-1",
+      occurrenceId: "occurrence-1",
       occurrenceName: "Guest",
+      sourceIdentity: "C:\\Users\\example\\clip",
     },
     placement: {
       beforeRevision: "rev-1",
@@ -108,7 +110,7 @@ test("headed evidence omits path-like target identities", () => {
     },
   }, workflow);
 
-  assert.deepEqual(summary.target, { occurrenceName: "Guest" });
+  assert.deepEqual(summary.target, { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1", occurrenceName: "Guest" });
 });
 
 test("headed evidence requires a verified rollback for mutating workflows", () => {
@@ -121,11 +123,33 @@ test("headed evidence requires a verified rollback for mutating workflows", () =
       passed: true,
       environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "b".repeat(40) },
       project: "Disposable Mask",
-      target: { occurrenceId: "clip-1" },
+      target: { sequenceId: "sequence-1", occurrenceId: "clip-1" },
       revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
       verification: { execute: { verified: true } },
     }, workflow),
     /rollback|undo/i,
+  );
+});
+
+test("headed occurrence workflows require a stable occurrence identity", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "picture-in-picture");
+  assert.ok(workflow);
+
+  assert.throws(
+    () => summarizeHeadedEvidence({
+      evidenceType: "headed-native-picture-in-picture",
+      passed: true,
+      environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "c".repeat(40) },
+      target: { project: "Disposable PIP", sequenceId: "sequence-1" },
+      placement: {
+        beforeRevision: "rev-1",
+        afterRevision: "rev-2",
+        undoRevision: "rev-3",
+        observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+        undoVerified: { verified: true },
+      },
+    }, workflow),
+    /occurrence identity/i,
   );
 });
 
@@ -243,6 +267,7 @@ test("partial headed evidence cannot promote the headed tier", async () => {
       environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
       placement: {
         project: "Disposable PIP",
+        target: { sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
         beforeRevision: "rev-1",
         afterRevision: "rev-2",
         undoRevision: "rev-3",

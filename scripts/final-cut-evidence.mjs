@@ -254,6 +254,169 @@ export function sanitizeDisposableNativeEvidence(run, environment) {
   };
 }
 
+export function sanitizePictureInPictureEvidence(run, environment) {
+  assert(run?.passed === true, "headed picture-in-picture run did not pass");
+  assert(run.editor, "editor identity is missing");
+  assert(run.target && run.placement, "picture-in-picture target or placement is missing");
+  const target = {
+    project: requireString(run.target.project ?? run.placement.project, "picture-in-picture project"),
+    sequenceId: requireString(run.target.sequenceId, "picture-in-picture sequence id"),
+    occurrenceId: requireString(run.target.occurrenceId, "picture-in-picture occurrence id"),
+    ...(isNonEmptyString(run.target.occurrenceName) ? { occurrenceName: run.target.occurrenceName } : {}),
+    ...(isNonEmptyString(run.target.start) ? { start: run.target.start } : {}),
+    ...(isNonEmptyString(run.target.duration) ? { duration: run.target.duration } : {}),
+  };
+  const revisions = summarizeWorkflowRevisions(run.placement, "picture-in-picture");
+  assert(run.placement.observed, "picture-in-picture readback is missing");
+  assert(run.placement.undoVerified?.verified === true || run.placement.undo?.verified === true, "picture-in-picture Undo verification is missing");
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-picture-in-picture",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeBooleanCapabilities(run.capabilities, ["nativePictureInPicture", "nativeUndo", "nativeTimelineOccurrenceLocate"]),
+    target,
+    placement: {
+      requested: sanitizePictureInPictureProperties(run.placement.requested ?? run.placement),
+      observed: sanitizePictureInPictureProperties(run.placement.observed),
+    },
+    revisions,
+    verification: { execute: true, undo: true },
+    ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media sources", "native handles", "operation identifiers", "raw diagnostics"],
+    },
+  };
+}
+
+export function sanitizeNativeTitleEvidence(run, environment) {
+  assert(run?.passed === true, "headed title run did not pass");
+  assert(run.discovery && run.placement, "title discovery or placement is missing");
+  assert(run.target, "title target is missing");
+  assert(run.placement.verified === true, "native title placement was not verified");
+  assert(run.placement.undo?.verified === true, "native title Undo verification is missing");
+  const assetId = requireSafeIdentity(run.discovery.id, "native title asset id");
+  assert(assetId.startsWith("final-cut:title:"), "native title asset must be provider-qualified");
+  const target = {
+    project: requireString(run.project ?? run.target.project, "native title project"),
+    sequenceId: requireString(run.target.sequenceId, "native title sequence id"),
+  };
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-title-discovery-and-placement",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    target,
+    discovery: {
+      assetId,
+      name: requireString(run.discovery.name, "native title name"),
+      vendor: requireString(run.discovery.vendor, "native title vendor"),
+      backend: requireString(run.discovery.backend, "native title discovery backend"),
+      guarantee: requireString(run.discovery.guarantee, "native title discovery guarantee"),
+    },
+    placement: {
+      text: requireString(run.placement.text, "native title text"),
+      target: requireString(run.placement.target, "native title placement target"),
+      start: sanitizeRational(run.placement.start, "native title start"),
+      duration: sanitizeRational(run.placement.duration, "native title duration"),
+    },
+    revisions: summarizeWorkflowRevisions(run.placement, "native title"),
+    verification: { execute: true, undo: true },
+    ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["native handles", "operation identifiers", "raw diagnostics"],
+    },
+  };
+}
+
+export function sanitizeMaskEvidence(run, environment) {
+  assert(run?.passed === true, "headed masking run did not pass");
+  assert(run.target && run.mask, "mask target or configuration is missing");
+  assert(run.verification?.execute?.verified === true, "native mask placement was not verified");
+  assert(run.verification?.undo?.verified === true, "native mask Undo verification is missing");
+  const target = {
+    project: requireString(run.project ?? run.target.project, "native mask project"),
+    sequenceId: requireString(run.target.sequenceId, "native mask sequence id"),
+    occurrenceId: requireString(run.target.occurrenceId, "native mask occurrence id"),
+    ...(isNonEmptyString(run.target.occurrenceName) ? { occurrenceName: run.target.occurrenceName } : {}),
+    ...(isNonEmptyString(run.target.start) ? { start: run.target.start } : {}),
+    ...(isNonEmptyString(run.target.duration) ? { duration: run.target.duration } : {}),
+  };
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-mask-placement",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    target,
+    mask: {
+      requested: sanitizeMaskConfiguration(run.mask.requested, "requested mask"),
+      observed: sanitizeMaskConfiguration(run.mask.observed, "observed mask"),
+    },
+    revisions: summarizeWorkflowRevisions(run.revisions ?? run, "native mask"),
+    verification: { execute: true, undo: true },
+    ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["raw native contexts", "media paths", "native handles", "operation identifiers", "raw diagnostics"],
+    },
+  };
+}
+
+export function sanitizeFillerRemovalEvidence(run, environment) {
+  assert(run?.passed === true, "headed filler-removal run did not pass");
+  assert(run.editor && run.project && run.removal && run.restoration, "filler-removal evidence is incomplete");
+  assert(run.removal.status === "VERIFIED", "filler-removal mutation was not verified");
+  assert(run.restoration.restored === true && run.restoration.status === "VERIFIED", "filler-removal Undo was not verified");
+  const project = {
+    id: requireString(run.project.id, "filler-removal project id"),
+    name: requireString(run.project.name, "filler-removal project name"),
+    sequenceId: requireString(run.project.sequenceId, "filler-removal sequence id"),
+  };
+  const revisions = {
+    before: requireString(run.removal.beforeRevision?.id, "filler-removal before revision"),
+    after: requireString(run.removal.afterRevision?.id, "filler-removal after revision"),
+    restored: requireString(run.restoration.restoredRevision?.id, "filler-removal restored revision"),
+  };
+  assert(revisions.before !== revisions.after, "filler-removal revision did not advance");
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-filler-removal",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeCapabilities(run.capabilities),
+    project,
+    target: { project: project.name, projectId: project.id, sequenceId: project.sequenceId },
+    selection: {
+      start: requireFiniteNumber(run.selection.start, "filler-removal selection start"),
+      end: requireFiniteNumber(run.selection.end, "filler-removal selection end"),
+    },
+    removal: {
+      status: run.removal.status,
+      candidateCount: requireNonNegativeInteger(run.removal.candidateCount, "filler-removal candidate count"),
+      operationCount: requireNonNegativeInteger(run.removal.operationCount, "filler-removal operation count"),
+      removedDurationSeconds: requireFiniteNumber(run.removal.removedDurationSeconds, "filler-removal duration"),
+      affectedRangeCount: requireNonNegativeInteger(run.removal.affectedRangeCount, "filler-removal affected range count"),
+      continuityVerified: run.removal.continuityVerified === true,
+    },
+    revisions,
+    restoration: { status: "VERIFIED", restored: true },
+    verification: { execute: true, undo: true },
+    toolResults: sanitizeToolResultList(run.toolResults),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media sources", "raw snapshots", "transaction identifiers", "raw diagnostics"],
+    },
+  };
+}
+
 export function sanitizeCanonicalReadEvidence(run, environment) {
   assert(run?.passed === true, "headed read did not pass");
   assert(run.editor, "editor identity is missing");
@@ -370,6 +533,103 @@ function validateReadSnapshot(snapshot) {
     return clip.id;
   });
   return snapshot;
+}
+
+function summarizeWorkflowRevisions(value, label) {
+  const before = revisionIdentity(value.before ?? value.beforeRevision);
+  const after = revisionIdentity(value.after ?? value.afterRevision);
+  const restored = revisionIdentity(value.restored ?? value.restoredRevision ?? value.undoRevision);
+  return {
+    before: requireString(before, `${label} before revision`),
+    after: requireString(after, `${label} after revision`),
+    restored: requireString(restored, `${label} restored revision`),
+  };
+}
+
+function revisionIdentity(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof value.id === "string") return value.id;
+  return undefined;
+}
+
+function sanitizeBooleanCapabilities(value, keys) {
+  const result = {};
+  for (const key of keys) {
+    if (value?.[key] !== undefined) assert(typeof value[key] === "boolean", `${key} capability must be boolean`);
+    if (value?.[key] !== undefined) result[key] = value[key];
+  }
+  return result;
+}
+
+function sanitizePictureInPictureProperties(value) {
+  assert(value && typeof value === "object" && !Array.isArray(value), "picture-in-picture properties are missing");
+  const result = {};
+  if (value.start !== undefined) result.start = sanitizeRational(value.start, "picture-in-picture start");
+  if (value.duration !== undefined) result.duration = sanitizeRational(value.duration, "picture-in-picture duration");
+  if (value.position !== undefined) {
+    assertFiniteNumber(value.position.x, "picture-in-picture position x");
+    assertFiniteNumber(value.position.y, "picture-in-picture position y");
+    result.position = { x: value.position.x, y: value.position.y };
+  }
+  if (value.scale !== undefined) {
+    assertFiniteNumber(value.scale, "picture-in-picture scale");
+    result.scale = value.scale;
+  }
+  if (value.frame !== undefined) {
+    assert(value.frame && value.frame.style === "solid", "picture-in-picture frame style must be solid");
+    assert(typeof value.frame.color === "string" && /^#[0-9a-f]{6}$/i.test(value.frame.color), "picture-in-picture frame color is invalid");
+    assertFiniteNumber(value.frame.width, "picture-in-picture frame width");
+    result.frame = { style: "solid", color: value.frame.color.toUpperCase(), width: value.frame.width };
+  }
+  if (value.crop !== undefined) result.crop = sanitizeCrop(value.crop);
+  assert(Object.keys(result).length > 0, "picture-in-picture properties are empty");
+  return result;
+}
+
+function sanitizeMaskConfiguration(value, label) {
+  assert(value?.mode === "rectangle", `${label} mode must be rectangle`);
+  return { mode: "rectangle", bounds: sanitizeBounds(value.bounds, `${label} bounds`) };
+}
+
+function sanitizeCrop(value) {
+  assert(value && typeof value === "object", "picture-in-picture crop is missing");
+  const crop = { top: value.top, right: value.right, bottom: value.bottom, left: value.left };
+  for (const [key, child] of Object.entries(crop)) assertFiniteNumber(child, `picture-in-picture crop ${key}`);
+  return crop;
+}
+
+function sanitizeBounds(value, label) {
+  assert(value && typeof value === "object", `${label} is missing`);
+  const bounds = { x: value.x, y: value.y, width: value.width, height: value.height };
+  for (const [key, child] of Object.entries(bounds)) assertFiniteNumber(child, `${label} ${key}`);
+  return bounds;
+}
+
+function sanitizeRational(value, label) {
+  if (typeof value === "string") {
+    assert(/^\d+\/\d+$/.test(value), `${label} must use rational value/timescale form`);
+    return value;
+  }
+  assert(value && /^\d+$/.test(value.value) && /^\d+$/.test(value.timescale) && BigInt(value.timescale) > 0n, `${label} must use rational value/timescale form`);
+  return `${value.value}/${value.timescale}`;
+}
+
+function sanitizeToolResultList(value) {
+  assert(Array.isArray(value) && value.length > 0, "tool results are missing");
+  return value.map((result) => ({
+    name: requireSafeIdentity(result?.name, "tool name"),
+    status: requireSafeIdentity(result?.status, "tool status"),
+  }));
+}
+
+function requireSafeIdentity(value, label) {
+  const result = requireString(value, label);
+  assert(!result.includes("/") && !result.includes("\\") && !result.startsWith("~"), `${label} must not be path-like`);
+  return result;
+}
+
+function assertFiniteNumber(value, label) {
+  assert(typeof value === "number" && Number.isFinite(value), `${label} must be a finite number`);
 }
 
 function validateReadCoordinates(value, field) {
