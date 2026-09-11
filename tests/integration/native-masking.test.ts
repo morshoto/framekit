@@ -178,3 +178,81 @@ test("native masking rejects a same-name occurrence with a different identity", 
     /FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed/,
   );
 });
+
+test("native masking rolls back when post-command context observation fails", async () => {
+  let clock = 0;
+  let preflightCalls = 0;
+  let revision = 1;
+  let maskApplied = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    nativePreflightTimeoutMs: 5,
+    liveState: async () => liveState(revision),
+    executor: async (script) => {
+      if (script.includes("on preflightResult")) {
+        preflightCalls += 1;
+        if (maskApplied && preflightCalls === 3) throw new Error("post-command context unavailable");
+        return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
+      }
+      if (script.includes("selectedTimelineItem")) return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
+      if (script.includes("Apply native Draw Mask")) {
+        maskApplied = true;
+        revision = 2;
+        return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|0.1|0.2|0.6|0.7";
+      }
+      if (script.includes('click menu item "Undo Add Draw Mask"')) {
+        maskApplied = false;
+        revision = 3;
+        return "undone";
+      }
+      return "";
+    },
+  });
+  addOccurrence(adapter);
+
+  const preview = await adapter.previewMask({ occurrenceHandle: "occurrence-1", mask: rectangleMask() });
+  await assert.rejects(
+    adapter.executeMask(preview.previewToken),
+    /mask placement was rolled back/,
+  );
+  assert.equal(maskApplied, false);
+  assert.equal(revision, 3);
+});
+
+test("native masking rolls back when Final Cut exposes no new apply revision", async () => {
+  let clock = 0;
+  let revision = 1;
+  let maskApplied = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    liveState: async () => liveState(revision),
+    executor: async (script) => {
+      if (script.includes("on preflightResult") || script.includes("selectedTimelineItem")) {
+        return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
+      }
+      if (script.includes("Apply native Draw Mask")) {
+        maskApplied = true;
+        return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|0.1|0.2|0.6|0.7";
+      }
+      if (script.includes('click menu item "Undo Add Draw Mask"')) {
+        maskApplied = false;
+        revision = 2;
+        return "undone";
+      }
+      return "";
+    },
+  });
+  addOccurrence(adapter);
+
+  const preview = await adapter.previewMask({ occurrenceHandle: "occurrence-1", mask: rectangleMask() });
+  await assert.rejects(
+    adapter.executeMask(preview.previewToken),
+    /mask placement was rolled back/,
+  );
+  assert.equal(maskApplied, false);
+  assert.equal(revision, 2);
+});
