@@ -46,11 +46,12 @@ not a canonical Final Cut media ID.
 ### Search has two UI states
 
 The Browser may expose an open `AXTextField` or only its magnifying-glass
-button. The adapter first reuses a focused search field, then uses bounded
-layout fallbacks, and only then performs the deeper Accessibility search.
-This ordering matters: sorting or walking the entire Final Cut tree can
-consume the native automation deadline even when the search control is
-visible.
+button. The adapter reveals a hidden Browser through Accessibility, then walks
+bounded, indexed Accessibility relationships rooted in the labelled Browser or
+Events container. It does not target a search field by screen coordinates or
+accept an unrelated Effects or Transitions search control. This ordering keeps
+the native automation bounded and returns
+`FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE` when the Browser control is not exposed.
 
 ### Selecting media changes keyboard focus
 
