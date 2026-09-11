@@ -2135,9 +2135,7 @@ function assertNativeTitleAsset(asset: EditorAsset): void {
 
 function nativeTitleIdentity(asset: EditorAsset): string | undefined {
   const idIdentity = titleIdentityFromId(asset.id);
-  if (idIdentity) return idIdentity;
-  const metadataIdentity = asset.metadata.identity;
-  return typeof metadataIdentity === "string" && metadataIdentity.trim() ? metadataIdentity : undefined;
+  return idIdentity?.trim() || undefined;
 }
 
 function publicTitleAsset(asset: EditorAsset): Pick<EditorAsset, "id" | "kind" | "name" | "vendor"> {
