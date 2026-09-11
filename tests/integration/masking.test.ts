@@ -66,7 +66,7 @@ test("masking is independent from PIP and person cutout", async () => {
   const capabilities = await maskFixture().getCapabilities();
 
   assert.equal(capabilities.families?.editing.masking.available, true);
-  assert.equal(capabilities.families?.editing.pictureInPicture.available, true);
+  assert.equal(capabilities.families?.editing.pictureInPicture.available, false);
   assert.equal(capabilities.families?.editing.personCutout.available, false);
 });
 
@@ -105,10 +105,11 @@ test("supplied-alpha masking requires and verifies an explicit video media ident
     mask: { mode: "supplied-alpha", alphaMediaId: "media-alpha", inverted: true },
   };
 
-  const transaction = await runtime.executeEdit(
-    operation,
-    { requireExpectedChange: true },
-  );
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: [operation],
+  });
+  const transaction = await runtime.executeEdit(preview.previewToken, { requireExpectedChange: true });
 
   assert.equal(transaction.status, "VERIFIED");
   assert.deepEqual(transaction.after.timeline.clips[0]?.mask, operation.mask);
