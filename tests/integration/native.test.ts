@@ -2113,6 +2113,63 @@ test("native Final Cut previews top-level supported video files in deterministic
   assert.equal(nativeExecutorCalls, 0);
 });
 
+test("native Final Cut directory import fails closed and reports partial completion per file", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true });
+  await assert.rejects(
+    adapter.previewImportMediaDirectory(""),
+    /INVALID_OPERATION: local media directory path cannot be empty/,
+  );
+
+  const emptyDirectory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-empty-"));
+  const emptyPreview = await adapter.previewImportMediaDirectory(emptyDirectory);
+  assert.deepEqual(emptyPreview.files, []);
+  const emptyResult = await adapter.executeImportMediaDirectory(emptyPreview.previewToken, true);
+  assert.equal(emptyResult.status, "completed");
+  assert.equal(emptyResult.partial, false);
+  assert.deepEqual(emptyResult.results, []);
+
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-partial-"));
+  const importedPath = join(directory, "imported.mov");
+  const failedPath = join(directory, "failed.mp4");
+  await writeFile(importedPath, "video fixture");
+  await writeFile(failedPath, "video fixture");
+  const importedPaths: string[] = [];
+  adapter.importMedia = async (sourcePath: string) => {
+    importedPaths.push(sourcePath);
+    if (sourcePath === failedPath) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4");
+    return { mediaHandle: "media-imported", sourcePath, name: "imported.mov", kind: "video" };
+  };
+
+  const preview = await adapter.previewImportMediaDirectory(directory);
+  await assert.rejects(
+    adapter.executeImportMediaDirectory(preview.previewToken, false),
+    /FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED/,
+  );
+  const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
+  assert.deepEqual(importedPaths, [importedPath, failedPath]);
+  assert.equal(result.status, "partial");
+  assert.equal(result.partial, true);
+  assert.equal(result.importedCount, 1);
+  assert.equal(result.failedCount, 1);
+  assert.deepEqual(result.results, [
+    {
+      sourcePath: importedPath,
+      name: "imported.mov",
+      status: "imported",
+      media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
+    },
+    {
+      sourcePath: failedPath,
+      name: "failed.mp4",
+      status: "failed",
+      error: {
+        code: "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE",
+        message: "Error: FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4",
+      },
+    },
+  ]);
+});
+
 test("native Final Cut keeps an imported media handle usable after an unrelated Browser search", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-stable-handle-"));
   const sourcePath = join(directory, "interview.mov");
