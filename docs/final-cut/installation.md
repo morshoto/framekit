@@ -54,6 +54,13 @@ successful connections. Live metadata access also does not imply canonical
 timeline snapshot or write capability: inspect the active backend's capability
 flags before using project, timeline, or edit tools.
 
+Call `editor.inspect` after connecting to read the actionable `preflight` report.
+It identifies the active `mode`, `documentMode`, headed/headless `processMode`,
+and the provider backend, guarantee, or unavailable reason for each operation.
+An FCPXML artifact, metadata-only bridge, canonical-live bridge, and headed
+native-write session are distinct modes; one must not be used as evidence for
+another.
+
 Accessibility and Automation permission are required only for an explicit
 headed native-write setup. Native destructive edits retain their preview,
 execute, frontmost, focus, post-command verification, and undo requirements.

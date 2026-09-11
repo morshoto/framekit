@@ -55,6 +55,11 @@ The live MCP client should observe:
 - a valid sequence time range;
 - revisions for active sequence, sequence range, and playhead changes.
 
+The initial `editor.inspect` response should also include a preflight report with
+`processMode: "headless"` for the default live setup, the effective document
+mode, and operation-level backend, guarantee, and unavailable reasons. A bridge
+that only reports metadata must remain `mode: "metadata-only"`.
+
 For canonical MCP coverage, start the server with:
 
 ```sh
@@ -152,6 +157,18 @@ proves that the open canonical timeline changed through the verified target
 diff and advancing revision, then proves restoration through the matching
 canonical digest. If the bridge is metadata-only or canonical-read, it fails
 before calling `editor.timeline.edit`.
+
+For headed native-write evidence, use the disposable native runner separately:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Disposable E2E" \
+FRAMEKIT_FINAL_CUT_E2E_CLIP_ID="final-cut:occurrence:example" \
+pnpm run test:final-cut-disposable-headed
+```
+
+That run must report `preflight.mode: "native-write"` and is evidence for the
+headed native surface only; fixture, metadata-only, FCPXML, and canonical-live
+results remain separate.
 
 Before attaching the JSON to a release or pull request, review that it contains
 no private media paths, raw snapshots, transaction identifiers, credentials,

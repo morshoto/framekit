@@ -11,7 +11,7 @@ import {
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
-import { AgentVideoRuntime, withCapabilityFamilies } from "@framekit/runtime";
+import { AgentVideoRuntime, withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { join } from "node:path";
@@ -100,6 +100,39 @@ test("canonical writes retain canonical-read guarantees and asset discovery is n
   assert.equal(canonicalWrite.families.canonicalDocument.read.guarantee, "canonical-read");
   assert.equal(canonicalWrite.families.canonicalDocument.write.available, true);
   assert.equal(assetOnly.families.observation.media.available, false);
+});
+
+test("capability normalization invalidates stale descriptors after a downgrade", () => {
+  const canonicalWrite = withCapabilityFamilies({
+    editor: {
+      ...artifactCapabilities.editor,
+      timelineWrite: true,
+      timelineArtifactWrite: false,
+      readAfterWrite: true,
+      rollback: true,
+      projectRead: true,
+      projectCatalogRead: true,
+      projectSelection: true,
+      compositeTransactions: true,
+    },
+    analyzers: artifactCapabilities.analyzers,
+  }, { backend: "canonical-live-ipc" });
+
+  const downgraded = withCanonicalTimelineMode({
+    ...canonicalWrite,
+    editor: {
+      ...canonicalWrite.editor,
+      timelineWrite: false,
+      projectCatalogRead: false,
+      projectSelection: false,
+    },
+  });
+
+  assert.equal(downgraded.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(downgraded.families?.canonicalDocument.write.available, false);
+  assert.equal(downgraded.families?.canonicalDocument.write.backend, "canonical-live-ipc");
+  assert.equal(downgraded.families?.editing.compositeTransactions.available, false);
+  assert.equal(downgraded.families?.editing.compositeTransactions.backend, "canonical-live-ipc");
 });
 
 test("unavailable capability operations explain their fail-closed reason", () => {
@@ -371,6 +404,13 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /families/);
   assert.match(documentation, /unavailableReason/);
   assert.match(documentation, /canonicalDocument/);
+  assert.match(documentation, /editing/);
+  assert.match(documentation, /pictureInPicture/);
+  assert.match(documentation, /masking/);
+  assert.match(documentation, /preflight/);
+  assert.match(documentation, /documentMode/);
+  assert.match(documentation, /processMode/);
+  assert.match(documentation, /native-write/);
   assert.match(documentation, /projectCreation/);
   assert.match(documentation, /clipInsertion/);
   assert.match(documentation, /clipMovement/);

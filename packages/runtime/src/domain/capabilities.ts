@@ -77,6 +77,12 @@ export interface CapabilityDescriptor {
   unavailableReason?: string;
 }
 
+export type EditingCapabilityOperation =
+  | "compositeTransactions"
+  | "titlePlacement"
+  | "pictureInPicture"
+  | "masking";
+
 export type NativeCapabilityOperation =
   | "selectionWrite"
   | "undo"
@@ -111,6 +117,7 @@ export interface CapabilityFamilies {
     write: CapabilityDescriptor;
     artifactWrite: CapabilityDescriptor;
   };
+  editing: Record<EditingCapabilityOperation, CapabilityDescriptor>;
   native: Record<NativeCapabilityOperation, CapabilityDescriptor>;
   publishing: {
     projectCreation: CapabilityDescriptor;
