@@ -78,10 +78,12 @@ test("native title discovery fails closed when the browser returns no assets", a
     executor: async (script) => script.includes("titleBrowserPreflightResult") ? browserContext() : "",
   });
 
+  assert.equal(adapter.capabilities().titleDiscovery, true);
   await assert.rejects(
     adapter.searchTitles(""),
     /FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY/,
   );
+  assert.equal(adapter.capabilities().titleDiscovery, false);
 });
 
 test("native title discovery capability follows the enabled native provider", () => {
