@@ -62,11 +62,11 @@ const stepResults = [
   "editor.inspect",
   "editor.native.inspect",
   "editor.live.inspect.before",
+  "media.resolve",
   "preflight.trim.preview",
   "preflight.trim.execute",
   "preflight.undo",
   "preflight.live.inspect.restored",
-  "media.resolve",
   "media.import",
   "media.discover",
   "media.select",
@@ -140,8 +140,8 @@ async function run() {
       return result;
     });
 
-    const preflight = await disposableUndoPreflight(liveBefore);
     const resolution = await runStep("media.resolve", async () => resolveMediaInput(mediaPath, mediaDirectory));
+    const preflight = await disposableUndoPreflight(liveBefore);
     const imported = await runStep("media.import", async () => {
       const result = await callJson("editor.native.media.import", { path: resolution.path });
       recordTool("editor.native.media.import");

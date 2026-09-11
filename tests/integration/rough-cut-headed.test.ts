@@ -36,6 +36,7 @@ test("rough-cut headed acceptance is wired as an opt-in MCP runner", async () =>
   assert.match(runner, /"failed"/);
   assert.ok(runner.indexOf("editor.native.media.append.preview") < runner.indexOf("editor.native.media.append.execute"));
   assert.ok(runner.indexOf("editor.native.title.add.preview") < runner.indexOf("editor.native.title.add.execute"));
+  assert.ok(runner.indexOf('runStep("media.resolve"') < runner.indexOf("disposableUndoPreflight(liveBefore)"));
   assert.doesNotMatch(runner, /readdir|execFile|osascript|FCPXML|timeline\.export/);
   assert.match(documentation, /test:final-cut-rough-cut-headed/);
   assert.match(documentation, /headed-native-rough-cut-acceptance/);
