@@ -295,9 +295,11 @@ after 30 seconds by default and are consumed on the first execute attempt.
 Execution rechecks capabilities and the base revision, then applies the ordered
 operations through one adapter transaction. Verification failure or a partial
 adapter write restores the pre-transaction timeline and media registry. The
-deterministic fixture advertises this contract; FCPXML and live Final Cut
-backends continue to fail closed until they implement the same atomic adapter
-port.
+deterministic fixture advertises this contract. The opt-in headed native
+provider implements the same atomic adapter port for one `rename-clip`
+transaction; broader composite primitives and the metadata-only bundled
+Workflow Extension remain unavailable until they advertise atomic preview,
+execution, read-after-write, and rollback support.
 
 ## Masking workflow
 

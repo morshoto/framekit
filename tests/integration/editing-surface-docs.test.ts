@@ -33,6 +33,8 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(finalCutLive, /canonical-write/);
   assert.match(finalCutLive, /FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native/);
   assert.match(finalCutLive, /Export XML/);
+  assert.match(finalCutLive, /editor\.timeline\.edit\.preview/);
+  assert.match(finalCutLive, /one `rename-clip` transaction/);
   assert.match(finalCutLive, /metadata-only/);
   assert.doesNotMatch(mcpTools, /\| `timeline\.edit` \|/);
   assert.doesNotMatch(mcpTools, /\| `timeline\.publish\.new-project` \|/);
