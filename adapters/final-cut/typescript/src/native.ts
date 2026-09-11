@@ -1098,10 +1098,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async searchTitlesNative(query: string): Promise<NativeFinalCutTitleMatch[]> {
     this.assertEnabled();
-    const normalizedQuery = query.trim();
-    const context = await this.requireTimelineContext();
-    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for title discovery");
     try {
+      await this.ensureTitleBrowserReady();
+      const normalizedQuery = query.trim();
       const identity = titleIdentityFromId(normalizedQuery);
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1118,6 +1117,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
+  }
+
+  private async ensureTitleBrowserReady(): Promise<void> {
+    const output = await this.executeNativeScript(titleBrowserPreflightScript());
+    const [frontmost = "false", windowAvailable = "false"] = output.split(String.fromCharCode(31));
+    if (frontmost !== "true") throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for title discovery");
+    if (windowAvailable !== "true") throw new Error("FINAL_CUT_NATIVE_TITLE_BROWSER_UNAVAILABLE: Final Cut's Titles browser is unavailable");
   }
 
   private async searchTransitionsNative(query: string): Promise<NativeFinalCutTransitionMatch[]> {
@@ -4160,6 +4166,25 @@ function titleSearchScript(query: string, identityQuery = false): string {
       return my collectTitleMatches(UI elements of mainWindow, 0, ${appleScriptString(identityQuery ? query : searchQuery)}, ${identityQuery ? "true" : "false"}, seenIdentities, mainOrigin, mainSize)
     end tell
   end tell`;
+}
+
+function titleBrowserPreflightScript(): string {
+  return `
+on titleBrowserPreflightResult(processFrontmost, browserWindowAvailable)
+  return processFrontmost & (ASCII character 31) & browserWindowAvailable
+end titleBrowserPreflightResult
+
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set processFrontmost to frontmost as text
+    set browserWindowAvailable to false
+    try
+      set browserWindow to window "Final Cut Pro"
+      set browserWindowAvailable to true
+    end try
+    return my titleBrowserPreflightResult(processFrontmost, browserWindowAvailable)
+  end tell
+end tell`;
 }
 
 function titleAssetSelectionScript(assetName: string, assetIdentity?: string): string {
