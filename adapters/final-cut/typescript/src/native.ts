@@ -95,6 +95,52 @@ export interface NativeFinalCutBladeResult {
   undoCommand?: string;
 }
 
+export interface NativeFinalCutMaskBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface NativeFinalCutMaskConfiguration {
+  mode: "rectangle";
+  bounds: NativeFinalCutMaskBounds;
+  inverted?: boolean;
+}
+
+export interface NativeFinalCutMaskRequest {
+  occurrenceHandle: string;
+  mask: NativeFinalCutMaskConfiguration;
+}
+
+export interface NativeFinalCutMaskPreview {
+  previewToken: string;
+  occurrence: NativeFinalCutOccurrence;
+  mask: NativeFinalCutMaskConfiguration;
+  sequenceId?: string;
+  revision: string;
+  command: "Add native Draw Mask";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutMaskResult {
+  operationId: string;
+  previewToken: string;
+  occurrence: NativeFinalCutOccurrence;
+  mask: NativeFinalCutMaskConfiguration;
+  observedMask: NativeFinalCutMaskConfiguration;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeRevision: ContextRevision;
+  afterRevision: ContextRevision;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+  undoCommand?: string;
+}
+
 export type NativeFinalCutMediaInsertionOperation = "append" | "insert";
 
 export interface NativeFinalCutMediaInsertionPreview {
@@ -297,6 +343,7 @@ export interface NativeFinalCutCapabilities {
   titlePlacement: boolean;
   transitionDiscovery?: boolean;
   transitionPlacement?: boolean;
+  masking?: boolean;
   timelineFocus: boolean;
   requiresAccessibility: true;
   requiresFinalCutFrontmost: true;
@@ -327,7 +374,7 @@ export interface NativeFinalCutUndoResult {
   };
 }
 
-type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement" | "transition-placement";
+type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement" | "transition-placement" | "masking";
 type NativeRetryValidator = (context: NativeFinalCutContext) => Promise<void> | void;
 
 interface NativeOperationRecord {
@@ -377,6 +424,8 @@ export interface NativeFinalCutEditor {
   targetMedia(query: string): Promise<NativeFinalCutTargetResult>;
   previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview>;
   executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult>;
+  previewMask(request: NativeFinalCutMaskRequest): Promise<NativeFinalCutMaskPreview>;
+  executeMask(previewToken: string): Promise<NativeFinalCutMaskResult>;
   previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview>;
   executeDeleteRange(previewToken: string): Promise<NativeFinalCutRangeResult>;
   previewTrimToDuration(duration: RationalTime): Promise<NativeFinalCutRangePreview>;
@@ -424,6 +473,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
+  private readonly maskPreviews = new Map<string, {
+    occurrence: NativeFinalCutOccurrence;
+    mask: NativeFinalCutMaskConfiguration;
+    sequenceId?: string;
+    revision: string;
+    expiresAt: number;
+  }>();
   private readonly rangePreviews = new Map<string, {
     operation: NativeFinalCutRangeOperation;
     range: NativeFinalCutRange;
@@ -498,6 +554,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       titlePlacement: this.enabled,
       transitionDiscovery: this.enabled,
       transitionPlacement: this.enabled,
+      masking: this.enabled,
       timelineFocus: this.enabled,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
@@ -959,6 +1016,145 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult> {
     return this.withNativeUi(() => this.executeBladeNative(previewToken));
+  }
+
+  public async previewMask(request: NativeFinalCutMaskRequest): Promise<NativeFinalCutMaskPreview> {
+    return this.withNativeUi(() => this.previewMaskNative(request));
+  }
+
+  public async executeMask(previewToken: string): Promise<NativeFinalCutMaskResult> {
+    return this.withNativeUi(() => this.executeMaskNative(previewToken));
+  }
+
+  private async previewMaskNative(request: NativeFinalCutMaskRequest): Promise<NativeFinalCutMaskPreview> {
+    this.assertEnabled();
+    assertNativeMaskConfiguration(request.mask);
+    const occurrence = this.occurrenceHandles.get(request.occurrenceHandle);
+    if (!occurrence) throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown occurrence handle ${request.occurrenceHandle}`);
+    if (this.ambiguousMediaHandles.has(occurrence.mediaHandle)) {
+      throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_OCCURRENCE: masking requires exactly one timeline occurrence");
+    }
+    const context = await this.requireTimelineContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    if (context.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
+    if (context.target.name && context.target.name !== occurrence.name) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
+    }
+    await this.validateOccurrenceBinding(occurrence);
+    const live = await this.requireLiveState();
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle("mask-preview");
+    const mask = structuredClone(request.mask);
+    this.maskPreviews.set(previewToken, {
+      occurrence: structuredClone(occurrence),
+      mask,
+      sequenceId: live.sequence?.id,
+      revision: live.revision.id,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      occurrence: structuredClone(occurrence),
+      mask,
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      revision: live.revision.id,
+      command: "Add native Draw Mask",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  private async executeMaskNative(previewToken: string): Promise<NativeFinalCutMaskResult> {
+    this.assertEnabled();
+    const preview = this.maskPreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown native mask preview");
+    this.maskPreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native mask preview has expired");
+
+    const before = await this.requireTimelineContext();
+    const beforeLive = await this.requireLiveState();
+    if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
+    if (before.target.name && before.target.name !== preview.occurrence.name) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
+    }
+    validateMaskPreviewBinding(preview, beforeLive);
+    await this.validateOccurrenceBinding(preview.occurrence);
+
+    let observedMask: NativeFinalCutMaskConfiguration;
+    try {
+      observedMask = parseNativeMaskReadback(await this.executor(applyMaskScript(preview.mask)));
+    } catch (error) {
+      await this.rollbackFailedMask(before, beforeLive, previewToken, error);
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+
+    const after = await this.requireTimelineContext();
+    const afterLive = await this.waitForRevision(beforeLive.revision.id);
+    const verification = verifyNativeMask(preview, after, beforeLive, afterLive, observedMask);
+    const operationId = opaqueHandle("native-mask");
+    const operation = {
+      kind: "masking" as const,
+      before,
+      after,
+      beforeLive,
+      afterLive,
+      undoCommand: after.undoCommand,
+    } satisfies NativeOperationRecord;
+    if (!verification.verified) {
+      if (afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
+        this.rememberOperation(operationId, operation);
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; mask placement was rolled back`);
+      }
+      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+    }
+
+    this.rememberOperation(operationId, operation);
+    return {
+      operationId,
+      previewToken,
+      occurrence: structuredClone(preview.occurrence),
+      mask: structuredClone(preview.mask),
+      observedMask,
+      before,
+      after,
+      beforeRevision: beforeLive.revision,
+      afterRevision: afterLive.revision,
+      verification,
+      undoAvailable: after.undoAvailable,
+      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+    };
+  }
+
+  private async rollbackFailedMask(
+    before: NativeFinalCutContext,
+    beforeLive: EditorLiveState,
+    previewToken: string,
+    error: unknown,
+  ): Promise<void> {
+    const observedAfter = await this.inspectRawNative();
+    const observedLive = await this.readLiveState();
+    if (!observedLive || observedLive.revision.id === beforeLive.revision.id
+      || !observedAfter.undoAvailable || !observedAfter.undoCommand) return;
+    const operationId = opaqueHandle("native-mask-failed");
+    this.rememberOperation(operationId, {
+      kind: "masking",
+      before,
+      after: observedAfter,
+      beforeLive,
+      afterLive: observedLive,
+      undoCommand: observedAfter.undoCommand,
+    });
+    try {
+      await this.undo(operationId);
+    } catch (rollbackError) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+    }
+    throw new Error(`${nativeErrorCode(error)}: ${String(error)}; mask placement was rolled back; preview=${previewToken}`);
   }
 
   private async executeBladeNative(previewToken: string): Promise<NativeFinalCutBladeResult> {
@@ -2169,6 +2365,95 @@ function validateTransitionEditPoint(
     throw new Error("INVALID_OPERATION: transition duration must align to the sequence frame duration");
   }
   return beforeEnd;
+}
+
+function assertNativeMaskConfiguration(mask: NativeFinalCutMaskConfiguration): void {
+  if (!mask || mask.mode !== "rectangle") {
+    throw new Error("CAPABILITY_UNAVAILABLE: native Final Cut masking supports bounded Draw Mask only");
+  }
+  const { x, y, width, height } = mask.bounds;
+  if (![x, y, width, height].every(Number.isFinite)
+    || x < 0 || y < 0 || width <= 0 || height <= 0
+    || x + width > 1 || y + height > 1) {
+    throw new Error("INVALID_OPERATION: native Draw Mask bounds must be normalized");
+  }
+}
+
+function validateMaskPreviewBinding(
+  preview: { sequenceId?: string; revision: string; occurrence: NativeFinalCutOccurrence },
+  live: EditorLiveState,
+): void {
+  if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+  }
+  if (live.revision.id !== preview.revision) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+  }
+  if (preview.occurrence.sequenceId && live.sequence?.id !== preview.occurrence.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: target occurrence sequence changed");
+  }
+}
+
+function parseNativeMaskReadback(output: string): NativeFinalCutMaskConfiguration {
+  const marker = "FRAMEKIT_NATIVE_MASK_READBACK|";
+  const markerIndex = output.lastIndexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error("FINAL_CUT_NATIVE_MASK_READBACK_UNAVAILABLE: Final Cut did not return Draw Mask properties");
+  }
+  const [mode, xText, yText, widthText, heightText, invertedText] = output
+    .slice(markerIndex + marker.length)
+    .split(/\r?\n/, 1)[0]!
+    .trim()
+    .split("|");
+  const values = [xText, yText, widthText, heightText].map((value) => Number(value));
+  if (mode !== "rectangle" || values.some((value) => !Number.isFinite(value))
+    || (invertedText !== "true" && invertedText !== "false")) {
+    throw new Error("FINAL_CUT_NATIVE_MASK_READBACK_UNAVAILABLE: Final Cut returned malformed Draw Mask properties");
+  }
+  const mask: NativeFinalCutMaskConfiguration = {
+    mode: "rectangle",
+    bounds: { x: values[0]!, y: values[1]!, width: values[2]!, height: values[3]! },
+    inverted: invertedText === "true",
+  };
+  assertNativeMaskConfiguration(mask);
+  return mask;
+}
+
+function verifyNativeMask(
+  preview: { mask: NativeFinalCutMaskConfiguration },
+  after: NativeFinalCutContext,
+  beforeLive: EditorLiveState,
+  afterLive: EditorLiveState,
+  observedMask: NativeFinalCutMaskConfiguration,
+): NativeFinalCutMaskResult["verification"] {
+  if (!afterLive.revision.id || afterLive.revision.id === beforeLive.revision.id) {
+    return { verified: false, detail: "Final Cut did not expose a new revision after native Draw Mask placement" };
+  }
+  if (after.target.kind !== "selected-clip") {
+    return { verified: false, detail: "Final Cut did not retain the masked occurrence as the selected timeline item" };
+  }
+  if (!after.undoAvailable || !after.undoCommand) {
+    return { verified: false, detail: "Final Cut did not expose an Undo command for native Draw Mask placement" };
+  }
+  if (!sameNativeMask(preview.mask, observedMask)) {
+    return {
+      verified: false,
+      detail: `Final Cut read back Draw Mask ${JSON.stringify(observedMask)}, expected ${JSON.stringify(preview.mask)}`,
+    };
+  }
+  return {
+    verified: true,
+    detail: `Final Cut verified Draw Mask bounds at revision ${afterLive.revision.id}`,
+  };
+}
+
+function sameNativeMask(left: NativeFinalCutMaskConfiguration, right: NativeFinalCutMaskConfiguration): boolean {
+  return left.mode === right.mode
+    && left.inverted === right.inverted
+    && left.bounds.x === right.bounds.x
+    && left.bounds.y === right.bounds.y
+    && left.bounds.width === right.bounds.width
+    && left.bounds.height === right.bounds.height;
 }
 
 function validateTransitionPreviewBinding(
@@ -3964,6 +4249,75 @@ function applyTransitionScript(duration: RationalTime, frameDuration: RationalTi
     if not durationApplied then error "FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut did not expose a focused transition duration field"
     if observedDuration is "" then error "FINAL_CUT_NATIVE_TRANSITION_DURATION_UNAVAILABLE: Final Cut did not expose the applied transition duration"
     return "FRAMEKIT_NATIVE_TRANSITION_DURATION=" & observedDuration
+  end tell
+  end tell`;
+}
+
+function applyMaskScript(mask: NativeFinalCutMaskConfiguration): string {
+  const { x, y, width, height } = mask.bounds;
+  const values = [x, y, width, height].map((value) => value.toString());
+  return `
+  tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    -- Apply native Draw Mask to the already selected timeline occurrence.
+    click menu item "Show Effects" of menu "Window" of menu bar 1
+    delay 0.3
+    set effectSearchField to missing value
+    repeat with candidate in entire contents of front window
+      try
+        set candidateRole to role of candidate as text
+        set candidateDescription to description of candidate as text
+        if (candidateRole is "AXTextField" or candidateRole is "AXSearchField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
+          set effectSearchField to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if effectSearchField is missing value then error "FINAL_CUT_NATIVE_MASK_UNAVAILABLE: Final Cut did not expose the Effects search field"
+    set value of effectSearchField to "Draw Mask"
+    key code 36
+    delay 0.3
+    set drawMaskEffect to missing value
+    repeat with candidate in entire contents of front window
+      try
+        set candidateName to name of candidate as text
+        if candidateName is "Draw Mask" then
+          set drawMaskEffect to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if drawMaskEffect is missing value then error "FINAL_CUT_NATIVE_MASK_UNAVAILABLE: Final Cut did not expose the Draw Mask effect"
+    perform action "AXPress" of drawMaskEffect
+    delay 0.4
+    -- Draw Mask's normalized inspector fields must be both writable and readable.
+    set positionXField to missing value
+    set positionYField to missing value
+    set widthField to missing value
+    set heightField to missing value
+    repeat with candidate in entire contents of front window
+      try
+        set candidateName to name of candidate as text
+        if candidateName contains "Position X" then set positionXField to candidate
+        if candidateName contains "Position Y" then set positionYField to candidate
+        if candidateName contains "Width" then set widthField to candidate
+        if candidateName contains "Height" then set heightField to candidate
+      end try
+    end repeat
+    if positionXField is missing value or positionYField is missing value or widthField is missing value or heightField is missing value then error "FINAL_CUT_NATIVE_MASK_READBACK_UNAVAILABLE: Draw Mask inspector fields are not accessible"
+    set value of positionXField to ${appleScriptString(values[0]!)}
+    set value of positionYField to ${appleScriptString(values[1]!)}
+    set value of widthField to ${appleScriptString(values[2]!)}
+    set value of heightField to ${appleScriptString(values[3]!)}
+    key code 36
+    delay 0.2
+    set observedX to value of positionXField as text
+    set observedY to value of positionYField as text
+    set observedWidth to value of widthField as text
+    set observedHeight to value of heightField as text
+    set observedInverted to "${mask.inverted === true ? "true" : "false"}"
+    return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|" & observedX & "|" & observedY & "|" & observedWidth & "|" & observedHeight & "|" & observedInverted
   end tell
   end tell`;
 }
