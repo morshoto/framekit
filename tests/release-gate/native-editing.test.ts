@@ -61,6 +61,7 @@ test("headed evidence is reduced to a target, revision, verification, and restor
     },
     editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
     capabilities: { nativePictureInPicture: true, nativeUndo: true },
+    target: { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
     placement: {
       project: "Disposable PIP",
       anchorOccurrence: { handle: "private-occurrence-handle", start: "0/1", duration: "10/1" },
@@ -78,7 +79,7 @@ test("headed evidence is reduced to a target, revision, verification, and restor
   assert.equal(summary.workflowId, "picture-in-picture");
   assert.equal(summary.evidenceType, "headed-native-picture-in-picture");
   assert.equal(summary.status, "verified");
-  assert.deepEqual(summary.target, { project: "Disposable PIP" });
+  assert.deepEqual(summary.target, { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1" });
   assert.deepEqual(summary.revision, { before: "rev-1", after: "rev-2", restored: "rev-3" });
   assert.deepEqual(summary.verification, { execute: true, undo: true });
   assert.equal(summary.environment.gitCommit, "a".repeat(40));
@@ -93,11 +94,12 @@ test("headed evidence omits path-like target identities", () => {
     evidenceType: "headed-native-picture-in-picture",
     passed: true,
     environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
-    project: "/Users/example/Disposable PIP.fcpbundle",
+    project: "Disposable PIP",
     target: {
-      sequenceId: "/home/example/sequence",
-      occurrenceId: "C:\\Users\\example\\clip",
+      sequenceId: "sequence-1",
+      occurrenceId: "occurrence-1",
       occurrenceName: "Guest",
+      sourceIdentity: "C:\\Users\\example\\clip",
     },
     placement: {
       beforeRevision: "rev-1",
@@ -108,7 +110,50 @@ test("headed evidence omits path-like target identities", () => {
     },
   }, workflow);
 
-  assert.deepEqual(summary.target, { occurrenceName: "Guest" });
+  assert.deepEqual(summary.target, { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1", occurrenceName: "Guest" });
+});
+
+test("headed evidence rejects path-like project identities", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "picture-in-picture");
+  assert.ok(workflow);
+
+  for (const project of ["file:///private/project", "../private/project"]) {
+    assert.throws(
+      () => summarizeHeadedEvidence({
+        evidenceType: "headed-native-picture-in-picture",
+        passed: true,
+        environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
+        project,
+        target: { sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+        placement: {
+          beforeRevision: "rev-1",
+          afterRevision: "rev-2",
+          undoRevision: "rev-3",
+          observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+          undoVerified: { verified: true },
+        },
+      }, workflow),
+      /headed project identity is missing/,
+    );
+  }
+
+  const fallback = summarizeHeadedEvidence({
+    evidenceType: "headed-native-picture-in-picture",
+    passed: true,
+    environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
+    project: "file:///private/project",
+    target: { project: "../private/project", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    placement: {
+      project: "Disposable PIP",
+      beforeRevision: "rev-1",
+      afterRevision: "rev-2",
+      undoRevision: "rev-3",
+      observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+      undoVerified: { verified: true },
+    },
+  }, workflow);
+
+  assert.equal(fallback.target.project, "Disposable PIP");
 });
 
 test("headed evidence requires a verified rollback for mutating workflows", () => {
@@ -121,12 +166,53 @@ test("headed evidence requires a verified rollback for mutating workflows", () =
       passed: true,
       environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "b".repeat(40) },
       project: "Disposable Mask",
-      target: { occurrenceId: "clip-1" },
+      target: { sequenceId: "sequence-1", occurrenceId: "clip-1" },
       revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
       verification: { execute: { verified: true } },
     }, workflow),
     /rollback|undo/i,
   );
+});
+
+test("headed occurrence workflows require a stable occurrence identity", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "picture-in-picture");
+  assert.ok(workflow);
+
+  assert.throws(
+    () => summarizeHeadedEvidence({
+      evidenceType: "headed-native-picture-in-picture",
+      passed: true,
+      environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "c".repeat(40) },
+      target: { project: "Disposable PIP", sequenceId: "sequence-1" },
+      placement: {
+        beforeRevision: "rev-1",
+        afterRevision: "rev-2",
+        undoRevision: "rev-3",
+        observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+        undoVerified: { verified: true },
+      },
+    }, workflow),
+    /occurrence identity/i,
+  );
+});
+
+test("every headed workflow requires a stable occurrence identity", () => {
+  const manifest = loadNativeEditingManifest();
+  for (const workflowId of ["built-in-title-discovery", "filler-removal"] as const) {
+    const workflow = manifest.workflows.find((candidate) => candidate.id === workflowId);
+    assert.ok(workflow);
+    assert.throws(
+      () => summarizeHeadedEvidence({
+        evidenceType: workflow.evidenceTypes[0],
+        passed: true,
+        environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "d".repeat(40) },
+        target: { project: "Disposable Target", sequenceId: "sequence-1" },
+        revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
+        verification: { execute: true, undo: true },
+      }, workflow),
+      /occurrence identity/i,
+    );
+  }
 });
 
 test("release provenance verifies aligned versions, tag, workflow, npm, and checksums", () => {
@@ -243,6 +329,7 @@ test("partial headed evidence cannot promote the headed tier", async () => {
       environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
       placement: {
         project: "Disposable PIP",
+        target: { sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
         beforeRevision: "rev-1",
         afterRevision: "rev-2",
         undoRevision: "rev-3",
@@ -257,6 +344,67 @@ test("partial headed evidence cannot promote the headed tier", async () => {
     assert.equal(report.evidenceTiers["headed-native"].passed, false);
     assert.equal(report.evidenceTiers["headed-native"].workflows.find((workflow) => workflow.workflowId === "picture-in-picture")?.status, "verified");
     assert.equal(report.evidenceTiers["headed-native"].workflows.find((workflow) => workflow.workflowId === "masking")?.status, "unrun");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("complete headed evidence promotes every claimed native workflow", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-complete-headed-evidence-"));
+  const environment = {
+    framekitVersion: "0.1.6",
+    finalCutVersion: "10.7.1",
+    gitCommit: "d".repeat(40),
+  };
+  const records = [
+    {
+      file: "canonical.json",
+      evidenceType: "headed-native-canonical-mutation",
+      target: { project: "Disposable Canonical", projectId: "project-1", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    },
+    {
+      file: "pip.json",
+      evidenceType: "headed-native-picture-in-picture",
+      target: { project: "Disposable PIP", sequenceId: "sequence-2", occurrenceId: "occurrence-2" },
+    },
+    {
+      file: "title.json",
+      evidenceType: "headed-native-title-discovery-and-placement",
+      target: { project: "Disposable Title", sequenceId: "sequence-3", occurrenceId: "occurrence-3" },
+    },
+    {
+      file: "mask.json",
+      evidenceType: "headed-native-mask-placement",
+      target: { project: "Disposable Mask", sequenceId: "sequence-4", occurrenceId: "occurrence-4" },
+    },
+    {
+      file: "filler.json",
+      evidenceType: "headed-native-filler-removal",
+      target: { project: "Disposable Filler", projectId: "project-5", sequenceId: "sequence-5", occurrenceId: "occurrence-5" },
+    },
+  ];
+
+  try {
+    for (const record of records) {
+      await writeFile(join(directory, record.file), JSON.stringify({
+        schemaVersion: 1,
+        evidenceType: record.evidenceType,
+        passed: true,
+        environment,
+        target: record.target,
+        revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
+        verification: { execute: true, undo: true },
+      }), "utf8");
+    }
+
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+
+    assert.equal(report.evidenceTiers["headed-native"].status, "verified");
+    assert.equal(report.evidenceTiers["headed-native"].passed, true);
+    assert.deepEqual(
+      report.evidenceTiers["headed-native"].workflows.map((workflow) => workflow.status),
+      ["verified", "verified", "verified", "verified", "verified"],
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

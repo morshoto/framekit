@@ -34,6 +34,7 @@ test("release gate executes Skills and separates capability evidence", async () 
   assert.equal(report.evidenceTiers["headed-native"].status, "unrun");
   const rendered = renderReleaseGateReport(report);
   assert.match(rendered, /provenance_ready=false/);
+  assert.match(rendered, /headed-native=unrun/);
   assert.doesNotMatch(rendered, /release_ready=/);
   assert.deepEqual(report.repositoryChecks.checks.map((check) => check.status), [
     "unrun",

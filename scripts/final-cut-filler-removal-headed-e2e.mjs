@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
+import { sanitizeFillerRemovalEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const execFile = promisify(execFileCallback);
@@ -65,6 +66,11 @@ try {
   if (!Array.isArray(preview.candidates) || preview.candidates.length === 0) {
     throw new Error("FINAL_CUT_E2E_NO_FILLERS: the disposable range contains no high-confidence fillers");
   }
+  const occurrenceIds = [...new Set(preview.candidates.map((candidate) => candidate.clipId).filter(Boolean))];
+  if (occurrenceIds.length !== 1) {
+    throw new Error("FINAL_CUT_E2E_OCCURRENCE_AMBIGUOUS: filler range must resolve to exactly one timeline occurrence");
+  }
+  const occurrenceId = occurrenceIds[0];
 
   const transaction = await callJson("speech.filler.remove.execute", { previewToken: preview.previewToken });
   toolResults.push({ name: "speech.filler.remove.execute", status: transaction.status });
@@ -91,7 +97,7 @@ try {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
   }
 
-  const evidence = {
+  const rawEvidence = {
     schemaVersion: 1,
     evidenceType: "headed-native-filler-removal",
     passed: true,
@@ -107,6 +113,7 @@ try {
       id: before.projectId,
       name: before.projectName,
       sequenceId: before.timeline.id,
+      occurrenceId,
     },
     selection: { start, end },
     toolResults,
@@ -133,6 +140,7 @@ try {
       omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostics"],
     },
   };
+  const evidence = sanitizeFillerRemovalEvidence(rawEvidence, rawEvidence.environment);
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
   if (canUndo && transactionId) {
