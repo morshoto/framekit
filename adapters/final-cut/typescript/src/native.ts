@@ -2729,11 +2729,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
     while (this.now() < deadline) {
       try {
-        const context = reconcileTimelineFocus(parseContext(await this.executeNativeScript(
+        const observedContext = parseContext(await this.executeNativeScript(
           timelinePreflightScript(),
           deadline,
           "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT",
-        )));
+        ));
+        const context = reconcileTimelineFocus(observedContext);
         lastContext = context;
         if (!context.timelineWindowAvailable) {
           lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
@@ -5599,7 +5600,7 @@ function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutC
   return {
     ...context,
     timelineFocused: false,
-    focusTarget: focusTarget === "unknown" ? "unknown" : focusTarget,
+    focusTarget,
   };
 }
 
