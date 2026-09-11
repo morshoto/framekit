@@ -194,6 +194,9 @@ async function run() {
       if (!sameRational(candidate.start, mediaPlacement.range.start)) {
         throw new Error("FINAL_CUT_E2E_MEDIA_OCCURRENCE_UNVERIFIED: occurrence start did not match the inserted range");
       }
+      if (placement === "insert" && (!workflowBefore.playheadTime || !sameRational(candidate.start, workflowBefore.playheadTime))) {
+        throw new Error("FINAL_CUT_E2E_MEDIA_OCCURRENCE_UNVERIFIED: inserted occurrence start did not match the pre-placement playhead");
+      }
       return { ...candidate, id: identity };
     });
 
@@ -343,9 +346,14 @@ async function placeMedia(mediaHandle, before) {
   const duration = subtractRational(result.afterDuration, result.beforeDuration);
   if (compareRational(duration, zeroRational()) <= 0) throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: placement did not increase the sequence duration");
   const sequenceStart = before.sequenceTimeRange?.start ?? before.sequence?.startTime;
-  if (!sequenceStart) throw new Error("FINAL_CUT_E2E_LIVE_STATE_UNAVAILABLE: sequence start is required to verify append placement");
-  if (placement === "append" && compareRational(preview.insertionTime, addRational(sequenceStart, result.beforeDuration)) !== 0n) {
-    throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: append insertion time did not equal the pre-edit sequence end");
+  if (placement === "append") {
+    if (!sequenceStart) throw new Error("FINAL_CUT_E2E_LIVE_STATE_UNAVAILABLE: sequence start is required to verify append placement");
+    if (compareRational(preview.insertionTime, addRational(sequenceStart, result.beforeDuration)) !== 0n) {
+      throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: append insertion time did not equal the pre-edit sequence end");
+    }
+  }
+  if (placement === "insert" && (!before.playheadTime || !sameRational(preview.insertionTime, before.playheadTime))) {
+    throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: insert insertion time did not match the pre-placement playhead");
   }
   return {
     operation: placement,
