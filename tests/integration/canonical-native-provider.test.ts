@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFinalCutCanonicalExportScript,
+  createFinalCutNativeTargetResolver,
   FinalCutCanonicalNativeProvider,
   type CanonicalNativeTargetResolver,
 } from "@framekit/final-cut";
@@ -171,4 +173,79 @@ test("canonical native provider rejects ambiguous occurrence bindings before edi
     /AMBIGUOUS_PROJECT_TARGET/,
   );
   assert.deepEqual(calls, []);
+});
+
+test("canonical Final Cut export is driven by the active timeline UI", () => {
+  const script = buildFinalCutCanonicalExportScript("/tmp/framekit-canonical.fcpxml");
+
+  assert.match(script, /File/);
+  assert.match(script, /Export/);
+  assert.match(script, /XML/);
+  assert.match(script, /framekit-canonical\.fcpxml/);
+  assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
+});
+
+test("canonical target resolver requires one exact native occurrence", async () => {
+  const native = {
+    searchMedia: async () => [{
+      handle: "media-handle",
+      name: "clip.mov",
+      sourceIdentity: "browser-source-1",
+    }],
+    locateOccurrence: async () => ({
+      status: "unique" as const,
+      occurrences: [{
+        handle: "occurrence-handle",
+        mediaHandle: "media-handle",
+        name: "Original",
+        start: "0/24",
+        duration: "96/24",
+      }],
+    }),
+  };
+
+  const resolver = createFinalCutNativeTargetResolver(native);
+  await resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original"));
+});
+
+test("canonical target resolver rejects ambiguous native media", async () => {
+  const native = {
+    searchMedia: async () => [
+      { handle: "media-1", name: "clip.mov", sourceIdentity: "browser-source-1" },
+      { handle: "media-2", name: "clip.mov", sourceIdentity: "browser-source-2" },
+    ],
+    locateOccurrence: async () => ({ status: "none" as const, occurrences: [] }),
+  };
+  const resolver = createFinalCutNativeTargetResolver(native);
+
+  await assert.rejects(
+    resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original")),
+    /AMBIGUOUS_PROJECT_TARGET/,
+  );
+});
+
+test("canonical target resolver rejects native coordinate drift", async () => {
+  const native = {
+    searchMedia: async () => [{
+      handle: "media-handle",
+      name: "clip.mov",
+      sourceIdentity: "browser-source-1",
+    }],
+    locateOccurrence: async () => ({
+      status: "unique" as const,
+      occurrences: [{
+        handle: "occurrence-handle",
+        mediaHandle: "media-handle",
+        name: "Original",
+        start: "24/24",
+        duration: "96/24",
+      }],
+    }),
+  };
+  const resolver = createFinalCutNativeTargetResolver(native);
+
+  await assert.rejects(
+    resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original")),
+    /TARGET_MISMATCH/,
+  );
 });
