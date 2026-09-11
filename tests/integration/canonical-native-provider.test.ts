@@ -159,11 +159,12 @@ test("canonical native provider verifies native edit and restores its canonical 
 });
 
 test("canonical native provider undoes failed post-edit verification", async () => {
-  for (const [label, after] of [
-    ["read error", new Error("export read failed")],
-    ["name mismatch", snapshot("Unexpected")],
-    ["unchanged digest", snapshot("Original")],
-  ] as const) {
+  const cases: Array<{ label: string; after: ProjectSnapshot | Error; name: string; expected: RegExp }> = [
+    { label: "read error", after: new Error("export read failed"), name: "Renamed", expected: /export read failed/ },
+    { label: "name mismatch", after: snapshot("Unexpected"), name: "Renamed", expected: /renamed occurrence was not read back/ },
+    { label: "unchanged digest", after: snapshot("Original"), name: "Original", expected: /native edit did not change the canonical digest/ },
+  ];
+  for (const { label, after, name, expected } of cases) {
     const calls: string[] = [];
     const provider = providerFor([snapshot("Original"), snapshot("Original"), after, snapshot("Original")], calls);
     const before = await provider.readProject();
@@ -172,10 +173,10 @@ test("canonical native provider undoes failed post-edit verification", async () 
       provider.apply({
         type: "rename-clip",
         clipId: "final-cut:occurrence:clip-1",
-        name: "Renamed",
+        name,
         baseRevision: before.revision,
       }, before.revision),
-      { name: "Error" },
+      expected,
       label,
     );
     assert.deepEqual(calls, ["edit", "undo"], label);
