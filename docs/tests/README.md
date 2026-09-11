@@ -21,6 +21,8 @@ real Final Cut Pro process.
 - [v0.0.3 release gate](./release-gate.md): deterministic closed-loop
   filler-removal and dialogue-normalization Skill evidence.
 - [Final Cut live E2E](./final-cut-live-e2e.md): read-only native bridge test.
+- [Headed MCP rough-cut acceptance](./final-cut-live-e2e.md): disposable
+  import, placement, visible title, and verification workflow.
 - [Test matrix](./test-matrix.md): scope and evidence by backend.
 - [Evidence](./evidence/2026-08-16-phase-1-live.md): sanitized local run.
 

@@ -45,6 +45,7 @@
     "test:final-cut-pip-headed": "node scripts/final-cut-picture-in-picture-headed-e2e.mjs",
     "test:final-cut-masking-headed": "node scripts/final-cut-masking-headed-e2e.mjs",
     "test:final-cut-title-headed": "node scripts/final-cut-title-discovery-headed-e2e.mjs",
+    "test:final-cut-rough-cut-headed": "node scripts/final-cut-rough-cut-headed-e2e.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",
     "framekit": "node ./bin/framekit.mjs",

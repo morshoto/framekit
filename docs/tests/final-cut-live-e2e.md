@@ -269,6 +269,43 @@ The output is an allowlisted summary; it does not include raw snapshots,
 operation handles, media paths, or credentials. Headless fixtures and FCPXML
 reads do not satisfy this headed evidence requirement.
 
+## End-to-end headed MCP rough-cut acceptance
+
+Use the rough-cut gate with a disposable Final Cut project containing no
+pre-existing occurrence of the imported clip. The workflow connects through
+Framekit MCP, checks a ready headed session and native capabilities, imports one
+exact video file, confirms its stable Browser identity, appends or inserts it,
+discovers one native title, places the title at the live playhead, and verifies
+the resulting ranges and revisions:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Rough Cut E2E" \
+FRAMEKIT_FINAL_CUT_E2E_MEDIA_PATH="/absolute/path/to/rough-cut.mov" \
+FRAMEKIT_FINAL_CUT_E2E_TITLE_QUERY="Basic Title" \
+FRAMEKIT_FINAL_CUT_E2E_PLACEMENT="append" \
+pnpm run test:final-cut-rough-cut-headed \
+  > docs/tests/evidence/$(date +%F)-rough-cut-live.json
+```
+
+Set `FRAMEKIT_FINAL_CUT_E2E_PLACEMENT=insert` to test insertion at the live
+playhead. The exact media path is passed to `editor.native.media.import`; the
+runner does not use shell directory enumeration, Browser automation outside
+Framekit, direct AppleScript, FCPXML editing, or export. If only
+`FRAMEKIT_FINAL_CUT_E2E_MEDIA_DIRECTORY` is supplied, the report records
+`unavailable` and exits without guessing a filename. This preserves the
+directory-to-exact-file boundary until a directory-aware MCP workflow is
+available.
+
+The runner performs a disposable one-frame trim and native Undo before the
+rough cut so rollback is verified without undoing the requested final edit.
+The appended/inserted clip and visible title remain in the disposable Final
+Cut project after a successful run. Successful output is an allowlisted
+`headed-native-rough-cut-acceptance` summary containing Framekit and Final Cut
+versions, the full commit, project/sequence identities, media occurrence and
+ranges, revisions, operation verification, rollback status, and tool results.
+Failure reports distinguish `failed`, `unavailable`, and `unrun` steps and omit
+paths, native handles, operation identifiers, raw contexts, and diagnostics.
+
 ## Native masking placement evidence
 
 For bounded native masking, use a disposable project containing one uniquely
