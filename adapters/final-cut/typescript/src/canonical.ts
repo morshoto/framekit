@@ -335,6 +335,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (operation.type !== "rename-clip") {
       throw new Error(`CAPABILITY_UNAVAILABLE: final-cut native canonical provider does not support ${operation.type}`);
     }
+    validateCanonicalRename(operation);
     const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
 
@@ -449,7 +450,12 @@ function supportedCanonicalOperation(operations: WorkflowOperation[]): Extract<W
   if (operations.length !== 1 || operations[0]?.type !== "rename-clip") {
     throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip transaction");
   }
-  const operation = operations[0];
+  return validateCanonicalRename(operations[0]);
+}
+
+function validateCanonicalRename(
+  operation: Extract<EditOperation, { type: "rename-clip" }>,
+): Extract<EditOperation, { type: "rename-clip" }> {
   if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
   return operation;
 }

@@ -145,6 +145,23 @@ test("canonical native provider previews and applies its supported timeline tran
   assert.deepEqual(calls, ["edit"]);
 });
 
+test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);
+  const before = await provider.readProject();
+
+  await assert.rejects(
+    provider.apply({
+      type: "rename-clip",
+      clipId: "final-cut:occurrence:clip-1",
+      name: "   ",
+      baseRevision: before.revision,
+    }, before.revision),
+    /INVALID_OPERATION: clip name cannot be empty/,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("canonical native provider rejects stale targets before native mutation", async () => {
   const calls: string[] = [];
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);
