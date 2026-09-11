@@ -49,6 +49,16 @@ export interface DialogueNormalizationPreview {
   expiresAt?: string;
 }
 
+/** Defaults for the version 1.0.0 dialogue-normalization Skill. */
+export const DIALOGUE_NORMALIZATION_DEFAULTS = {
+  targetLufs: -16,
+  toleranceDb: 0.5,
+  maxTruePeakDb: -1,
+  minGainDb: -6,
+  maxGainDb: 6,
+  minDialogueDurationSeconds: 1,
+} as const satisfies DialogueGainPlanningOptions;
+
 /** Plan a bounded clip-level gain change without mutating an editor. */
 export function planDialogueGain(
   measurement: AudioMeasurement,

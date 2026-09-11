@@ -98,7 +98,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         projectCatalogRead: true,
         projectSelection: true,
         compositeTransactions: true,
-        semanticOperations: { "add-marker": true },
+        semanticOperations: { "add-marker": true, "set-gain": true },
       },
       analyzers: emptyAnalyzerCapabilities(),
     }, { backend: "fcpxml-document" });

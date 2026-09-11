@@ -2,7 +2,11 @@ import type { SkillDefinition, SkillPlanningContext } from "../domain/skills.js"
 import type { TimeRange } from "../domain/primitives.js";
 import { planFillerRemoval } from "../speech/filler-removal.js";
 import { translateRationalRange } from "../timeline/rational-time.js";
-import { planDialogueGain, type DialogueNormalizationRequest } from "../audio/dialogue-normalization.js";
+import {
+  DIALOGUE_NORMALIZATION_DEFAULTS,
+  planDialogueGain,
+  type DialogueNormalizationRequest,
+} from "../audio/dialogue-normalization.js";
 import { planNoiseReduction, type NoiseReductionRequest } from "../audio/noise-reduction.js";
 import { planColorCorrection, type ColorCorrectionRequest } from "../color-correction.js";
 import type { FillerRemovalTarget } from "../speech/filler-removal.js";
@@ -118,6 +122,7 @@ function dialogueNormalizationSkill(): SkillDefinition {
       version: "1.0.0",
       title: "Dialogue normalization",
       description: "Normalize one complete dialogue clip occurrence with measured loudness and peak verification.",
+      defaults: { ...DIALOGUE_NORMALIZATION_DEFAULTS },
       inputSchema: {
         type: "object",
         properties: {
@@ -130,23 +135,30 @@ function dialogueNormalizationSkill(): SkillDefinition {
           maxGainDb: { type: "number" },
           minDialogueDurationSeconds: { type: "number", minimum: 0 },
         },
-        required: ["mediaId", "occurrenceId", "targetLufs", "toleranceDb", "maxTruePeakDb", "minGainDb", "maxGainDb", "minDialogueDurationSeconds"],
+        required: ["mediaId", "occurrenceId"],
         additionalProperties: false,
       },
       requirements: {
         type: "allOf",
         requirements: [
           { type: "editor", capability: "timelineSnapshotRead" },
-          { type: "editor", capability: "timelineWrite" },
+          {
+            type: "anyOf",
+            requirements: [
+              { type: "editor", capability: "timelineWrite" },
+              { type: "editor", capability: "timelineArtifactWrite" },
+            ],
+          },
           { type: "editor", capability: "readAfterWrite" },
           { type: "editor", capability: "rollback" },
+          { type: "editor", capability: "compositeTransactions" },
           { type: "analyzer", capability: "audioLoudness" },
           { type: "operation", operation: "set-gain" },
         ],
       },
     },
     handler: {
-      normalize: (input) => input as Record<string, unknown>,
+      normalize: (input) => ({ ...DIALOGUE_NORMALIZATION_DEFAULTS, ...(input as Record<string, unknown>) }),
       plan: async (context, input) => planDialogueSkill(context, input),
     },
   };
@@ -315,6 +327,11 @@ async function planColorSkill(context: SkillPlanningContext, input: Record<strin
 async function planDialogueSkill(context: SkillPlanningContext, input: Record<string, unknown>) {
   if (!context.measureAudio) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
   const request = input as unknown as DialogueNormalizationRequest;
+  const clip = context.project.timeline.clips.find((candidate) => candidate.id === request.occurrenceId);
+  if (!clip) throw new Error(`OCCURRENCE_NOT_FOUND: ${request.occurrenceId}`);
+  if (clip.mediaId !== request.mediaId) {
+    throw new Error(`TARGET_MISMATCH: occurrence ${request.occurrenceId} does not reference media ${request.mediaId}`);
+  }
   const measurement = await context.measureAudio(request.mediaId, request.occurrenceId);
   const plan = planDialogueGain(measurement, request);
   const verification = plan.decision === "APPLY" ? {
@@ -323,6 +340,7 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
     assertions: [{
       type: "audio-loudness" as const,
       mediaId: request.mediaId,
+      occurrenceId: request.occurrenceId,
       targetLufs: request.targetLufs,
       toleranceDb: request.toleranceDb,
     }],
@@ -334,13 +352,19 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
       gainDb: plan.clampedGainDb,
       baseRevision: context.baseRevision,
     }] : [],
+    decision: plan.decision,
     affectedRanges: plan.decision === "APPLY" ? [{
-      start: context.project.timeline.clips.find((clip) => clip.id === request.occurrenceId)?.start ?? 0,
-      end: (context.project.timeline.clips.find((clip) => clip.id === request.occurrenceId)?.start ?? 0)
-        + (context.project.timeline.clips.find((clip) => clip.id === request.occurrenceId)?.duration ?? 0),
+      start: clip.start,
+      end: clip.start + clip.duration,
     }] : [],
     warnings: plan.decision === "SKIP" ? [...plan.reasonCodes] : [],
     ...(verification ? { verification } : {}),
-    details: { measurement: structuredClone(measurement), ...structuredClone(plan) },
+    details: {
+      occurrenceId: request.occurrenceId,
+      mediaId: request.mediaId,
+      measurement: structuredClone(measurement),
+      truePeakDb: measurement.truePeakDb,
+      ...structuredClone(plan),
+    },
   };
 }

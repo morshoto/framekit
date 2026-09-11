@@ -17,7 +17,7 @@ import type {
 } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineDiff } from "../domain/diff.js";
-import type { VerificationEngine, VerificationPolicy } from "../domain/verification.js";
+import type { VerificationCheck, VerificationEngine, VerificationPolicy } from "../domain/verification.js";
 import { sameRevision } from "../context/revision.js";
 import { MediaAnalysisService, type PostWriteAnalysisRequirements } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
@@ -273,6 +273,28 @@ export class EditService {
       verificationPolicy,
       status: "APPLIED",
     };
+    if (!sameDiffContent(transaction.diff, preview.expectedDiff)) {
+      const check: VerificationCheck = {
+        name: "authorized-diff",
+        passed: false,
+        status: "failed",
+        reason: "UNAUTHORIZED_DIFF",
+        expected: structuredClone(preview.expectedDiff),
+        observed: structuredClone(transaction.diff),
+        detail: "canonical diff contains changes outside the preview-authorized operations",
+      };
+      await this.adapter.restore(before, attemptedAfter.revision);
+      transaction.after = await this.project.inspectProject();
+      this.assertRestored(before, transaction.after);
+      transaction.verification = {
+        passed: false,
+        checks: [check],
+        target: structuredClone(preview.target),
+      };
+      transaction.status = "ROLLED_BACK";
+      this.transactions.set(transaction);
+      return transaction;
+    }
     try {
       await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
@@ -498,6 +520,14 @@ function postWriteAnalysisRequirements(policy: VerificationPolicy): PostWriteAna
     noise: assertions.some((assertion) => assertion.type === "audio-noise"),
     visual: assertions.some((assertion) => assertion.type === "visual-content"),
   };
+}
+
+function sameDiffContent(left: TimelineDiff, right: TimelineDiff): boolean {
+  const comparable = (diff: TimelineDiff) => {
+    const { from: _from, to: _to, ...content } = diff;
+    return content;
+  };
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
 }
 
 function assertValidWorkflowOperation(operation: WorkflowOperation): void {

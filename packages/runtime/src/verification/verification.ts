@@ -61,7 +61,8 @@ function validateAssertion(assertion: VerificationAssertion, index: number): voi
     return;
   }
   if (assertion.type === "audio-loudness") {
-    if (!Number.isFinite(assertion.targetLufs)
+    if ((assertion.occurrenceId !== undefined && !assertion.occurrenceId.trim())
+      || !Number.isFinite(assertion.targetLufs)
       || assertion.toleranceDb !== undefined
       && (!Number.isFinite(assertion.toleranceDb) || assertion.toleranceDb < 0)) {
       throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid loudness values`);
@@ -349,9 +350,26 @@ function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudn
   const toleranceDb = assertion.toleranceDb ?? 0.5;
   const expected = {
     mediaId: assertion.mediaId,
+    ...(assertion.occurrenceId ? { occurrenceId: assertion.occurrenceId } : {}),
     targetLufs: assertion.targetLufs,
     toleranceDb,
   };
+  const occurrence = assertion.occurrenceId
+    ? transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === assertion.occurrenceId)
+    : undefined;
+  if (assertion.occurrenceId && (!occurrence || occurrence.mediaId !== assertion.mediaId)) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { mediaId: assertion.mediaId, occurrenceId: assertion.occurrenceId },
+      reason: !occurrence ? "OCCURRENCE_NOT_FOUND" : "TARGET_MISMATCH",
+      detail: !occurrence
+        ? `expected occurrence ${assertion.occurrenceId}, but it was not observed`
+        : `occurrence ${assertion.occurrenceId} does not reference media ${assertion.mediaId}`,
+    };
+  }
   const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
   if (!media) {
     return {

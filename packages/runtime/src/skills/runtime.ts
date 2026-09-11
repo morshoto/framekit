@@ -112,6 +112,7 @@ export class SkillRuntime {
       operations: structuredClone(planned.operations),
       affectedRanges: structuredClone(planned.affectedRanges),
       warnings: [...planned.warnings],
+      ...(planned.decision ? { decision: planned.decision } : {}),
       ...(planned.verification ? { verification: structuredClone(planned.verification) } : {}),
       ...(planned.details ? { details: structuredClone(planned.details) } : {}),
     };
@@ -154,7 +155,7 @@ export class SkillRuntime {
     });
     if (!session.editPreviewToken) {
       return {
-        status: "SKIPPED",
+        status: session.preview.plan.decision === "NO_OP" ? "VERIFIED" : "SKIPPED",
         plan: {
           id: session.preview.plan.id,
           skillId: session.preview.plan.skillId,

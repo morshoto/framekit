@@ -136,7 +136,8 @@ test("dialogue preview resolves defaults and targets one complete occurrence ran
   assert.equal(preview.plan.details?.toleranceDb, 0.5);
   assert.equal(preview.plan.details?.clampedGainDb, 4);
   assert.equal(preview.plan.details?.estimatedPeakDb, -2);
-  assert.equal(preview.plan.operations[0]?.clipId, "dialogue-occurrence");
+  assert.equal(preview.plan.operations[0]?.type, "set-gain");
+  assert.equal(preview.plan.operations[0]?.type === "set-gain" ? preview.plan.operations[0].clipId : undefined, "dialogue-occurrence");
   assert.deepEqual(ranges, [{ start: 5, end: 8 }]);
   assert.equal(preview.previewToken.startsWith("skill-preview-"), true);
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
