@@ -873,8 +873,14 @@ test("Final Cut MCP imports local media and returns a stable media handle", asyn
     importMedia: async (sourcePath: string) => ({
       mediaHandle: "media-import-stable-video",
       sourcePath,
+      sourceIdentity: "file:///tmp/interview.mov",
       name: "interview.mov",
       kind: "video" as const,
+      verification: {
+        verified: true as const,
+        stage: "post-import-browser-discovery" as const,
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
     }),
   } as unknown as NativeFinalCutEditor;
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
@@ -900,8 +906,14 @@ test("Final Cut MCP imports local media and returns a stable media handle", asyn
     assert.deepEqual(JSON.parse(textFrom(imported)), {
       mediaHandle: "media-import-stable-video",
       sourcePath: "/tmp/interview.mov",
+      sourceIdentity: "file:///tmp/interview.mov",
       name: "interview.mov",
       kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
     });
   } finally {
     await client.close();

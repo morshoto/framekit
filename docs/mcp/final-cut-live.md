@@ -203,22 +203,31 @@ Final Cut Browser with:
 Call `editor.native.media.import` with the local file path. Framekit checks that
 the path is a readable file before opening Final Cut's import UI, waits for the
 basename to appear in Browser search, and returns `mediaHandle`, `sourcePath`,
-`name`, and an inferred `kind` (`video` or `audio`). The returned media handle
-can be passed to `editor.native.media.select` and
-`editor.native.timeline.locate`. The handle is stable for the current native
-session and does not itself insert the asset into the timeline.
+the immutable Browser `sourceIdentity`, `name`, an inferred `kind` (`video` or
+`audio`), and a `verification` record. The verification is positive only after
+one newly appearing Browser result has been matched to its immutable source
+identity. The returned media handle can be passed to
+`editor.native.media.select` and `editor.native.timeline.locate`. The handle is
+stable for the current native session and does not itself insert the asset into
+the timeline.
 
-Invalid paths fail before any import UI command. If Final Cut does not expose
-the imported asset before the bounded wait expires, Framekit returns
-`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`. If polling finds only pre-existing
-same-name results, it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if
-multiple newly appearing same-name results are found, it returns
+Invalid paths fail before any import UI command. Import failures include
+`stage`, `elapsedMs`, `stageElapsedMs`, and `partialImportPossible` details in
+their error. Browser discovery failures also include bounded Accessibility
+diagnostics when available, so a caller can distinguish pre-import Browser
+discovery, native import UI, and post-import Browser discovery. If Final Cut
+does not expose the imported asset before the bounded wait expires, Framekit
+returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT` and marks that a
+partial import may exist. If polling finds only pre-existing same-name results,
+it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if multiple newly
+appearing same-name results are found, it returns
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`. A single newly appearing result with
 an immutable source identity is accepted even when a same-name result existed
 before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 If Final Cut does not expose a ready Media Import window, folder sheet, or import
-button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
+button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`
+and marks that the import may have been partially accepted.
 
 To import all supported video files from one directory, first call
 `editor.native.media.directory.preview`:

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createNativeOperationLease, FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
+import { createNativeOperationLease, FinalCutNativeAutomationAdapter, NativeFinalCutMediaImportError } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 
 const separator = String.fromCharCode(31);
@@ -2383,7 +2383,7 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   assert.notEqual(existing.handle, newlyImported.handle);
 });
 
-test("native Final Cut import reports Browser identity loss separately from import UI timeout", async () => {
+test("native Final Cut import reports staged Browser discovery timeout diagnostics", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-id-unavailable-"));
   const sourcePath = join(directory, "blue-steel-guitar.wav");
   await writeFile(sourcePath, "audio fixture");
@@ -2404,6 +2404,12 @@ test("native Final Cut import reports Browser identity loss separately from impo
   });
 
   await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+    assert.ok(error instanceof NativeFinalCutMediaImportError);
+    assert.equal(error.details.stage, "post-import-browser-discovery");
+    assert.equal(error.details.elapsedMs, 20);
+    assert.equal(error.details.stageElapsedMs, 20);
+    assert.equal(error.details.partialImportPossible, true);
+    assert.match(error.details.diagnostics ?? "", /^AXRow/);
     const message = String(error);
     assert.match(message, /FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT/);
     assert.match(message, /stage=post-import-browser-discovery/);
