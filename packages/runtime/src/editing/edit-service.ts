@@ -273,7 +273,7 @@ export class EditService {
       verificationPolicy,
       status: "APPLIED",
     };
-    const authorizedDiffCheck = sameDiffContent(transaction.diff, preview.expectedDiff)
+    const authorizedDiffCheck: VerificationCheck | undefined = sameDiffContent(transaction.diff, preview.expectedDiff)
       ? undefined
       : {
         name: "authorized-diff",
@@ -305,7 +305,7 @@ export class EditService {
       }
       throw new Error(`VERIFICATION_FAILED: canonical state was restored (${String(verificationError)})`);
     }
-    if (authorizedDiffCheck) {
+    if (authorizedDiffCheck && transaction.verification) {
       transaction.verification = {
         ...transaction.verification,
         passed: false,
