@@ -62,10 +62,18 @@ complete timeline or media enumeration.
 Every commit runs:
 
 ```sh
+node scripts/check-staged-content.mjs
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
 ```
+
+The first step inspects the staged commit payload, including staged filenames
+and added text, and fails closed for credentials, user-specific paths, private
+media files, diagnostic dump files, and binary content. It reports only the
+affected repository path, line, and category; matched values are never printed.
+Sanitize or remove the affected content from the index, then stage the safe
+replacement before retrying the commit.
 
 When staged files include the Swift Workflow Extension, Xcode project, or
 native toolchain configuration, macOS contributors also run:

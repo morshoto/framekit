@@ -53,9 +53,9 @@ export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0
 export FRAMEKIT_AUTO_CONNECT=0
 
 native_changes="$(node scripts/staged-native-changes.mjs)"
-total_steps=3
+total_steps=4
 if [[ "$native_changes" == "true" && "$(uname -s)" == "Darwin" ]]; then
-  total_steps=5
+  total_steps=6
 fi
 
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/framekit-pre-commit.XXXXXX")"
@@ -132,6 +132,7 @@ run_step() {
   exit "$exit_code"
 }
 
+run_step "sanitize staged content" node scripts/check-staged-content.mjs
 run_step "build" pnpm run build
 
 test_node_options="--test-reporter=dot"
