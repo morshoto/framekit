@@ -258,15 +258,11 @@ function verifySpeechContinuity(
       };
     }
     const candidateIds = new Set(items.map((item) => item.candidateId));
-    const deletes = items
-      .map((item) => item.sourceDeleteRange)
-      .sort((left, right) => left.start - right.start);
     const expectedWords = beforeWords
       .filter((word) => ![...candidateIds].some((candidateId) => {
         const candidate = candidateById.get(candidateId);
         return candidate ? sameSpeechWord(candidate.word, word) : false;
-      }))
-      .map((word) => translateSpeechWordAfterDeletes(word, deletes));
+      }));
     if (expectedWords.length !== actualWords.length) {
       return {
         name: "filler-speech-continuity",
@@ -306,26 +302,6 @@ function sourceDeleteRangeFor(
     start: candidate.sourceRange.start + operation.range.start - candidate.sequenceRange.start,
     end: candidate.sourceRange.start + operation.range.end - candidate.sequenceRange.start,
   };
-}
-
-function translateSpeechWordAfterDeletes(word: SpeechWord, deletes: TimeRange[]): SpeechWord {
-  return {
-    ...word,
-    start: translateBoundaryAfterDeletes(word.start, deletes),
-    end: translateBoundaryAfterDeletes(word.end, deletes),
-  };
-}
-
-function translateBoundaryAfterDeletes(boundary: number, deletes: TimeRange[]): number {
-  let translated = boundary;
-  let removed = 0;
-  for (const deletion of deletes) {
-    if (boundary <= deletion.start) break;
-    if (boundary < deletion.end) return deletion.start - removed;
-    translated -= deletion.end - deletion.start;
-    removed += deletion.end - deletion.start;
-  }
-  return translated;
 }
 
 function sameSpeechWord(left: SpeechWord, right: SpeechWord): boolean {

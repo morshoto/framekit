@@ -57,12 +57,7 @@ function createFixture(options: {
       const clip = project.timeline.clips.find((candidate) => candidate.id === "filler-occurrence");
       if ((clip?.duration ?? 5) < 5) {
         if (options.postAnalysisError) throw new Error("controlled post-write analyzer failure");
-        const postWords = options.postWords ?? words.filter((word) => word.filler !== true).map((word) => {
-          const removed = words
-            .filter((candidate) => candidate.filler === true && candidate.end <= word.start)
-            .reduce((total, candidate) => total + candidate.end - candidate.start, 0);
-          return { ...word, start: word.start - removed, end: word.end - removed };
-        });
+        const postWords = options.postWords ?? words.filter((word) => word.filler !== true);
         return {
           words: postWords,
           vadSegments: [{ start: 0, end: Math.max(0, (clip?.duration ?? 5) - 0.3), kind: "speech" as const }],

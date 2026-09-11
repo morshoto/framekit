@@ -383,14 +383,10 @@ function createFillerAnalyzer(scenario: string): SpeechAnalyzer {
           vadSegments: originalWords.map((word) => ({ start: word.start, end: word.end, kind: "speech" as const })),
         };
       }
-      const removals = originalWords.filter((word) => word.filler === true);
       return {
         words: originalWords.flatMap((word) => {
           if (word.filler) return [];
-          const shift = removals
-            .filter((removal) => removal.end <= word.start)
-            .reduce((total, removal) => total + removal.end - removal.start, 0);
-          return [{ ...word, start: word.start - shift, end: word.end - shift }];
+          return [{ ...word }];
         }),
         vadSegments: originalWords
           .filter((word) => word.filler !== true)
