@@ -251,12 +251,16 @@ function checksumLineMatches(content: string, archiveName: string, archiveSha256
 function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"] {
   const project = raw.project;
   const target = raw.target ?? raw.placement?.target;
-  const projectValue = typeof project === "string" ? project : project?.name ?? raw.placement?.project ?? target?.project;
+  const projectValue = [
+    typeof project === "string" ? project : project?.name,
+    raw.placement?.project,
+    target?.project,
+  ].find((candidate) => safeProjectString(candidate));
   const projectId = typeof project === "object" ? project?.id : target?.projectId;
   const sequenceId = typeof project === "object" ? project?.sequenceId : target?.sequenceId;
   const occurrenceId = target?.occurrenceId ?? raw.placement?.occurrenceId;
   const occurrenceName = target?.occurrenceName ?? target?.name;
-  const safeProject = safeTargetString(projectValue);
+  const safeProject = safeProjectString(projectValue);
   const safeProjectId = safeTargetString(projectId);
   const safeSequenceId = safeTargetString(sequenceId);
   const safeOccurrenceId = safeTargetString(occurrenceId);
@@ -284,6 +288,13 @@ function safeTargetString(value: unknown): string | undefined {
     return undefined;
   }
   return value;
+}
+
+function safeProjectString(value: unknown): string | undefined {
+  const result = safeTargetString(value);
+  if (!result || result.includes("/") || result.includes("\\") || result.startsWith("~")) return undefined;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(result)) return undefined;
+  return result;
 }
 
 function extractRevisions(raw: Record<string, any>): HeadedEvidenceSummary["revision"] {
