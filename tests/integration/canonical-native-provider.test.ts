@@ -1,0 +1,168 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  FinalCutCanonicalNativeProvider,
+  type CanonicalNativeTargetResolver,
+} from "@framekit/final-cut";
+import type {
+  ContextRevision,
+  EditorChange,
+  EditorIdentity,
+  EditorLiveState,
+  ProjectSnapshot,
+} from "@framekit/runtime";
+
+const identity: EditorIdentity = {
+  name: "Final Cut Pro",
+  version: "10.7.1",
+  backend: "workflow-extension-ipc",
+};
+
+function snapshot(name: string): ProjectSnapshot {
+  return {
+    projectId: "final-cut:project:project-1",
+    projectName: "Canonical E2E",
+    timeline: {
+      id: "final-cut:sequence:sequence-1",
+      name: "Canonical E2E",
+      duration: 4,
+      durationTime: { value: "96", timescale: "24" },
+      frameDuration: { value: "1", timescale: "24" },
+      clips: [{
+        id: "final-cut:occurrence:clip-1",
+        mediaId: "final-cut:media:media-1",
+        name,
+        start: 0,
+        duration: 4,
+        track: 0,
+        startTime: { value: "0", timescale: "24" },
+        durationTime: { value: "96", timescale: "24" },
+      }],
+      storyElements: [{
+        id: "final-cut:occurrence:clip-1",
+        kind: "asset-clip",
+        start: 0,
+        duration: 4,
+        startTime: { value: "0", timescale: "24" },
+        durationTime: { value: "96", timescale: "24" },
+        lane: 0,
+        mediaId: "final-cut:media:media-1",
+      }],
+      markers: [],
+      captions: [],
+    },
+    media: [{ mediaId: "final-cut:media:media-1", source: "/tmp/clip.mov" }],
+    revision: { id: "source-revision", sequence: 0, timestamp: new Date(0).toISOString() },
+  };
+}
+
+function liveState(): EditorLiveState {
+  return {
+    project: { id: "active-project", name: "Canonical E2E" },
+    sequence: {
+      id: "active-sequence",
+      name: "Canonical E2E",
+      startTime: { value: "0", timescale: "24" },
+      duration: { value: "96", timescale: "24" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    revision: { id: "live-revision", sequence: 1, timestamp: new Date(1).toISOString() },
+  };
+}
+
+function providerFor(
+  snapshots: ProjectSnapshot[],
+  calls: string[],
+  resolveTarget: CanonicalNativeTargetResolver = async () => {},
+) {
+  const native = {
+    edit: async () => {
+      calls.push("edit");
+      return { operationId: "native-operation-1", undoAvailable: true };
+    },
+    undo: async () => {
+      calls.push("undo");
+      return { undone: true, verification: { verified: true, detail: "restored" } };
+    },
+  };
+  const live = {
+    getIdentity: async () => identity,
+    readLiveState: async () => liveState(),
+    liveChangesSince: async (_revision: ContextRevision, _waitMs?: number): Promise<EditorChange[]> => [],
+  };
+  return new FinalCutCanonicalNativeProvider({
+    live,
+    native,
+    readSnapshot: async () => {
+      const next = snapshots.shift();
+      if (!next) throw new Error("snapshot queue exhausted");
+      return structuredClone(next);
+    },
+    resolveTarget,
+  });
+}
+
+test("canonical native provider exposes one explicit active project and sequence", async () => {
+  const provider = providerFor([snapshot("Original")], []);
+
+  const catalog = await provider.listProjects();
+
+  assert.equal(catalog.projects.length, 1);
+  assert.equal(catalog.activeProjectId, "final-cut:project:project-1");
+  assert.equal(catalog.activeSequenceId, "final-cut:sequence:sequence-1");
+  assert.equal((await provider.getCapabilities()).editor.canonicalTimelineMode, "canonical-write");
+});
+
+test("canonical native provider rejects stale targets before native mutation", async () => {
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Original")], calls);
+  const before = await provider.readProject();
+
+  await assert.rejects(
+    provider.apply({
+      type: "rename-clip",
+      clipId: "final-cut:occurrence:clip-1",
+      name: "Renamed",
+      baseRevision: { id: "stale", sequence: before.revision.sequence },
+    }, { id: "stale", sequence: before.revision.sequence }),
+    /STALE_CONTEXT/,
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("canonical native provider verifies native edit and restores its canonical digest", async () => {
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Original"), snapshot("Renamed"), snapshot("Original")], calls);
+  const before = await provider.readProject();
+  const afterRevision = await provider.apply({
+    type: "rename-clip",
+    clipId: "final-cut:occurrence:clip-1",
+    name: "Renamed",
+    baseRevision: before.revision,
+  }, before.revision);
+
+  assert.ok(afterRevision.sequence > before.revision.sequence);
+  assert.deepEqual(calls, ["edit"]);
+  await provider.restore(before, afterRevision);
+  assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("canonical native provider rejects ambiguous occurrence bindings before edit", async () => {
+  const calls: string[] = [];
+  const resolveTarget: CanonicalNativeTargetResolver = async () => {
+    throw new Error("AMBIGUOUS_PROJECT_TARGET: occurrence binding is not unique");
+  };
+  const provider = providerFor([snapshot("Original")], calls, resolveTarget);
+  const before = await provider.readProject();
+
+  await assert.rejects(
+    provider.apply({
+      type: "rename-clip",
+      clipId: "final-cut:occurrence:clip-1",
+      name: "Renamed",
+      baseRevision: before.revision,
+    }, before.revision),
+    /AMBIGUOUS_PROJECT_TARGET/,
+  );
+  assert.deepEqual(calls, []);
+});
