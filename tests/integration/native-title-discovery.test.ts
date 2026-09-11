@@ -55,3 +55,11 @@ test("native Final Cut adapter discovers stable title assets", async () => {
   }]);
   assert.equal(scripts.some((script) => script.includes("titleSearchField")), true);
 });
+
+test("native title discovery capability follows the enabled native provider", () => {
+  const enabled = new FinalCutNativeAutomationAdapter({ enabled: true });
+  const disabled = new FinalCutNativeAutomationAdapter({ enabled: false });
+
+  assert.equal(enabled.capabilities().titleDiscovery, true);
+  assert.equal(disabled.capabilities().titleDiscovery, false);
+});
