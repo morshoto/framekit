@@ -1429,7 +1429,6 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async searchTransitionsNative(query: string): Promise<NativeFinalCutTransitionMatch[]> {
     this.assertEnabled();
-    if (!query.trim()) throw new Error("INVALID_OPERATION: transition search query cannot be empty");
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for transition discovery");
     try {

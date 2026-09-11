@@ -52,34 +52,46 @@ export class FinalCutAssetRegistry {
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
     if (!this.cached) this.cached = await this.scan();
     const filesystemAssets = filterAssets(this.cached, query);
-    let composed = filesystemAssets;
+    let nativeTitleAssets: EditorAsset[] = [];
+    let nativeTransitionAssets: EditorAsset[] = [];
+    let nativeTitleError: unknown;
+    let nativeTransitionError: unknown;
     if (this.nativeTitleProvider && (!query?.kind || query.kind === "title")) {
       let nativeTitles: NativeFinalCutTitleMatch[];
       try {
         nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
       } catch (error) {
-        // Filesystem assets remain usable when the optional native browser is
-        // unavailable, but keep the native diagnostic visible in the response.
-        if (filesystemAssets.length > 0) return withNativeDiscoveryDiagnostic(filesystemAssets, error);
-        throw error;
+        nativeTitleError = error;
+        nativeTitles = [];
       }
-      composed = [...composed, ...nativeTitles.map(nativeTitleAsset)];
+      nativeTitleAssets = nativeTitles.map(nativeTitleAsset);
     }
 
-    const shouldSearchNativeTransitions = this.nativeTransitionProvider
-      && (query?.kind === "transition" || (!query?.kind && Boolean(query?.query?.trim())));
+    const nativeTransitionProvider = this.nativeTransitionProvider;
+    const shouldSearchNativeTransitions = nativeTransitionProvider
+      && (!query?.kind || query.kind === "transition");
     if (shouldSearchNativeTransitions) {
       let nativeTransitions: NativeFinalCutTransitionMatch[];
       try {
-        nativeTransitions = await this.nativeTransitionProvider.searchTransitions(query?.query ?? "");
+        nativeTransitions = await nativeTransitionProvider.searchTransitions(query?.query ?? "");
       } catch (error) {
-        if (filesystemAssets.length > 0) return withNativeDiscoveryDiagnostic(filesystemAssets, error);
-        throw error;
+        nativeTransitionError = error;
+        nativeTransitions = [];
       }
-      composed = [...composed, ...nativeTransitions.map(nativeTransitionAsset)];
+      nativeTransitionAssets = nativeTransitions.map(nativeTransitionAsset);
     }
 
-    return filterAssets(dedupeAssets(composed), query);
+    const nativeError = nativeTransitionError ?? nativeTitleError;
+    const filesystemResults = nativeError && filesystemAssets.length > 0
+      ? withNativeDiscoveryDiagnostic(filesystemAssets, nativeError)
+      : filesystemAssets;
+    const assets = filterAssets(dedupeAssets([
+      ...filesystemResults,
+      ...nativeTitleAssets,
+      ...nativeTransitionAssets,
+    ]), query);
+    if (assets.length === 0 && nativeError) throw nativeError;
+    return assets;
   }
 
   public refresh(): void {

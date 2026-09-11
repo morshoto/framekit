@@ -209,6 +209,78 @@ test("Final Cut native-only transition discovery fails closed", async () => {
   );
 });
 
+test("Final Cut transition discovery continues after a title-provider failure", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-transition-after-title-failure-"));
+  const bundle = join(root, "Transitions.localized", "Cross Dissolve.motr");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(
+    join(bundle, "Contents", "Info.plist"),
+    "<plist><key>CFBundleDisplayName</key><string>Cross Dissolve</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></plist>",
+  );
+  const nativeTransition: NativeFinalCutTransitionMatch = {
+    id: "final-cut:transition:fcp://transition/cross",
+    kind: "transition",
+    name: "Cross Dissolve",
+    vendor: "Final Cut Pro",
+    identity: "fcp://transition/cross",
+  };
+  const registry = new FinalCutAssetRegistry({
+    roots: [root],
+    nativeTitleProvider: {
+      searchTitles: async () => {
+        throw new Error("FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION: Accessibility permission is required");
+      },
+    },
+    nativeTransitionProvider: {
+      searchTransitions: async () => [nativeTransition],
+    },
+  });
+
+  const assets = await registry.listAssets({ query: "dissolve" });
+
+  assert.deepEqual(assets.map((asset) => asset.id), [
+    `filesystem:transition:${bundle}`,
+    nativeTransition.id,
+  ]);
+  assert.deepEqual(assets[0]?.metadata.discovery, {
+    backend: "filesystem-motion-template",
+    guarantee: "observed",
+    native: {
+      backend: "final-cut-accessibility",
+      guarantee: "none",
+      unavailableReason: "FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION: Accessibility permission is required",
+    },
+  });
+  assert.deepEqual(assets[1]?.metadata.discovery, {
+    backend: "final-cut-accessibility",
+    guarantee: "observed",
+  });
+});
+
+test("Final Cut transition discovery supports vendor-only and unfiltered queries", async () => {
+  const nativeTransition: NativeFinalCutTransitionMatch = {
+    id: "final-cut:transition:fcp://transition/cross",
+    kind: "transition",
+    name: "Cross Dissolve",
+    vendor: "Final Cut Pro",
+    identity: "fcp://transition/cross",
+  };
+  const queries: string[] = [];
+  const registry = new FinalCutAssetRegistry({
+    roots: [],
+    nativeTransitionProvider: {
+      searchTransitions: async (query) => {
+        queries.push(query);
+        return [nativeTransition];
+      },
+    },
+  });
+
+  assert.deepEqual((await registry.listAssets({ vendor: "Final Cut Pro" })).map((asset) => asset.id), [nativeTransition.id]);
+  assert.deepEqual((await registry.listAssets({})).map((asset) => asset.id), [nativeTransition.id]);
+  assert.deepEqual(queries, ["", ""]);
+});
+
 test("MCP editor.assets exposes native title provenance", async () => {
   const nativeTitle: NativeFinalCutTitleMatch = {
     id: "final-cut:title:fcp://title/lower-third",
