@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   assessReleaseProvenance,
@@ -175,4 +178,32 @@ test("release gate reports each v0.1.6 evidence tier independently", async () =>
   );
   assert.ok(report.evidenceTiers["metadata-only"].preflight.unavailableReason);
   assert.doesNotMatch(JSON.stringify(report), /operationId|sourceIdentity|\/private\/media/i);
+});
+
+test("partial headed evidence cannot promote the headed tier", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headed-evidence-"));
+  try {
+    await writeFile(join(directory, "pip.json"), JSON.stringify({
+      evidenceType: "headed-native-picture-in-picture",
+      passed: true,
+      environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
+      placement: {
+        project: "Disposable PIP",
+        beforeRevision: "rev-1",
+        afterRevision: "rev-2",
+        undoRevision: "rev-3",
+        observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+        undoVerified: { verified: true },
+      },
+    }), "utf8");
+
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+
+    assert.equal(report.evidenceTiers["headed-native"].status, "failed");
+    assert.equal(report.evidenceTiers["headed-native"].passed, false);
+    assert.equal(report.evidenceTiers["headed-native"].workflows.find((workflow) => workflow.workflowId === "picture-in-picture")?.status, "verified");
+    assert.equal(report.evidenceTiers["headed-native"].workflows.find((workflow) => workflow.workflowId === "masking")?.status, "unrun");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
