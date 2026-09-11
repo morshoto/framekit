@@ -36,6 +36,7 @@ export interface EditorCapabilities {
   videoExport?: boolean;
   mediaImport?: boolean;
   mediaPlacement?: boolean;
+  pictureInPicture?: boolean;
   titlePlacement?: boolean;
   clipMove?: boolean;
   clipReplace?: boolean;
@@ -109,6 +110,7 @@ export type NativeCapabilityOperation =
   | "clipMovement"
   | "transitionDiscovery"
   | "transitionPlacement"
+  | "pictureInPicture"
   | "masking";
 
 export interface CapabilityFamilies {

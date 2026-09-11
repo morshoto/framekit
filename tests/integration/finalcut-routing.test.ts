@@ -159,7 +159,8 @@ test("editor inspection exposes actionable artifact preflight provenance", async
     assert.equal(payload.preflight.capabilities.editing.compositeTransactions.backend, "fcpxml-document");
     assert.equal(payload.preflight.capabilities.editing.compositeTransactions.guarantee, "verified");
     assert.equal(payload.preflight.capabilities.editing.titlePlacement.available, false);
-    assert.match(payload.preflight.capabilities.editing.pictureInPicture.unavailableReason, /unavailable/);
+    assert.equal(payload.preflight.capabilities.editing.pictureInPicture.available, true);
+    assert.equal(payload.preflight.capabilities.editing.pictureInPicture.backend, "fcpxml-document");
     assert.match(payload.preflight.capabilities.editing.masking.unavailableReason, /unavailable/);
     assert.equal(payload.preflight.capabilities.analyzers.speechTranscribe.available, false);
     assert.match(payload.preflight.capabilities.analyzers.audioLoudness.unavailableReason, /unavailable/);

@@ -295,6 +295,108 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
   }
 });
 
+test("Final Cut MCP routes native picture-in-picture through preview and execute", async () => {
+  const requests: unknown[] = [];
+  const preview = {
+    previewToken: "pip-preview-1",
+    media: { handle: "media-guest", name: "Guest", sourceIdentity: "guest-source" },
+    anchorOccurrence: { handle: "occurrence-primary", mediaHandle: "media-primary", name: "Primary", start: "0/1", duration: "10/1" },
+    start: { value: "2", timescale: "1" },
+    end: { value: "6", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+    command: "Add native picture-in-picture" as const,
+    revision: "rev-1",
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    ...preview,
+    operationId: "native-pip-1",
+    observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+    before: {},
+    after: {},
+    beforeRevision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    afterRevision: { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() },
+    verification: { verified: true, detail: "verified" },
+    undoAvailable: true,
+    undoCommand: "Undo Native Picture-in-Picture",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: false,
+      mediaSelection: true,
+      mediaAppendSelected: false,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: false,
+      deleteRange: false,
+      trimToDuration: false,
+      mediaAppend: false,
+      mediaInsert: false,
+      titlePlacement: false,
+      pictureInPicture: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    previewPictureInPicture: async (request: unknown) => {
+      requests.push(request);
+      return preview;
+    },
+    executePictureInPicture: async () => result,
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP PIP Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "pip-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.picture-in-picture.preview"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.picture-in-picture.execute"));
+    const pipPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.picture-in-picture.preview",
+      arguments: {
+        mediaHandle: "media-guest",
+        anchorOccurrenceHandle: "occurrence-primary",
+        start: { value: "2", timescale: "1" },
+        duration: { value: "4", timescale: "1" },
+        position: { x: 320, y: -180 },
+        scale: 0.35,
+      },
+    })));
+    assert.equal(pipPreview.command, "Add native picture-in-picture");
+    assert.deepEqual(requests, [{
+      mediaHandle: "media-guest",
+      anchorOccurrenceHandle: "occurrence-primary",
+      start: { value: "2", timescale: "1" },
+      duration: { value: "4", timescale: "1" },
+      position: { x: 320, y: -180 },
+      scale: 0.35,
+    }]);
+    const pipResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.picture-in-picture.execute",
+      arguments: { previewToken: pipPreview.previewToken },
+    })));
+    assert.equal(pipResult.verification.verified, true);
+    assert.equal(pipResult.afterRevision.id, "rev-2");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("Final Cut MCP resolves transition search ids back through native discovery", async () => {
   const registryAsset = {
     id: "transition-registry-cross-dissolve",

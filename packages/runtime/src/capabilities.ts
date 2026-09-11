@@ -253,7 +253,7 @@ function editingFamily(
       "title placement is unavailable",
     ),
     pictureInPicture: descriptorFrom(
-      overrides.pictureInPicture ?? false,
+      overrides.pictureInPicture ?? Boolean(editor.pictureInPicture),
       backend,
       "verified",
       "picture-in-picture editing is unavailable",
@@ -346,6 +346,7 @@ function nativeFamily(
     "clipMovement",
     "transitionDiscovery",
     "transitionPlacement",
+    "pictureInPicture",
     "masking",
   ];
   return Object.fromEntries(nativeOperations.map((operation) => [

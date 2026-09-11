@@ -1,6 +1,12 @@
 import type { ContextRevision, RationalTime, TimeRange } from "./primitives.js";
 
-import type { Marker, ProjectSnapshot } from "./project.js";
+import type {
+  Marker,
+  PictureInPictureCrop,
+  PictureInPictureFrame,
+  PictureInPicturePosition,
+  ProjectSnapshot,
+} from "./project.js";
 
 import type { TimelineDiff } from "./diff.js";
 
@@ -144,6 +150,22 @@ export interface AddMediaOperation {
   targetLane?: "primary" | number;
 }
 
+export interface AddPictureInPictureOperation {
+  type: "timeline.picture-in-picture.add";
+  occurrenceId: string;
+  mediaId: string;
+  /** Existing primary-storyline occurrence that owns the connected clip. */
+  attachedTo: string;
+  start: number;
+  duration: number;
+  /** Connected lane; zero and the primary storyline are not valid. */
+  targetLane: number;
+  position: PictureInPicturePosition;
+  scale: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
+}
+
 export interface SetAudioFadesOperation {
   type: "timeline.audio.fades";
   clipId: string;
@@ -236,6 +258,7 @@ export interface MixAudioOperation {
 export type WorkflowOperation = EditOperation
   | ImportMediaOperation
   | AddMediaOperation
+  | AddPictureInPictureOperation
   | SetAudioFadesOperation
   | AddTitleOperation
   | MoveMediaOperation

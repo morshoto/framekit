@@ -60,6 +60,31 @@ test("routing selects the connected editor when required capabilities are availa
   assert.ok(route.requiredCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
 });
 
+test("routing selects native picture-in-picture only with native placement guarantees", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.picture-in-picture" }, context({
+    native: {
+      pictureInPicture: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      timelineFocus: true,
+      undo: true,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.ok(route.requiredCapabilities.includes("native.pictureInPicture"));
+});
+
+test("routing fails closed when native picture-in-picture is unavailable", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.picture-in-picture" }, context({
+    native: { mediaSelection: true, timelineOccurrenceLocate: true, timelineFocus: true, undo: true },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.ok(route.missingCapabilities.includes("native.pictureInPicture"));
+});
+
 test("routing fails closed when the expected editor is unavailable", () => {
   const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
     connection: {

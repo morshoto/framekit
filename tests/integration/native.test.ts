@@ -239,6 +239,255 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Native Title" of menu "Edit"')), true);
 });
 
+test("native Final Cut adapter places PIP with transform readback and undo", async () => {
+  let revision = 1;
+  let playhead = "0";
+  let pipAdded = false;
+  const scripts: string[] = [];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set searchQuery to "Anchor"')) {
+        return `Anchor${separator}AXBrowserMedia${separator}browser-anchor${separator}media-anchor${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set searchQuery to "Guest"')) {
+        return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
+      }
+      if (script.includes("collectTimelineClipMatches")) {
+        return pipAdded
+          ? `Guest${separator}AXRow${separator}media-guest${separator}800${separator}2/1${separator}4/1${separator}pip-occurrence${String.fromCharCode(30)}`
+          : `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
+      }
+      if (script.includes("00:00:02:00")) playhead = "2";
+      if (script.includes("00:00:06:00")) playhead = "6";
+      if (script.includes('keystroke "q"')) {
+        pipAdded = true;
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Native Picture-in-Picture"')) {
+        pipAdded = false;
+        revision = 3;
+      }
+      if (script.includes("FRAMEKIT_NATIVE_PIP_READBACK")) {
+        return ["320", "-180", "35", "solid", "#FFFFFF", "8", "0.1", "0.05", "0.1", "0.05"].join(separator);
+      }
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo", pipAdded ? "pip-occurrence" : "anchor-occurrence")
+        : "";
+    },
+  });
+
+  const [anchorMedia] = await adapter.searchMedia("Anchor");
+  const anchorOccurrences = await adapter.locateOccurrence(anchorMedia.handle);
+  const anchor = anchorOccurrences.occurrences[0];
+  assert.ok(anchor);
+  const [guestMedia] = await adapter.searchMedia("Guest");
+  await adapter.selectMedia(guestMedia.handle);
+
+  const preview = await adapter.previewPictureInPicture({
+    mediaHandle: guestMedia.handle,
+    anchorOccurrenceHandle: anchor.handle,
+    start: { value: "2", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+    crop: { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 },
+    frame: { style: "solid", color: "#ffffff", width: 8 },
+  });
+  assert.deepEqual(preview.start, { value: "2", timescale: "1" });
+  assert.deepEqual(preview.end, { value: "6", timescale: "1" });
+  assert.equal(preview.anchorOccurrence.handle, anchor.handle);
+
+  const result = await adapter.executePictureInPicture(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  assert.deepEqual(result.observed.position, { x: 320, y: -180 });
+  assert.equal(result.observed.scale, 0.35);
+  assert.deepEqual(result.observed.frame, { style: "solid", color: "#FFFFFF", width: 8 });
+  assert.deepEqual(result.observed.crop, { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 });
+  assert.equal(result.occurrence.identity, "pip-occurrence");
+  assert.equal(result.occurrence.start, "2/1");
+  assert.equal(result.occurrence.duration, "4/1");
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.some((script) => script.includes('keystroke "q"')), true);
+  assert.equal(scripts.some((script) => script.includes("FRAMEKIT_NATIVE_PIP_READBACK")), true);
+  assert.equal(scripts.some((script) => script.includes("set value of positionXField")), true);
+  const transformScript = scripts.find((script) => script.includes("set value of positionXField"));
+  const readbackScript = scripts.find((script) => script.includes("FRAMEKIT_NATIVE_PIP_READBACK"));
+  assert.ok(transformScript);
+  assert.ok(readbackScript);
+  assert.ok(transformScript.indexOf("on findInspectorField") < transformScript.indexOf('tell application "System Events"'));
+  assert.ok(readbackScript.indexOf("on readInspectorField") < readbackScript.indexOf('tell application "System Events"'));
+
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Native Picture-in-Picture" of menu "Edit"')), true);
+});
+
+test("native PIP rolls back when transform fails after connect", async () => {
+  let revision = 1;
+  let playhead = "0";
+  let pipAdded = false;
+  let undoCalls = 0;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      if (script.includes('set searchQuery to "Anchor"')) {
+        return `Anchor${separator}AXBrowserMedia${separator}browser-anchor${separator}media-anchor${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set searchQuery to "Guest"')) {
+        return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
+      }
+      if (script.includes("collectTimelineClipMatches")) {
+        return pipAdded
+          ? `Guest${separator}AXRow${separator}media-guest${separator}800${separator}2/1${separator}4/1${separator}pip-occurrence${String.fromCharCode(30)}`
+          : `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
+      }
+      if (script.includes("00:00:02:00")) playhead = "2";
+      if (script.includes("00:00:06:00")) playhead = "6";
+      if (script.includes('keystroke "q"')) {
+        pipAdded = true;
+        revision = 2;
+      }
+      if (script.includes("set value of positionXField")) {
+        throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_TRANSFORM_UNAVAILABLE: Inspector transform failed");
+      }
+      if (script.includes('click menu item "Undo Native Picture-in-Picture"')) {
+        undoCalls += 1;
+        pipAdded = false;
+        revision = 3;
+      }
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo", pipAdded ? "pip-occurrence" : "anchor-occurrence")
+        : "";
+    },
+  });
+
+  const [anchorMedia] = await adapter.searchMedia("Anchor");
+  const anchorOccurrences = await adapter.locateOccurrence(anchorMedia.handle);
+  const anchor = anchorOccurrences.occurrences[0];
+  assert.ok(anchor);
+  const [guestMedia] = await adapter.searchMedia("Guest");
+  await adapter.selectMedia(guestMedia.handle);
+  const preview = await adapter.previewPictureInPicture({
+    mediaHandle: guestMedia.handle,
+    anchorOccurrenceHandle: anchor.handle,
+    start: { value: "2", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+  });
+
+  await assert.rejects(
+    adapter.executePictureInPicture(preview.previewToken),
+    /picture-in-picture placement was rolled back/,
+  );
+  assert.equal(pipAdded, false);
+  assert.equal(undoCalls, 1);
+  assert.equal(revision, 3);
+});
+
+test("native PIP rejects a same-name anchor with a different identity", async () => {
+  let playhead = "0";
+  let connected = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: connected ? "rev-2" : "rev-1", sequence: connected ? 2 : 1, timestamp: new Date(1).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      if (script.includes('set searchQuery to "Anchor"')) {
+        return `Anchor${separator}AXBrowserMedia${separator}browser-anchor${separator}media-anchor${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set searchQuery to "Guest"')) {
+        return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
+      }
+      if (script.includes("collectTimelineClipMatches")) {
+        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
+      }
+      if (script.includes("00:00:02:00")) playhead = "2";
+      if (script.includes("00:00:06:00")) playhead = "6";
+      if (script.includes('keystroke "q"')) connected = true;
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Anchor", 1, true, true, true, "timeline", 1, "Undo", "different-anchor")
+        : "";
+    },
+  });
+
+  const [anchorMedia] = await adapter.searchMedia("Anchor");
+  const anchorOccurrences = await adapter.locateOccurrence(anchorMedia.handle);
+  const anchor = anchorOccurrences.occurrences[0];
+  assert.ok(anchor);
+  const [guestMedia] = await adapter.searchMedia("Guest");
+  await adapter.selectMedia(guestMedia.handle);
+  const preview = await adapter.previewPictureInPicture({
+    mediaHandle: guestMedia.handle,
+    anchorOccurrenceHandle: anchor.handle,
+    start: { value: "2", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+  });
+
+  await assert.rejects(
+    adapter.executePictureInPicture(preview.previewToken),
+    /selected timeline occurrence does not match the requested anchor/,
+  );
+  assert.equal(connected, false);
+});
+
 test("native title placement keeps filesystem assets on name fallback", async () => {
   const scripts: string[] = [];
   let revision = 1;

@@ -385,6 +385,9 @@ export class EditService {
     if (operations.some((operation) => operation.type === "timeline.media.add") && !capabilities.mediaPlacement) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline media placement");
     }
+    if (operations.some((operation) => operation.type === "timeline.picture-in-picture.add") && !capabilities.pictureInPicture) {
+      throw new Error("CAPABILITY_UNAVAILABLE: picture-in-picture placement");
+    }
     if (operations.some((operation) => operation.type === "timeline.title.add")
       && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");

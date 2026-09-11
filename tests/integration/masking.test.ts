@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
+  withCapabilityFamilies,
   type AddMaskOperation,
 } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -63,7 +64,16 @@ function textFrom(result: unknown): string {
 }
 
 test("masking is independent from PIP and person cutout", async () => {
-  const capabilities = await maskFixture().getCapabilities();
+  const adapter = maskFixture();
+  const getCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => {
+    const capabilities = await getCapabilities();
+    return withCapabilityFamilies({
+      ...capabilities,
+      editor: { ...capabilities.editor, pictureInPicture: false, personCutout: false },
+    }, { editing: { pictureInPicture: false, personCutout: false } });
+  };
+  const capabilities = await adapter.getCapabilities();
 
   assert.equal(capabilities.families?.editing.masking.available, true);
   assert.equal(capabilities.families?.editing.pictureInPicture.available, false);

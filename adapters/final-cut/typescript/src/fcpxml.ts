@@ -7,6 +7,7 @@ import type {
   Caption,
   Clip,
   ContextRevision,
+  AddPictureInPictureOperation,
   EditOperation,
   EditorAsset,
   EditorCapabilities,
@@ -98,7 +99,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         projectCatalogRead: true,
         projectSelection: true,
         compositeTransactions: true,
-        semanticOperations: { "add-marker": true, "set-gain": true },
+        pictureInPicture: true,
+        semanticOperations: { "add-marker": true, "set-gain": true, "timeline.picture-in-picture.add": true },
       },
       analyzers: emptyAnalyzerCapabilities(),
     }, { backend: "fcpxml-document" });
@@ -208,10 +210,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const originalSignature = this.fileSignature;
     try {
       for (const operation of operations) {
-        if (operation.type === "media.import" || operation.type.startsWith("timeline.")) {
+        if (operation.type === "media.import"
+          || operation.type.startsWith("timeline.") && operation.type !== "timeline.picture-in-picture.add") {
           throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML preview does not support ${operation.type}`);
         }
-        this.applyOperation(operation as EditOperation);
+        this.applyOperation(operation as EditOperation | AddPictureInPictureOperation);
       }
       const preview = await this.readProject();
       return preview;
@@ -230,23 +233,40 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     if (!sameRevision(expectedRevision, this.revision())) {
       throw new Error("STALE_CONTEXT: FCPXML document changed before transaction");
     }
+    const originalXml = structuredClone(this.xml!);
+    const originalSequence = this.sequence;
+    const originalSignature = this.fileSignature;
     this.history.set(expectedRevision.id, structuredClone(this.xml!));
-    for (const operation of operations) {
-      if (operation.type === "media.import" || operation.type.startsWith("timeline.")) {
-        throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML transaction does not support ${operation.type}`);
+    try {
+      for (const operation of operations) {
+        if (operation.type === "media.import"
+          || operation.type.startsWith("timeline.") && operation.type !== "timeline.picture-in-picture.add") {
+          throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML transaction does not support ${operation.type}`);
+        }
+        this.applyOperation(operation as EditOperation | AddPictureInPictureOperation);
       }
-      this.applyOperation(operation as EditOperation);
+      this.sequence += 1;
+      await this.persist();
+    } catch (error) {
+      this.xml = originalXml;
+      this.sequence = originalSequence;
+      this.fileSignature = originalSignature;
+      throw error;
     }
-    this.sequence += 1;
-    await this.persist();
   }
 
-  private applyOperation(operation: EditOperation): void {
+  private applyOperation(operation: EditOperation | AddPictureInPictureOperation): void {
     const project = this.projectNode();
     const sequenceNode = findElement(project, "sequence");
     const sequence = sequenceNode ?? {};
     const spine = findElement(sequence, "spine") ?? {};
     const timelineId = stableTimelineId(project, sequenceNode);
+
+    if (operation.type === "timeline.picture-in-picture.add") {
+      this.applyPictureInPicture(spine, timelineId, operation);
+      this.updateSequenceDuration(sequence, spine);
+      return;
+    }
 
     switch (operation.type) {
       case "rename-clip": {
@@ -292,6 +312,71 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     this.updateSequenceDuration(sequence, spine);
   }
 
+  private applyPictureInPicture(
+    spine: XmlNode,
+    timelineId: string,
+    operation: AddPictureInPictureOperation,
+  ): void {
+    const media = this.mediaFromResources().find((candidate) => candidate.mediaId === operation.mediaId);
+    if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+    if (media.mediaKind !== undefined && media.mediaKind !== "video") {
+      throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
+    }
+    if (this.findClipNode(spine, operation.occurrenceId, timelineId)) {
+      throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
+    }
+    const anchorEntry = timelineEntries(spine)
+      .find(({ kind, node, path }) => CLIP_KINDS.has(kind)
+        && this.instanceId(node, kind, path, timelineId) === operation.attachedTo);
+    if (!anchorEntry) throw new Error(`CLIP_NOT_FOUND: ${operation.attachedTo}`);
+    if (anchorEntry.kind !== "asset-clip" && anchorEntry.kind !== "clip"
+      && anchorEntry.kind !== "ref-clip" && anchorEntry.kind !== "sync-clip"
+      && anchorEntry.kind !== "mc-clip") {
+      throw new Error("INVALID_OPERATION: PIP anchor must be a video occurrence");
+    }
+    if (operation.frame) {
+      throw new Error("CAPABILITY_UNAVAILABLE: FCPXML picture-in-picture frame requires the native Final Cut provider");
+    }
+    validatePictureInPictureOperation(operation, anchorEntry.startTime, anchorEntry.durationTime, media.duration);
+    const connected = {
+      "asset-clip": [],
+      ":@": {
+        "@_id": operation.occurrenceId,
+        "@_name": media.source.split("/").pop() || operation.mediaId,
+        "@_ref": operation.mediaId,
+        "@_offset": formatSeconds(operation.start - rationalSeconds(anchorEntry.startTime)),
+        "@_start": "0s",
+        "@_duration": formatSeconds(operation.duration),
+        "@_lane": String(operation.targetLane),
+        "@_framekit-attached-to": operation.attachedTo,
+      },
+    } satisfies XmlNode;
+    appendChild(anchorEntry.node, "asset-clip", connected);
+    appendChild(connected, "adjust-transform", {
+      ":@": {
+        "@_position": `${operation.position.x} ${operation.position.y}`,
+        "@_scale": `${operation.scale * 100} ${operation.scale * 100}`,
+      },
+    });
+    if (operation.crop) {
+      appendChild(connected, "adjust-crop", {
+        ":@": {
+          "@_mode": "crop",
+        },
+      });
+      const crop = firstChild(connected, "adjust-crop");
+      if (!crop) throw new Error("FCPXML_INVALID_PIP: crop adjustment could not be created");
+      appendChild(crop, "crop-rect", {
+        ":@": {
+          "@_top": formatPictureInPicturePercentage(operation.crop.top),
+          "@_right": formatPictureInPicturePercentage(operation.crop.right),
+          "@_bottom": formatPictureInPicturePercentage(operation.crop.bottom),
+          "@_left": formatPictureInPicturePercentage(operation.crop.left),
+        },
+      });
+    }
+  }
+
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
     await this.ensureLoaded();
     if (!sameRevision(expectedRevision, this.revision())) {
@@ -326,6 +411,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
 
   private storyElementFromXml(entry: TimelineEntry, timelineId: string): StoryElement {
     const { node, kind, path, startTime, durationTime } = entry;
+    const visual = pictureInPictureProperties(node);
     return {
       id: this.instanceId(node, kind, path, timelineId),
       kind,
@@ -335,12 +421,15 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       durationTime,
       ...(attribute(node, "lane") !== undefined ? { lane: Number(attribute(node, "lane")) } : {}),
       ...(attribute(node, "ref") !== undefined ? { mediaId: String(attribute(node, "ref")) } : {}),
+      ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
+      ...visual,
     };
   }
 
   private clipFromXml(entry: TimelineEntry, timelineId: string): Clip {
     const { node, kind, path, startTime, durationTime } = entry;
     const gain = firstChild(node, "adjust-volume");
+    const visual = pictureInPictureProperties(node);
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
@@ -353,9 +442,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       duration: rationalSeconds(durationTime),
       ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
+      ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       startTime,
       durationTime,
       ...(gain ? { gainDb: parseDb(attribute(gain, "amount") ?? "0dB") } : {}),
+      ...visual,
     };
   }
 
@@ -423,12 +514,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .filter(({ kind }) => kind === "asset" || kind === "media" || kind === "effect")
       .map(({ node }) => {
         const durationValue = attribute(node, "duration");
+        const mediaKind = mediaKindFromResource(node);
         return {
           mediaId: String(attribute(node, "id") ?? ""),
           source: resolveMediaSource(
             String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
             this.filePath,
           ),
+          ...(mediaKind ? { mediaKind } : {}),
           ...(durationValue !== undefined ? { duration: parseSeconds(durationValue) } : {}),
         };
       })
@@ -617,6 +710,101 @@ function decimalToRational(value: number): RationalTime {
 
 function formatDb(value: number): string {
   return `${value}dB`;
+}
+
+function mediaKindFromResource(node: XmlNode): "video" | "audio" | undefined {
+  const hasVideo = attribute(node, "hasVideo");
+  const hasAudio = attribute(node, "hasAudio");
+  if (hasVideo === "1" || hasVideo === "true") return "video";
+  if ((hasVideo === "0" || hasVideo === "false") && (hasAudio === "1" || hasAudio === "true")) return "audio";
+  return undefined;
+}
+
+function validatePictureInPictureOperation(
+  operation: AddPictureInPictureOperation,
+  anchorStartTime: RationalTime,
+  anchorDurationTime: RationalTime,
+  mediaDuration?: number,
+): void {
+  const anchorStart = rationalSeconds(anchorStartTime);
+  const anchorEnd = anchorStart + rationalSeconds(anchorDurationTime);
+  if (!Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+    || operation.start < anchorStart
+    || operation.duration <= 0
+    || operation.start + operation.duration > anchorEnd
+    || !Number.isInteger(operation.targetLane)
+    || operation.targetLane === 0
+    || !Number.isFinite(operation.position.x)
+    || !Number.isFinite(operation.position.y)
+    || !Number.isFinite(operation.scale)
+    || operation.scale <= 0
+    || mediaDuration !== undefined && operation.duration > mediaDuration) {
+    throw new Error("INVALID_OPERATION: PIP timing, connected lane, position, and scale are invalid");
+  }
+  if (operation.crop) validatePictureInPictureCrop(operation.crop);
+}
+
+function validatePictureInPictureCrop(crop: NonNullable<Clip["crop"]>): void {
+  const values = [crop.top, crop.right, crop.bottom, crop.left];
+  if (!values.every((value) => Number.isFinite(value) && value >= 0 && value < 1)
+    || crop.left + crop.right >= 1
+    || crop.top + crop.bottom >= 1) {
+    throw new Error("INVALID_OPERATION: PIP crop must leave a positive source rectangle");
+  }
+}
+
+function pictureInPictureProperties(node: XmlNode): Pick<Clip, "position" | "scale" | "crop" | "frame"> {
+  const transform = firstChild(node, "adjust-transform");
+  const crop = firstChild(node, "adjust-crop");
+  const positionValue = transform ? attribute(transform, "position") : undefined;
+  const scaleValue = transform ? attribute(transform, "scale") : undefined;
+  const position = positionValue === undefined ? undefined : parsePictureInPicturePosition(positionValue);
+  const scale = scaleValue === undefined ? undefined : parsePictureInPictureScale(scaleValue);
+  const cropRect = crop ? firstChild(crop, "crop-rect") : undefined;
+  const cropKeys = ["top", "right", "bottom", "left"];
+  const hasCrop = cropRect !== undefined && cropKeys.some((key) => attribute(cropRect, key) !== undefined);
+  const parsedCrop = hasCrop
+    ? {
+      top: parsePictureInPictureNumber(cropRect && attribute(cropRect, "top"), "top crop"),
+      right: parsePictureInPictureNumber(cropRect && attribute(cropRect, "right"), "right crop"),
+      bottom: parsePictureInPictureNumber(cropRect && attribute(cropRect, "bottom"), "bottom crop"),
+      left: parsePictureInPictureNumber(cropRect && attribute(cropRect, "left"), "left crop"),
+    }
+    : undefined;
+  if (parsedCrop) validatePictureInPictureCrop(parsedCrop);
+  return {
+    ...(position ? { position } : {}),
+    ...(scale !== undefined ? { scale } : {}),
+    ...(parsedCrop ? { crop: parsedCrop } : {}),
+  };
+}
+
+function parsePictureInPicturePosition(value: unknown): { x: number; y: number } {
+  const values = String(value).trim().split(/\s+/).map(Number);
+  if (values.length !== 2 || !values.every(Number.isFinite)) {
+    throw new Error(`FCPXML_INVALID_PIP: position ${String(value)} is not a finite pair`);
+  }
+  return { x: values[0]!, y: values[1]! };
+}
+
+function parsePictureInPictureScale(value: unknown): number {
+  const values = String(value).trim().split(/\s+/).map(Number);
+  if (values.length !== 2 || !values.every((candidate) => Number.isFinite(candidate) && candidate > 0)
+    || values[0] !== values[1]) {
+    throw new Error(`FCPXML_INVALID_PIP: scale ${String(value)} is not a positive uniform pair`);
+  }
+  return values[0]! / 100;
+}
+
+function parsePictureInPictureNumber(value: unknown, label: string): number {
+  const text = String(value ?? "").trim();
+  const parsed = Number(text.replace(/%$/, ""));
+  if (!Number.isFinite(parsed)) throw new Error(`FCPXML_INVALID_PIP: ${label} is not finite`);
+  return text.endsWith("%") ? parsed / 100 : parsed;
+}
+
+function formatPictureInPicturePercentage(value: number): string {
+  return `${value * 100}%`;
 }
 
 function emptyAnalyzerCapabilities() {

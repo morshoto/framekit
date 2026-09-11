@@ -368,6 +368,28 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
   }),
   z.object({
+    type: z.literal("timeline.picture-in-picture.add"),
+    occurrenceId: z.string().min(1),
+    mediaId: z.string().min(1),
+    attachedTo: z.string().min(1),
+    start: z.number().finite().nonnegative(),
+    duration: z.number().finite().positive(),
+    targetLane: z.number().int().refine((lane) => lane !== 0, "PIP requires a connected non-primary lane"),
+    position: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    scale: z.number().finite().positive(),
+    crop: z.object({
+      top: z.number().finite().min(0).lt(1),
+      right: z.number().finite().min(0).lt(1),
+      bottom: z.number().finite().min(0).lt(1),
+      left: z.number().finite().min(0).lt(1),
+    }).optional(),
+    frame: z.object({
+      style: z.literal("solid"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/i),
+      width: z.number().finite().nonnegative(),
+    }).optional(),
+  }),
+  z.object({
     type: z.literal("timeline.audio.fades"),
     clipId: z.string().min(1),
     fadeIn: z.number().nonnegative(),
@@ -440,6 +462,11 @@ const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRe
     if (operation.type === "timeline.media.add" && operation.role === "audio"
       && (typeof operation.targetLane !== "number" || operation.targetLane === 0)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "audio requires an explicit non-primary lane" });
+    }
+    if (operation.type === "timeline.picture-in-picture.add"
+      && operation.crop
+      && (operation.crop.left + operation.crop.right >= 1 || operation.crop.top + operation.crop.bottom >= 1)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "crop"], message: "PIP crop must leave a positive source rectangle" });
     }
     if (operation.type === "timeline.audio.mix"
       && operation.gainDb === undefined && operation.fadeIn === undefined && operation.fadeOut === undefined) {
@@ -551,6 +578,25 @@ const nativeTransitionPreviewSchema = {
   beforeOccurrenceHandle: z.string().min(1),
   afterOccurrenceHandle: z.string().min(1),
   duration: rationalTimeSchema,
+};
+const nativePictureInPicturePreviewSchema = {
+  mediaHandle: z.string().min(1),
+  anchorOccurrenceHandle: z.string().min(1),
+  start: rationalTimeSchema,
+  duration: rationalTimeSchema,
+  position: z.object({ x: z.number().finite(), y: z.number().finite() }),
+  scale: z.number().finite().positive(),
+  crop: z.object({
+    top: z.number().finite().min(0).lt(1),
+    right: z.number().finite().min(0).lt(1),
+    bottom: z.number().finite().min(0).lt(1),
+    left: z.number().finite().min(0).lt(1),
+  }).optional(),
+  frame: z.object({
+    style: z.literal("solid"),
+    color: z.string().regex(/^#[0-9a-f]{6}$/i),
+    width: z.number().finite().nonnegative(),
+  }).optional(),
 };
 const nativeMaskPreviewSchema = {
   occurrenceHandle: z.string().trim().min(1),
@@ -845,6 +891,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         "timeline.edit",
         "timeline.mask.add",
         "editor.native.edit",
+        "editor.native.picture-in-picture",
         "timeline.publish.new-project",
         "timeline.export",
       ]),
@@ -930,6 +977,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
     return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
+  });
+
+  server.registerTool("editor.native.picture-in-picture.preview", {
+    description: "Preview connecting selected Final Cut Browser video to a stable timeline occurrence with verified transform properties.",
+    inputSchema: nativePictureInPicturePreviewSchema,
+  }, async (request) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
+    await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
+    return jsonResult(await options.nativeEditor.previewPictureInPicture(request));
+  });
+
+  server.registerTool("editor.native.picture-in-picture.execute", {
+    description: "Execute a native Final Cut picture-in-picture preview and return transform readback, revision, and Undo verification.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
+    await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
+    return jsonResult(await options.nativeEditor.executePictureInPicture(previewToken));
   });
 
   server.registerTool("editor.native.transition.search", {
@@ -1616,6 +1681,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       mediaInsert: Boolean(native?.mediaInsert),
       titlePlacement: Boolean(native?.titlePlacement),
       titleDiscovery: Boolean(native?.titleDiscovery),
+      pictureInPicture: Boolean(native?.pictureInPicture),
       transitionDiscovery: Boolean(native?.transitionDiscovery),
       transitionPlacement: Boolean(native?.transitionPlacement),
       masking: Boolean(native?.masking),

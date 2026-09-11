@@ -49,7 +49,8 @@ one operation at a time:
       "projectCreation": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native project creation is unavailable" },
       "clipInsertion": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native clip insertion is unavailable" },
       "clipMovement": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native clip movement is unavailable" },
-      "titlePlacement": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native title placement is unavailable" }
+      "titlePlacement": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native title placement is unavailable" },
+      "pictureInPicture": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native picture in picture is unavailable" }
     },
     "publishing": { "projectCreation": { "available": false, "backend": "fcpxml-publisher", "guarantee": "none", "unavailableReason": "new project publishing is unavailable" } },
     "export": { "timeline": { "available": false, "backend": "final-cut-native-export", "guarantee": "none", "unavailableReason": "timeline export is unavailable" } },

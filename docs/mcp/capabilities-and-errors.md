@@ -66,7 +66,7 @@ The families are:
 | `observation` | `timeline`, `media` | Live metadata or canonical observation |
 | `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
 | `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking`, `personCutout` | Routed editing operations and explicit unsupported boundaries |
-| `native` | `selectionWrite`, `titleDiscovery`, `titlePlacement`, `projectCreation`, `clipInsertion`, `clipMovement`, `masking` | Individual Final Cut Accessibility operations |
+| `native` | `selectionWrite`, `titleDiscovery`, `titlePlacement`, `projectCreation`, `clipInsertion`, `clipMovement`, `pictureInPicture`, `masking` | Individual Final Cut Accessibility operations |
 | `publishing` | `projectCreation` | Importing a verified artifact as a new project |
 | `export` | `timeline` | Verified local video export |
 | `analyzers` | `speechTranscribe`, `speechVad`, `audioLoudness`, `visualTrack` | Configured analysis providers |
@@ -219,6 +219,7 @@ capabilities:
     "mediaImport": true,
     "mediaSelection": true,
     "timelineOccurrenceLocate": true,
+    "pictureInPicture": true,
     "bladeAtPlayhead": true,
     "deleteRange": true,
     "trimToDuration": true,
@@ -239,6 +240,14 @@ machine-readable form of this surface. They include every supported native
 operation plus explicit entries for unsupported project creation, clip
 insertion, and clip movement. The legacy `native` object above remains for
 compatibility.
+
+Native PIP is a headed-only operation. Its preview binds a selected Browser
+media handle, a unique timeline occurrence handle, the live sequence revision,
+and an explicit frame-aligned range. Execute connects the Browser video on a
+non-primary lane, applies the requested transform/crop/frame, reads those
+properties back from the Video Inspector, and retains Final Cut's native Undo
+command. A successful native PIP result is headed-native evidence; it is not a
+canonical snapshot, diff, or masking/person-cutout capability.
 
 `bladeAtPlayhead` splits the current uniquely identified occurrence but does not
 shorten the sequence. `deleteRange` ripple-deletes an explicit rational range
