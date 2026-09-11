@@ -231,6 +231,7 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
             .finally(resolve);
         }, 40);
       });
+      return "canonical-export-requested";
     },
   });
 
