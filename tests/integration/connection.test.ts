@@ -39,6 +39,28 @@ test("connection manager reports a ready live bridge without installing anything
   assert.equal(status.capabilities?.editor.liveStateRead, true);
 });
 
+test("canonical provider requirement rejects metadata-only sockets without fallback", async () => {
+  const events: string[] = [];
+  const manager = new FinalCutConnectionManager({
+    canonicalProviderRequired: true,
+    headless: false,
+    detectFinalCut: async () => { events.push("detect"); return true; },
+    launchFinalCut: async () => { events.push("launch"); },
+    installExtension: async () => { events.push("install"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "needs-user-action");
+  assert.equal(status.lastError?.code, "FINAL_CUT_CANONICAL_PROVIDER_REQUIRED");
+  assert.deepEqual(events, []);
+});
+
 test("headless connection probes an existing bridge without launching or activating Final Cut", async () => {
   const events: string[] = [];
   const manager = new FinalCutConnectionManager({
