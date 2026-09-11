@@ -79,7 +79,10 @@ test("release workflow validates the package before publishing", async () => {
   assert.notEqual(validation, -1);
   assert.ok(validation < publication, "release validation must run before npm publish");
   assert.match(workflow, /GITHUB_REPOSITORY: \$\{\{ github\.repository \}\}/);
-  assert.match(workflow, /release-tag: \$\{\{ steps\.existing-tag\.outputs\.tag \|\| steps\.run-tagpr\.outputs\.tag \}\}/);
+  assert.match(
+    workflow,
+    /release-tag: \$\{\{ steps\.requested-tag\.outputs\.tag \|\| steps\.existing-tag\.outputs\.tag \|\| steps\.run-tagpr\.outputs\.tag \}\}/,
+  );
   const tagDetection = workflow.slice(
     workflow.indexOf("name: Detect release tag on HEAD"),
     workflow.indexOf("name: Run tagpr"),
@@ -89,13 +92,99 @@ test("release workflow validates the package before publishing", async () => {
   assert.match(tagDetection, /\$\{#tags\[@\]\} > 1/);
   assert.match(tagDetection, /Multiple release tags point to HEAD/);
   assert.doesNotMatch(tagDetection, /head -n 1/);
-  assert.match(workflow, /if: steps\.existing-tag\.outputs\.tag == ''/);
+  assert.match(workflow, /if: steps\.requested-tag\.outputs\.tag == ''/);
   assert.match(
     workflow,
     /tagpr:[\s\S]*?actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)[\s\S]*?token: \$\{\{ secrets\.TAGPR_TOKEN \}\}[\s\S]*?persist-credentials: false/,
   );
   assert.match(workflow, /RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/);
   assert.match(workflow, /releases\/\$\{release_id\}/);
+});
+
+test("release workflow can retry an exact existing tag", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+
+  assert.match(
+    workflow,
+    /workflow_dispatch:[\s\S]*?release_tag:[\s\S]*?required: true[\s\S]*?type: string/,
+  );
+
+  const requestedTag = workflow.slice(
+    workflow.indexOf("name: Resolve requested release tag"),
+    workflow.indexOf("name: Detect release tag on HEAD"),
+  );
+  assert.match(workflow, /concurrency:\s+group: release\s+cancel-in-progress: false/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(requestedTag, /REQUESTED_TAG: \$\{\{ inputs\.release_tag \}\}/);
+  assert.match(requestedTag, /refs\/tags\/\$\{REQUESTED_TAG\}\^\{commit\}/);
+  assert.match(
+    requestedTag,
+    /git merge-base --is-ancestor "refs\/tags\/\$\{REQUESTED_TAG\}\^\{commit\}" origin\/main/,
+  );
+  assert.match(requestedTag, /Requested release tag is not reachable from main/);
+  assert.match(requestedTag, /tag=\$\{REQUESTED_TAG\}/);
+  assert.match(
+    workflow,
+    /if: steps\.requested-tag\.outputs\.tag == '' && steps\.existing-tag\.outputs\.tag == ''/,
+  );
+
+  const publishJob = workflow.slice(workflow.indexOf("publish-npm:"));
+  assert.match(
+    publishJob,
+    /name: Check out repository[\s\S]*?ref: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/,
+  );
+});
+
+test("release retries do not republish an existing npm version", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const statusCheck = workflow.indexOf("name: Check npm publication status");
+  const publication = workflow.indexOf("name: Publish npm package");
+  const verification = workflow.indexOf("name: Verify npm publication");
+
+  assert.notEqual(statusCheck, -1);
+  assert.ok(statusCheck < publication, "npm status must be checked before publishing");
+  assert.ok(publication < verification, "npm publication must precede verification");
+
+  const statusStep = workflow.slice(workflow.lastIndexOf("- id: npm-status", statusCheck), publication);
+  assert.match(statusStep, /id: npm-status/);
+  assert.match(statusStep, /npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/);
+  assert.match(statusStep, /E404\|404 Not Found/);
+  assert.match(statusStep, /published=true/);
+  assert.match(statusStep, /published=false/);
+
+  const publicationStep = workflow.slice(publication, verification);
+  assert.match(publicationStep, /if: steps\.npm-status\.outputs\.published != 'true'/);
+});
+
+test("release verification retries transient npm registry visibility", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const statusCheck = workflow.slice(
+    workflow.indexOf("name: Check npm publication status"),
+    workflow.indexOf("name: Publish npm package"),
+  );
+  const verification = workflow.slice(
+    workflow.indexOf("name: Verify npm publication"),
+    workflow.indexOf("name: Publish GitHub release"),
+  );
+
+  assert.match(statusCheck, /npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/);
+  assert.match(verification, /max_attempts=6/);
+  assert.match(verification, /for attempt in \$\(seq 1 "\$\{max_attempts\}"\)/);
+  assert.match(verification, /npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/);
+  assert.match(verification, /No match found for version/);
+  assert.match(verification, /sleep "\$\{delay\}"/);
+});
+
+test("release retries tolerate a duplicate npm publish after a visibility race", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const publication = workflow.indexOf("name: Publish npm package");
+  const verification = workflow.indexOf("name: Verify npm publication");
+  const publicationStep = workflow.slice(publication, verification);
+
+  assert.match(publicationStep, /npm publish --access public/);
+  assert.match(publicationStep, /EPUBLISHCONFLICT|previously published versions/);
+  assert.match(publicationStep, /verification will confirm/i);
+  assert.match(publicationStep, /exit 0/);
 });
 
 test("release workflow validates the built MCP server version before publishing", async () => {

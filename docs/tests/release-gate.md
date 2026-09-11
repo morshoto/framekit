@@ -37,12 +37,14 @@ the original canonical digest.
 ## Capability evidence
 
 The deterministic fixture result is separate from adapter and live evidence.
-The current report marks the FCPXML closed-loop path unsupported because the
-adapter does not advertise both Skill write guarantees. It also marks live
-Final Cut unsupported unless a documented opt-in headed run is requested; the
-bundled Workflow Extension is metadata-only and never supplies fixture data.
-An unsupported capability is not a passing proof of autonomous open-project
-Final Cut support.
+The combined v0.0.3 report still marks the FCPXML speech-editing family
+unsupported because filler-removal requires timeline write guarantees. The
+dialogue-normalization Skill has separate deterministic artifact coverage for
+clip-level `set-gain`; that result is FCPXML evidence, not proof of a headed
+open-project Final Cut edit. Live Final Cut remains unsupported unless a
+documented opt-in headed run is requested; the bundled Workflow Extension is
+metadata-only and never supplies fixture data. An unsupported capability is not
+a passing proof of autonomous open-project Final Cut support.
 
 The CI report keeps deterministic correctness, adapter coverage, live Final Cut
 evidence, and unsupported capabilities in separate fields.

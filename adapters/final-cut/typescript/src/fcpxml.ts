@@ -100,7 +100,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         projectSelection: true,
         compositeTransactions: true,
         pictureInPicture: true,
-        semanticOperations: { "add-marker": true, "timeline.picture-in-picture.add": true },
+        semanticOperations: { "add-marker": true, "set-gain": true, "timeline.picture-in-picture.add": true },
       },
       analyzers: emptyAnalyzerCapabilities(),
     }, { backend: "fcpxml-document" });
