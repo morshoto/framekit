@@ -218,6 +218,13 @@ test("PIP rejects invalid connected lanes, crops, and non-video media", async ()
   await assert.rejects(
     runtime.previewEdit({
       baseRevision: before.revision,
+      operations: [{ ...pipOperation(), duration: 7 }],
+    }),
+    /INVALID_OPERATION/,
+  );
+  await assert.rejects(
+    runtime.previewEdit({
+      baseRevision: before.revision,
       operations: [{ ...pipOperation(), mediaId: "missing-media" }],
     }),
     /MEDIA_NOT_FOUND/,

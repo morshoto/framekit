@@ -368,6 +368,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         || operation.start < anchor.start
         || operation.duration <= 0
         || operation.start + operation.duration > anchor.start + anchor.duration
+        || media.duration !== undefined && operation.duration > media.duration
         || !Number.isInteger(operation.targetLane)
         || operation.targetLane === 0
         || !Number.isFinite(operation.position.x)
