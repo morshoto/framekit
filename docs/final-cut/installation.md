@@ -98,6 +98,86 @@ read-only procedure.
 
 ## Canonical document and analysis providers
 
+### Canonical live provider
+
+The bundled Framekit Workflow Extension is metadata-only. It can report the
+active Final Cut project, sequence, playhead, and range, but it does not expose
+complete timeline enumeration or canonical mutation. Do not treat that bridge
+as canonical-live support.
+
+For a provider that implements the v1 Framekit Unix-socket protocol, require a
+canonical-write connection explicitly:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED=1 \
+FRAMEKIT_FINAL_CUT_SOCKET=/absolute/path/to/canonical-provider.sock \
+FRAMEKIT_FINAL_CUT_HEADLESS=1 \
+pnpm run framekit -- mcp --editor final-cut-live --headless
+```
+
+The provider must advertise `projectRead`, `projectCatalogRead`,
+`projectSelection`, `timelineSnapshotRead`, `timelineWrite`, `readAfterWrite`,
+and `rollback`, and implement the `capabilities`, `projects`,
+`select-project`, `snapshot`, `apply`, and `restore` protocol methods. The
+connection is `ready` only when its normalized `canonicalTimelineMode` is
+`canonical-write`. If the socket is unavailable or reports metadata-only or
+canonical-read capabilities, Framekit returns an actionable
+`needs-user-action` status without launching Final Cut, installing the bundled
+extension, or falling back to an artifact.
+
+Leave `FRAMEKIT_FCPXML_PATH` unset in this mode. Combining it with
+`FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED=1` fails at startup with
+`FINAL_CUT_CANONICAL_FALLBACK_CONFLICT` rather than silently routing reads or
+writes to the artifact. The provider must report its Final Cut and macOS
+versions in its identity; the repository's supported transport boundary is
+protocol v1, while provider-specific version compatibility must be confirmed by
+the sanitized headed evidence.
+
+### Bundled headed canonical provider
+
+The repository also provides an explicit headed provider that composes the
+metadata socket with Final Cut's own UI. It exports the active timeline through
+`File > Export XML` into a private temporary file, parses that export as the
+canonical snapshot, and removes the file after each read. It does not read or
+write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
+Browser media match and a unique timeline occurrence with matching rational
+coordinates; native Accessibility Undo and a second export verify rollback.
+
+Use it only with Final Cut Pro 10.7.1 on the repository's macOS/Xcode 16.4
+baseline until a different Final Cut version has its own headed evidence:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+pnpm run framekit -- mcp --editor final-cut-live
+```
+
+Keep `FRAMEKIT_FCPXML_PATH` unset. Open the disposable project and intended
+sequence in Final Cut before connecting, and grant Accessibility and Automation
+permission to the MCP host. `project.list` exposes the one active project and
+sequence; `project.select` must confirm that exact target. If the export,
+identity binding, readback, advancing revision, or native Undo verification is
+unavailable, the provider fails closed and must not claim canonical-write.
+
+Use the canonical headed runners only with a disposable project and stable
+project, sequence, and occurrence IDs:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+pnpm run test:final-cut-canonical-read-headed
+
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+FRAMEKIT_FINAL_CUT_E2E_CLIP_ID="final-cut:occurrence:example" \
+pnpm run test:final-cut-canonical-headed
+```
+
+The mutation runner requires canonical-write mode and verifies the target,
+advancing revision, diff, and restored digest. Both runners emit sanitized
+evidence only; a metadata-only bundled bridge is not a passing result.
+
 To enable project/timeline reads, artifact edits, diffs, verification, and undo
 in the live MCP session, provide an exported FCPXML file:
 

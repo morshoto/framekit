@@ -3,7 +3,7 @@ import { mkdtemp, mkdir } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { FinalCutConnectionManager } from "@framekit/final-cut";
+import { FinalCutConnectionManager, assertCanonicalProviderConfiguration } from "@framekit/final-cut";
 
 const capabilities = {
   editor: {
@@ -23,6 +23,19 @@ const capabilities = {
   analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
 };
 
+const canonicalWriteCapabilities = {
+  ...capabilities,
+  editor: {
+    ...capabilities.editor,
+    timelineSnapshotRead: true,
+    timelineWrite: true,
+    readAfterWrite: true,
+    rollback: true,
+    projectCatalogRead: true,
+    projectSelection: true,
+  },
+};
+
 test("connection manager reports a ready live bridge without installing anything", async () => {
   const manager = new FinalCutConnectionManager({
     headless: false,
@@ -37,6 +50,63 @@ test("connection manager reports a ready live bridge without installing anything
   assert.equal(status.state, "ready");
   assert.equal(status.identity?.backend, "workflow-extension-ipc");
   assert.equal(status.capabilities?.editor.liveStateRead, true);
+});
+
+test("canonical provider requirement rejects metadata-only sockets without fallback", async () => {
+  const events: string[] = [];
+  const manager = new FinalCutConnectionManager({
+    canonicalProviderRequired: true,
+    headless: false,
+    detectFinalCut: async () => { events.push("detect"); return true; },
+    launchFinalCut: async () => { events.push("launch"); },
+    installExtension: async () => { events.push("install"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "needs-user-action");
+  assert.equal(status.lastError?.code, "FINAL_CUT_CANONICAL_PROVIDER_REQUIRED");
+  assert.deepEqual(events, []);
+});
+
+test("canonical provider requirement rejects FCPXML fallback configuration", () => {
+  assert.throws(
+    () => assertCanonicalProviderConfiguration({ required: true, fcpxmlPath: "/tmp/project.fcpxml" }),
+    /FINAL_CUT_CANONICAL_FALLBACK_CONFLICT/,
+  );
+});
+
+test("canonical provider requirement accepts a canonical-write socket", async () => {
+  const manager = new FinalCutConnectionManager({
+    canonicalProviderRequired: true,
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "external-canonical-provider" },
+      capabilities: canonicalWriteCapabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.capabilities?.editor.canonicalTimelineMode, "canonical-write");
+});
+
+test("canonical provider requirement reports unavailable when no provider socket responds", async () => {
+  const manager = new FinalCutConnectionManager({
+    canonicalProviderRequired: true,
+    detectFinalCut: async () => { throw new Error("must not detect Final Cut"); },
+    probe: async () => { throw new Error("socket missing"); },
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "needs-user-action");
+  assert.equal(status.lastError?.code, "FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE");
 });
 
 test("headless connection probes an existing bridge without launching or activating Final Cut", async () => {

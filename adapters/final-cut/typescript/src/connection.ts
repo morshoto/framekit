@@ -37,6 +37,8 @@ export interface FinalCutConnectionStatus {
 export interface FinalCutConnectionOptions {
   /** Probe an existing Workflow Extension socket without launching or activating Final Cut. */
   headless?: boolean;
+  /** Require an external provider that advertises verified canonical writes. */
+  canonicalProviderRequired?: boolean;
   socketPath?: string;
   extensionSourcePath?: string;
   extensionInstallPath?: string;
@@ -53,6 +55,19 @@ export interface FinalCutConnectionOptions {
   restartAfterInstall?: boolean;
   probe?: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   sleep?: (milliseconds: number) => Promise<void>;
+}
+
+export interface CanonicalProviderConfiguration {
+  required: boolean;
+  fcpxmlPath?: string;
+}
+
+export function assertCanonicalProviderConfiguration(options: CanonicalProviderConfiguration): void {
+  if (options.required && options.fcpxmlPath?.trim()) {
+    throw new Error(
+      "FINAL_CUT_CANONICAL_FALLBACK_CONFLICT: canonical provider mode cannot use FRAMEKIT_FCPXML_PATH",
+    );
+  }
 }
 
 export interface FinalCutActivationOptions {
@@ -78,6 +93,7 @@ const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
 export class FinalCutConnectionManager {
   private readonly socketPath: string;
   private readonly headless: boolean;
+  private readonly canonicalProviderRequired: boolean;
   private readonly extensionSourcePath?: string;
   private readonly extensionInstallPath: string;
   private readonly finalCutApp: string;
@@ -101,6 +117,8 @@ export class FinalCutConnectionManager {
   public constructor(options: FinalCutConnectionOptions = {}) {
     this.socketPath = options.socketPath ?? process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET;
     this.headless = options.headless ?? process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
+    this.canonicalProviderRequired = options.canonicalProviderRequired
+      ?? process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1";
     this.extensionInstallPath = options.extensionInstallPath
       ?? process.env.FRAMEKIT_EXTENSION_INSTALL_PATH
       ?? join(homedir(), "Applications", DEFAULT_EXTENSION_NAME);
@@ -166,6 +184,14 @@ export class FinalCutConnectionManager {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
       if (existing) return this.ready(existing);
+
+      if (this.canonicalProviderRequired) {
+        return this.fail(
+          "FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE",
+          `Canonical live provider is unavailable at ${this.socketPath}; metadata-only fallback is disabled`,
+          "needs-user-action",
+        );
+      }
 
       if (this.headless) {
         return this.fail(
@@ -265,15 +291,23 @@ export class FinalCutConnectionManager {
   }
 
   private ready(result: { identity: EditorIdentity; capabilities: RuntimeCapabilities }): FinalCutConnectionStatus {
+    const capabilities = withCapabilityFamilies(result.capabilities, {
+      backend: result.identity.backend,
+      connectionBackend: result.identity.backend,
+    });
+    if (this.canonicalProviderRequired && capabilities.editor.canonicalTimelineMode !== "canonical-write") {
+      return this.fail(
+        "FINAL_CUT_CANONICAL_PROVIDER_REQUIRED",
+        `Canonical live provider at ${this.socketPath} reports ${capabilities.editor.canonicalTimelineMode}; canonical-write is required`,
+        "needs-user-action",
+      );
+    }
     this.update({
       state: "ready",
       editorDetected: true,
       extensionInstalled: true,
       identity: result.identity,
-      capabilities: withCapabilityFamilies(result.capabilities, {
-        backend: result.identity.backend,
-        connectionBackend: result.identity.backend,
-      }),
+      capabilities,
       lastError: undefined,
     });
     return this.getStatus();
