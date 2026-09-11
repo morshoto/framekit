@@ -313,7 +313,7 @@ test("unexpected canonical changes roll back the complete filler transaction", a
 
   const execution = await runtime.executeSkill(preview.previewToken);
   assert.equal(execution.status, "ROLLED_BACK");
-  assert.ok(execution.verification?.checks.some((check) => check.reason === "UNEXPECTED_DIFF"));
+  assert.ok(execution.verification?.checks.some((check) => check.reason === "UNAUTHORIZED_DIFF"));
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });
 

@@ -113,6 +113,7 @@ export class SkillRuntime {
       operations: structuredClone(planned.operations),
       affectedRanges: structuredClone(planned.affectedRanges),
       warnings: [...planned.warnings],
+      ...(planned.decision ? { decision: planned.decision } : {}),
       ...(planned.verification ? { verification: structuredClone(planned.verification) } : {}),
       ...(planned.details ? { details: structuredClone(planned.details) } : {}),
     };
