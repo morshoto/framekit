@@ -15,7 +15,7 @@ can be inspected and planned without importing MCP or Final Cut code.
 
 `@framekit/runtime` owns the versioned Skill contract. A `SkillManifest` is
 metadata: a stable ID, semantic version, title, description, transport-neutral
-input schema, capability requirements, and optional verification defaults.
+input schema, capability requirements, and optional input or verification defaults.
 
 The executable `SkillHandler` is kept separate from the manifest. It receives a
 read-only `SkillPlanningContext` containing a project snapshot, runtime

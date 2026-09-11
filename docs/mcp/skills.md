@@ -53,6 +53,44 @@ inside tolerance, and returns `SKIP` for silence, missing dialogue, invalid
 measurements, clamp violations, or peak risk. Verification uses a new
 post-write measurement rather than the estimate.
 
+### Dialogue normalization inputs
+
+`dialogue-normalization@1.0.0` requires `mediaId` and `occurrenceId`. The
+remaining safety policy is versioned by the manifest and resolved into
+`plan.normalizedInput` when omitted:
+
+| Input | Default |
+| --- | ---: |
+| `targetLufs` | -16 |
+| `toleranceDb` | 0.5 |
+| `maxTruePeakDb` | -1 |
+| `minGainDb` | -6 |
+| `maxGainDb` | 6 |
+| `minDialogueDurationSeconds` | 1 |
+
+After `project.inspect`, preview one complete occurrence through the generic
+MCP surface:
+
+```json
+{
+  "skill": "dialogue-normalization",
+  "version": "1.0.0",
+  "arguments": {
+    "baseRevision": { "id": "rev-7", "sequence": 7, "timestamp": "..." },
+    "mediaId": "dialogue-media",
+    "occurrenceId": "dialogue-occurrence"
+  }
+}
+```
+
+Pass the returned token unchanged to `skill.execute`. An `APPLY` preview
+contains the measured occurrence, LUFS, true peak, target, tolerance, bounded
+gain, estimated peak, decision, warnings, expected diff, and token. A clip
+already inside tolerance executes as a verified no-op; unsafe decisions remain
+non-mutating `SKIP` results. Execution re-measures the selected range and rolls
+back the complete transaction if measurement, verification, or the authorized
+canonical diff fails.
+
 `audio-noise-reduction` requires an explicitly configured noise analyzer and an
 editor-native noise-reduction capability. It reports revision-bound noise
 measurements, affected ranges, and a bounded reduction adjustment. The runtime
