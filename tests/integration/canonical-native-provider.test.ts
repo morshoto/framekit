@@ -76,7 +76,7 @@ function providerFor(
   resolveTarget: CanonicalNativeTargetResolver = async () => {},
 ) {
   const native = {
-    edit: async () => {
+    renameSelectedClip: async () => {
       calls.push("edit");
       return { operationId: "native-operation-1", undoAvailable: true };
     },
@@ -115,7 +115,7 @@ test("canonical native provider exposes one explicit active project and sequence
 
 test("canonical native provider rejects stale targets before native mutation", async () => {
   const calls: string[] = [];
-  const provider = providerFor([snapshot("Original")], calls);
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);
   const before = await provider.readProject();
 
   await assert.rejects(
@@ -132,7 +132,13 @@ test("canonical native provider rejects stale targets before native mutation", a
 
 test("canonical native provider verifies native edit and restores its canonical digest", async () => {
   const calls: string[] = [];
-  const provider = providerFor([snapshot("Original"), snapshot("Renamed"), snapshot("Original")], calls);
+  const provider = providerFor([
+    snapshot("Original"),
+    snapshot("Original"),
+    snapshot("Renamed"),
+    snapshot("Renamed"),
+    snapshot("Original"),
+  ], calls);
   const before = await provider.readProject();
   const afterRevision = await provider.apply({
     type: "rename-clip",
@@ -152,7 +158,7 @@ test("canonical native provider rejects ambiguous occurrence bindings before edi
   const resolveTarget: CanonicalNativeTargetResolver = async () => {
     throw new Error("AMBIGUOUS_PROJECT_TARGET: occurrence binding is not unique");
   };
-  const provider = providerFor([snapshot("Original")], calls, resolveTarget);
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolveTarget);
   const before = await provider.readProject();
 
   await assert.rejects(
