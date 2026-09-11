@@ -196,9 +196,10 @@ function verifyFillerTargetsAbsent(
   const candidates = details?.candidates ?? [];
   const appliedIds = new Set((details?.candidateProvenance ?? []).map((item) => item.candidateId));
   const applied = candidates.filter((candidate) => appliedIds.has(candidate.id));
-  const remaining = applied.filter((candidate) => transaction.attemptedAfter.media.some((media) =>
-    media.speech?.words.some((word) => word.filler === true && word.text.trim().toLowerCase() === candidate.word.text.trim().toLowerCase()),
-  ));
+  const remaining = applied.filter((candidate) => {
+    const media = transaction.attemptedAfter.media.find((item) => item.mediaId === candidate.mediaId);
+    return media?.speech?.words.some((word) => sameSpeechWord(candidate.word, word)) ?? false;
+  });
   return {
     name: "filler-targets-absent",
     passed: remaining.length === 0,

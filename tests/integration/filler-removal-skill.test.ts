@@ -232,14 +232,14 @@ test("repeated filler text outside the selected range remains independent", asyn
     { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
     { text: "um", start: 0.8, end: 1.1, confidence: 0.98, filler: true },
     { text: "world", start: 1.3, end: 1.8, confidence: 0.99 },
-    { text: "hello", start: 5.2, end: 5.6, confidence: 0.99 },
-    { text: "um", start: 5.8, end: 6.1, confidence: 0.98, filler: true },
-    { text: "world", start: 6.3, end: 6.8, confidence: 0.99 },
+    { text: "hello", start: 3, end: 3.4, confidence: 0.99 },
+    { text: "um", start: 3.6, end: 3.9, confidence: 0.98, filler: true },
+    { text: "world", start: 4.1, end: 4.6, confidence: 0.99 },
   ];
   const { runtime } = createFixture({
     words,
-    clipDuration: 7,
-    mediaDuration: 7,
+    clipDuration: 5,
+    mediaDuration: 5,
     postWords: words.filter((word) => word.start !== 0.8),
   });
   register(runtime);
@@ -247,7 +247,7 @@ test("repeated filler text outside the selected range remains independent", asyn
   const preview = await runtime.previewSkill({
     skillId: "filler-removal",
     baseRevision: before.revision,
-    input: { range: { start: 0, end: 4 } },
+    input: { range: { start: 0, end: 2.5 } },
   });
 
   assert.equal(preview.plan.operations.length, 1);
