@@ -3,7 +3,7 @@ import { mkdtemp, mkdir } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { FinalCutConnectionManager } from "@framekit/final-cut";
+import { FinalCutConnectionManager, assertCanonicalProviderConfiguration } from "@framekit/final-cut";
 
 const capabilities = {
   editor: {
@@ -59,6 +59,13 @@ test("canonical provider requirement rejects metadata-only sockets without fallb
   assert.equal(status.state, "needs-user-action");
   assert.equal(status.lastError?.code, "FINAL_CUT_CANONICAL_PROVIDER_REQUIRED");
   assert.deepEqual(events, []);
+});
+
+test("canonical provider requirement rejects FCPXML fallback configuration", () => {
+  assert.throws(
+    () => assertCanonicalProviderConfiguration({ required: true, fcpxmlPath: "/tmp/project.fcpxml" }),
+    /FINAL_CUT_CANONICAL_FALLBACK_CONFLICT/,
+  );
 });
 
 test("headless connection probes an existing bridge without launching or activating Final Cut", async () => {
