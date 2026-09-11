@@ -11,7 +11,6 @@ const mediaDirectory = process.env.FRAMEKIT_FINAL_CUT_E2E_MEDIA_DIRECTORY;
 const titleQuery = process.env.FRAMEKIT_FINAL_CUT_E2E_TITLE_QUERY;
 const titleText = process.env.FRAMEKIT_FINAL_CUT_E2E_TITLE_TEXT ?? "Framekit rough-cut proof";
 const placement = process.env.FRAMEKIT_FINAL_CUT_E2E_PLACEMENT ?? "append";
-const titleDuration = parseRational(process.env.FRAMEKIT_FINAL_CUT_E2E_TITLE_DURATION ?? "3/1");
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -33,6 +32,8 @@ if (process.argv.includes("--help")) {
   process.stdout.write("\n");
   process.exit(0);
 }
+
+const titleDuration = parseRational(process.env.FRAMEKIT_FINAL_CUT_E2E_TITLE_DURATION ?? "3/1");
 
 if (!expectedProject || !titleQuery) {
   throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_PROJECT and FRAMEKIT_FINAL_CUT_E2E_TITLE_QUERY before running the headed rough-cut E2E");
