@@ -112,9 +112,13 @@ export interface SkillManifest {
   title: string;
   description: string;
   inputSchema: SkillInputSchema;
+  /** Version-pinned values used when the input omits optional policy fields. */
+  defaults?: Record<string, unknown>;
   requirements: SkillRequirement;
   verification?: VerificationPolicy;
 }
+
+export type SkillPlanDecision = "APPLY" | "NO_OP" | "SKIP";
 
 export interface SkillPlanningContext {
   /** The snapshot is read-only input to a handler; it is not an adapter. */
@@ -135,6 +139,7 @@ export interface SkillPlan {
   operations: WorkflowOperation[];
   affectedRanges: TimeRange[];
   warnings: string[];
+  decision?: SkillPlanDecision;
   verification?: VerificationPolicy;
   details?: Record<string, unknown>;
 }

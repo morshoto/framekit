@@ -73,7 +73,8 @@ export class MediaAnalysisService {
       throw new Error(`TARGET_MISMATCH: occurrence ${occurrenceId} does not reference media ${mediaId}`);
     }
     const media = findMedia(project, mediaId);
-    const requestedRange = { start: 0, end: clip.duration };
+    const sourceStart = clip.sourceStart ?? 0;
+    const requestedRange = { start: sourceStart, end: sourceStart + clip.duration };
     const analysis = await this.options.audioAnalyzer.analyze({ project, media }, requestedRange);
     const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? clip.duration;
     const valid = analysis.valid !== false
