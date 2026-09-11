@@ -781,6 +781,11 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
       throw new Error("INVALID_OPERATION: ripple delete range must be positive");
     }
+    if (end > snapshot.timeline.duration) {
+      throw new Error(
+        `INVALID_OPERATION: ripple delete range [${start}, ${end}) must fit timeline bounds [0, ${snapshot.timeline.duration})`,
+      );
+    }
     const removedDuration = end - start;
     const clips = snapshot.timeline.clips.flatMap((clip) => {
       const clipEnd = clip.start + clip.duration;
