@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "manifestVersion": "2026-09-11",
+  "gate": "v0.1.6-native-editing",
+  "releaseVersion": "0.1.6",
+  "runtimeContract": "v0.1.6",
+  "evidenceTiers": [
+    { "id": "deterministic", "mode": "headless", "guarantee": "verified", "required": true },
+    { "id": "fcpxml-artifact", "mode": "headless", "guarantee": "artifact-write", "required": false },
+    { "id": "metadata-only", "mode": "headless", "guarantee": "observed", "required": false },
+    { "id": "canonical-live", "mode": "headless", "guarantee": "canonical-write", "required": false },
+    { "id": "headed-native", "mode": "headed", "guarantee": "native-verified", "required": false }
+  ],
+  "workflows": [
+    {
+      "id": "canonical-live",
+      "operation": "editor.timeline.edit",
+      "capability": "canonicalDocument.write",
+      "evidenceTiers": ["canonical-live", "headed-native"],
+      "headedRunner": "scripts/final-cut-canonical-headed-e2e.mjs",
+      "evidenceTypes": ["headed-native-canonical-mutation"]
+    },
+    {
+      "id": "picture-in-picture",
+      "operation": "timeline.picture-in-picture.add",
+      "capability": "editing.pictureInPicture",
+      "evidenceTiers": ["deterministic", "fcpxml-artifact", "headed-native"],
+      "headedRunner": "scripts/final-cut-picture-in-picture-headed-e2e.mjs",
+      "evidenceTypes": ["headed-native-picture-in-picture"]
+    },
+    {
+      "id": "built-in-title-discovery",
+      "operation": "editor.assets + editor.native.title.add",
+      "capability": "native.titleDiscovery",
+      "evidenceTiers": ["deterministic", "headed-native"],
+      "headedRunner": "scripts/final-cut-title-discovery-headed-e2e.mjs",
+      "evidenceTypes": ["headed-native-title-discovery-and-placement"]
+    },
+    {
+      "id": "masking",
+      "operation": "timeline.mask.add",
+      "capability": "editing.masking",
+      "evidenceTiers": ["deterministic", "headed-native"],
+      "headedRunner": "scripts/final-cut-masking-headed-e2e.mjs",
+      "evidenceTypes": ["headed-native-mask-placement"]
+    },
+    {
+      "id": "filler-removal",
+      "operation": "filler-removal",
+      "capability": "canonicalDocument.write + analyzers.speechTranscribe",
+      "evidenceTiers": ["deterministic", "canonical-live", "headed-native"],
+      "headedRunner": "scripts/final-cut-filler-removal-headed-e2e.mjs",
+      "evidenceTypes": ["headed-native-filler-removal"]
+    },
+    {
+      "id": "dialogue-normalization",
+      "operation": "dialogue-normalization",
+      "capability": "canonicalDocument.write + analyzers.audioLoudness",
+      "evidenceTiers": ["deterministic", "fcpxml-artifact", "canonical-live", "headed-native"],
+      "evidenceTypes": []
+    }
+  ]
+}
