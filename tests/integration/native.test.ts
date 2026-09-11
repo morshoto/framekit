@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import test from "node:test";
 import { createNativeOperationLease, FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
@@ -2228,8 +2228,10 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const audio = await adapter.importMedia(audioPath);
   assert.equal(video.name, "interview.mov");
   assert.equal(video.kind, "video");
+  assert.equal(video.sourcePath, videoPath);
   assert.equal(audio.name, "music.wav");
   assert.equal(audio.kind, "audio");
+  assert.equal(audio.sourcePath, audioPath);
   assert.notEqual(video.mediaHandle, audio.mediaHandle);
   assert.equal(searchCalls.get("interview.mov"), 2);
   assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 2);
@@ -2250,6 +2252,75 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const selected = await adapter.selectMedia(video.mediaHandle);
   assert.equal(selected.target.kind, "browser-media");
   assert.equal(selected.target.name, "interview.mov");
+});
+
+test("native Final Cut expands a user-home path before validating and importing it", async () => {
+  const homeDirectory = await mkdtemp(join(os.homedir(), ".framekit-native-media-home-"));
+  const sourcePath = join(homeDirectory, "home-import.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let searchCalls = 0;
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        return searchCalls === 1
+          ? ""
+          : `home-import.mov${separator}AXBrowserMedia${separator}browser-home${separator}file:///imported/home-import.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  try {
+    const requestedPath = `~/${relative(os.homedir(), sourcePath)}`;
+    const imported = await adapter.importMedia(requestedPath);
+
+    assert.equal(imported.sourcePath, sourcePath);
+    assert.equal(imported.name, "home-import.mov");
+    const importScript = scripts.find((script) => script.includes("FRAMEKIT_IMPORT_MEDIA"));
+    assert.ok(importScript);
+    assert.match(importScript, new RegExp(dirname(sourcePath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal(importScript.includes(requestedPath), false);
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+test("native Final Cut resolves relative paths from the process cwd", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-relative-"));
+  const sourcePath = join(directory, "relative-import.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let searchCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        return searchCalls === 1
+          ? ""
+          : `relative-import.mov${separator}AXBrowserMedia${separator}browser-relative${separator}file:///imported/relative-import.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  const imported = await adapter.importMedia(relative(process.cwd(), sourcePath));
+
+  assert.equal(imported.sourcePath, sourcePath);
+  assert.equal(imported.name, "relative-import.mov");
 });
 
 test("native Final Cut previews top-level supported video files in deterministic order without native mutation", async () => {
