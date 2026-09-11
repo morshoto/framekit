@@ -59,6 +59,34 @@ test("headed PIP evidence keeps the exact target and removes native secrets", ()
   assert.doesNotMatch(JSON.stringify(evidence), /private-handle|sourceIdentity|private-operation|\/private\/media/);
 });
 
+test("headed PIP evidence rejects a no-op mutation revision", () => {
+  const run = pictureInPictureRun();
+  run.placement.afterRevision = { id: "rev-1" };
+
+  assert.throws(
+    () => sanitizePictureInPictureEvidence(run, environment),
+    /revision did not advance/,
+  );
+});
+
+test("headed PIP evidence requires every native capability", () => {
+  for (const key of ["nativePictureInPicture", "nativeUndo", "nativeTimelineOccurrenceLocate"]) {
+    const missing = pictureInPictureRun();
+    delete missing.capabilities[key];
+    assert.throws(
+      () => sanitizePictureInPictureEvidence(missing, environment),
+      /capability is required/,
+    );
+
+    const disabled = pictureInPictureRun();
+    disabled.capabilities[key] = false;
+    assert.throws(
+      () => sanitizePictureInPictureEvidence(disabled, environment),
+      /capability is required/,
+    );
+  }
+});
+
 test("headed title evidence keeps the project, sequence, and discovered asset", () => {
   const evidence = sanitizeNativeTitleEvidence({
     evidenceType: "headed-native-title-discovery-and-placement",
@@ -73,7 +101,7 @@ test("headed title evidence keeps the project, sequence, and discovered asset", 
       backend: "final-cut-accessibility",
       guarantee: "observed",
     },
-    target: { sequenceId: "sequence-2" },
+    target: { sequenceId: "sequence-2", occurrenceId: "occurrence-title" },
     placement: {
       text: "Framekit title proof",
       target: "playhead",
@@ -91,6 +119,36 @@ test("headed title evidence keeps the project, sequence, and discovered asset", 
   assert.equal(evidence.discovery.assetId, "final-cut:title:basic-title");
   assert.deepEqual(evidence.revisions, { before: "rev-4", after: "rev-5", restored: "rev-6" });
   assert.doesNotMatch(JSON.stringify(evidence), /private-operation|sourceIdentity|native-operation-secret/i);
+});
+
+test("headed title evidence rejects a zero rational timescale", () => {
+  assert.throws(
+    () => sanitizeNativeTitleEvidence({
+      passed: true,
+      recordedAt: "2026-09-11T00:00:00.000Z",
+      project: "Disposable Titles",
+      discovery: {
+        id: "final-cut:title:basic-title",
+        name: "Basic Title",
+        vendor: "Final Cut Pro",
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      target: { sequenceId: "sequence-2", occurrenceId: "occurrence-title" },
+      placement: {
+        text: "Framekit title proof",
+        target: "playhead",
+        start: "1/0",
+        duration: "3/1",
+        beforeRevision: "rev-4",
+        afterRevision: "rev-5",
+        undoRevision: "rev-6",
+        verified: true,
+        undo: { verified: true },
+      },
+    }, environment),
+    /rational value\/timescale/,
+  );
 });
 
 test("headed masking evidence keeps the stable occurrence identity", () => {
@@ -171,6 +229,7 @@ test("headed filler evidence keeps rollback proof without private state", () => 
     project: "Disposable Filler",
     projectId: "project-filler",
     sequenceId: "sequence-filler",
+    occurrenceId: "occurrence-filler",
   });
   assert.deepEqual(evidence.revisions, { before: "rev-10", after: "rev-11", restored: "rev-12" });
   assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|\/private\/media/);
@@ -191,4 +250,24 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
   assert.match(runners[2], /sanitizeNativeTitleEvidence/);
   assert.match(runners[3], /sanitizeMaskEvidence/);
   assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
+  assert.match(runners[2], /occurrenceId:\s*executed\.after\.target\.identity/);
+  assert.match(runners[4], /occurrenceId:/);
 });
+
+function pictureInPictureRun(): Record<string, any> {
+  return {
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: { nativePictureInPicture: true, nativeUndo: true, nativeTimelineOccurrenceLocate: true },
+    target: { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    placement: {
+      requested: { start: "2/1", duration: "4/1", position: { x: 320, y: -180 }, scale: 0.35 },
+      observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+      beforeRevision: { id: "rev-1" },
+      afterRevision: { id: "rev-2" },
+      undoRevision: "rev-3",
+      undoVerified: { verified: true },
+    },
+  };
+}

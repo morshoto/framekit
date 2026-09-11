@@ -38,6 +38,7 @@ test("release gate documentation lists every required headed-native runner", asy
     assert.match(documentation, new RegExp(command.replaceAll(".", "\\.")));
   }
   assert.match(documentation, /headed-native=verified/);
+  assert.match(documentation, /mkdir -p artifacts\/final-cut-headed/);
   assert.match(documentation, /sanitized/i);
   assert.match(documentation, /disposable project/i);
   assert.match(documentation, /dialogue-normalization.*non-native|non-native.*dialogue-normalization/i);

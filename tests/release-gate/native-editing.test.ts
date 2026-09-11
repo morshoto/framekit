@@ -113,6 +113,49 @@ test("headed evidence omits path-like target identities", () => {
   assert.deepEqual(summary.target, { project: "Disposable PIP", sequenceId: "sequence-1", occurrenceId: "occurrence-1", occurrenceName: "Guest" });
 });
 
+test("headed evidence rejects path-like project identities", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "picture-in-picture");
+  assert.ok(workflow);
+
+  for (const project of ["file:///private/project", "../private/project"]) {
+    assert.throws(
+      () => summarizeHeadedEvidence({
+        evidenceType: "headed-native-picture-in-picture",
+        passed: true,
+        environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
+        project,
+        target: { sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+        placement: {
+          beforeRevision: "rev-1",
+          afterRevision: "rev-2",
+          undoRevision: "rev-3",
+          observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+          undoVerified: { verified: true },
+        },
+      }, workflow),
+      /headed project identity is missing/,
+    );
+  }
+
+  const fallback = summarizeHeadedEvidence({
+    evidenceType: "headed-native-picture-in-picture",
+    passed: true,
+    environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
+    project: "file:///private/project",
+    target: { project: "../private/project", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    placement: {
+      project: "Disposable PIP",
+      beforeRevision: "rev-1",
+      afterRevision: "rev-2",
+      undoRevision: "rev-3",
+      observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+      undoVerified: { verified: true },
+    },
+  }, workflow);
+
+  assert.equal(fallback.target.project, "Disposable PIP");
+});
+
 test("headed evidence requires a verified rollback for mutating workflows", () => {
   const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "masking");
   assert.ok(workflow);
@@ -151,6 +194,25 @@ test("headed occurrence workflows require a stable occurrence identity", () => {
     }, workflow),
     /occurrence identity/i,
   );
+});
+
+test("every headed workflow requires a stable occurrence identity", () => {
+  const manifest = loadNativeEditingManifest();
+  for (const workflowId of ["built-in-title-discovery", "filler-removal"] as const) {
+    const workflow = manifest.workflows.find((candidate) => candidate.id === workflowId);
+    assert.ok(workflow);
+    assert.throws(
+      () => summarizeHeadedEvidence({
+        evidenceType: workflow.evidenceTypes[0],
+        passed: true,
+        environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "d".repeat(40) },
+        target: { project: "Disposable Target", sequenceId: "sequence-1" },
+        revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
+        verification: { execute: true, undo: true },
+      }, workflow),
+      /occurrence identity/i,
+    );
+  }
 });
 
 test("release provenance verifies aligned versions, tag, workflow, npm, and checksums", () => {
@@ -308,7 +370,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
     {
       file: "title.json",
       evidenceType: "headed-native-title-discovery-and-placement",
-      target: { project: "Disposable Title", sequenceId: "sequence-3" },
+      target: { project: "Disposable Title", sequenceId: "sequence-3", occurrenceId: "occurrence-3" },
     },
     {
       file: "mask.json",
@@ -318,7 +380,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
     {
       file: "filler.json",
       evidenceType: "headed-native-filler-removal",
-      target: { project: "Disposable Filler", projectId: "project-5", sequenceId: "sequence-5" },
+      target: { project: "Disposable Filler", projectId: "project-5", sequenceId: "sequence-5", occurrenceId: "occurrence-5" },
     },
   ];
 
