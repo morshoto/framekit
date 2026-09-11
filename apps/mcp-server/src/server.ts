@@ -10,6 +10,7 @@ import {
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
+import { NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE } from "@framekit/final-cut";
 import type {
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
@@ -673,6 +674,36 @@ function jsonResult(value: unknown) {
   };
 }
 
+function nativeMediaImportErrorResult(error: unknown) {
+  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code: value.code,
+        message,
+        guidance: value.guidance,
+      }),
+    }],
+  };
+}
+
+function isDirectoryMediaImportError(error: unknown): error is Error & {
+  code: typeof NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE;
+  guidance: { previewTool: string; executeTool: string };
+} {
+  if (!error || typeof error !== "object") return false;
+  const value = error as Record<string, unknown>;
+  const guidance = value.guidance;
+  return value.code === NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE
+    && Boolean(guidance)
+    && typeof guidance === "object"
+    && typeof (guidance as Record<string, unknown>).previewTool === "string"
+    && typeof (guidance as Record<string, unknown>).executeTool === "string";
+}
+
 function skillErrorResult(error: unknown) {
   const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
   const message = error instanceof Error ? error.message : String(error);
@@ -939,7 +970,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { path: z.string().min(1) },
   }, async ({ path }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.importMedia(path));
+    try {
+      return jsonResult(await options.nativeEditor.importMedia(path));
+    } catch (error) {
+      if (isDirectoryMediaImportError(error)) return nativeMediaImportErrorResult(error);
+      throw error;
+    }
   });
 
   server.registerTool("editor.native.media.directory.preview", {
