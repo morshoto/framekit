@@ -23,6 +23,19 @@ const capabilities = {
   analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
 };
 
+const canonicalWriteCapabilities = {
+  ...capabilities,
+  editor: {
+    ...capabilities.editor,
+    timelineSnapshotRead: true,
+    timelineWrite: true,
+    readAfterWrite: true,
+    rollback: true,
+    projectCatalogRead: true,
+    projectSelection: true,
+  },
+};
+
 test("connection manager reports a ready live bridge without installing anything", async () => {
   const manager = new FinalCutConnectionManager({
     headless: false,
@@ -66,6 +79,34 @@ test("canonical provider requirement rejects FCPXML fallback configuration", () 
     () => assertCanonicalProviderConfiguration({ required: true, fcpxmlPath: "/tmp/project.fcpxml" }),
     /FINAL_CUT_CANONICAL_FALLBACK_CONFLICT/,
   );
+});
+
+test("canonical provider requirement accepts a canonical-write socket", async () => {
+  const manager = new FinalCutConnectionManager({
+    canonicalProviderRequired: true,
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "external-canonical-provider" },
+      capabilities: canonicalWriteCapabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.capabilities?.editor.canonicalTimelineMode, "canonical-write");
+});
+
+test("canonical provider requirement reports unavailable when no provider socket responds", async () => {
+  const manager = new FinalCutConnectionManager({
+    canonicalProviderRequired: true,
+    detectFinalCut: async () => { throw new Error("must not detect Final Cut"); },
+    probe: async () => { throw new Error("socket missing"); },
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "needs-user-action");
+  assert.equal(status.lastError?.code, "FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE");
 });
 
 test("headless connection probes an existing bridge without launching or activating Final Cut", async () => {
