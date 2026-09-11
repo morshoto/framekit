@@ -330,6 +330,12 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
   assert.equal(scripts.some((script) => script.includes('keystroke "q"')), true);
   assert.equal(scripts.some((script) => script.includes("FRAMEKIT_NATIVE_PIP_READBACK")), true);
   assert.equal(scripts.some((script) => script.includes("set value of positionXField")), true);
+  const transformScript = scripts.find((script) => script.includes("set value of positionXField"));
+  const readbackScript = scripts.find((script) => script.includes("FRAMEKIT_NATIVE_PIP_READBACK"));
+  assert.ok(transformScript);
+  assert.ok(readbackScript);
+  assert.ok(transformScript.indexOf("on findInspectorField") < transformScript.indexOf('tell application "System Events"'));
+  assert.ok(readbackScript.indexOf("on readInspectorField") < readbackScript.indexOf('tell application "System Events"'));
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);

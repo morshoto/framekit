@@ -2919,6 +2919,21 @@ function requireFrontmostAppleScript(): string {
 
 function timelinePreflightScript(): string {
   return `
+on findInspectorField(fieldLabel)
+  tell application "System Events"
+    tell process "Final Cut Pro"
+      repeat with candidate in text fields of front window
+        try
+          set candidateDescription to description of candidate as text
+          set candidateName to name of candidate as text
+          if candidateDescription contains fieldLabel or candidateName contains fieldLabel then return candidate
+        end try
+      end repeat
+    end tell
+  end tell
+  return missing value
+end findInspectorField
+
 tell application "System Events"
   tell process "Final Cut Pro"
     set frontmost to true
@@ -4894,16 +4909,6 @@ tell application "System Events"
       click inspectorTab
     end try
     delay 0.3
-    on findInspectorField(fieldLabel)
-      repeat with candidate in text fields of front window
-        try
-          set candidateDescription to description of candidate as text
-          set candidateName to name of candidate as text
-          if candidateDescription contains fieldLabel or candidateName contains fieldLabel then return candidate
-        end try
-      end repeat
-      return missing value
-    end findInspectorField
     ${requiredFieldLookup}
     ${optionalLookup}
     ${optionalFields}
@@ -4914,11 +4919,9 @@ end tell`;
 
 function pictureInPictureInspectorReadbackScript(): string {
   return `
--- FRAMEKIT_NATIVE_PIP_READBACK
-tell application "System Events"
-  tell process "Final Cut Pro"
-    ${requireFrontmostAppleScript()}
-    on readInspectorField(fieldLabel, fallback)
+on readInspectorField(fieldLabel, fallback)
+  tell application "System Events"
+    tell process "Final Cut Pro"
       repeat with candidate in text fields of front window
         try
           set candidateDescription to description of candidate as text
@@ -4926,8 +4929,15 @@ tell application "System Events"
           if candidateDescription contains fieldLabel or candidateName contains fieldLabel then return value of candidate as text
         end try
       end repeat
-      return fallback
-    end readInspectorField
+    end tell
+  end tell
+  return fallback
+end readInspectorField
+
+-- FRAMEKIT_NATIVE_PIP_READBACK
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
     set positionXText to my readInspectorField("Position X", "")
     set positionYText to my readInspectorField("Position Y", "")
     set scaleText to my readInspectorField("Scale", "")
