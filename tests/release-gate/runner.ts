@@ -655,7 +655,16 @@ async function collectHeadedNativeEvidence(
   const workflows = await readHeadedEvidence(manifest, evidenceDirectory);
   const attempted = workflows.some((workflow) => workflow.status !== "unrun");
   const failed = workflows.some((workflow) => workflow.status === "failed");
-  const status: EvidenceStatus = failed ? "failed" : attempted ? "verified" : "unrun";
+  const expectedWorkflows = workflows.filter((workflow) => {
+    const manifestWorkflow = manifest.workflows.find((candidate) => candidate.id === workflow.workflowId);
+    return (manifestWorkflow?.evidenceTypes.length ?? 0) > 0;
+  });
+  const complete = expectedWorkflows.length > 0 && expectedWorkflows.every((workflow) => workflow.status === "verified");
+  const status: EvidenceStatus = failed || attempted && !complete
+    ? "failed"
+    : complete
+      ? "verified"
+      : "unrun";
   return {
     tier: "headed-native",
     status,
