@@ -197,6 +197,28 @@ test("filler Skill applies all authorized cuts in one composite transaction with
   assert.ok(Math.abs((execution.diff?.durationDelta ?? 0) + 0.3) < 0.000001);
 });
 
+test("source-media speech timestamps remain unchanged after ripple delete", async () => {
+  const { runtime } = createFixture({
+    postWords: [
+      { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
+      { text: "world", start: 1.3, end: 1.8, confidence: 0.99 },
+      { text: "uh", start: 2, end: 2.3, confidence: 0.7 },
+    ],
+  });
+  register(runtime);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 } },
+  });
+
+  const execution = await runtime.executeSkill(preview.previewToken);
+
+  assert.equal(execution.status, "VERIFIED");
+  assert.equal(execution.verification?.checks.find((check) => check.name === "filler-speech-continuity")?.passed, true);
+});
+
 test("unexpected canonical changes roll back the complete filler transaction", async () => {
   const { adapter, runtime } = createFixture();
   register(runtime);
