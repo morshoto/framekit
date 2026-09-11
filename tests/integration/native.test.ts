@@ -2089,6 +2089,7 @@ test("native Final Cut previews top-level supported video files in deterministic
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-preview-"));
   await writeFile(join(directory, "zulu.mov"), "video fixture");
   await writeFile(join(directory, "alpha.MP4"), "video fixture");
+  await writeFile(join(directory, "middle.m4v"), "video fixture");
   await writeFile(join(directory, "ignored.wav"), "audio fixture");
   await writeFile(join(directory, "ignored.txt"), "text fixture");
   await mkdir(join(directory, "nested"));
@@ -2107,6 +2108,7 @@ test("native Final Cut previews top-level supported video files in deterministic
 
   assert.deepEqual(preview.files, [
     { sourcePath: join(directory, "alpha.MP4"), name: "alpha.MP4", kind: "video" },
+    { sourcePath: join(directory, "middle.m4v"), name: "middle.m4v", kind: "video" },
     { sourcePath: join(directory, "zulu.mov"), name: "zulu.mov", kind: "video" },
   ]);
   assert.equal(preview.directoryPath, directory);
@@ -2133,6 +2135,10 @@ test("native Final Cut directory import fails closed and reports partial complet
   const failedPath = join(directory, "failed.mp4");
   await writeFile(importedPath, "video fixture");
   await writeFile(failedPath, "video fixture");
+  await assert.rejects(
+    adapter.previewImportMediaDirectory(importedPath),
+    /FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: .* is not a directory/,
+  );
   const importedPaths: string[] = [];
   adapter.importMedia = async (sourcePath: string) => {
     importedPaths.push(sourcePath);
