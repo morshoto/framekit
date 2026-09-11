@@ -2205,7 +2205,18 @@ test("native Final Cut directory import fails closed and reports partial complet
   adapter.importMedia = async (sourcePath: string) => {
     importedPaths.push(sourcePath);
     if (sourcePath === failedPath) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4");
-    return { mediaHandle: "media-imported", sourcePath, name: "imported.mov", kind: "video" };
+    return {
+      mediaHandle: "media-imported",
+      sourcePath,
+      sourceIdentity: `file:///imported/${sourcePath.split("/").pop()}`,
+      name: "imported.mov",
+      kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    };
   };
 
   const preview = await adapter.previewImportMediaDirectory(directory);
@@ -2233,7 +2244,18 @@ test("native Final Cut directory import fails closed and reports partial complet
       sourcePath: importedPath,
       name: "imported.mov",
       status: "imported",
-      media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
+      media: {
+        mediaHandle: "media-imported",
+        sourcePath: importedPath,
+        sourceIdentity: `file:///imported/${importedPath.split("/").pop()}`,
+        name: "imported.mov",
+        kind: "video",
+        verification: {
+          verified: true,
+          stage: "post-import-browser-discovery",
+          detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+        },
+      },
     },
   ]);
 });
@@ -2249,7 +2271,18 @@ test("native Final Cut rejects directory imports when files change after preview
   let importCalls = 0;
   adapter.importMedia = async (sourcePath: string) => {
     importCalls += 1;
-    return { mediaHandle: "media-imported", sourcePath, name: sourcePath.split("/").pop()!, kind: "video" };
+    return {
+      mediaHandle: "media-imported",
+      sourcePath,
+      sourceIdentity: `file:///imported/${sourcePath.split("/").pop()}`,
+      name: sourcePath.split("/").pop()!,
+      kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    };
   };
 
   const replacementPreview = await adapter.previewImportMediaDirectory(directory);

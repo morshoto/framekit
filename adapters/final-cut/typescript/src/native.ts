@@ -48,8 +48,14 @@ export interface NativeFinalCutMediaMatch {
 export interface NativeFinalCutMediaImportResult {
   mediaHandle: string;
   sourcePath: string;
+  sourceIdentity: string;
   name: string;
   kind: "video" | "audio";
+  verification: {
+    verified: true;
+    stage: "post-import-browser-discovery";
+    detail: string;
+  };
 }
 
 export const SUPPORTED_VIDEO_EXTENSIONS = Object.freeze([".m4v", ".mov", ".mp4"]);
@@ -953,8 +959,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         return {
           mediaHandle,
           sourcePath: normalizedPath,
+          sourceIdentity: identity,
           name,
           kind: mediaKind(normalizedPath),
+          verification: {
+            verified: true,
+            stage: "post-import-browser-discovery",
+            detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+          },
         };
       }
       if (this.now() >= discoveryDeadline) break;
