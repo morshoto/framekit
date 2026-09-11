@@ -66,7 +66,7 @@ The families are:
 | `observation` | `timeline`, `media` | Live metadata or canonical observation |
 | `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
 | `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking` | Routed editing operations and explicit unsupported boundaries |
-| `native` | `selectionWrite`, `projectCreation`, `clipInsertion`, `clipMovement`, `titlePlacement`, `pictureInPicture` | Individual Final Cut Accessibility operations |
+| `native` | `selectionWrite`, `titleDiscovery`, `titlePlacement`, `projectCreation`, `clipInsertion`, `clipMovement`, `pictureInPicture` | Individual Final Cut Accessibility operations |
 | `publishing` | `projectCreation` | Importing a verified artifact as a new project |
 | `export` | `timeline` | Verified local video export |
 | `analyzers` | `speechTranscribe`, `speechVad`, `audioLoudness`, `visualTrack` | Configured analysis providers |
@@ -77,6 +77,18 @@ project creation, clip insertion, or clip movement remains present with
 media insertion operation does not imply that any other native operation is
 available. `ready` is only a connection state and never implies arbitrary
 editability.
+
+`editor.assets` preserves its array response while attaching provider
+provenance under each asset's `metadata.discovery`. Filesystem Motion-template
+assets use `filesystem-motion-template`; headed Titles-browser assets use
+`final-cut-accessibility` and stable IDs such as
+`final-cut:title:<AXIdentifier>`. Discovery has an `observed` guarantee and is
+not placement proof. Native title placement remains a separate operation with
+explicit text, timing, target, revision, and readback verification. If the
+Titles browser or Accessibility is unavailable, filesystem results may remain
+usable but include `metadata.discovery.native` with the native backend,
+`guarantee: "none"`, and `unavailableReason`; native-only queries fail closed
+with the native error instead of inventing an asset.
 
 `editor.inspect` also returns an inspect-time `preflight` report. Its `mode` is
 `fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or

@@ -59,6 +59,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     env: finalCutMcpEnvironment({
       FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
       FRAMEKIT_FCPXML_PATH: xmlPath,
+      FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
       FRAMEKIT_FINAL_CUT_ASSET_ROOTS: join(directory, "Motion Templates.localized"),
       FRAMEKIT_SPEECH_ANALYZER: speech,
       FRAMEKIT_AUDIO_ANALYZER: audio,
@@ -102,7 +103,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     assert.equal(assets[0].name, "Cross Dissolve");
     const titles = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { kind: "title", query: "lower" } })));
     assert.deepEqual(titles[0], {
-      id: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+      id: `filesystem:title:${join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti")}`,
       kind: "title",
       name: "Lower Third",
       vendor: "Framekit Fixture",
@@ -110,6 +111,18 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
         path: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
         name: "Lower Third",
         vendor: "Framekit Fixture",
+        identity: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+        provider: "filesystem-motion-template",
+        source: "filesystem",
+        discovery: {
+          backend: "filesystem-motion-template",
+          guarantee: "observed",
+        },
+        placement: {
+          backend: "final-cut-accessibility",
+          guarantee: "native-verified",
+          operation: "editor.native.title.add",
+        },
       },
     });
 

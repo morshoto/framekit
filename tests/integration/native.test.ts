@@ -198,11 +198,15 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
 
   const preview = await adapter.previewTitleAdd({
     asset: {
-      id: "/Motion Templates.localized/Titles.localized/Lower Third.moti",
+      id: "final-cut:title:fcp://title/lower-third",
       kind: "title",
       name: "Lower Third",
-      vendor: "Framekit Fixture",
-      metadata: {},
+      vendor: "Final Cut Pro",
+      metadata: {
+        identity: "fcp://title/lower-third",
+        provider: "final-cut-accessibility",
+        source: "final-cut-titles-browser",
+      },
     },
     text: "Framekit Native Title",
     duration: { value: "3", timescale: "1" },
@@ -222,6 +226,7 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
   assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 385")), true);
   assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 215")), true);
   assert.equal(scripts.some((script) => script.includes("Lower Third")), true);
+  assert.equal(scripts.some((script) => script.includes("fcp://title/lower-third")), true);
   assert.equal(scripts.some((script) => script.includes("Framekit Native Title")), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "i"')), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "o"')), true);
@@ -475,6 +480,70 @@ test("native PIP rejects a same-name anchor with a different identity", async ()
     /selected timeline occurrence does not match the requested anchor/,
   );
   assert.equal(connected, false);
+});
+
+test("native title placement keeps filesystem assets on name fallback", async () => {
+  const scripts: string[] = [];
+  let revision = 1;
+  let playhead = "5";
+  let titleAdded = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:05:00")) playhead = "5";
+      if (script.includes("00:00:08:00")) playhead = "8";
+      if (script.includes("Filesystem Title")) {
+        titleAdded = true;
+        revision = 2;
+      }
+      if (script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", titleAdded ? "Lower Third" : "", titleAdded ? 1 : 0, true);
+      }
+      return "";
+    },
+  });
+  const filesystemPath = "/Motion Templates.localized/Titles.localized/Lower Third.moti";
+
+  const preview = await adapter.previewTitleAdd({
+    asset: {
+      id: `filesystem:title:${filesystemPath}`,
+      kind: "title",
+      name: "Lower Third",
+      vendor: "Framekit Fixture",
+      metadata: {
+        identity: filesystemPath,
+        provider: "filesystem-motion-template",
+      },
+    },
+    text: "Filesystem Title",
+    duration: { value: "3", timescale: "1" },
+  });
+
+  const result = await adapter.executeTitleAdd(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  const selectionScript = scripts.find((script) => script.includes("set targetIdentity"));
+  assert.ok(selectionScript);
+  assert.match(selectionScript, /set targetIdentity to ""/);
+  assert.equal(selectionScript.includes(filesystemPath), false);
 });
 
 test("native title previews bind explicit selected ranges and reject incompatible or out-of-bounds assets", async () => {

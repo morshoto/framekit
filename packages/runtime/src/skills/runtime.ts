@@ -11,6 +11,7 @@ import type {
   SkillManifest,
   SkillPlan,
   SkillPreview,
+  SkillVerificationContext,
 } from "../domain/skills.js";
 import type { EditService } from "../editing/edit-service.js";
 import { sameRevision } from "../context/revision.js";
@@ -155,7 +156,7 @@ export class SkillRuntime {
     });
     if (!session.editPreviewToken) {
       return {
-        status: session.preview.plan.decision === "NO_OP" ? "VERIFIED" : "SKIPPED",
+        status: session.preview.plan.decision === "NO_OP" || !session.preview.plan.decision ? "VERIFIED" : "SKIPPED",
         plan: {
           id: session.preview.plan.id,
           skillId: session.preview.plan.skillId,
@@ -163,13 +164,40 @@ export class SkillRuntime {
           baseRevision: structuredClone(session.preview.plan.baseRevision),
         },
         transactionIds: [],
+        ...(session.preview.plan.details ? { details: structuredClone(session.preview.plan.details) } : {}),
         rollback: { attempted: false, succeeded: true, transactionIds: [] },
       };
     }
     const transaction = await this.edits.executeEdit(session.editPreviewToken);
     const rolledBack = transaction.status === "ROLLED_BACK";
+    let verification = transaction.verification;
+    let status: SkillExecution["status"] = rolledBack
+      ? "ROLLED_BACK"
+      : transaction.status === "VERIFIED" ? "VERIFIED" : "FAILED";
+    let rollback: SkillExecution["rollback"] = {
+      attempted: rolledBack,
+      succeeded: rolledBack,
+      transactionIds: rolledBack ? [transaction.id] : [],
+    };
+    if (!rolledBack && definition.handler.verify) {
+      const checks = await definition.handler.verify({
+        plan: session.preview.plan,
+        ...(session.preview.expectedDiff ? { expectedDiff: session.preview.expectedDiff } : {}),
+        transaction,
+      } satisfies SkillVerificationContext);
+      verification = {
+        passed: Boolean(verification?.passed) && checks.every((check) => check.passed),
+        checks: [...(verification?.checks ?? []), ...checks],
+        ...(verification?.target ? { target: structuredClone(verification.target) } : {}),
+      };
+      if (!verification.passed) {
+        await this.edits.undo(transaction.id);
+        status = "ROLLED_BACK";
+        rollback = { attempted: true, succeeded: true, transactionIds: [transaction.id] };
+      }
+    }
     return {
-      status: rolledBack ? "ROLLED_BACK" : transaction.status === "VERIFIED" ? "VERIFIED" : "FAILED",
+      status,
       plan: {
         id: session.preview.plan.id,
         skillId: session.preview.plan.skillId,
@@ -178,12 +206,9 @@ export class SkillRuntime {
       },
       transactionIds: [transaction.id],
       diff: structuredClone(transaction.diff),
-      ...(transaction.verification ? { verification: structuredClone(transaction.verification) } : {}),
-      rollback: {
-        attempted: rolledBack,
-        succeeded: rolledBack,
-        transactionIds: rolledBack ? [transaction.id] : [],
-      },
+      ...(verification ? { verification: structuredClone(verification) } : {}),
+      ...(session.preview.plan.details ? { details: structuredClone(session.preview.plan.details) } : {}),
+      rollback,
     };
   }
 

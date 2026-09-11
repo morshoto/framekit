@@ -332,6 +332,7 @@ function nativeFamily(
     "mediaAppend",
     "mediaInsert",
     "titlePlacement",
+    "titleDiscovery",
     "timelineFocus",
     "projectCreation",
     "clipInsertion",

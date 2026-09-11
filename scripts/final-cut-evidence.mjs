@@ -59,6 +59,7 @@ const nativeCapabilityKeys = [
   "trimToDuration",
   "mediaAppend",
   "mediaInsert",
+  "titleDiscovery",
   "titlePlacement",
   "timelineFocus",
   "requiresAccessibility",

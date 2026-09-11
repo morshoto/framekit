@@ -91,8 +91,8 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   const path = join(directory, "project.fcpxml");
   await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
 <fcpxml version="1.11">
-  <resources><asset id="r1" name="Interview.wav" src="file:///Interview.wav" /></resources>
-  <library><event name="Event"><project name="Phase 1 Fixture" uid="project-phase-1"><sequence uid="sequence-phase-1" duration="10s"><spine>
+  <resources><format id="r-format" frameDuration="1001/24000s" /><asset id="r1" name="Interview.wav" src="file:///Interview.wav" /></resources>
+  <library><event name="Event"><project name="Phase 1 Fixture" uid="project-phase-1"><sequence uid="sequence-phase-1" format="r-format" duration="10s"><spine>
     <asset-clip ref="r1" name="Interview" offset="0s" start="0s" duration="1001/24000s" lane="1" />
   </spine></sequence></project></event></library>
 </fcpxml>`);
@@ -108,6 +108,7 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   assert.equal(catalog.projects[0]?.sequences[0]?.id, before.timeline.id);
   assert.equal(before.timeline.clips[0]?.name, "Interview");
   assert.deepEqual(before.timeline.clips[0]?.durationTime, { value: "1001", timescale: "24000" });
+  assert.deepEqual(before.timeline.frameDuration, { value: "1001", timescale: "24000" });
 
   const clipId = before.timeline.clips[0]!.id;
   await adapter.apply({ type: "rename-clip", clipId, name: "Interview - Clean" }, before.revision);

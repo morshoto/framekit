@@ -95,7 +95,7 @@ this routing tool.
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
 | `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
-| `editor.assets` | Search native editor assets by text, kind, or vendor | Fixture or Motion-template registry |
+| `editor.assets` | Search editor assets by text, kind, or vendor; IDs are provider-qualified and include discovery provenance | Fixture, filesystem Motion-template registry, or headed Final Cut Titles browser; native discovery requires Accessibility and Final Cut frontmost |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |

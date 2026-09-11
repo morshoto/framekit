@@ -31,7 +31,9 @@ test("Skill documentation describes only the generic MCP workflow", async () => 
   assert.match(documentation, /rollback/);
   assert.match(documentation, /targetLufs.*-16/);
   assert.match(documentation, /occurrenceId/);
+  assert.match(documentation, /selectedCandidateIds/);
   assert.match(documentation, /verified no-op/i);
+  assert.match(documentation, /candidate provenance/);
 });
 
 test("compatibility and release documentation identify the v0.0.3 gate", async () => {

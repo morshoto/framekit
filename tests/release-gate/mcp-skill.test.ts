@@ -18,6 +18,7 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
     projectName: "Skill Fixture",
     timelineId: "skill-timeline",
     timelineName: "Main Edit",
+    frameDuration: { value: "1", timescale: "30" },
     clips: [
       { id: "dialogue-clip", mediaId: "dialogue-media", name: "Dialogue", start: 0, duration: 10, track: 1 },
       { id: "filler-clip", mediaId: "filler-media", name: "Filler", start: 10, duration: 4, track: 1 },
@@ -47,16 +48,20 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
   });
   let fillerAnalysisCalls = 0;
   const speechAnalyzer: SpeechAnalyzer = {
+    capabilities: { transcription: true, vad: true },
     analyze: async ({ media, project }) => {
       fillerAnalysisCalls += 1;
       const fillerClip = project.timeline.clips.find((clip) => clip.id === "filler-clip");
       if (media.mediaId === "filler-media" && fillerAnalysisCalls > 1 && (fillerClip?.duration ?? 4) < 4) {
         return { words: [
           { text: "so", start: 0, end: 0.3, confidence: 0.99 },
-          { text: "yes", start: 1.1, end: 1.7, confidence: 0.99 },
-        ] };
+          { text: "yes", start: 1.4, end: 2, confidence: 0.99 },
+        ], vadSegments: [{ start: 0, end: 2, kind: "speech" as const }] };
       }
-      return structuredClone(media.speech!);
+      return {
+        ...structuredClone(media.speech!),
+        vadSegments: media.speech?.words.map((word) => ({ start: word.start, end: word.end, kind: "speech" as const })),
+      };
     },
   };
   const audioAnalyzer: AudioAnalyzer = {

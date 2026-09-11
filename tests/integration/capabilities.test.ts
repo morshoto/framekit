@@ -275,6 +275,7 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
       mediaAppend: true,
       mediaInsert: true,
       titlePlacement: true,
+      titleDiscovery: true,
       timelineFocus: true,
       requiresAccessibility: true,
       requiresFinalCutFrontmost: true,
@@ -303,6 +304,7 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
 
     assert.equal(payload.capabilities.schemaVersion, 1);
     assert.equal(payload.capabilities.families.native.selectionWrite.available, true);
+    assert.equal(payload.capabilities.families.native.titleDiscovery.available, true);
     assert.equal(payload.capabilities.families.native.selectionWrite.backend, "final-cut-accessibility");
     assert.equal(payload.capabilities.families.native.clipInsertion.available, false);
     assert.equal(payload.capabilities.families.native.projectCreation.available, false);
@@ -488,6 +490,7 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /clipInsertion: CapabilityDescriptor/);
   assert.match(swift, /clipMovement: CapabilityDescriptor/);
   assert.match(swift, /titlePlacement: CapabilityDescriptor/);
+  assert.match(swift, /titleDiscovery: CapabilityDescriptor/);
   assert.match(swift, /pictureInPicture: CapabilityDescriptor/);
   assert.match(swift, /projectCatalogRead: Bool/);
   assert.match(swift, /projectSelection: Bool/);
