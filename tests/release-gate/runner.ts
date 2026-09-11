@@ -329,6 +329,7 @@ function createFillerFixture(scenario: string): InMemoryFixture {
     projectName: "v0.0.3 Release Gate",
     timelineId: `timeline-${scenario}`,
     timelineName: scenario,
+    frameDuration: { value: "1", timescale: "30" },
     clips: [{ id: "filler-clip", mediaId: "filler-media", name: "Speech", start: 0, duration: 6, track: 1 }],
     media: [{
       mediaId: "filler-media",

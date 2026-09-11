@@ -18,6 +18,7 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
     projectName: "Skill Fixture",
     timelineId: "skill-timeline",
     timelineName: "Main Edit",
+    frameDuration: { value: "1", timescale: "30" },
     clips: [
       { id: "dialogue-clip", mediaId: "dialogue-media", name: "Dialogue", start: 0, duration: 10, track: 1 },
       { id: "filler-clip", mediaId: "filler-media", name: "Filler", start: 10, duration: 4, track: 1 },

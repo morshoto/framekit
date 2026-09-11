@@ -1,5 +1,5 @@
 import type { SkillDefinition, SkillPlanningContext, SkillVerificationContext } from "../domain/skills.js";
-import type { TimeRange } from "../domain/primitives.js";
+import type { RationalTime, TimeRange } from "../domain/primitives.js";
 import type { SpeechWord } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
 import type { TimelineDiff } from "../domain/diff.js";
@@ -74,6 +74,7 @@ function fillerRemovalSkill(): SkillDefinition {
 async function planFillerSkill(context: SkillPlanningContext, input: Record<string, unknown>) {
   const selectedRange = input.range as TimeRange;
   const selectedCandidateIds = new Set((input.selectedCandidateIds as string[] | undefined) ?? []);
+  const sequenceFrameDuration = resolveSequenceFrameDuration(context.project.timeline.frameDuration);
   const detector = new FillerDetector({
     ...(input.confidenceThreshold !== undefined ? { confidenceThreshold: input.confidenceThreshold as number } : {}),
   });
@@ -122,7 +123,7 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
         targetRange: selectedRange,
         occurrence,
         timelineId: context.project.timeline.id,
-        sequenceFrameDuration: { value: "1", timescale: "30" },
+        sequenceFrameDuration,
       });
       candidates.push(candidate);
       decisions.push(decision);
@@ -161,6 +162,21 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
       })),
     },
   };
+}
+
+function resolveSequenceFrameDuration(frameDuration: RationalTime | undefined): RationalTime {
+  if (!frameDuration) throw new Error("CAPABILITY_UNAVAILABLE: sequence frame duration");
+  if (!/^-?\d+$/.test(frameDuration.value) || !/^\d+$/.test(frameDuration.timescale)) {
+    throw new Error("CAPABILITY_UNAVAILABLE: sequence frame duration");
+  }
+  try {
+    if (BigInt(frameDuration.value) <= 0n || BigInt(frameDuration.timescale) <= 0n) {
+      throw new Error("invalid frame duration");
+    }
+  } catch {
+    throw new Error("CAPABILITY_UNAVAILABLE: sequence frame duration");
+  }
+  return structuredClone(frameDuration);
 }
 
 interface FillerSkillDetails {

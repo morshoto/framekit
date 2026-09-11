@@ -46,9 +46,11 @@ stable reason codes; they do not fall back to a fixture or another editor.
 `filler-removal` previews every detected candidate with its confidence,
 reason codes, occurrence mapping, safe-cut evidence, and a decision of
 `AUTO_APPLY`, `SUGGESTED`, or `SKIPPED`. High-confidence frame-aligned cuts
-are authorized automatically; a `SUGGESTED` candidate requires a fresh
-preview with its revision-bound ID in `selectedCandidateIds`. Low-confidence,
-ambiguous, overlapping, or protected speech is never selected implicitly.
+use the canonical sequence frame duration and are authorized automatically; a
+`SUGGESTED` candidate requires a fresh preview with its revision-bound ID in
+`selectedCandidateIds`. If canonical frame timing is unavailable, planning
+fails closed. Low-confidence, ambiguous, overlapping, or protected speech is
+never selected implicitly.
 
 The Skill applies all authorized ripple deletions in one composite transaction.
 Each operation carries its candidate ID, and the preview and execution details
