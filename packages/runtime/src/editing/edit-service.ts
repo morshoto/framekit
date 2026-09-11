@@ -273,8 +273,9 @@ export class EditService {
       verificationPolicy,
       status: "APPLIED",
     };
-    if (!sameDiffContent(transaction.diff, preview.expectedDiff)) {
-      const check: VerificationCheck = {
+    const authorizedDiffCheck = sameDiffContent(transaction.diff, preview.expectedDiff)
+      ? undefined
+      : {
         name: "authorized-diff",
         passed: false,
         status: "failed",
@@ -283,18 +284,6 @@ export class EditService {
         observed: structuredClone(transaction.diff),
         detail: "canonical diff contains changes outside the preview-authorized operations",
       };
-      await this.adapter.restore(before, attemptedAfter.revision);
-      transaction.after = await this.project.inspectProject();
-      this.assertRestored(before, transaction.after);
-      transaction.verification = {
-        passed: false,
-        checks: [check],
-        target: structuredClone(preview.target),
-      };
-      transaction.status = "ROLLED_BACK";
-      this.transactions.set(transaction);
-      return transaction;
-    }
     try {
       await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
@@ -315,6 +304,13 @@ export class EditService {
         throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
       }
       throw new Error(`VERIFICATION_FAILED: canonical state was restored (${String(verificationError)})`);
+    }
+    if (authorizedDiffCheck) {
+      transaction.verification = {
+        ...transaction.verification,
+        passed: false,
+        checks: [...transaction.verification.checks, authorizedDiffCheck],
+      };
     }
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
