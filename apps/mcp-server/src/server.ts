@@ -718,6 +718,17 @@ function normalizeConnectionStatus(value: unknown): unknown {
   };
 }
 
+function nativeMediaIntentCapabilities(nativeEditor?: NativeFinalCutEditor): Record<string, boolean> {
+  const capabilities = nativeEditor?.capabilities();
+  return {
+    "native.mediaImport": Boolean(capabilities?.mediaImport),
+    "native.mediaSelection": Boolean(capabilities?.mediaSelection),
+    "native.mediaAppendSelected": Boolean(capabilities?.mediaAppendSelected),
+    "native.mediaAppend": Boolean(capabilities?.mediaAppend),
+    "native.mediaInsert": Boolean(capabilities?.mediaInsert),
+  };
+}
+
 function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const capabilities = value as Record<string, unknown>;
@@ -882,7 +893,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editing.intent.resolve", {
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
     inputSchema: { request: z.string().trim().min(1) },
-  }, async ({ request }) => jsonResult(resolveEditingIntent(request)));
+  }, async ({ request }) => jsonResult(resolveEditingIntent(request, {
+    availableCapabilities: nativeMediaIntentCapabilities(options.nativeEditor),
+  })));
 
   server.registerTool("editing.route", {
     description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",

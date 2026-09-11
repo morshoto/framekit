@@ -29,7 +29,7 @@ this routing tool.
 | --- | --- | --- |
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
-| `editing.intent.resolve` | Map one supported natural-language request to an explicit operation and affected range | Read-only; ambiguous requests return clarification and no operation; resolved destructive requests set `previewRequired` |
+| `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
 | `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
 | `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
@@ -324,19 +324,35 @@ Native evidence does not claim canonical timeline enumeration.
 
 ## Explicit editing intent
 
-`editing.intent.resolve` accepts a request string and recognizes only these
+`editing.intent.resolve` accepts a request string and recognizes these explicit
 forms:
 
 - `Cut at 30 seconds and remove the rest` → `trim_to_duration`
 - `Blade at 30 seconds` → `blade_at_playhead`
 - `Remove 10–15 seconds` → `delete_range`
+- `Import "/tmp/interview.mov"` → `media_import`
+- `Select Browser media with handle media-42` → `media_select`
+- `Append the selected media to the active timeline` → `media_append_selected`
+- `Append media with handle media-42 to the timeline` → `media_append`
+- `Insert media with handle media-42 at the playhead` → `media_insert`
+- `Import "/tmp/interview.mov" and append it to the active timeline` → `media_import_then_append`
 
-The result includes the selected operation, the affected range,
-`previewRequired: true`, and the exact `previewTool` to call. The resolver never
-mutates the editor. Callers must use that operation-specific native preview tool
-before an execute call; native execute tools accept only their short-lived
-preview tokens. An unrecognized or ambiguous destructive request returns
-`clarification_required` without an operation or preview tool.
+Destructive timeline resolutions include the selected operation,
+`requiredCapabilities`, explicit `requiredParameters`, the active project
+target, `previewRequired: true`, and the exact `previewTool`, `executeTool`, and
+`workflow` sequence to call. Handle-based append and insert workflows select the
+Browser handle before previewing; selected-media append uses the selected-media
+preview pair directly. Import-and-append remains a sequence of separately
+confirmed native steps, with the append still protected by its own preview
+token. The resolver never mutates the editor.
+
+The MCP server checks the advertised native capabilities while resolving media
+intents. If a required capability is unavailable, resolution returns
+`capability_unavailable` with `requiredCapabilities`, `missingCapabilities`, and
+the relevant operation option; it never claims that a preview or execute path
+is available. Missing paths, handles, placements, and unsupported wording
+return `clarification_required` without inventing values. Existing destructive
+intent mappings retain their original response shape and preview contract.
 
 ## Generic Skills
 
