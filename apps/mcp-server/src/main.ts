@@ -7,7 +7,10 @@ import {
   FinalCutAssetRegistry,
   FinalCutConnectionManager,
   assertCanonicalProviderConfiguration,
+  FinalCutCanonicalNativeProvider,
+  FinalCutCanonicalSnapshotSource,
   FinalCutNativeAutomationAdapter,
+  createFinalCutNativeTargetResolver,
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
   FinalCutVideoExporter,
@@ -67,8 +70,17 @@ const fixture = new InMemoryEditorAdapter({
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
 const headlessFinalCut = liveMode && process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
 const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
-const canonicalProviderRequired = liveMode && process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1";
-assertCanonicalProviderConfiguration({ required: canonicalProviderRequired, fcpxmlPath });
+const canonicalNativeProviderEnabled = liveMode && process.env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER === "native";
+if (canonicalNativeProviderEnabled && headlessFinalCut) {
+  throw new Error("FINAL_CUT_CANONICAL_NATIVE_REQUIRES_HEADED: set FRAMEKIT_FINAL_CUT_HEADLESS=0 for the native provider");
+}
+if (canonicalNativeProviderEnabled && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES !== "1") {
+  throw new Error("FINAL_CUT_CANONICAL_NATIVE_REQUIRES_WRITES: set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 for the native provider");
+}
+const canonicalProviderRequired = liveMode
+  && process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1"
+  && !canonicalNativeProviderEnabled;
+assertCanonicalProviderConfiguration({ required: canonicalProviderRequired || canonicalNativeProviderEnabled, fcpxmlPath });
 const connection = liveMode
   ? new FinalCutConnectionManager({ headless: headlessFinalCut, canonicalProviderRequired })
   : undefined;
@@ -89,10 +101,28 @@ const nativeEditor = liveMode
     })
   : undefined;
 
+const canonicalNativeProvider = canonicalNativeProviderEnabled
+  ? new FinalCutCanonicalNativeProvider({
+      live: liveAdapter!,
+      native: {
+        renameSelectedClip: async (name) => {
+          const result = await nativeEditor!.edit({ type: "rename-selected-clip", name });
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
+        undo: async (operationId) => {
+          const result = await nativeEditor!.undo(operationId);
+          return { undone: result.undone, verification: result.verification };
+        },
+      },
+      readSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
+      resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
+    })
+  : undefined;
+
 const editor = liveMode
   ? new FinalCutSessionAdapter({
-      live: liveAdapter!,
-      ...(fcpxmlPath
+      live: canonicalNativeProvider ?? liveAdapter!,
+      ...(fcpxmlPath && !canonicalNativeProviderEnabled
         ? (() => {
             const document = new FcpxmlDocumentAdapter(fcpxmlPath);
             return { snapshot: document, mutation: document };
