@@ -398,10 +398,11 @@ export class EditService {
     const maskOperations = operations.filter(
       (operation): operation is Extract<WorkflowOperation, { type: "timeline.mask.add" }> => operation.type === "timeline.mask.add",
     );
-    if (maskOperations.some((operation) => operation.mask.mode === "person-cutout")) {
-      if (!capabilities.personCutout) throw new Error("CAPABILITY_UNAVAILABLE: person cutout");
-    } else if (maskOperations.length > 0 && !capabilities.masking) {
+    if (maskOperations.some((operation) => operation.mask.mode !== "person-cutout") && !capabilities.masking) {
       throw new Error("CAPABILITY_UNAVAILABLE: masking");
+    }
+    if (maskOperations.some((operation) => operation.mask.mode === "person-cutout") && !capabilities.personCutout) {
+      throw new Error("CAPABILITY_UNAVAILABLE: person cutout");
     }
     if (operations.some((operation) => operation.type === "timeline.audio.attach") && !capabilities.audioAttachment) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline audio attachment");
