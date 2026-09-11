@@ -140,6 +140,7 @@ const editor = liveMode
           .map((root) => root.trim())
           .filter(Boolean),
         nativeTitleProvider: nativeEditor?.capabilities().titleDiscovery ? nativeEditor : undefined,
+        nativeTransitionProvider: nativeEditor?.capabilities().transitionDiscovery ? nativeEditor : undefined,
       }),
     })
   : fixture;
