@@ -100,17 +100,23 @@ const nativeEditor = liveMode
       nativeOperationLease,
     })
   : undefined;
+const canonicalNativeMutationEditor = canonicalNativeProviderEnabled
+  ? new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      nativeOperationLease,
+    })
+  : nativeEditor;
 
 const canonicalNativeProvider = canonicalNativeProviderEnabled
   ? new FinalCutCanonicalNativeProvider({
       live: liveAdapter!,
       native: {
         renameSelectedClip: async (name) => {
-          const result = await nativeEditor!.edit({ type: "rename-selected-clip", name });
+          const result = await canonicalNativeMutationEditor!.edit({ type: "rename-selected-clip", name });
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
         undo: async (operationId) => {
-          const result = await nativeEditor!.undo(operationId);
+          const result = await canonicalNativeMutationEditor!.undo(operationId);
           return { undone: result.undone, verification: result.verification };
         },
       },
