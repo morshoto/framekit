@@ -1975,6 +1975,28 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
   );
 });
 
+test("native Final Cut media targeting preserves Browser search failures", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("AXBrowserMedia")) return "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media results were not accessible";
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE/);
+  await assert.rejects(adapter.targetMedia("Interview"), (error: unknown) => {
+    assert.match(String(error), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE/);
+    assert.doesNotMatch(String(error), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
+    return true;
+  });
+  assert.equal(scripts.some((script) => script.includes("collectTimelineClipMatches")), false);
+  assert.equal(scripts.some((script) => script.includes('set targetIdentity to "')), false);
+});
+
 test("native Final Cut refuses a Blade retry without live state", async () => {
   const recordSeparator = String.fromCharCode(30);
   let bladeCalls = 0;
