@@ -34,14 +34,24 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 2. The `tagpr` job creates the version tag and a draft GitHub release with
    generated notes. If the merge already placed the release tag on `HEAD`,
    the workflow reuses that tag instead of trying to create it again.
-3. The `publish-npm` job installs npm 11.5.1, runs the v0.1.6 repository gate,
+3. The `native-release-assets` job runs on the configured `framekit-release`
+   macOS runner, builds and signs the Final Cut Workflow Extension, and uploads
+   `FramekitFinalCutWorkflow-<version>.zip` plus its checksum to the draft
+   release.
+4. The `publish-npm` job installs npm 11.5.1, runs the v0.1.6 repository gate,
    publishes the matching package, and verifies the version on the public
-   registry.
-4. The workflow verifies the native archive and checksum, then publishes the
+   registry. It waits for the native assets to be uploaded.
+5. The workflow verifies the native archive and checksum, then publishes the
    GitHub release and its notes.
-5. A final provenance gate verifies package, MCP server, plugin, tag, workflow,
+6. A final provenance gate verifies package, MCP server, plugin, tag, workflow,
    GitHub release, npm, native archive, and checksum alignment before the
    workflow can succeed.
+
+The `framekit-release` runner must be a trusted macOS runner with Final Cut Pro
+installed, Xcode command-line tools, and a Developer ID signing identity
+available to `codesign`. Configure the `FRAMEKIT_CODESIGN_IDENTITY` secret and
+the optional `FRAMEKIT_NOTARY_PROFILE` repository variable before merging a
+release PR. The runner must be registered with the `framekit-release` label.
 
 If npm publishing fails, the GitHub release remains a draft so the failure can
 be repaired without presenting an incomplete release as public.
@@ -64,7 +74,8 @@ from `main`, checks out that exact tag, and skips `npm publish` if the matching
 version is already present. After a publish, registry visibility is retried
 with bounded backoff. If a retry races with an earlier successful publish and
 npm reports that the version already exists, the workflow proceeds to that
-same verification path. Registry errors other than a missing version or an
+same verification path. The native release job also rebuilds and uploads the
+assets before verification. Registry errors other than a missing version or an
 immutable-version conflict fail closed.
 
 The npm Trusted Publisher relationship is configured in npm account settings;
