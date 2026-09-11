@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -2083,6 +2083,34 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const selected = await adapter.selectMedia(video.mediaHandle);
   assert.equal(selected.target.kind, "browser-media");
   assert.equal(selected.target.name, "interview.mov");
+});
+
+test("native Final Cut previews top-level supported video files in deterministic order without native mutation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-preview-"));
+  await writeFile(join(directory, "zulu.mov"), "video fixture");
+  await writeFile(join(directory, "alpha.MP4"), "video fixture");
+  await writeFile(join(directory, "ignored.wav"), "audio fixture");
+  await writeFile(join(directory, "ignored.txt"), "text fixture");
+  await mkdir(join(directory, "nested"));
+  await writeFile(join(directory, "nested", "nested.mov"), "video fixture");
+
+  let nativeExecutorCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async () => {
+      nativeExecutorCalls += 1;
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewImportMediaDirectory(directory);
+
+  assert.deepEqual(preview.files, [
+    { sourcePath: join(directory, "alpha.MP4"), name: "alpha.MP4", kind: "video" },
+    { sourcePath: join(directory, "zulu.mov"), name: "zulu.mov", kind: "video" },
+  ]);
+  assert.equal(preview.directoryPath, directory);
+  assert.equal(nativeExecutorCalls, 0);
 });
 
 test("native Final Cut keeps an imported media handle usable after an unrelated Browser search", async () => {
