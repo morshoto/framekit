@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -2174,6 +2174,37 @@ test("native Final Cut directory import fails closed and reports partial complet
       media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
     },
   ]);
+});
+
+test("native Final Cut rejects directory imports when files change after preview", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-stale-"));
+  const replacedPath = join(directory, "replaced.mov");
+  const deletedPath = join(directory, "deleted.mp4");
+  await writeFile(replacedPath, "original video fixture");
+  await writeFile(deletedPath, "video fixture");
+
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true });
+  let importCalls = 0;
+  adapter.importMedia = async (sourcePath: string) => {
+    importCalls += 1;
+    return { mediaHandle: "media-imported", sourcePath, name: sourcePath.split("/").pop()!, kind: "video" };
+  };
+
+  const replacementPreview = await adapter.previewImportMediaDirectory(directory);
+  await writeFile(replacedPath, "replacement video fixture with different contents");
+  await assert.rejects(
+    adapter.executeImportMediaDirectory(replacementPreview.previewToken, true),
+    /FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview/,
+  );
+  assert.equal(importCalls, 0);
+
+  const deletionPreview = await adapter.previewImportMediaDirectory(directory);
+  await unlink(deletedPath);
+  await assert.rejects(
+    adapter.executeImportMediaDirectory(deletionPreview.previewToken, true),
+    /FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview/,
+  );
+  assert.equal(importCalls, 0);
 });
 
 test("native Final Cut keeps an imported media handle usable after an unrelated Browser search", async () => {
