@@ -90,8 +90,11 @@ between two adjacent occurrences. Imported media handles are session stable;
 timeline occurrence, native title, and native transition operation handles
 remain short-lived and are not canonical timeline identities. Native title and
 transition placement are reported separately as `titlePlacement` and
-`transitionPlacement`; neither upgrades the live Workflow Extension's
-canonical timeline capabilities.
+`transitionPlacement`; bounded Draw Mask placement is reported separately as
+`masking`. It requires a unique occurrence handle, unchanged live revision,
+exact property readback, and native Undo. Neither native placement operation
+upgrades the live Workflow Extension's canonical timeline capabilities, and
+person cutout remains unavailable.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `artifact.publish` accepts a verified artifact transaction, its managed

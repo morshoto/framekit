@@ -249,6 +249,31 @@ The output is an allowlisted summary; it does not include raw snapshots,
 operation handles, media paths, or credentials. Headless fixtures and FCPXML
 reads do not satisfy this headed evidence requirement.
 
+## Native masking placement evidence
+
+For bounded native masking, use a disposable project containing one uniquely
+searchable video occurrence. The query must resolve to exactly one Browser
+media item and one timeline occurrence:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Masking E2E" \
+FRAMEKIT_FINAL_CUT_E2E_MASK_QUERY="subject-clip" \
+FRAMEKIT_FINAL_CUT_E2E_MASK_BOUNDS="0.1,0.2,0.6,0.7" \
+pnpm run test:final-cut-masking-headed \
+  > docs/tests/evidence/$(date +%F)-masking-live.json
+```
+
+The runner requires the native masking capability, previews without mutation,
+applies Final Cut's bounded Draw Mask, reads back the requested normalized
+rectangle, verifies an advancing revision and native Undo, and restores the
+disposable project. Its `headed-native-mask-placement` output is an allowlisted
+summary containing only project/occurrence identity, requested and observed
+mask properties, revision summaries, verification, and tool statuses. It does
+not include raw native contexts, media paths, operation handles, or
+diagnostics. A metadata-only Workflow Extension, ambiguous occurrence, missing
+Draw Mask inspector fields, or absent readback fails closed and is not native
+placement evidence. Person cutout and tracking are not claimed by this test.
+
 ## Canonical live read evidence
 
 When a live bridge advertises `canonicalTimelineMode: canonical-read` (or the

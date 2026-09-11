@@ -65,8 +65,8 @@ The families are:
 | `connection` | `status` | Bridge connection availability only |
 | `observation` | `timeline`, `media` | Live metadata or canonical observation |
 | `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
-| `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking` | Routed editing operations and explicit unsupported boundaries |
-| `native` | `selectionWrite`, `projectCreation`, `clipInsertion`, `clipMovement`, `titlePlacement` | Individual Final Cut Accessibility operations |
+| `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking`, `personCutout` | Routed editing operations and explicit unsupported boundaries |
+| `native` | `selectionWrite`, `projectCreation`, `clipInsertion`, `clipMovement`, `titlePlacement`, `masking` | Individual Final Cut Accessibility operations |
 | `publishing` | `projectCreation` | Importing a verified artifact as a new project |
 | `export` | `timeline` | Verified local video export |
 | `analyzers` | `speechTranscribe`, `speechVad`, `audioLoudness`, `visualTrack` | Configured analysis providers |
@@ -75,8 +75,9 @@ Native operations are reported individually. An unsupported operation such as
 project creation, clip insertion, or clip movement remains present with
 `available: false` and an `unavailableReason`; a supported title placement or
 media insertion operation does not imply that any other native operation is
-available. `ready` is only a connection state and never implies arbitrary
-editability.
+available. Native masking is available only for the bounded Draw Mask path when
+the adapter can read back its requested properties. `ready` is only a connection
+state and never implies arbitrary editability.
 
 `editor.inspect` also returns an inspect-time `preflight` report. Its `mode` is
 `fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or
@@ -167,6 +168,9 @@ Important error codes include:
 - `FINAL_CUT_EXPORT_METADATA_FAILED`: `ffprobe` could not inspect the exported video.
 - `FINAL_CUT_EXPORT_METADATA_UNAVAILABLE`: `ffprobe` was not available before export started.
 - `FINAL_CUT_EXPORT_COMMIT_FAILED`: the verified staging file could not be moved to the requested output path.
+- `AMBIGUOUS_MASK_TARGET`: more than one timeline occurrence matched the mask target.
+- `FINAL_CUT_NATIVE_MASK_READBACK_UNAVAILABLE`: Final Cut did not expose readable Draw Mask properties.
+- `FINAL_CUT_NATIVE_VERIFICATION_FAILED`: native mask properties, revision, target, or Undo verification failed; the adapter attempts native rollback when safe.
 
 Music mixing reports `CAPABILITY_UNAVAILABLE: dialogue ducking` when a request
 asks for automatic dialogue ducking. Gain and fades are verified for the
@@ -207,6 +211,7 @@ capabilities:
     "deleteRange": true,
     "trimToDuration": true,
     "timelineFocus": true,
+    "masking": true,
     "requiresAccessibility": true,
     "requiresFinalCutFrontmost": true
   }
@@ -229,6 +234,13 @@ from the primary storyline. `trimToDuration` preserves the beginning of the
 sequence and deletes its tail after the requested duration. The latter two
 operations require preview/execute confirmation and verify the resulting live
 sequence duration.
+
+`masking` is a separate native operation. Its preview is bound to a unique
+occurrence handle and current revision. Execute applies only a bounded Draw
+Mask, requires exact property readback, verifies a new revision and Undo
+command, and rolls back the native edit when verification fails. The native
+surface does not advertise person cutout or tracking without equivalent
+readback.
 
 Native errors include `FINAL_CUT_NATIVE_PERMISSION_REQUIRED`,
 `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`, `FINAL_CUT_NATIVE_NOT_FRONTMOST`,
