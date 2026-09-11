@@ -47,6 +47,7 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
   });
   let fillerAnalysisCalls = 0;
   const speechAnalyzer: SpeechAnalyzer = {
+    capabilities: { transcription: true, vad: true },
     analyze: async ({ media, project }) => {
       fillerAnalysisCalls += 1;
       const fillerClip = project.timeline.clips.find((clip) => clip.id === "filler-clip");
@@ -54,9 +55,12 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
         return { words: [
           { text: "so", start: 0, end: 0.3, confidence: 0.99 },
           { text: "yes", start: 1.1, end: 1.7, confidence: 0.99 },
-        ] };
+        ], vadSegments: [{ start: 0, end: 1.7, kind: "speech" as const }] };
       }
-      return structuredClone(media.speech!);
+      return {
+        ...structuredClone(media.speech!),
+        vadSegments: media.speech?.words.map((word) => ({ start: word.start, end: word.end, kind: "speech" as const })),
+      };
     },
   };
   const audioAnalyzer: AudioAnalyzer = {

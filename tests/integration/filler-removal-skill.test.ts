@@ -3,14 +3,15 @@ import test from "node:test";
 import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
-  type ProjectSnapshot,
+  type SpeechSegment,
   type SpeechAnalyzer,
+  type SpeechWord,
 } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function createFixture(options: {
-  words?: ProjectSnapshot["media"][number]["speech"]["words"];
-  protectedSegments?: NonNullable<ProjectSnapshot["media"][number]["speech"]>["protectedSegments"];
+  words?: SpeechWord[];
+  protectedSegments?: SpeechSegment[];
 } = {}) {
   const words = options.words ?? [
     { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
@@ -138,8 +139,8 @@ test("suggested filler candidates require an explicit re-preview selection", asy
   assert.equal(selected.plan.operations.length, 2);
   assert.equal(selectedDetails.decisions.find((decision) => decision.candidateId === suggested.id)?.status, "SUGGESTED");
   assert.deepEqual((selected.plan.operations as Array<{ candidateId?: string }>).map((operation) => operation.candidateId), [
-    selectedDetails.candidates[0]?.id,
     suggested.id,
+    selectedDetails.candidates[0]?.id,
   ]);
 });
 
@@ -212,7 +213,9 @@ test("unexpected canonical changes roll back the complete filler transaction", a
     }, current.revision);
   };
 
-  await assert.rejects(runtime.executeSkill(preview.previewToken), /UNEXPECTED_DIFF/);
+  const execution = await runtime.executeSkill(preview.previewToken);
+  assert.equal(execution.status, "ROLLED_BACK");
+  assert.ok(execution.verification?.checks.some((check) => check.reason === "UNEXPECTED_DIFF"));
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });
 

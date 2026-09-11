@@ -1,7 +1,10 @@
-import type { SkillDefinition, SkillPlanningContext } from "../domain/skills.js";
+import type { SkillDefinition, SkillPlanningContext, SkillVerificationContext } from "../domain/skills.js";
 import type { TimeRange } from "../domain/primitives.js";
-import { planFillerRemoval } from "../speech/filler-removal.js";
-import { translateRationalRange } from "../timeline/rational-time.js";
+import type { SpeechAnalysis, SpeechWord } from "../domain/media.js";
+import type { EditTransaction } from "../domain/editing.js";
+import type { TimelineDiff } from "../domain/diff.js";
+import { FillerDetector, type FillerCandidate } from "../speech/filler-detector.js";
+import { SafeCutResolver, type SafeCutDecision } from "../speech/safe-cut-resolver.js";
 import {
   DIALOGUE_NORMALIZATION_DEFAULTS,
   planDialogueGain,
@@ -9,7 +12,6 @@ import {
 } from "../audio/dialogue-normalization.js";
 import { planNoiseReduction, type NoiseReductionRequest } from "../audio/noise-reduction.js";
 import { planColorCorrection, type ColorCorrectionRequest } from "../color-correction.js";
-import type { FillerRemovalTarget } from "../speech/filler-removal.js";
 
 export function builtinSkills(): SkillDefinition[] {
   return [fillerRemovalSkill(), dialogueNormalizationSkill(), noiseReductionSkill(), colorCorrectionSkill()];
@@ -38,6 +40,10 @@ function fillerRemovalSkill(): SkillDefinition {
           confidenceThreshold: { type: "number", minimum: 0, maximum: 1 },
           preservePauseMs: { type: "number", minimum: 0 },
           targetPauseMs: { type: "number", minimum: 0 },
+          selectedCandidateIds: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+          },
         },
         required: ["range"],
         additionalProperties: false,
@@ -49,7 +55,9 @@ function fillerRemovalSkill(): SkillDefinition {
           { type: "editor", capability: "timelineWrite" },
           { type: "editor", capability: "readAfterWrite" },
           { type: "editor", capability: "rollback" },
+          { type: "editor", capability: "compositeTransactions" },
           { type: "analyzer", capability: "speechTranscribe" },
+          { type: "analyzer", capability: "speechVad" },
           { type: "operation", operation: "ripple-delete" },
         ],
       },
@@ -58,60 +66,216 @@ function fillerRemovalSkill(): SkillDefinition {
     handler: {
       normalize: (input) => input as Record<string, unknown>,
       plan: async (context, input) => planFillerSkill(context, input),
+      verify: (context) => verifyFillerSkill(context),
     },
   };
 }
 
 async function planFillerSkill(context: SkillPlanningContext, input: Record<string, unknown>) {
   const selectedRange = input.range as TimeRange;
-  const options = {
+  const selectedCandidateIds = new Set((input.selectedCandidateIds as string[] | undefined) ?? []);
+  const detector = new FillerDetector({
     ...(input.confidenceThreshold !== undefined ? { confidenceThreshold: input.confidenceThreshold as number } : {}),
+  });
+  const resolver = new SafeCutResolver({
     ...(input.preservePauseMs !== undefined ? { preservePauseMs: input.preservePauseMs as number } : {}),
     ...(input.targetPauseMs !== undefined ? { targetPauseMs: input.targetPauseMs as number } : {}),
-  };
+  });
   if (!context.analyzeSpeech) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
-  const candidates: FillerRemovalTarget[] = [];
-  const selectedMediaIds = new Set<string>();
+  const candidates: FillerCandidate[] = [];
+  const decisions: SafeCutDecision[] = [];
+  const operations: Array<Extract<import("../domain/editing.js").WorkflowOperation, { type: "ripple-delete" }>> = [];
   for (const clip of context.project.timeline.clips.filter((candidate) =>
     Boolean(candidate.mediaId)
       && candidate.start < selectedRange.end
       && candidate.start + candidate.duration > selectedRange.start,
   )) {
     const mediaId = clip.mediaId!;
-    if (selectedMediaIds.has(mediaId)) {
-      throw new Error("CAPABILITY_UNAVAILABLE: filler removal cannot verify repeated timeline occurrences of the same media item");
-    }
-    selectedMediaIds.add(mediaId);
     const localRange = {
       start: Math.max(0, selectedRange.start - clip.start),
       end: Math.min(clip.duration, selectedRange.end - clip.start),
     };
     if (localRange.end <= localRange.start) continue;
-    const speech = await context.analyzeSpeech(mediaId, localRange);
-    const mediaCandidates = planFillerRemoval(speech.words, localRange, options);
-    for (const candidate of mediaCandidates) {
-      candidates.push({
-        ...candidate,
-        clipId: clip.id,
-        mediaId,
-        sourceRange: structuredClone(candidate.range),
-        range: translateRationalRange(clip.startTime, clip.start, candidate.range),
+    const sourceStart = clip.sourceStart ?? 0;
+    const sourceRange = {
+      start: sourceStart + localRange.start,
+      end: sourceStart + localRange.end,
+    };
+    const speech = await context.analyzeSpeech(mediaId, sourceRange);
+    const occurrence = {
+      occurrenceId: clip.id,
+      mediaId,
+      sourceRange,
+      sequenceRange: { start: clip.start + localRange.start, end: clip.start + localRange.end },
+    };
+    const detected = detector.detect({
+      previewId: `filler-removal:${context.baseRevision.id}:${clip.id}:${selectedRange.start}:${selectedRange.end}`,
+      revisionId: context.baseRevision.id,
+      analysis: speech,
+      targetRange: selectedRange,
+      occurrence,
+    });
+    for (const candidate of detected) {
+      const decision = resolver.resolve({
+        candidate,
+        analysis: speech,
+        targetRange: selectedRange,
+        occurrence,
+        timelineId: context.project.timeline.id,
+        sequenceFrameDuration: { value: "1", timescale: "30" },
       });
+      candidates.push(candidate);
+      decisions.push(decision);
+      if (decision.operation && (decision.status === "AUTO_APPLY"
+        || decision.status === "SUGGESTED" && selectedCandidateIds.has(decision.candidateId))) {
+        operations.push({ ...decision.operation, candidateId: decision.candidateId });
+      }
     }
   }
-  if (candidates.length === 0) throw new Error("NO_FILLERS_FOUND: no high-confidence filler words in selected range");
-  candidates.sort((left, right) => right.range.start - left.range.start);
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  for (const selectedCandidateId of selectedCandidateIds) {
+    if (!candidateIds.has(selectedCandidateId)) {
+      throw new Error(`CANDIDATE_NOT_FOUND: filler candidate ${selectedCandidateId} is not in the selected revision-bound range`);
+    }
+  }
+  const warnings = decisions.flatMap((decision) => decision.status === "AUTO_APPLY"
+    ? []
+    : [`${decision.candidateId}: ${decision.status.toLowerCase()} (${decision.reasonCodes.join(", ")})`]);
   return {
-    operations: candidates.map((candidate) => ({
-      type: "ripple-delete" as const,
-      timelineId: context.project.timeline.id,
-      range: structuredClone(candidate.range),
-      reason: `remove high-confidence filler word: ${candidate.word.text}`,
-    })),
-    affectedRanges: candidates.map((candidate) => structuredClone(candidate.range)),
-    warnings: [],
-    details: { range: structuredClone(selectedRange), candidates: structuredClone(candidates) },
+    operations: operations.sort((left, right) => right.range.start - left.range.start),
+    affectedRanges: operations.map((operation) => structuredClone(operation.range)),
+    warnings,
+    verification: { requireExpectedChange: true, requireSpeechContinuity: true },
+    details: {
+      range: structuredClone(selectedRange),
+      candidates: structuredClone(candidates),
+      decisions: structuredClone(decisions),
+      selectedCandidateIds: [...selectedCandidateIds],
+      candidateProvenance: operations.map((operation, operationIndex) => ({
+        candidateId: operation.candidateId,
+        occurrenceId: decisions.find((decision) => decision.candidateId === operation.candidateId)?.occurrenceId,
+        operationIndex,
+        operationRange: structuredClone(operation.range),
+        diffRanges: [structuredClone(operation.range)],
+      })),
+    },
   };
+}
+
+interface FillerSkillDetails {
+  candidates: FillerCandidate[];
+  decisions: SafeCutDecision[];
+  candidateProvenance: Array<{
+    candidateId: string;
+    occurrenceId?: string;
+    operationIndex: number;
+    operationRange: TimeRange;
+    diffRanges: TimeRange[];
+  }>;
+}
+
+function verifyFillerSkill(context: SkillVerificationContext): import("../domain/verification.js").VerificationCheck[] {
+  const details = context.plan.details as Partial<FillerSkillDetails> | undefined;
+  const transaction = context.transaction;
+  const checks = [
+    verifyFillerTargetsAbsent(transaction, details),
+    verifyProtectedSpeech(transaction),
+    verifyAuthorizedDiff(transaction, context.expectedDiff),
+    verifyPlannedDuration(transaction, details),
+  ];
+  return checks;
+}
+
+function verifyFillerTargetsAbsent(
+  transaction: EditTransaction,
+  details: Partial<FillerSkillDetails> | undefined,
+): import("../domain/verification.js").VerificationCheck {
+  const candidates = details?.candidates ?? [];
+  const appliedIds = new Set((details?.candidateProvenance ?? []).map((item) => item.candidateId));
+  const applied = candidates.filter((candidate) => appliedIds.has(candidate.id));
+  const remaining = applied.filter((candidate) => transaction.attemptedAfter.media.some((media) =>
+    media.speech?.words.some((word) => word.filler === true && word.text.trim().toLowerCase() === candidate.word.text.trim().toLowerCase()),
+  ));
+  return {
+    name: "filler-targets-absent",
+    passed: remaining.length === 0,
+    detail: remaining.length === 0
+      ? "re-analysis contains no applied filler candidates"
+      : `re-analysis still contains ${remaining.length} applied filler candidate(s)`,
+    ...(remaining.length > 0 ? { reason: "FILLER_REMAINS_AFTER_REANALYSIS" } : {}),
+    expected: applied.map((candidate) => candidate.id),
+    observed: remaining.map((candidate) => candidate.id),
+  };
+}
+
+function verifyProtectedSpeech(transaction: EditTransaction): import("../domain/verification.js").VerificationCheck {
+  const beforeProtected = transaction.before.media.flatMap((media) => media.speech?.protectedSegments ?? []);
+  const afterProtected = transaction.attemptedAfter.media.flatMap((media) => media.speech?.protectedSegments ?? []);
+  const passed = beforeProtected.length === afterProtected.length
+    && beforeProtected.every((segment, index) => sameSegment(segment, afterProtected[index]));
+  return {
+    name: "protected-speech-intact",
+    passed,
+    detail: passed ? "protected speech evidence is unchanged" : "protected speech evidence changed after filler removal",
+    ...(passed ? {} : { reason: "PROTECTED_SPEECH_CHANGED" }),
+  };
+}
+
+function verifyAuthorizedDiff(transaction: EditTransaction, expectedDiff?: TimelineDiff): import("../domain/verification.js").VerificationCheck {
+  if (!expectedDiff) {
+    return {
+      name: "authorized-canonical-diff",
+      passed: false,
+      status: "unavailable",
+      detail: "the editor did not provide an expected canonical diff",
+      reason: "EXPECTED_DIFF_UNAVAILABLE",
+    };
+  }
+  const actual = diffSignature(transaction.diff);
+  const expected = diffSignature(expectedDiff);
+  const passed = JSON.stringify(actual) === JSON.stringify(expected);
+  return {
+    name: "authorized-canonical-diff",
+    passed,
+    detail: passed ? "canonical diff matches the authorized preview" : "canonical diff contains unauthorized changes",
+    ...(passed ? {} : { reason: "UNEXPECTED_DIFF", expected, observed: actual }),
+  };
+}
+
+function verifyPlannedDuration(
+  transaction: EditTransaction,
+  details: Partial<FillerSkillDetails> | undefined,
+): import("../domain/verification.js").VerificationCheck {
+  const expected = (details?.candidateProvenance ?? []).reduce((total, item) => total + (item.operationRange.end - item.operationRange.start), 0);
+  const observed = Math.abs(transaction.diff.durationDelta);
+  const passed = Math.abs(observed - expected) <= 0.000001;
+  return {
+    name: "planned-duration-change",
+    passed,
+    detail: passed ? "timeline duration changed by the authorized deleted frames" : "timeline duration differs from the authorized delete duration",
+    ...(passed ? {} : { reason: "DURATION_DELTA_MISMATCH", expected: -expected, observed: transaction.diff.durationDelta }),
+  };
+}
+
+function diffSignature(diff: TimelineDiff): unknown {
+  return {
+    added: diff.added.map((item) => item.after?.id ?? item.itemId),
+    removed: diff.removed.map((item) => item.before?.id ?? item.itemId),
+    modified: diff.modified.map((item) => item.after?.id ?? item.itemId),
+    markerChanges: diff.markerChanges.map((item) => item.marker.id),
+    captionChanges: diff.captionChanges.map((item) => item.caption.id),
+    storyElementChanges: diff.storyElementChanges.map((item) => item.element.id),
+    mediaChanges: diff.mediaChanges.map((item) => item.media.mediaId),
+    durationDelta: diff.durationDelta,
+    affectedRanges: diff.affectedRanges,
+  };
+}
+
+function sameSegment(left: { start: number; end: number; kind: string }, right: { start: number; end: number; kind: string } | undefined): boolean {
+  if (!right) return false;
+  return left.kind === right.kind
+    && Math.abs(left.start - right.start) <= 0.000001
+    && Math.abs(left.end - right.end) <= 0.000001;
 }
 
 function dialogueNormalizationSkill(): SkillDefinition {

@@ -192,6 +192,7 @@ async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWo
   let failure: string | undefined;
   let previewed = false;
   let executed = false;
+  let plannedMutation = false;
 
   try {
     await server.connect(serverTransport);
@@ -207,6 +208,7 @@ async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWo
     if (previewResult.isError) throw new Error(parseToolError(previewResult));
     const preview = parseJson(previewResult) as Record<string, any>;
     previewEvidence = sanitizePreview(preview);
+    plannedMutation = Array.isArray(preview.plan?.operations) && preview.plan.operations.length > 0;
 
     if (workflow.family === "dialogue-normalization") {
       const decision = preview.plan?.decision;
@@ -260,9 +262,9 @@ async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWo
   const afterDigest = after ? canonicalSnapshotDigest(after) : "";
   const unchanged = beforeDigest !== "" && beforeDigest === afterDigest;
   const passed = actualOutcome === workflow.expectedOutcome
-    && (workflow.expectedOutcome === "verified" && workflow.scenario !== "already-normalized"
-      ? beforeDigest !== afterDigest
-      : workflow.expectedOutcome !== "verified" ? unchanged : true);
+    && (workflow.expectedOutcome === "verified"
+      ? plannedMutation ? beforeDigest !== afterDigest : unchanged
+      : unchanged);
   return {
     id: workflow.id,
     family: workflow.family,
@@ -372,10 +374,14 @@ function fillerWords(scenario: string) {
 function createFillerAnalyzer(scenario: string): SpeechAnalyzer {
   const originalWords = fillerWords(scenario);
   return {
+    capabilities: { transcription: true, vad: true },
     analyze: async ({ project }) => {
       const clip = project.timeline.clips.find((candidate) => candidate.id === "filler-clip");
       if ((clip?.duration ?? 6) >= 6 || !["obvious", "multi-filler", "verification-rollback"].includes(scenario)) {
-        return { words: structuredClone(originalWords) };
+        return {
+          words: structuredClone(originalWords),
+          vadSegments: originalWords.map((word) => ({ start: word.start, end: word.end, kind: "speech" as const })),
+        };
       }
       const removals = originalWords.filter((word) => word.filler === true);
       return {
@@ -386,6 +392,9 @@ function createFillerAnalyzer(scenario: string): SpeechAnalyzer {
             .reduce((total, removal) => total + removal.end - removal.start, 0);
           return [{ ...word, start: word.start - shift, end: word.end - shift }];
         }),
+        vadSegments: originalWords
+          .filter((word) => word.filler !== true)
+          .map((word) => ({ start: word.start, end: word.end, kind: "speech" as const })),
       };
     },
   };
@@ -458,8 +467,8 @@ function sanitizeTransaction(transaction: Record<string, any>): ReleaseGateWorkf
   return {
     status: transaction.status,
     revisionSequence: transaction.after?.revision?.sequence ?? -1,
-    verificationPassed: transaction.verification?.passed,
-    diff: transaction.diff,
+    ...(transaction.verification?.passed !== undefined ? { verificationPassed: transaction.verification.passed } : {}),
+    ...(transaction.diff !== undefined ? { diff: transaction.diff } : {}),
   };
 }
 
