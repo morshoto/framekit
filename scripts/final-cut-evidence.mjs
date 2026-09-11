@@ -609,7 +609,8 @@ function sanitizeBounds(value, label) {
 
 function sanitizeRational(value, label) {
   if (typeof value === "string") {
-    assert(/^\d+\/\d+$/.test(value), `${label} must use rational value/timescale form`);
+    const match = /^(\d+)\/(\d+)$/.exec(value);
+    assert(match && BigInt(match[2]) > 0n, `${label} must use rational value/timescale form`);
     return value;
   }
   assert(value && /^\d+$/.test(value.value) && /^\d+$/.test(value.timescale) && BigInt(value.timescale) > 0n, `${label} must use rational value/timescale form`);
