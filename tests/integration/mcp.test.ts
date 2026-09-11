@@ -83,6 +83,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.native.transition.add.execute",
         "editor.native.transition.add.preview",
         "editor.native.transition.search",
+        "editor.native.mask.execute",
+        "editor.native.mask.preview",
         "editor.native.trim-to-duration.execute",
         "editor.native.trim-to-duration.preview",
         "editor.native.undo",
@@ -106,6 +108,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "timeline.edit",
         "timeline.edit.execute",
         "timeline.edit.preview",
+        "timeline.mask.add.execute",
+        "timeline.mask.add.preview",
         "timeline.publish.new-project",
         "artifact.edit",
         "artifact.edit.execute",
@@ -121,6 +125,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "visual.analyze",
       ].sort(),
     );
+    const nativeMaskPreviewTool = tools.tools.find((tool) => tool.name === "editor.native.mask.preview");
+    assert.doesNotMatch(JSON.stringify(nativeMaskPreviewTool?.inputSchema ?? {}), /inverted/);
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
       "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",

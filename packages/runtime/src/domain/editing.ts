@@ -35,6 +35,53 @@ export interface EditorTimelineEditTargetInput {
   sequenceId: string;
 }
 
+export type MaskMode = "rectangle" | "supplied-alpha" | "person-cutout";
+
+export interface MaskBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface MaskConfiguration {
+  mode: MaskMode;
+  bounds?: MaskBounds;
+  alphaMediaId?: string;
+  inverted?: boolean;
+}
+
+export interface AddMaskOperation {
+  type: "timeline.mask.add";
+  occurrenceId: string;
+  mask: MaskConfiguration;
+}
+
+export function assertValidMaskConfiguration(mask: MaskConfiguration): void {
+  if (!mask || typeof mask !== "object") {
+    throw new Error("INVALID_OPERATION: mask configuration is required");
+  }
+  if (mask.mode === "rectangle") {
+    if (!mask.bounds) throw new Error("INVALID_OPERATION: rectangle mask bounds are required");
+    const { x, y, width, height } = mask.bounds;
+    if (![x, y, width, height].every(Number.isFinite)
+      || x < 0 || y < 0 || width <= 0 || height <= 0
+      || x + width > 1 || y + height > 1) {
+      throw new Error("INVALID_OPERATION: rectangle mask bounds must be normalized");
+    }
+    return;
+  }
+  if (mask.mode === "supplied-alpha") {
+    if (!mask.alphaMediaId?.trim()) {
+      throw new Error("INVALID_OPERATION: supplied-alpha masking requires alphaMediaId");
+    }
+    if (mask.bounds) assertValidMaskConfiguration({ mode: "rectangle", bounds: mask.bounds });
+    return;
+  }
+  if (mask.mode === "person-cutout") return;
+  throw new Error("INVALID_OPERATION: unsupported mask mode");
+}
+
 export type EditOperation =
   | {
       type: "rename-clip";
@@ -219,7 +266,8 @@ export type WorkflowOperation = EditOperation
   | RemoveMediaOperation
   | AddTransitionOperation
   | AttachAudioOperation
-  | MixAudioOperation;
+  | MixAudioOperation
+  | AddMaskOperation;
 
 export interface CompositeEditRequest {
   baseRevision: ContextRevision;

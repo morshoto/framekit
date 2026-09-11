@@ -123,6 +123,8 @@ export class InMemoryEditorAdapter implements EditorPort {
         audioMixing: true,
         noiseReduction: true,
         colorCorrection: true,
+        masking: true,
+        personCutout: false,
         semanticOperations: {
           "rename-clip": true,
           "trim-clip": true,
@@ -142,6 +144,7 @@ export class InMemoryEditorAdapter implements EditorPort {
           "timeline.transition.add": true,
           "timeline.audio.attach": true,
           "timeline.audio.mix": true,
+          "timeline.mask.add": true,
         },
       },
       analyzers: {
@@ -651,6 +654,28 @@ export class InMemoryEditorAdapter implements EditorPort {
         fadeOut,
       });
     }
+    if (operation.type === "timeline.mask.add") {
+      const matches = snapshot.timeline.clips.filter(({ id }) => id === operation.occurrenceId);
+      if (matches.length === 0) throw new Error(`CLIP_NOT_FOUND: ${operation.occurrenceId}`);
+      if (matches.length > 1) throw new Error(`AMBIGUOUS_MASK_TARGET: ${operation.occurrenceId}`);
+      if (operation.mask.mode === "person-cutout") {
+        throw new Error("CAPABILITY_UNAVAILABLE: person cutout");
+      }
+      const clip = matches[0];
+      const media = clip.mediaId ? snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId) : undefined;
+      if (clip.role === "audio" || clip.role === "music" || media?.mediaKind === "audio") {
+        throw new Error("MASK_TARGET_INCOMPATIBLE: masking requires a video clip");
+      }
+      if (operation.mask.mode === "supplied-alpha") {
+        const alpha = snapshot.media.find(({ mediaId }) => mediaId === operation.mask.alphaMediaId);
+        if (!alpha) throw new Error(`MEDIA_NOT_FOUND: ${operation.mask.alphaMediaId}`);
+        if (alpha.mediaKind !== "video") throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mask.alphaMediaId}`);
+      }
+      return this.updateClip(snapshot, {
+        ...clip,
+        mask: structuredClone(operation.mask),
+      });
+    }
     if (operation.type === "reduce-noise") {
       const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
       if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
@@ -744,6 +769,7 @@ export class InMemoryEditorAdapter implements EditorPort {
             lane: updatedClip.track,
             ...(updatedClip.mediaId ? { mediaId: updatedClip.mediaId } : {}),
             ...(updatedClip.attachedTo ? { attachedTo: updatedClip.attachedTo } : {}),
+            ...(updatedClip.mask ? { mask: structuredClone(updatedClip.mask) } : {}),
           }
           : element),
       },
@@ -881,6 +907,7 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
         ...(clip.scale !== undefined ? { scale: clip.scale } : {}),
         ...(clip.crop ? { crop: structuredClone(clip.crop) } : {}),
         ...(clip.frame ? { frame: structuredClone(clip.frame) } : {}),
+        ...(clip.mask ? { mask: structuredClone(clip.mask) } : {}),
       })),
       markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
       captions: (fixture.captions ?? []).map((caption) => normalizeCaption(caption)),

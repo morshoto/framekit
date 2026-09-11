@@ -147,6 +147,14 @@ export class DefaultVerificationEngine implements VerificationEngine {
       });
     }
 
+    if (transaction.planned.some((operation) => operation.type === "timeline.mask.add")) {
+      checks.push({
+        name: "mask-state",
+        passed: maskStateIsValid(transaction),
+        detail: maskStateDetail(transaction),
+      });
+    }
+
     if (policy.requireExpectedChange !== false) {
       checks.push({
         name: "expected-change",
@@ -710,6 +718,20 @@ function audioStateDetail(transaction: EditTransaction): string {
   return audioStateIsValid(transaction)
     ? "music placement, duration, gain, and fades match the planned audio state"
     : "music placement, duration, gain, or fades do not match the planned audio state";
+}
+
+function maskStateIsValid(transaction: EditTransaction): boolean {
+  return transaction.planned.every((operation) => {
+    if (operation.type !== "timeline.mask.add") return true;
+    const clip = transaction.after.timeline.clips.find(({ id }) => id === operation.occurrenceId);
+    return clip?.mask !== undefined && JSON.stringify(clip.mask) === JSON.stringify(operation.mask);
+  });
+}
+
+function maskStateDetail(transaction: EditTransaction): string {
+  return maskStateIsValid(transaction)
+    ? "mask target and requested configuration match the canonical timeline state"
+    : "mask target or requested configuration does not match the canonical timeline state";
 }
 
 function isConstructionOperation(operation: WorkflowOperation): boolean {

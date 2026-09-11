@@ -1,6 +1,7 @@
 import type { ContextRevision, RationalTime } from "./primitives.js";
 
 import type { MediaContext } from "./media.js";
+import type { MaskConfiguration } from "./editing.js";
 
 export type ColorCorrectionPreset = "neutral" | "warm" | "cool" | "high-contrast";
 
@@ -47,6 +48,7 @@ export interface Clip {
   gainDb?: number;
   noiseReductionDb?: number;
   colorCorrection?: ColorCorrection;
+  mask?: MaskConfiguration;
   fadeIn?: number;
   fadeOut?: number;
   enabled?: boolean;
@@ -116,4 +118,5 @@ export interface StoryElement {
   scale?: number;
   crop?: PictureInPictureCrop;
   frame?: PictureInPictureFrame;
+  mask?: MaskConfiguration;
 }

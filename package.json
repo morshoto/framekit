@@ -42,6 +42,7 @@
     "test:final-cut-disposable-headed": "node scripts/final-cut-disposable-native-headed-e2e.mjs",
     "test:final-cut-transition-headed": "node scripts/final-cut-transition-headed-e2e.mjs",
     "test:final-cut-pip-headed": "node scripts/final-cut-picture-in-picture-headed-e2e.mjs",
+    "test:final-cut-masking-headed": "node scripts/final-cut-masking-headed-e2e.mjs",
     "test:final-cut-title-headed": "node scripts/final-cut-title-discovery-headed-e2e.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",

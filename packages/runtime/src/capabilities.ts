@@ -86,6 +86,7 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
       titlePlacement: refreshDescriptor(Boolean(normalized.editor.titlePlacement), previous.editing.titlePlacement, "verified", "title placement is unavailable"),
       pictureInPicture: previous.editing.pictureInPicture,
       masking: previous.editing.masking,
+      personCutout: previous.editing.personCutout,
     },
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
@@ -258,10 +259,16 @@ function editingFamily(
       "picture-in-picture editing is unavailable",
     ),
     masking: descriptorFrom(
-      overrides.masking ?? false,
+      overrides.masking ?? Boolean(editor.masking),
       backend,
       "verified",
       "masking is unavailable",
+    ),
+    personCutout: descriptorFrom(
+      overrides.personCutout ?? Boolean(editor.personCutout),
+      backend,
+      "verified",
+      "person cutout is unavailable",
     ),
   };
 }
@@ -340,6 +347,7 @@ function nativeFamily(
     "transitionDiscovery",
     "transitionPlacement",
     "pictureInPicture",
+    "masking",
   ];
   return Object.fromEntries(nativeOperations.map((operation) => [
     operation,

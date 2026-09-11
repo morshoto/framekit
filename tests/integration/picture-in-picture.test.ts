@@ -6,7 +6,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
+import { AgentVideoRuntime, canonicalSnapshotDigest, withCapabilityFamilies } from "@framekit/runtime";
 import type { ContextRevision, ProjectSnapshot, WorkflowOperation } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
@@ -144,6 +144,14 @@ test("PIP preview is non-mutating and execute verifies transform and frame state
 
 test("PIP remains available independently when masking is unavailable", async () => {
   const adapter = new InMemoryEditorAdapter(fixture);
+  const getCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => {
+    const capabilities = await getCapabilities();
+    return withCapabilityFamilies({
+      ...capabilities,
+      editor: { ...capabilities.editor, masking: false },
+    }, { editing: { masking: false } });
+  };
   const runtime = new AgentVideoRuntime(adapter);
   const capabilities = await runtime.inspectEditor();
 
