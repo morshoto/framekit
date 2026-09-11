@@ -839,7 +839,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview> {
     this.assertEnabled();
-    const normalizedPath = resolveLocalPath(directoryPath);
+    const trimmedPath = directoryPath.trim();
+    if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
+    const normalizedPath = resolveLocalPath(trimmedPath);
     const files = await enumerateSupportedVideoFiles(normalizedPath);
     const expiresAt = this.now() + 30_000;
     const previewToken = opaqueHandle("media-directory-preview");

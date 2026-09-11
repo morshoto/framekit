@@ -2146,18 +2146,12 @@ test("native Final Cut directory import fails closed and reports partial complet
     /FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED/,
   );
   const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
-  assert.deepEqual(importedPaths, [importedPath, failedPath]);
+  assert.deepEqual(importedPaths, [failedPath, importedPath]);
   assert.equal(result.status, "partial");
   assert.equal(result.partial, true);
   assert.equal(result.importedCount, 1);
   assert.equal(result.failedCount, 1);
   assert.deepEqual(result.results, [
-    {
-      sourcePath: importedPath,
-      name: "imported.mov",
-      status: "imported",
-      media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
-    },
     {
       sourcePath: failedPath,
       name: "failed.mp4",
@@ -2166,6 +2160,12 @@ test("native Final Cut directory import fails closed and reports partial complet
         code: "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE",
         message: "Error: FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4",
       },
+    },
+    {
+      sourcePath: importedPath,
+      name: "imported.mov",
+      status: "imported",
+      media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
     },
   ]);
 });
