@@ -334,4 +334,10 @@ call `editor.native.media.import` with one disposable `.mov` and one disposable
 audio file, then pass each returned `mediaHandle` to
 `editor.native.media.select`. Confirm that the returned `sourcePath`, `kind`,
 and stable handle are correct and that an invalid path fails before the import
-dialog opens. Do not use private media or commit test files.
+dialog opens. For directory import, create a disposable directory containing
+two supported video files and one unsupported file, preview it through
+`editor.native.media.directory.preview`, confirm that the list is exact and
+sorted, then execute with `confirm: true` and verify one stable handle per
+successful file. Also verify that an empty directory returns an empty completed
+result and that a deliberately failing file is reported without hiding other
+successes. Do not use private media or commit test files.

@@ -46,6 +46,8 @@ this routing tool.
 | `editor.native.mask.execute` | Apply the previewed Draw Mask and verify readback, revision, and Undo | Fails closed if Final Cut does not expose the requested mask properties |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
 | `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle |
+| `editor.native.media.directory.preview` | Enumerate top-level `.mov`, `.mp4`, and `.m4v` files without changing Final Cut | Returns a deterministic, expiring preview; nested directories and unsupported files are excluded |
+| `editor.native.media.directory.execute` | Import every file from a directory preview | Requires `confirm: true`; returns stable per-file media results and explicit partial-failure status |
 | `editor.native.media.search` | Search the active Final Cut Browser | Automatically focuses the Browser and returns short-lived media handles; native writes required |
 | `editor.native.media.select` | Select a Browser result by handle | Fails if the result or selection cannot be verified |
 | `editor.native.media.append.preview` | Preview appending selected Browser media to the timeline | Requires selected media, live duration, and timeline focus |

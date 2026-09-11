@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -2083,6 +2083,128 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const selected = await adapter.selectMedia(video.mediaHandle);
   assert.equal(selected.target.kind, "browser-media");
   assert.equal(selected.target.name, "interview.mov");
+});
+
+test("native Final Cut previews top-level supported video files in deterministic order without native mutation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-preview-"));
+  await writeFile(join(directory, "zulu.mov"), "video fixture");
+  await writeFile(join(directory, "alpha.MP4"), "video fixture");
+  await writeFile(join(directory, "middle.m4v"), "video fixture");
+  await writeFile(join(directory, "ignored.wav"), "audio fixture");
+  await writeFile(join(directory, "ignored.txt"), "text fixture");
+  await mkdir(join(directory, "nested"));
+  await writeFile(join(directory, "nested", "nested.mov"), "video fixture");
+
+  let nativeExecutorCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async () => {
+      nativeExecutorCalls += 1;
+      return "";
+    },
+  });
+
+  const preview = await adapter.previewImportMediaDirectory(directory);
+
+  assert.deepEqual(preview.files, [
+    { sourcePath: join(directory, "alpha.MP4"), name: "alpha.MP4", kind: "video" },
+    { sourcePath: join(directory, "middle.m4v"), name: "middle.m4v", kind: "video" },
+    { sourcePath: join(directory, "zulu.mov"), name: "zulu.mov", kind: "video" },
+  ]);
+  assert.equal(preview.directoryPath, directory);
+  assert.equal(nativeExecutorCalls, 0);
+});
+
+test("native Final Cut directory import fails closed and reports partial completion per file", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true });
+  await assert.rejects(
+    adapter.previewImportMediaDirectory(""),
+    /INVALID_OPERATION: local media directory path cannot be empty/,
+  );
+
+  const emptyDirectory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-empty-"));
+  const emptyPreview = await adapter.previewImportMediaDirectory(emptyDirectory);
+  assert.deepEqual(emptyPreview.files, []);
+  const emptyResult = await adapter.executeImportMediaDirectory(emptyPreview.previewToken, true);
+  assert.equal(emptyResult.status, "completed");
+  assert.equal(emptyResult.partial, false);
+  assert.deepEqual(emptyResult.results, []);
+
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-partial-"));
+  const importedPath = join(directory, "imported.mov");
+  const failedPath = join(directory, "failed.mp4");
+  await writeFile(importedPath, "video fixture");
+  await writeFile(failedPath, "video fixture");
+  await assert.rejects(
+    adapter.previewImportMediaDirectory(importedPath),
+    /FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: .* is not a directory/,
+  );
+  const importedPaths: string[] = [];
+  adapter.importMedia = async (sourcePath: string) => {
+    importedPaths.push(sourcePath);
+    if (sourcePath === failedPath) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4");
+    return { mediaHandle: "media-imported", sourcePath, name: "imported.mov", kind: "video" };
+  };
+
+  const preview = await adapter.previewImportMediaDirectory(directory);
+  await assert.rejects(
+    adapter.executeImportMediaDirectory(preview.previewToken, false),
+    /FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED/,
+  );
+  const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
+  assert.deepEqual(importedPaths, [failedPath, importedPath]);
+  assert.equal(result.status, "partial");
+  assert.equal(result.partial, true);
+  assert.equal(result.importedCount, 1);
+  assert.equal(result.failedCount, 1);
+  assert.deepEqual(result.results, [
+    {
+      sourcePath: failedPath,
+      name: "failed.mp4",
+      status: "failed",
+      error: {
+        code: "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE",
+        message: "Error: FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4",
+      },
+    },
+    {
+      sourcePath: importedPath,
+      name: "imported.mov",
+      status: "imported",
+      media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
+    },
+  ]);
+});
+
+test("native Final Cut rejects directory imports when files change after preview", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-stale-"));
+  const replacedPath = join(directory, "replaced.mov");
+  const deletedPath = join(directory, "deleted.mp4");
+  await writeFile(replacedPath, "original video fixture");
+  await writeFile(deletedPath, "video fixture");
+
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true });
+  let importCalls = 0;
+  adapter.importMedia = async (sourcePath: string) => {
+    importCalls += 1;
+    return { mediaHandle: "media-imported", sourcePath, name: sourcePath.split("/").pop()!, kind: "video" };
+  };
+
+  const replacementPreview = await adapter.previewImportMediaDirectory(directory);
+  await writeFile(replacedPath, "replacement video fixture with different contents");
+  await assert.rejects(
+    adapter.executeImportMediaDirectory(replacementPreview.previewToken, true),
+    /FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview/,
+  );
+  assert.equal(importCalls, 0);
+
+  const deletionPreview = await adapter.previewImportMediaDirectory(directory);
+  await unlink(deletedPath);
+  await assert.rejects(
+    adapter.executeImportMediaDirectory(deletionPreview.previewToken, true),
+    /FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview/,
+  );
+  assert.equal(importCalls, 0);
 });
 
 test("native Final Cut keeps an imported media handle usable after an unrelated Browser search", async () => {
