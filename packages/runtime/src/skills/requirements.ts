@@ -34,6 +34,7 @@ export const SKILL_EDITOR_CAPABILITIES = [
   "videoExport",
   "mediaImport",
   "mediaPlacement",
+  "pictureInPicture",
   "titlePlacement",
   "clipMove",
   "clipReplace",

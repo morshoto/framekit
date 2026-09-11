@@ -682,6 +682,7 @@ function audioStateDetail(transaction: EditTransaction): string {
 function isConstructionOperation(operation: WorkflowOperation): boolean {
   return operation.type === "media.import"
     || operation.type === "timeline.media.add"
+    || operation.type === "timeline.picture-in-picture.add"
     || operation.type === "timeline.media.move"
     || operation.type === "timeline.media.replace"
     || operation.type === "timeline.media.remove"
@@ -744,6 +745,10 @@ interface ConstructionClipState {
   duration: number;
   track: number;
   attachedTo?: string;
+  position?: { x: number; y: number };
+  scale?: number;
+  crop?: { top: number; right: number; bottom: number; left: number };
+  frame?: { style: "solid"; color: string; width: number };
 }
 
 function expectedConstructionClips(transaction: EditTransaction): Map<string, ConstructionClipState> {
@@ -753,6 +758,10 @@ function expectedConstructionClips(transaction: EditTransaction): Map<string, Co
     duration: clip.duration,
     track: clip.track,
     attachedTo: clip.attachedTo,
+    position: clip.position,
+    scale: clip.scale,
+    crop: clip.crop,
+    frame: clip.frame,
   }]));
   const media = new Map(transaction.before.media.map((item) => [item.mediaId, item]));
 
@@ -767,6 +776,20 @@ function expectedConstructionClips(transaction: EditTransaction): Map<string, Co
         start: operation.start,
         duration: operation.duration,
         track: timelineTrack(operation.targetLane, 0),
+      });
+      continue;
+    }
+    if (operation.type === "timeline.picture-in-picture.add") {
+      clips.set(operation.occurrenceId, {
+        mediaId: operation.mediaId,
+        start: operation.start,
+        duration: operation.duration,
+        track: operation.targetLane,
+        attachedTo: operation.attachedTo,
+        position: operation.position,
+        scale: operation.scale,
+        crop: operation.crop,
+        frame: operation.frame,
       });
       continue;
     }
@@ -833,12 +856,16 @@ function expectedConstructionClips(transaction: EditTransaction): Map<string, Co
   return clips;
 }
 
-function sameConstructionClip(actual: { mediaId?: string; start: number; duration: number; track: number; attachedTo?: string }, expected: ConstructionClipState): boolean {
+function sameConstructionClip(actual: ConstructionClipState, expected: ConstructionClipState): boolean {
   return actual.mediaId === expected.mediaId
     && actual.start === expected.start
     && actual.duration === expected.duration
     && actual.track === expected.track
-    && actual.attachedTo === expected.attachedTo;
+    && actual.attachedTo === expected.attachedTo
+    && JSON.stringify(actual.position) === JSON.stringify(expected.position)
+    && actual.scale === expected.scale
+    && JSON.stringify(actual.crop) === JSON.stringify(expected.crop)
+    && JSON.stringify(actual.frame) === JSON.stringify(expected.frame);
 }
 
 function applyExpectedRippleDelete(clips: Map<string, ConstructionClipState>, start: number, end: number): void {

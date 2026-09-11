@@ -36,6 +36,7 @@ export interface EditorCapabilities {
   videoExport?: boolean;
   mediaImport?: boolean;
   mediaPlacement?: boolean;
+  pictureInPicture?: boolean;
   titlePlacement?: boolean;
   clipMove?: boolean;
   clipReplace?: boolean;

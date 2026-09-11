@@ -57,6 +57,7 @@ export type EditorSkillCapability =
   | "videoExport"
   | "mediaImport"
   | "mediaPlacement"
+  | "pictureInPicture"
   | "titlePlacement"
   | "clipMove"
   | "clipReplace"
@@ -86,6 +87,7 @@ export const SKILL_OPERATIONS = [
   "add-marker",
   "media.import",
   "timeline.media.add",
+  "timeline.picture-in-picture.add",
   "timeline.audio.fades",
   "timeline.title.add",
   "timeline.media.move",

@@ -112,6 +112,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         compositeTransactions: true,
         mediaImport: true,
         mediaPlacement: true,
+        pictureInPicture: true,
         titlePlacement: true,
         clipMove: true,
         clipReplace: true,
@@ -131,6 +132,7 @@ export class InMemoryEditorAdapter implements EditorPort {
           "add-marker": true,
           "media.import": true,
           "timeline.media.add": true,
+          "timeline.picture-in-picture.add": true,
           "timeline.audio.fades": true,
           "timeline.title.add": true,
           "timeline.media.move": true,
@@ -343,6 +345,71 @@ export class InMemoryEditorAdapter implements EditorPort {
             lane: clip.track,
             mediaId: clip.mediaId,
             ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
+          }],
+        },
+      };
+    }
+    if (operation.type === "timeline.picture-in-picture.add") {
+      const media = snapshot.media.find((candidate) => candidate.mediaId === operation.mediaId);
+      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      if (media.mediaKind !== undefined && media.mediaKind !== "video") {
+        throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
+      }
+      if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
+        throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
+      }
+      const anchor = snapshot.timeline.clips.find((clip) => clip.id === operation.attachedTo);
+      if (!anchor) throw new Error(`CLIP_NOT_FOUND: ${operation.attachedTo}`);
+      if (anchor.role !== undefined && anchor.role !== "video") {
+        throw new Error("INVALID_OPERATION: PIP anchor must be a video occurrence");
+      }
+      if (!Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+        || operation.start < anchor.start
+        || operation.duration <= 0
+        || operation.start + operation.duration > anchor.start + anchor.duration
+        || !Number.isInteger(operation.targetLane)
+        || operation.targetLane === 0
+        || !Number.isFinite(operation.position.x)
+        || !Number.isFinite(operation.position.y)
+        || !Number.isFinite(operation.scale)
+        || operation.scale <= 0) {
+        throw new Error("INVALID_OPERATION: PIP timing, connected lane, position, and scale are invalid");
+      }
+      if (operation.crop) assertPictureInPictureCrop(operation.crop);
+      if (operation.frame) assertPictureInPictureFrame(operation.frame);
+      const clip = withClipTime({
+        id: operation.occurrenceId,
+        mediaId: operation.mediaId,
+        name: media.source.split("/").pop() || media.mediaId,
+        start: operation.start,
+        duration: operation.duration,
+        track: operation.targetLane,
+        role: "video",
+        attachedTo: operation.attachedTo,
+        position: structuredClone(operation.position),
+        scale: operation.scale,
+        ...(operation.crop ? { crop: structuredClone(operation.crop) } : {}),
+        ...(operation.frame ? { frame: structuredClone(operation.frame) } : {}),
+      });
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: [...snapshot.timeline.clips, clip],
+          storyElements: [...snapshot.timeline.storyElements, {
+            id: clip.id,
+            kind: "asset-clip",
+            start: clip.start,
+            duration: clip.duration,
+            startTime: clip.startTime,
+            durationTime: clip.durationTime,
+            lane: clip.track,
+            mediaId: clip.mediaId,
+            attachedTo: clip.attachedTo,
+            position: clip.position,
+            scale: clip.scale,
+            ...(clip.crop ? { crop: clip.crop } : {}),
+            ...(clip.frame ? { frame: clip.frame } : {}),
           }],
         },
       };
@@ -807,6 +874,10 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
         lane: clip.track,
         mediaId: clip.mediaId,
         ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
+        ...(clip.position ? { position: structuredClone(clip.position) } : {}),
+        ...(clip.scale !== undefined ? { scale: clip.scale } : {}),
+        ...(clip.crop ? { crop: structuredClone(clip.crop) } : {}),
+        ...(clip.frame ? { frame: structuredClone(clip.frame) } : {}),
       })),
       markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
       captions: (fixture.captions ?? []).map((caption) => normalizeCaption(caption)),
@@ -857,4 +928,20 @@ function isMediaCompatible(role: Clip["role"], mediaKind: MediaContext["mediaKin
   if (role === "audio" || role === "music") return mediaKind === undefined || mediaKind === "audio";
   if (role === "title") return false;
   return true;
+}
+
+function assertPictureInPictureCrop(crop: NonNullable<Clip["crop"]>): void {
+  const values = [crop.top, crop.right, crop.bottom, crop.left];
+  if (!values.every((value) => Number.isFinite(value) && value >= 0 && value < 1)
+    || crop.left + crop.right >= 1
+    || crop.top + crop.bottom >= 1) {
+    throw new Error("INVALID_OPERATION: PIP crop must leave a positive source rectangle");
+  }
+}
+
+function assertPictureInPictureFrame(frame: NonNullable<Clip["frame"]>): void {
+  if (frame.style !== "solid" || !/^#[0-9a-f]{6}$/i.test(frame.color)
+    || !Number.isFinite(frame.width) || frame.width < 0) {
+    throw new Error("INVALID_OPERATION: PIP frame must be a solid hex-colored non-negative width");
+  }
 }

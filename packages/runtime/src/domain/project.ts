@@ -13,6 +13,26 @@ export interface ColorCorrection {
   preset?: ColorCorrectionPreset;
 }
 
+export interface PictureInPicturePosition {
+  /** Horizontal and vertical offsets in timeline pixels from the canvas center. */
+  x: number;
+  y: number;
+}
+
+export interface PictureInPictureCrop {
+  /** Fractions of the source frame to crop from each edge. */
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export interface PictureInPictureFrame {
+  style: "solid";
+  color: string;
+  width: number;
+}
+
 export interface Clip {
   /** Stable identity of this timeline occurrence, never the media resource id. */
   id: string;
@@ -32,6 +52,10 @@ export interface Clip {
   enabled?: boolean;
   role?: "video" | "audio" | "music" | "title";
   attachedTo?: string;
+  position?: PictureInPicturePosition;
+  scale?: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
   /** Authoritative exact timeline coordinates; start/duration are convenience seconds. */
   startTime: RationalTime;
   durationTime: RationalTime;
@@ -87,4 +111,8 @@ export interface StoryElement {
   attachedTo?: string;
   beforeClipId?: string;
   afterClipId?: string;
+  position?: PictureInPicturePosition;
+  scale?: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
 }

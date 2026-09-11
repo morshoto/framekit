@@ -335,6 +335,28 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
   }),
   z.object({
+    type: z.literal("timeline.picture-in-picture.add"),
+    occurrenceId: z.string().min(1),
+    mediaId: z.string().min(1),
+    attachedTo: z.string().min(1),
+    start: z.number().finite().nonnegative(),
+    duration: z.number().finite().positive(),
+    targetLane: z.number().int().refine((lane) => lane !== 0, "PIP requires a connected non-primary lane"),
+    position: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    scale: z.number().finite().positive(),
+    crop: z.object({
+      top: z.number().finite().min(0).lt(1),
+      right: z.number().finite().min(0).lt(1),
+      bottom: z.number().finite().min(0).lt(1),
+      left: z.number().finite().min(0).lt(1),
+    }).optional(),
+    frame: z.object({
+      style: z.literal("solid"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/i),
+      width: z.number().finite().nonnegative(),
+    }).optional(),
+  }),
+  z.object({
     type: z.literal("timeline.audio.fades"),
     clipId: z.string().min(1),
     fadeIn: z.number().nonnegative(),
@@ -402,6 +424,11 @@ const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRe
     if (operation.type === "timeline.media.add" && operation.role === "audio"
       && (typeof operation.targetLane !== "number" || operation.targetLane === 0)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "audio requires an explicit non-primary lane" });
+    }
+    if (operation.type === "timeline.picture-in-picture.add"
+      && operation.crop
+      && (operation.crop.left + operation.crop.right >= 1 || operation.crop.top + operation.crop.bottom >= 1)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "crop"], message: "PIP crop must leave a positive source rectangle" });
     }
     if (operation.type === "timeline.audio.mix"
       && operation.gainDb === undefined && operation.fadeIn === undefined && operation.fadeOut === undefined) {
