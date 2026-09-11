@@ -65,6 +65,19 @@ const nativeCapabilityKeys = [
   "requiresAccessibility",
   "requiresFinalCutFrontmost",
 ];
+const roughCutNativeCapabilityKeys = [
+  "mediaLibrarySearch",
+  "mediaImport",
+  "mediaSelection",
+  "mediaAppend",
+  "mediaInsert",
+  "titleDiscovery",
+  "titlePlacement",
+  "timelineFocus",
+  "undo",
+  "requiresAccessibility",
+  "requiresFinalCutFrontmost",
+];
 
 export async function evidenceEnvironment(root) {
   const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
@@ -288,6 +301,114 @@ export function sanitizePictureInPictureEvidence(run, environment) {
     sanitization: {
       strategy: "allowlisted-summary",
       omitted: ["media sources", "native handles", "operation identifiers", "raw diagnostics"],
+    },
+  };
+}
+
+export function sanitizeRoughCutEvidence(run, environment) {
+  assert(run?.passed === true, "rough-cut headed run did not pass");
+  assert(run.editor, "editor identity is missing");
+  assert(run.capabilities, "capability payload is missing");
+  assert(run.nativeCapabilities, "native capability payload is missing");
+  assert(run.project?.before && run.project?.after, "project evidence is missing");
+  assert(run.sequence?.before && run.sequence?.after, "sequence evidence is missing");
+  assert(run.media?.resolution && run.media?.imported && run.media?.occurrence, "media evidence is missing");
+  assert(run.media.resolution.status === "passed", "media resolution was not verified");
+  assert(run.media.imported.status === "passed", "media import was not verified");
+  assert(run.media.imported.kind === "video", "rough-cut media must be video");
+  assert(run.placement?.verified === true, "media placement was not verified");
+  assert(run.animation?.verified === true, "animation was not verified");
+  assert(run.verification?.import === true, "media import verification is missing");
+  assert(run.verification?.placement === true, "media placement verification is missing");
+  assert(run.verification?.animation === true, "animation verification is missing");
+  assert(run.verification?.undo === true, "Undo verification is missing");
+  assert(run.rollback?.restored === true, "rollback restoration is missing");
+
+  const nativeCapabilities = sanitizeBooleanCapabilities(run.nativeCapabilities, roughCutNativeCapabilityKeys);
+  const beforeRevision = requireSafeIdentity(run.revisions?.before, "rough-cut before revision");
+  const afterRevision = requireSafeIdentity(run.revisions?.after, "rough-cut after revision");
+  const restoredRevision = requireSafeIdentity(run.revisions?.restored, "rough-cut restored revision");
+  assert(beforeRevision !== afterRevision, "rough-cut mutation revision did not advance");
+  assert(afterRevision !== restoredRevision, "rough-cut restoration revision did not advance");
+
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-rough-cut-acceptance",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeCapabilities(run.capabilities),
+    nativeCapabilities,
+    project: {
+      before: sanitizeNamedIdentity(run.project.before, "before project"),
+      after: sanitizeNamedIdentity(run.project.after, "after project"),
+    },
+    sequence: {
+      before: sanitizeNamedIdentity(run.sequence.before, "before sequence"),
+      after: sanitizeNamedIdentity(run.sequence.after, "after sequence"),
+    },
+    media: {
+      resolution: {
+        status: "passed",
+        name: requireSafeIdentity(run.media.resolution.name, "resolved media name"),
+        kind: "video",
+      },
+      imported: {
+        status: "passed",
+        name: requireSafeIdentity(run.media.imported.name, "imported media name"),
+        kind: "video",
+        verified: true,
+      },
+      occurrence: {
+        id: requireSafeIdentity(run.media.occurrence.id, "rough-cut occurrence id"),
+        name: requireString(run.media.occurrence.name, "rough-cut occurrence name"),
+        range: sanitizeRationalRange(run.media.occurrence, "rough-cut occurrence"),
+      },
+    },
+    placement: {
+      operation: run.placement.operation === "append" || run.placement.operation === "insert"
+        ? run.placement.operation
+        : invalidEvidence("rough-cut placement operation"),
+      range: sanitizeRationalRange(run.placement.range, "rough-cut placement range"),
+      beforeDuration: sanitizeRational(run.placement.beforeDuration, "rough-cut before duration"),
+      afterDuration: sanitizeRational(run.placement.afterDuration, "rough-cut after duration"),
+      verified: true,
+    },
+    animation: {
+      kind: run.animation.kind === "title" || run.animation.kind === "transition"
+        ? run.animation.kind
+        : invalidEvidence("rough-cut animation kind"),
+      asset: {
+        id: requireSafeIdentity(run.animation.asset?.id, "rough-cut animation asset id"),
+        name: requireString(run.animation.asset?.name, "rough-cut animation asset name"),
+        vendor: requireString(run.animation.asset?.vendor, "rough-cut animation asset vendor"),
+        backend: requireSafeIdentity(run.animation.asset?.backend, "rough-cut animation backend"),
+        guarantee: requireSafeIdentity(run.animation.asset?.guarantee, "rough-cut animation guarantee"),
+      },
+      occurrenceId: requireSafeIdentity(run.animation.occurrenceId, "rough-cut animation occurrence id"),
+      range: sanitizeRationalRange(run.animation.range, "rough-cut animation range"),
+      verified: true,
+    },
+    revisions: {
+      before: beforeRevision,
+      after: afterRevision,
+      restored: restoredRevision,
+    },
+    verification: {
+      import: true,
+      placement: true,
+      animation: true,
+      undo: true,
+    },
+    rollback: {
+      status: requireSafeIdentity(run.rollback.status, "rough-cut rollback status"),
+      restored: true,
+    },
+    toolResults: sanitizeToolResultList(run.toolResults),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media paths", "native handles", "operation identifiers", "raw contexts", "diagnostics"],
     },
   };
 }
@@ -627,6 +748,22 @@ function sanitizeRational(value, label) {
   return `${value.value}/${value.timescale}`;
 }
 
+function sanitizeRationalRange(value, label) {
+  assert(value && typeof value === "object", `${label} is missing`);
+  return {
+    start: sanitizeRational(value.start, `${label} start`),
+    duration: sanitizeRational(value.duration, `${label} duration`),
+  };
+}
+
+function sanitizeNamedIdentity(value, label) {
+  assert(value && typeof value === "object", `${label} is missing`);
+  return {
+    id: requireSafeIdentity(value.id, `${label} id`),
+    name: requireString(value.name, `${label} name`),
+  };
+}
+
 function sanitizeToolResultList(value) {
   assert(Array.isArray(value) && value.length > 0, "tool results are missing");
   return value.map((result) => ({
@@ -800,4 +937,8 @@ function isNonEmptyString(value) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: ${message}`);
+}
+
+function invalidEvidence(label) {
+  assert(false, `${label} is invalid`);
 }
