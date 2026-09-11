@@ -1987,6 +1987,7 @@ test("native Final Cut media targeting preserves Browser search failures", async
     },
   });
 
+  await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE/);
   await assert.rejects(adapter.targetMedia("Interview"), (error: unknown) => {
     assert.match(String(error), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE/);
     assert.doesNotMatch(String(error), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
