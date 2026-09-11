@@ -30,17 +30,23 @@ function context(frontmost = true): string {
   ].join(fieldSeparator);
 }
 
-test("native Final Cut adapter discovers stable title assets", async () => {
+function browserContext(frontmost = true): string {
+  return [String(frontmost), "true"].join(fieldSeparator);
+}
+
+test("native Final Cut adapter discovers stable title assets without a timeline", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    nativePreflightTimeoutMs: 1,
+    sleep: async () => {},
     executor: async (script) => {
       scripts.push(script);
-      if (script.includes("on preflightResult") || script.includes('set selectedName to ""')) return context();
+      if (script.includes("titleBrowserPreflightResult")) return browserContext();
       if (script.includes("titleSearchField")) {
         return ["Lower Third", "fcp://title/lower-third"].join(fieldSeparator) + recordSeparator;
       }
-      return "";
+      throw new Error("timeline preflight should not run for title discovery");
     },
   });
 
@@ -53,6 +59,8 @@ test("native Final Cut adapter discovers stable title assets", async () => {
     vendor: "Final Cut Pro",
     identity: "fcp://title/lower-third",
   }]);
+  assert.equal(scripts.some((script) => script.includes("on preflightResult")), false);
+  assert.equal(scripts.some((script) => script.includes("titleBrowserPreflightResult")), true);
   assert.equal(scripts.some((script) => script.includes("titleSearchField")), true);
 });
 
@@ -68,7 +76,7 @@ test("native title discovery fails closed without browser identities or frontmos
   const missingIdentity = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
-      if (script.includes("on preflightResult") || script.includes('set selectedName to ""')) return context();
+      if (script.includes("titleBrowserPreflightResult")) return browserContext();
       return ["Lower Third", ""].join(fieldSeparator) + recordSeparator;
     },
   });
@@ -78,7 +86,7 @@ test("native title discovery fails closed without browser identities or frontmos
     enabled: true,
     nativePreflightTimeoutMs: 1,
     sleep: async () => {},
-    executor: async () => context(false),
+    executor: async (script) => script.includes("titleBrowserPreflightResult") ? browserContext(false) : "",
   });
   await assert.rejects(background.searchTitles("Lower Third"), /FINAL_CUT_NATIVE_NOT_FRONTMOST/);
 
