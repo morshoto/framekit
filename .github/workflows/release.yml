@@ -4,6 +4,16 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to retry (for example, v0.1.3)
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -16,7 +26,7 @@ jobs:
   tagpr:
     runs-on: ubuntu-latest
     outputs:
-      release-tag: ${{ steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+      release-tag: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -25,8 +35,31 @@ jobs:
           token: ${{ secrets.TAGPR_TOKEN }}
           persist-credentials: false
 
+      - id: requested-tag
+        name: Resolve requested release tag
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${REQUESTED_TAG}" ]; then
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git check-ref-format "refs/tags/${REQUESTED_TAG}" \
+            || ! git rev-parse --verify --quiet "refs/tags/${REQUESTED_TAG}^{commit}" >/dev/null; then
+            echo "Requested release tag does not exist: ${REQUESTED_TAG}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "refs/tags/${REQUESTED_TAG}^{commit}" origin/main; then
+            echo "Requested release tag is not reachable from main: ${REQUESTED_TAG}" >&2
+            exit 1
+          fi
+          echo "tag=${REQUESTED_TAG}" >> "$GITHUB_OUTPUT"
+
       - id: existing-tag
         name: Detect release tag on HEAD
+        if: steps.requested-tag.outputs.tag == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -40,7 +73,7 @@ jobs:
 
       - id: run-tagpr
         name: Run tagpr
-        if: steps.existing-tag.outputs.tag == ''
+        if: steps.requested-tag.outputs.tag == '' && steps.existing-tag.outputs.tag == ''
         uses: Songmu/tagpr@7ebae2dcc300132baa7cc9dd108c8923b07fc366 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
@@ -56,6 +89,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.tagpr.outputs.release-tag }}
           persist-credentials: false
 
       - name: Set up pnpm
@@ -86,18 +120,79 @@ jobs:
       - name: Validate MCP server version
         run: node scripts/validate-mcp-server-version.mjs
 
+      - id: npm-status
+        name: Check npm publication status
+        env:
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          package_name="$(node -p "require('./package.json').name")"
+          error_log="${RUNNER_TEMP}/npm-view-error.log"
+          if published_version="$(npm view --prefer-online "${package_name}@${expected_version}" version 2>"${error_log}")"; then
+            if [ "${published_version}" != "${expected_version}" ]; then
+              echo "Unexpected npm version: ${published_version}" >&2
+              exit 1
+            fi
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eq 'E404|404 Not Found' "${error_log}"; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "${error_log}" >&2
+            exit 1
+          fi
       - name: Publish npm package
-        run: npm publish --access public
+        if: steps.npm-status.outputs.published != 'true'
+        env:
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          package_name="$(node -p "require('./package.json').name")"
+          error_log="${RUNNER_TEMP}/npm-publish-error.log"
+          if npm publish --access public 2>"${error_log}"; then
+            exit 0
+          fi
+          cat "${error_log}" >&2
+          if grep -Eq 'EPUBLISHCONFLICT|previously published versions' "${error_log}"; then
+            echo "npm ${package_name}@${expected_version} was published by an earlier attempt; verification will confirm it."
+            exit 0
+          fi
+          echo "::error::npm publish failed. For E404 or ENEEDAUTH, verify that @morshoto/framekit trusts morshoto/framekit release.yml and allows direct npm publish."
+          exit 1
 
       - name: Verify npm publication
         env:
           RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
         run: |
-          set -eu
+          set -euo pipefail
           expected_version="${RELEASE_TAG#v}"
           package_name="$(node -p "require('./package.json').name")"
-          published_version="$(npm view "${package_name}@${expected_version}" version)"
-          test "${published_version}" = "${expected_version}"
+          error_log="${RUNNER_TEMP}/npm-verify-error.log"
+          max_attempts=6
+          for attempt in $(seq 1 "${max_attempts}"); do
+            if published_version="$(npm view --prefer-online "${package_name}@${expected_version}" version 2>"${error_log}")"; then
+              if [ "${published_version}" != "${expected_version}" ]; then
+                echo "Unexpected npm version: ${published_version}" >&2
+                exit 1
+              fi
+              echo "Verified ${package_name}@${expected_version} on attempt ${attempt}."
+              exit 0
+            fi
+            if ! grep -Eq 'E404|404 Not Found|No match found for version' "${error_log}"; then
+              cat "${error_log}" >&2
+              exit 1
+            fi
+            if [ "${attempt}" -lt "${max_attempts}" ]; then
+              delay=$((attempt * 5))
+              echo "npm ${package_name}@${expected_version} is not visible yet; retrying in ${delay}s (attempt ${attempt}/${max_attempts})."
+              sleep "${delay}"
+            fi
+          done
+          cat "${error_log}" >&2
+          exit 1
 
       - name: Publish GitHub release
         env:
