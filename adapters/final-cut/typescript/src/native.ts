@@ -3,7 +3,15 @@ import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { ContextRevision, EditorAsset, EditorLiveState, RationalTime } from "@framekit/runtime";
+import type {
+  ContextRevision,
+  EditorAsset,
+  EditorLiveState,
+  PictureInPictureCrop,
+  PictureInPictureFrame,
+  PictureInPicturePosition,
+  RationalTime,
+} from "@framekit/runtime";
 import type { NativeOperationLease } from "./native-operation.js";
 
 const execFile = promisify(execFileCallback);
@@ -171,6 +179,66 @@ export interface NativeFinalCutTitleResult {
   undoCommand?: string;
 }
 
+export interface NativeFinalCutPictureInPictureRequest {
+  mediaHandle: string;
+  anchorOccurrenceHandle: string;
+  start: RationalTime;
+  duration: RationalTime;
+  position: PictureInPicturePosition;
+  scale: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
+}
+
+export interface NativeFinalCutPictureInPictureReadback {
+  position: PictureInPicturePosition;
+  scale: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
+}
+
+export interface NativeFinalCutPictureInPicturePreview {
+  previewToken: string;
+  media: NativeFinalCutMediaMatch;
+  anchorOccurrence: NativeFinalCutOccurrence;
+  start: RationalTime;
+  end: RationalTime;
+  duration: RationalTime;
+  position: PictureInPicturePosition;
+  scale: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
+  sequenceId?: string;
+  revision: string;
+  command: "Add native picture-in-picture";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutPictureInPictureResult {
+  operationId: string;
+  previewToken: string;
+  media: NativeFinalCutMediaMatch;
+  anchorOccurrence: NativeFinalCutOccurrence;
+  start: RationalTime;
+  end: RationalTime;
+  duration: RationalTime;
+  position: PictureInPicturePosition;
+  scale: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
+  observed: NativeFinalCutPictureInPictureReadback;
+  before: NativeFinalCutContext;
+  after: NativeFinalCutContext;
+  beforeRevision: ContextRevision;
+  afterRevision: ContextRevision;
+  verification: {
+    verified: boolean;
+    detail: string;
+  };
+  undoAvailable: boolean;
+  undoCommand?: string;
+}
+
 export interface NativeFinalCutTransitionMatch {
   id: string;
   kind: "transition";
@@ -295,6 +363,7 @@ export interface NativeFinalCutCapabilities {
   mediaAppend: boolean;
   mediaInsert: boolean;
   titlePlacement: boolean;
+  pictureInPicture?: boolean;
   transitionDiscovery?: boolean;
   transitionPlacement?: boolean;
   timelineFocus: boolean;
@@ -327,7 +396,7 @@ export interface NativeFinalCutUndoResult {
   };
 }
 
-type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement" | "transition-placement";
+type NativeOperationKind = "selection" | "blade" | "range" | "media-insertion" | "title-placement" | "picture-in-picture" | "transition-placement";
 type NativeRetryValidator = (context: NativeFinalCutContext) => Promise<void> | void;
 
 interface NativeOperationRecord {
@@ -389,6 +458,8 @@ export interface NativeFinalCutEditor {
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
   executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult>;
+  previewPictureInPicture(request: NativeFinalCutPictureInPictureRequest): Promise<NativeFinalCutPictureInPicturePreview>;
+  executePictureInPicture(previewToken: string): Promise<NativeFinalCutPictureInPictureResult>;
   searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]>;
   previewTransitionAdd(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview>;
   executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult>;
@@ -454,6 +525,20 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     revision: string;
     expiresAt: number;
   }>();
+  private readonly pictureInPicturePreviews = new Map<string, {
+    mediaHandle: string;
+    anchorOccurrence: NativeFinalCutOccurrence;
+    start: RationalTime;
+    end: RationalTime;
+    duration: RationalTime;
+    position: PictureInPicturePosition;
+    scale: number;
+    crop?: PictureInPictureCrop;
+    frame?: PictureInPictureFrame;
+    sequenceId?: string;
+    revision: string;
+    expiresAt: number;
+  }>();
   private readonly transitionPreviews = new Map<string, {
     asset: NativeFinalCutTransitionMatch;
     beforeOccurrence: NativeFinalCutOccurrence;
@@ -496,6 +581,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
       titlePlacement: this.enabled,
+      pictureInPicture: this.enabled,
       transitionDiscovery: this.enabled,
       transitionPlacement: this.enabled,
       timelineFocus: this.enabled,
@@ -1069,6 +1155,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.executeTitleAddNative(previewToken));
   }
 
+  public async previewPictureInPicture(request: NativeFinalCutPictureInPictureRequest): Promise<NativeFinalCutPictureInPicturePreview> {
+    return this.withNativeUi(() => this.previewPictureInPictureNative(request));
+  }
+
+  public async executePictureInPicture(previewToken: string): Promise<NativeFinalCutPictureInPictureResult> {
+    return this.withNativeUi(() => this.executePictureInPictureNative(previewToken));
+  }
+
   public async searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]> {
     return this.withNativeUi(() => this.searchTransitionsNative(query));
   }
@@ -1395,6 +1489,185 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
+  }
+
+  private async previewPictureInPictureNative(
+    request: NativeFinalCutPictureInPictureRequest,
+  ): Promise<NativeFinalCutPictureInPicturePreview> {
+    this.assertEnabled();
+    const media = this.mediaHandles.get(request.mediaHandle);
+    if (!media) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${request.mediaHandle}`);
+    if (this.selectedMediaHandle !== request.mediaHandle) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: select one Browser media result before picture-in-picture placement");
+    }
+    const anchorOccurrence = this.occurrenceHandles.get(request.anchorOccurrenceHandle);
+    if (!anchorOccurrence) {
+      throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown anchor occurrence ${request.anchorOccurrenceHandle}`);
+    }
+    await this.ensureOccurrenceRange(anchorOccurrence);
+    const context = await this.requireTimelineContext();
+    if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    const live = await this.requireLiveState();
+    const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    const sequenceDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    const frameDuration = live.sequence?.frameDuration;
+    if (!sequenceStart || !sequenceDuration || !frameDuration) {
+      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence timing is unavailable");
+    }
+    const start = structuredClone(request.start);
+    const duration = structuredClone(request.duration);
+    const end = addRational(start, duration);
+    validatePictureInPictureRequest(request, sequenceStart, sequenceDuration, frameDuration, start, end);
+    validatePictureInPictureAnchor(anchorOccurrence, live);
+
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle("picture-in-picture-preview");
+    this.pictureInPicturePreviews.set(previewToken, {
+      mediaHandle: request.mediaHandle,
+      anchorOccurrence: structuredClone(anchorOccurrence),
+      start,
+      end,
+      duration,
+      position: structuredClone(request.position),
+      scale: request.scale,
+      ...(request.crop ? { crop: structuredClone(request.crop) } : {}),
+      ...(request.frame ? { frame: structuredClone(request.frame) } : {}),
+      sequenceId: live.sequence?.id,
+      revision: live.revision.id,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      media: structuredClone(media),
+      anchorOccurrence: structuredClone(anchorOccurrence),
+      start,
+      end,
+      duration,
+      position: structuredClone(request.position),
+      scale: request.scale,
+      ...(request.crop ? { crop: structuredClone(request.crop) } : {}),
+      ...(request.frame ? { frame: structuredClone(request.frame) } : {}),
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      revision: live.revision.id,
+      command: "Add native picture-in-picture",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  private async executePictureInPictureNative(previewToken: string): Promise<NativeFinalCutPictureInPictureResult> {
+    this.assertEnabled();
+    const preview = this.pictureInPicturePreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown native picture-in-picture preview");
+    this.pictureInPicturePreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native picture-in-picture preview has expired");
+    const media = this.mediaHandles.get(preview.mediaHandle);
+    if (!media) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${preview.mediaHandle}`);
+    if (this.selectedMediaHandle !== preview.mediaHandle) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before picture-in-picture placement");
+    }
+    const before = await this.requireTimelineContext();
+    const beforeLive = await this.requireLiveState();
+    validatePictureInPicturePreviewBinding(preview, beforeLive);
+    const anchorOccurrence = this.occurrenceHandles.get(preview.anchorOccurrence.handle) ?? preview.anchorOccurrence;
+    validatePictureInPictureAnchor(anchorOccurrence, beforeLive);
+    const startTimecode = this.toTimecode(preview.start, beforeLive);
+    const endTimecode = this.toTimecode(preview.end, beforeLive);
+
+    try {
+      await this.executeNativeSequence(async () => {
+        await this.selectMediaNative(preview.mediaHandle);
+        await this.focusTimelineForMediaInsertion();
+        if (this.canDriveNativeMouse && anchorOccurrence.timelineOffset !== undefined) {
+          await selectTimelineOccurrence(this.executor, anchorOccurrence.timelineOffset);
+        }
+        await this.executor(setPlayheadScript(startTimecode));
+        await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
+        await this.executor(markRangeStartScript());
+        await this.executor(setPlayheadScript(endTimecode));
+        await this.waitForPlayhead(preview.end, beforeLive.sequence?.id);
+        await this.executor(markRangeEndAndConnectPictureInPictureScript());
+        await this.executor(pictureInPictureTransformScript(preview));
+      }, async (recovered) => {
+        this.assertRetryContext(before, recovered, true);
+        validatePictureInPicturePreviewBinding(preview, await this.requireLiveState());
+        await this.selectMediaNative(preview.mediaHandle);
+        await this.focusTimelineForMediaInsertion();
+      });
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+
+    const operationId = opaqueHandle("native-picture-in-picture");
+    let after: NativeFinalCutContext | undefined;
+    let afterLive: EditorLiveState | undefined;
+    try {
+      after = await this.requireTimelineContext();
+      afterLive = await this.waitForRevision(beforeLive.revision.id);
+      const observed = parsePictureInPictureReadback(await this.executor(pictureInPictureInspectorReadbackScript()));
+      const verification = verifyNativePictureInPicture({ ...preview, media }, after, beforeLive, afterLive, observed);
+      const operation = {
+        kind: "picture-in-picture" as const,
+        before,
+        after,
+        beforeLive,
+        afterLive,
+        undoCommand: after.undoCommand,
+      } satisfies NativeOperationRecord;
+      if (!verification.verified) {
+        if (afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
+          this.rememberOperation(operationId, operation);
+          try {
+            await this.undo(operationId);
+          } catch (rollbackError) {
+            throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+          }
+          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; picture-in-picture placement was rolled back`);
+        }
+        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+      }
+      this.rememberOperation(operationId, operation);
+      return {
+        operationId,
+        previewToken,
+        media: structuredClone(media),
+        anchorOccurrence: structuredClone(anchorOccurrence),
+        start: structuredClone(preview.start),
+        end: structuredClone(preview.end),
+        duration: structuredClone(preview.duration),
+        position: structuredClone(preview.position),
+        scale: preview.scale,
+        ...(preview.crop ? { crop: structuredClone(preview.crop) } : {}),
+        ...(preview.frame ? { frame: structuredClone(preview.frame) } : {}),
+        observed,
+        before,
+        after,
+        beforeRevision: beforeLive.revision,
+        afterRevision: afterLive.revision,
+        verification,
+        undoAvailable: after.undoAvailable,
+        ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+      };
+    } catch (error) {
+      const observedContext = after ?? await this.inspectRawNative();
+      const observedLive = afterLive ?? await this.readLiveState();
+      if (observedLive && observedLive.revision.id !== beforeLive.revision.id && observedContext.undoCommand) {
+        this.rememberOperation(operationId, {
+          kind: "picture-in-picture",
+          before,
+          after: observedContext,
+          beforeLive,
+          afterLive: observedLive,
+          undoCommand: observedContext.undoCommand,
+        });
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`${nativeErrorCode(error)}: ${String(error)}; picture-in-picture placement was rolled back`);
+      }
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
   }
 
   private async previewMediaInsertionNative(
@@ -2127,6 +2400,159 @@ function verifyNativeTitle(
   return {
     verified: true,
     detail: `Final Cut selected ${preview.asset.name} for ${preview.start.value}/${preview.start.timescale}-${preview.end.value}/${preview.end.timescale} (${preview.duration.value}/${preview.duration.timescale}) at revision ${afterLive.revision.id}`,
+  };
+}
+
+function validatePictureInPictureRequest(
+  request: NativeFinalCutPictureInPictureRequest,
+  sequenceStart: RationalTime,
+  sequenceDuration: RationalTime,
+  frameDuration: RationalTime,
+  start: RationalTime,
+  end: RationalTime,
+): void {
+  if (compareRational(request.duration, zeroRational()) <= 0) {
+    throw new Error("INVALID_OPERATION: native picture-in-picture duration must be positive");
+  }
+  if (!isFrameAligned(start, sequenceStart, frameDuration) || !isFrameAligned(request.duration, zeroRational(), frameDuration)) {
+    throw new Error("INVALID_OPERATION: native picture-in-picture range must align to the sequence frame duration");
+  }
+  const sequenceEnd = addRational(sequenceStart, sequenceDuration);
+  if (compareRational(start, sequenceStart) < 0 || compareRational(end, sequenceEnd) > 0) {
+    throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_RANGE_OUT_OF_BOUNDS: placement must be inside the active sequence");
+  }
+  if (!Number.isFinite(request.position.x) || !Number.isFinite(request.position.y)) {
+    throw new Error("INVALID_OPERATION: native picture-in-picture position must be finite");
+  }
+  if (!Number.isFinite(request.scale) || request.scale <= 0) {
+    throw new Error("INVALID_OPERATION: native picture-in-picture scale must be positive");
+  }
+  validatePictureInPictureStyle(request.crop, request.frame);
+}
+
+function validatePictureInPictureStyle(crop?: PictureInPictureCrop, frame?: PictureInPictureFrame): void {
+  if (crop) {
+    const values = [crop.top, crop.right, crop.bottom, crop.left];
+    if (!values.every((value) => Number.isFinite(value) && value >= 0 && value < 1)
+      || crop.left + crop.right >= 1
+      || crop.top + crop.bottom >= 1) {
+      throw new Error("INVALID_OPERATION: native picture-in-picture crop must leave a visible rectangle");
+    }
+  }
+  if (frame && (frame.style !== "solid" || !/^#[0-9a-f]{6}$/i.test(frame.color) || !Number.isFinite(frame.width) || frame.width < 0)) {
+    throw new Error("INVALID_OPERATION: native picture-in-picture frame must be a solid six-digit hex color with nonnegative width");
+  }
+}
+
+function validatePictureInPictureAnchor(anchor: NativeFinalCutOccurrence, live: EditorLiveState): void {
+  if (anchor.sequenceId && live.sequence?.id !== anchor.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: active sequence changed");
+  }
+  if (anchor.revision && live.revision.id !== anchor.revision) {
+    throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: playhead or timeline revision changed");
+  }
+  if (!anchor.start || !anchor.duration) {
+    throw new Error("FINAL_CUT_NATIVE_EDIT_POINT_POSITION_UNAVAILABLE: anchor occurrence has no exact timeline range");
+  }
+}
+
+function validatePictureInPicturePreviewBinding(
+  preview: { sequenceId?: string; revision: string; anchorOccurrence: NativeFinalCutOccurrence },
+  live: EditorLiveState,
+): void {
+  if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+  }
+  if (live.revision.id !== preview.revision) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+  }
+  validatePictureInPictureAnchor(preview.anchorOccurrence, live);
+}
+
+function parsePictureInPictureReadback(output: string): NativeFinalCutPictureInPictureReadback {
+  const [xText, yText, scalePercentText, frameStyle = "", frameColor = "", frameWidthText = "", topText = "", rightText = "", bottomText = "", leftText = ""] = output.split(String.fromCharCode(31));
+  const x = inspectorNumber(xText);
+  const y = inspectorNumber(yText);
+  const scalePercent = inspectorNumber(scalePercentText);
+  if (![x, y, scalePercent].every(Number.isFinite) || scalePercent <= 0) {
+    throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_READBACK_UNAVAILABLE: Final Cut did not expose finite transform values");
+  }
+  const readback: NativeFinalCutPictureInPictureReadback = {
+    position: { x, y },
+    scale: scalePercent / 100,
+  };
+  if (frameStyle || frameColor || frameWidthText) {
+    const frameWidth = inspectorNumber(frameWidthText);
+    if (!frameStyle || !frameColor || !Number.isFinite(frameWidth)) {
+      throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_READBACK_UNAVAILABLE: Final Cut returned an incomplete frame");
+    }
+    const frame = { style: frameStyle as PictureInPictureFrame["style"], color: frameColor, width: frameWidth };
+    validatePictureInPictureStyle(undefined, frame);
+    readback.frame = frame;
+  }
+  if (topText || rightText || bottomText || leftText) {
+    const crop = {
+      top: inspectorFraction(topText),
+      right: inspectorFraction(rightText),
+      bottom: inspectorFraction(bottomText),
+      left: inspectorFraction(leftText),
+    };
+    if (![crop.top, crop.right, crop.bottom, crop.left].every(Number.isFinite)) {
+      throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_READBACK_UNAVAILABLE: Final Cut returned an incomplete crop");
+    }
+    validatePictureInPictureStyle(crop, undefined);
+    readback.crop = crop;
+  }
+  return readback;
+}
+
+function inspectorNumber(value: string | undefined): number {
+  const normalized = (value ?? "").trim().replace(/,/g, "").replace(/%$/, "");
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : Number.NaN;
+}
+
+function inspectorFraction(value: string | undefined): number {
+  const normalized = (value ?? "").trim();
+  const number = inspectorNumber(normalized);
+  return normalized.endsWith("%") ? number / 100 : number;
+}
+
+function verifyNativePictureInPicture(
+  preview: { media: NativeFinalCutMediaMatch; position: PictureInPicturePosition; scale: number; crop?: PictureInPictureCrop; frame?: PictureInPictureFrame; start: RationalTime; end: RationalTime },
+  after: NativeFinalCutContext,
+  beforeLive: EditorLiveState,
+  afterLive: EditorLiveState,
+  observed: NativeFinalCutPictureInPictureReadback,
+): NativeFinalCutPictureInPictureResult["verification"] {
+  if (afterLive.revision.id === beforeLive.revision.id) {
+    return { verified: false, detail: "Final Cut did not expose a new revision after native picture-in-picture placement" };
+  }
+  if (after.target.kind !== "selected-clip") {
+    return { verified: false, detail: "Final Cut did not expose the inserted picture-in-picture clip as the selected timeline item" };
+  }
+  const observedName = after.target.name ?? "";
+  if (observedName && !observedName.toLowerCase().includes(preview.media.name.toLowerCase())) {
+    return { verified: false, detail: `Final Cut selected ${observedName}, not ${preview.media.name}` };
+  }
+  if (Math.abs(observed.position.x - preview.position.x) > 0.001 || Math.abs(observed.position.y - preview.position.y) > 0.001) {
+    return { verified: false, detail: `Final Cut read back position ${observed.position.x},${observed.position.y}, expected ${preview.position.x},${preview.position.y}` };
+  }
+  if (Math.abs(observed.scale - preview.scale) > 0.0001) {
+    return { verified: false, detail: `Final Cut read back scale ${observed.scale}, expected ${preview.scale}` };
+  }
+  if (preview.crop && JSON.stringify(observed.crop) !== JSON.stringify(preview.crop)) {
+    return { verified: false, detail: "Final Cut did not read back the requested picture-in-picture crop" };
+  }
+  if (preview.frame && JSON.stringify(observed.frame) !== JSON.stringify(preview.frame)) {
+    return { verified: false, detail: "Final Cut did not read back the requested picture-in-picture frame" };
+  }
+  if (!after.undoAvailable || !after.undoCommand) {
+    return { verified: false, detail: "Final Cut did not expose an Undo command for native picture-in-picture placement" };
+  }
+  return {
+    verified: true,
+    detail: `Final Cut verified ${preview.media.name} at ${preview.start.value}/${preview.start.timescale}-${preview.end.value}/${preview.end.timescale} with transform readback at revision ${afterLive.revision.id}`,
   };
 }
 
@@ -4089,6 +4515,128 @@ tell application "System Events"
     delay 0.2
     keystroke "q"
     delay 0.5
+  end tell
+end tell`;
+}
+
+function markRangeEndAndConnectPictureInPictureScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    keystroke "o"
+    delay 0.2
+    -- Q connects the selected Browser video to the selected primary clip.
+    keystroke "q"
+    delay 0.5
+  end tell
+end tell`;
+}
+
+function pictureInPictureTransformScript(preview: {
+  position: PictureInPicturePosition;
+  scale: number;
+  crop?: PictureInPictureCrop;
+  frame?: PictureInPictureFrame;
+}): string {
+  const optionalFields = [
+    preview.crop ? `
+    set value of cropTopField to ${appleScriptString(String(preview.crop.top * 100))}
+    set value of cropRightField to ${appleScriptString(String(preview.crop.right * 100))}
+    set value of cropBottomField to ${appleScriptString(String(preview.crop.bottom * 100))}
+    set value of cropLeftField to ${appleScriptString(String(preview.crop.left * 100))}` : "",
+    preview.frame ? `
+    set value of frameStyleField to ${appleScriptString(preview.frame.style)}
+    set value of frameColorField to ${appleScriptString(preview.frame.color)}
+    set value of frameWidthField to ${appleScriptString(String(preview.frame.width))}` : "",
+  ].join("");
+  const requiredFieldLookup = `
+    set positionXField to my findInspectorField("Position X")
+    set positionYField to my findInspectorField("Position Y")
+    set scaleField to my findInspectorField("Scale")
+    if positionXField is missing value or positionYField is missing value or scaleField is missing value then error "FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_TRANSFORM_UNAVAILABLE: Transform inspector fields were not visible"
+    set value of positionXField to ${appleScriptString(String(preview.position.x))}
+    set value of positionYField to ${appleScriptString(String(preview.position.y))}
+    set value of scaleField to ${appleScriptString(String(preview.scale * 100))}`;
+  const optionalLookup = `${preview.crop ? `
+    set cropTopField to my findInspectorField("Crop Top")
+    set cropRightField to my findInspectorField("Crop Right")
+    set cropBottomField to my findInspectorField("Crop Bottom")
+    set cropLeftField to my findInspectorField("Crop Left")
+    if cropTopField is missing value or cropRightField is missing value or cropBottomField is missing value or cropLeftField is missing value then error "FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_CROP_UNAVAILABLE: Crop inspector fields were not visible"` : ""}${preview.frame ? `
+    set frameStyleField to my findInspectorField("Frame Style")
+    set frameColorField to my findInspectorField("Frame Color")
+    set frameWidthField to my findInspectorField("Frame Width")
+    if frameStyleField is missing value or frameColorField is missing value or frameWidthField is missing value then error "FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_FRAME_UNAVAILABLE: Frame inspector fields were not visible"` : ""}`;
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set inspectorTab to missing value
+    repeat with candidate in entire contents of mainWindow
+      try
+        set candidateDescription to description of candidate as text
+        set candidateName to name of candidate as text
+        if candidateDescription contains "Video Inspector" or candidateName is "Inspector" then
+          set inspectorTab to candidate
+          exit repeat
+        end if
+      end try
+    end repeat
+    if inspectorTab is missing value then error "FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_TRANSFORM_UNAVAILABLE: Video Inspector was not visible"
+    try
+      perform action "AXPress" of inspectorTab
+    on error
+      click inspectorTab
+    end try
+    delay 0.3
+    on findInspectorField(fieldLabel)
+      repeat with candidate in text fields of front window
+        try
+          set candidateDescription to description of candidate as text
+          set candidateName to name of candidate as text
+          if candidateDescription contains fieldLabel or candidateName contains fieldLabel then return candidate
+        end try
+      end repeat
+      return missing value
+    end findInspectorField
+    ${requiredFieldLookup}
+    ${optionalLookup}
+    ${optionalFields}
+    delay 0.2
+  end tell
+end tell`;
+}
+
+function pictureInPictureInspectorReadbackScript(): string {
+  return `
+-- FRAMEKIT_NATIVE_PIP_READBACK
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    on readInspectorField(fieldLabel, fallback)
+      repeat with candidate in text fields of front window
+        try
+          set candidateDescription to description of candidate as text
+          set candidateName to name of candidate as text
+          if candidateDescription contains fieldLabel or candidateName contains fieldLabel then return value of candidate as text
+        end try
+      end repeat
+      return fallback
+    end readInspectorField
+    set positionXText to my readInspectorField("Position X", "")
+    set positionYText to my readInspectorField("Position Y", "")
+    set scaleText to my readInspectorField("Scale", "")
+    if positionXText is "" or positionYText is "" or scaleText is "" then error "FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_READBACK_UNAVAILABLE: Transform inspector values were not visible"
+    set frameStyleText to my readInspectorField("Frame Style", "")
+    set frameColorText to my readInspectorField("Frame Color", "")
+    set frameWidthText to my readInspectorField("Frame Width", "")
+    set cropTopText to my readInspectorField("Crop Top", "")
+    set cropRightText to my readInspectorField("Crop Right", "")
+    set cropBottomText to my readInspectorField("Crop Bottom", "")
+    set cropLeftText to my readInspectorField("Crop Left", "")
+    return positionXText & (ASCII character 31) & positionYText & (ASCII character 31) & scaleText & (ASCII character 31) & frameStyleText & (ASCII character 31) & frameColorText & (ASCII character 31) & frameWidthText & (ASCII character 31) & cropTopText & (ASCII character 31) & cropRightText & (ASCII character 31) & cropBottomText & (ASCII character 31) & cropLeftText
   end tell
 end tell`;
 }

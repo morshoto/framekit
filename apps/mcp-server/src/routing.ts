@@ -3,6 +3,7 @@ import type { EditorIdentity, RuntimeCapabilities } from "@framekit/runtime";
 export type EditingRouteOperation =
   | "timeline.edit"
   | "editor.native.edit"
+  | "editor.native.picture-in-picture"
   | "timeline.publish.new-project"
   | "timeline.export";
 
@@ -91,6 +92,13 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
   ],
   "editor.native.edit": [
     nativeRequirement("selectionEdit"),
+    nativeRequirement("timelineFocus"),
+    nativeRequirement("undo"),
+  ],
+  "editor.native.picture-in-picture": [
+    nativeRequirement("pictureInPicture"),
+    nativeRequirement("mediaSelection"),
+    nativeRequirement("timelineOccurrenceLocate"),
     nativeRequirement("timelineFocus"),
     nativeRequirement("undo"),
   ],

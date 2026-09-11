@@ -338,6 +338,7 @@ function nativeFamily(
     "clipMovement",
     "transitionDiscovery",
     "transitionPlacement",
+    "pictureInPicture",
   ];
   return Object.fromEntries(nativeOperations.map((operation) => [
     operation,

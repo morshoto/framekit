@@ -103,7 +103,8 @@ export type NativeCapabilityOperation =
   | "clipInsertion"
   | "clipMovement"
   | "transitionDiscovery"
-  | "transitionPlacement";
+  | "transitionPlacement"
+  | "pictureInPicture";
 
 export interface CapabilityFamilies {
   connection: {

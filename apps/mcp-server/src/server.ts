@@ -541,6 +541,25 @@ const nativeTransitionPreviewSchema = {
   afterOccurrenceHandle: z.string().min(1),
   duration: rationalTimeSchema,
 };
+const nativePictureInPicturePreviewSchema = {
+  mediaHandle: z.string().min(1),
+  anchorOccurrenceHandle: z.string().min(1),
+  start: rationalTimeSchema,
+  duration: rationalTimeSchema,
+  position: z.object({ x: z.number().finite(), y: z.number().finite() }),
+  scale: z.number().finite().positive(),
+  crop: z.object({
+    top: z.number().finite().min(0).lt(1),
+    right: z.number().finite().min(0).lt(1),
+    bottom: z.number().finite().min(0).lt(1),
+    left: z.number().finite().min(0).lt(1),
+  }).optional(),
+  frame: z.object({
+    style: z.literal("solid"),
+    color: z.string().regex(/^#[0-9a-f]{6}$/i),
+    width: z.number().finite().nonnegative(),
+  }).optional(),
+};
 const exportAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio-audibility"),
@@ -819,9 +838,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
     inputSchema: {
       operation: z.enum([
-        "timeline.edit",
-        "editor.native.edit",
-        "timeline.publish.new-project",
+      "timeline.edit",
+      "editor.native.edit",
+      "editor.native.picture-in-picture",
+      "timeline.publish.new-project",
         "timeline.export",
       ]),
       fallback: z.enum(["none", "external-renderer"]).optional().default("none"),
@@ -906,6 +926,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
     return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
+  });
+
+  server.registerTool("editor.native.picture-in-picture.preview", {
+    description: "Preview connecting selected Final Cut Browser video to a stable timeline occurrence with verified transform properties.",
+    inputSchema: nativePictureInPicturePreviewSchema,
+  }, async (request) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
+    await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
+    return jsonResult(await options.nativeEditor.previewPictureInPicture(request));
+  });
+
+  server.registerTool("editor.native.picture-in-picture.execute", {
+    description: "Execute a native Final Cut picture-in-picture preview and return transform readback, revision, and Undo verification.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
+    await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
+    return jsonResult(await options.nativeEditor.executePictureInPicture(previewToken));
   });
 
   server.registerTool("editor.native.transition.search", {
@@ -1552,6 +1590,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       mediaAppend: Boolean(native?.mediaAppend),
       mediaInsert: Boolean(native?.mediaInsert),
       titlePlacement: Boolean(native?.titlePlacement),
+      pictureInPicture: Boolean(native?.pictureInPicture),
       transitionDiscovery: Boolean(native?.transitionDiscovery),
       transitionPlacement: Boolean(native?.transitionPlacement),
       timelineFocus: Boolean(native?.timelineFocus),
