@@ -73,7 +73,7 @@ function liveState(): EditorLiveState {
 }
 
 function providerFor(
-  snapshots: ProjectSnapshot[],
+  snapshots: Array<ProjectSnapshot | Error>,
   calls: string[],
   resolveTarget: CanonicalNativeTargetResolver = async () => {},
 ) {
@@ -98,6 +98,7 @@ function providerFor(
     readSnapshot: async () => {
       const next = snapshots.shift();
       if (!next) throw new Error("snapshot queue exhausted");
+      if (next instanceof Error) throw next;
       return structuredClone(next);
     },
     resolveTarget,
@@ -153,6 +154,30 @@ test("canonical native provider verifies native edit and restores its canonical 
   assert.deepEqual(calls, ["edit"]);
   await provider.restore(before, afterRevision);
   assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("canonical native provider undoes failed post-edit verification", async () => {
+  for (const [label, after] of [
+    ["read error", new Error("export read failed")],
+    ["name mismatch", snapshot("Unexpected")],
+    ["unchanged digest", snapshot("Original")],
+  ] as const) {
+    const calls: string[] = [];
+    const provider = providerFor([snapshot("Original"), snapshot("Original"), after, snapshot("Original")], calls);
+    const before = await provider.readProject();
+
+    await assert.rejects(
+      provider.apply({
+        type: "rename-clip",
+        clipId: "final-cut:occurrence:clip-1",
+        name: "Renamed",
+        baseRevision: before.revision,
+      }, before.revision),
+      { name: "Error" },
+      label,
+    );
+    assert.deepEqual(calls, ["edit", "undo"], label);
+  }
 });
 
 test("canonical native provider rejects ambiguous occurrence bindings before edit", async () => {
