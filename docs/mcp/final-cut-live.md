@@ -330,7 +330,10 @@ Accessibility automation to open Final Cut's Titles and Generators browser,
 select the discovered template by its stable AX identity, apply the text, and
 verify the selected title and live revision. Missing Accessibility permission,
 an unavailable browser, or a missing AX identity is not converted into a
-fabricated asset.
+fabricated asset. An empty native browser response is reported as
+`FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY`; native-only queries fail explicitly,
+while filesystem Motion-template results remain usable with a native
+unavailable diagnostic when present.
 
 ## Native transition placement
 

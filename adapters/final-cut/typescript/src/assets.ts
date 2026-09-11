@@ -49,6 +49,9 @@ export class FinalCutAssetRegistry {
     let nativeTitles: NativeFinalCutTitleMatch[];
     try {
       nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+      if (nativeTitles.length === 0) {
+        throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: native title provider returned no title assets");
+      }
     } catch (error) {
       // Filesystem assets remain usable when the optional native browser is
       // unavailable, but keep the native diagnostic visible in the response.

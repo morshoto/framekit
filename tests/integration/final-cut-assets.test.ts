@@ -85,6 +85,49 @@ test("Final Cut asset discovery propagates native browser unavailability", async
   );
 });
 
+test("Final Cut asset discovery fails closed on empty native title results", async () => {
+  const registry = new FinalCutAssetRegistry({
+    roots: [],
+    nativeTitleProvider: {
+      searchTitles: async () => [],
+    },
+  });
+
+  await assert.rejects(
+    registry.listAssets({ kind: "title" }),
+    /FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY/,
+  );
+});
+
+test("Final Cut asset discovery preserves filesystem titles when native discovery is empty", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-title-assets-empty-native-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(
+    join(bundle, "Contents", "Info.plist"),
+    "<plist><key>CFBundleDisplayName</key><string>Lower Third</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></plist>",
+  );
+  const registry = new FinalCutAssetRegistry({
+    roots: [root],
+    nativeTitleProvider: {
+      searchTitles: async () => [],
+    },
+  });
+
+  const assets = await registry.listAssets({ kind: "title" });
+
+  assert.equal(assets.length, 1);
+  assert.deepEqual(assets[0]?.metadata.discovery, {
+    backend: "filesystem-motion-template",
+    guarantee: "observed",
+    native: {
+      backend: "final-cut-accessibility",
+      guarantee: "none",
+      unavailableReason: "FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: native title provider returned no title assets",
+    },
+  });
+});
+
 test("Final Cut asset discovery reports native unavailability with filesystem results", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-title-assets-diagnostic-"));
   const bundle = join(root, "Titles.localized", "Lower Third.moti");

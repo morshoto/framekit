@@ -72,6 +72,20 @@ test("native Final Cut adapter discovers stable title assets without a timeline"
   assert.equal(scripts.some((script) => script.includes("titleSearchField")), true);
 });
 
+test("native title discovery fails closed when the browser returns no assets", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("titleBrowserPreflightResult") ? browserContext() : "",
+  });
+
+  assert.equal(adapter.capabilities().titleDiscovery, true);
+  await assert.rejects(
+    adapter.searchTitles(""),
+    /FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY/,
+  );
+  assert.equal(adapter.capabilities().titleDiscovery, false);
+});
+
 test("native title discovery capability follows the enabled native provider", () => {
   const enabled = new FinalCutNativeAutomationAdapter({ enabled: true });
   const disabled = new FinalCutNativeAutomationAdapter({ enabled: false });

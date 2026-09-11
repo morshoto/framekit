@@ -535,6 +535,7 @@ export interface NativeFinalCutTransitionRequest {
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
+  private titleDiscoveryAvailable: boolean;
   private readonly executor: NativeFinalCutExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
@@ -620,6 +621,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
+    this.titleDiscoveryAvailable = this.enabled;
     this.executor = options.executor ?? runAppleScript;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
@@ -649,7 +651,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
       titlePlacement: this.enabled,
-      titleDiscovery: this.enabled,
+      titleDiscovery: this.titleDiscoveryAvailable,
       pictureInPicture: this.enabled,
       transitionDiscovery: this.enabled,
       transitionPlacement: this.enabled,
@@ -1406,9 +1408,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          return parseTitleMatches(await this.executeNativeScript(
+          const matches = parseTitleMatches(await this.executeNativeScript(
             titleSearchScript(identity ?? normalizedQuery, identity !== undefined),
           ));
+          if (matches.length === 0) {
+            this.titleDiscoveryAvailable = false;
+            throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: Final Cut's Titles browser returned no title assets");
+          }
+          this.titleDiscoveryAvailable = true;
+          return matches;
         } catch (error) {
           lastError = error;
           if (attempt === 0) await this.sleep(250);
