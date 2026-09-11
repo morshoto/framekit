@@ -1406,9 +1406,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          return parseTitleMatches(await this.executeNativeScript(
+          const matches = parseTitleMatches(await this.executeNativeScript(
             titleSearchScript(identity ?? normalizedQuery, identity !== undefined),
           ));
+          if (matches.length === 0) {
+            throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: Final Cut's Titles browser returned no title assets");
+          }
+          return matches;
         } catch (error) {
           lastError = error;
           if (attempt === 0) await this.sleep(250);
