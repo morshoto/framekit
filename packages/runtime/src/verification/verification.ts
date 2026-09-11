@@ -159,8 +159,9 @@ export class DefaultVerificationEngine implements VerificationEngine {
 
     if (policy.maxTruePeakDb !== undefined) {
       const peaks = transaction.attemptedAfter.media
+        .filter((media) => media.audio?.valid !== false)
         .map((media) => media.audio?.truePeakDb)
-        .filter((peak): peak is number => peak !== undefined);
+        .filter((peak): peak is number => peak !== undefined && Number.isFinite(peak));
       const passed = peaks.length > 0 && peaks.every((peak) => peak <= policy.maxTruePeakDb!);
       checks.push({
         name: "true-peak-limit",
@@ -174,8 +175,9 @@ export class DefaultVerificationEngine implements VerificationEngine {
     if (policy.targetLufs !== undefined) {
       const tolerance = policy.loudnessToleranceDb ?? 0.5;
       const loudness = transaction.attemptedAfter.media
+        .filter((media) => media.audio?.valid !== false)
         .map((media) => media.audio?.integratedLufs)
-        .filter((value): value is number => value !== undefined);
+        .filter((value): value is number => value !== undefined && Number.isFinite(value));
       const passed = loudness.length > 0 && loudness.every((value) => Math.abs(value - policy.targetLufs!) <= tolerance);
       checks.push({
         name: "integrated-loudness-target",
@@ -391,6 +393,19 @@ function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudn
       observed: { mediaId: assertion.mediaId },
       reason: "AUDIO_ANALYZER_UNAVAILABLE",
       detail: `audio analysis is unavailable for media ${assertion.mediaId}`,
+    };
+  }
+  if (media.audio.valid === false
+    || !Number.isFinite(media.audio.integratedLufs)
+    || !Number.isFinite(media.audio.truePeakDb)) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: media.audio,
+      reason: "AUDIO_MEASUREMENT_INVALID",
+      detail: `audio measurement for media ${assertion.mediaId} is invalid`,
     };
   }
   const observed = media.audio.integratedLufs;
