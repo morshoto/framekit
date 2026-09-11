@@ -115,7 +115,11 @@ test("headed title evidence keeps the project, sequence, and discovered asset", 
     },
   }, environment);
 
-  assert.deepEqual(evidence.target, { project: "Disposable Titles", sequenceId: "sequence-2" });
+  assert.deepEqual(evidence.target, {
+    project: "Disposable Titles",
+    sequenceId: "sequence-2",
+    occurrenceId: "occurrence-title",
+  });
   assert.equal(evidence.discovery.assetId, "final-cut:title:basic-title");
   assert.deepEqual(evidence.revisions, { before: "rev-4", after: "rev-5", restored: "rev-6" });
   assert.doesNotMatch(JSON.stringify(evidence), /private-operation|sourceIdentity|native-operation-secret/i);
@@ -197,7 +201,12 @@ test("headed filler evidence keeps rollback proof without private state", () => 
       },
       analyzers: { speechTranscribe: true },
     },
-    project: { id: "project-filler", name: "Disposable Filler", sequenceId: "sequence-filler" },
+    project: {
+      id: "project-filler",
+      name: "Disposable Filler",
+      sequenceId: "sequence-filler",
+      occurrenceId: "occurrence-filler",
+    },
     selection: { start: 2, end: 4 },
     toolResults: [
       { name: "editor.inspect", status: "passed" },
@@ -251,7 +260,7 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
   assert.match(runners[3], /sanitizeMaskEvidence/);
   assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
   assert.match(runners[2], /occurrenceId:\s*executed\.after\.target\.identity/);
-  assert.match(runners[4], /occurrenceId:/);
+  assert.match(runners[4], /occurrenceId[,:]/);
 });
 
 function pictureInPictureRun(): Record<string, any> {

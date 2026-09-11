@@ -97,6 +97,7 @@ try {
   if (!executed.verification?.verified
     || executed.asset?.id !== title.id
     || executed.beforeRevision?.id === executed.afterRevision?.id
+    || !executed.after?.target?.identity
     || !executed.undoAvailable
     || !executed.undoCommand) {
     throw new Error("FINAL_CUT_E2E_TITLE_PLACEMENT_FAILED: native title placement was not read-back verified");
@@ -122,7 +123,7 @@ try {
       backend: title.metadata.discovery.backend,
       guarantee: title.metadata.discovery.guarantee,
     },
-    target: { sequenceId: preview.sequenceId },
+    target: { sequenceId: preview.sequenceId, occurrenceId: executed.after.target.identity },
     placement: {
       text: titleText,
       target: preview.target,

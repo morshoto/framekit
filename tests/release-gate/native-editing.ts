@@ -277,9 +277,7 @@ function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"
 function assertHeadedTarget(target: HeadedEvidenceSummary["target"], workflowId: string): void {
   assert.ok(target.project, `${workflowId}: headed project identity is missing`);
   assert.ok(target.sequenceId, `${workflowId}: headed sequence identity is missing`);
-  if (["canonical-live", "picture-in-picture", "masking"].includes(workflowId)) {
-    assert.ok(target.occurrenceId, `${workflowId}: headed occurrence identity is missing`);
-  }
+  assert.ok(target.occurrenceId, `${workflowId}: headed occurrence identity is missing`);
 }
 
 function safeTargetString(value: unknown): string | undefined {

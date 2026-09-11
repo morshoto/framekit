@@ -53,8 +53,8 @@ pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-remova
 
 Supply the workflow-specific disposable project, query, range, and explicit
 mutation-consent variables documented in [Final Cut live E2E](./final-cut-live-e2e.md).
-Every runner emits an allowlisted sanitized record containing its exact project
-and sequence target, a stable occurrence identity where applicable, Framekit
+Every runner emits an allowlisted sanitized record containing its exact project,
+sequence, and occurrence target, Framekit
 and Final Cut versions, the full Git commit, before/after/restored revisions,
 verification, and native Undo or rollback. The record omits private paths,
 credentials, native handles, transaction IDs, raw snapshots, and diagnostics.

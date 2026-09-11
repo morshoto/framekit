@@ -66,6 +66,11 @@ try {
   if (!Array.isArray(preview.candidates) || preview.candidates.length === 0) {
     throw new Error("FINAL_CUT_E2E_NO_FILLERS: the disposable range contains no high-confidence fillers");
   }
+  const occurrenceIds = [...new Set(preview.candidates.map((candidate) => candidate.clipId).filter(Boolean))];
+  if (occurrenceIds.length !== 1) {
+    throw new Error("FINAL_CUT_E2E_OCCURRENCE_AMBIGUOUS: filler range must resolve to exactly one timeline occurrence");
+  }
+  const occurrenceId = occurrenceIds[0];
 
   const transaction = await callJson("speech.filler.remove.execute", { previewToken: preview.previewToken });
   toolResults.push({ name: "speech.filler.remove.execute", status: transaction.status });
@@ -108,6 +113,7 @@ try {
       id: before.projectId,
       name: before.projectName,
       sequenceId: before.timeline.id,
+      occurrenceId,
     },
     selection: { start, end },
     toolResults,

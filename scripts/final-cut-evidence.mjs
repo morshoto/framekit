@@ -303,6 +303,7 @@ export function sanitizeNativeTitleEvidence(run, environment) {
   const target = {
     project: requireString(run.project ?? run.target.project, "native title project"),
     sequenceId: requireString(run.target.sequenceId, "native title sequence id"),
+    occurrenceId: requireSafeIdentity(run.target.occurrenceId, "native title occurrence id"),
   };
   return {
     schemaVersion: 1,
@@ -378,6 +379,10 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
     id: requireString(run.project.id, "filler-removal project id"),
     name: requireString(run.project.name, "filler-removal project name"),
     sequenceId: requireString(run.project.sequenceId, "filler-removal sequence id"),
+    occurrenceId: requireSafeIdentity(
+      run.project.occurrenceId ?? run.target?.occurrenceId,
+      "filler-removal occurrence id",
+    ),
   };
   const revisions = {
     before: requireString(run.removal.beforeRevision?.id, "filler-removal before revision"),
@@ -394,7 +399,12 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
     editor: sanitizeIdentity(run.editor),
     capabilities: sanitizeCapabilities(run.capabilities),
     project,
-    target: { project: project.name, projectId: project.id, sequenceId: project.sequenceId },
+    target: {
+      project: project.name,
+      projectId: project.id,
+      sequenceId: project.sequenceId,
+      occurrenceId: project.occurrenceId,
+    },
     selection: {
       start: requireFiniteNumber(run.selection.start, "filler-removal selection start"),
       end: requireFiniteNumber(run.selection.end, "filler-removal selection end"),
