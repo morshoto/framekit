@@ -2676,7 +2676,13 @@ function verifyNativePictureInPicture(
   if (preview.crop && JSON.stringify(observed.crop) !== JSON.stringify(preview.crop)) {
     return { verified: false, detail: "Final Cut did not read back the requested picture-in-picture crop" };
   }
-  if (preview.frame && JSON.stringify(observed.frame) !== JSON.stringify(preview.frame)) {
+  const observedFrame = observed.frame
+    ? { ...observed.frame, color: observed.frame.color.toLowerCase() }
+    : undefined;
+  const previewFrame = preview.frame
+    ? { ...preview.frame, color: preview.frame.color.toLowerCase() }
+    : undefined;
+  if (preview.frame && JSON.stringify(observedFrame) !== JSON.stringify(previewFrame)) {
     return { verified: false, detail: "Final Cut did not read back the requested picture-in-picture frame" };
   }
   if (!after.undoAvailable || !after.undoCommand) {

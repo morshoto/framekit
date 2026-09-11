@@ -311,7 +311,7 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
     position: { x: 320, y: -180 },
     scale: 0.35,
     crop: { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 },
-    frame: { style: "solid", color: "#FFFFFF", width: 8 },
+    frame: { style: "solid", color: "#ffffff", width: 8 },
   });
   assert.deepEqual(preview.start, { value: "2", timescale: "1" });
   assert.deepEqual(preview.end, { value: "6", timescale: "1" });
