@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { AssetSearchQuery, EditorAsset } from "@framekit/runtime";
-import type { NativeFinalCutTitleMatch } from "./native.js";
+import type { NativeFinalCutTitleMatch, NativeFinalCutTransitionMatch } from "./native.js";
 
 const CATEGORY_BY_DIRECTORY: Record<string, EditorAsset["kind"]> = {
   "Audio Effects.localized": "audio-effect",
@@ -18,10 +18,15 @@ const BUNDLE_SUFFIXES = new Set([".moef", ".moti", ".motn", ".motr"]);
 export interface FinalCutAssetRegistryOptions {
   roots?: string[];
   nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
+  nativeTransitionProvider?: Pick<NativeTransitionProvider, "searchTransitions">;
 }
 
 export interface NativeTitleProvider {
   searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]>;
+}
+
+export interface NativeTransitionProvider {
+  searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]>;
 }
 
 export function defaultFinalCutAssetRoots(): string[] {
@@ -35,31 +40,61 @@ export function defaultFinalCutAssetRoots(): string[] {
 export class FinalCutAssetRegistry {
   private readonly roots: string[];
   private readonly nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
+  private readonly nativeTransitionProvider?: Pick<NativeTransitionProvider, "searchTransitions">;
   private cached?: EditorAsset[];
 
   public constructor(options: FinalCutAssetRegistryOptions = {}) {
     this.roots = (options.roots ?? defaultFinalCutAssetRoots()).map((root) => resolve(root));
     this.nativeTitleProvider = options.nativeTitleProvider;
+    this.nativeTransitionProvider = options.nativeTransitionProvider;
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
     if (!this.cached) this.cached = await this.scan();
     const filesystemAssets = filterAssets(this.cached, query);
-    if (!this.nativeTitleProvider || (query?.kind && query.kind !== "title")) return filesystemAssets;
-    let nativeTitles: NativeFinalCutTitleMatch[];
-    try {
-      nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
-      if (nativeTitles.length === 0) {
-        throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: native title provider returned no title assets");
+    let nativeTitleAssets: EditorAsset[] = [];
+    let nativeTransitionAssets: EditorAsset[] = [];
+    let nativeTitleError: unknown;
+    let nativeTransitionError: unknown;
+    if (this.nativeTitleProvider && (!query?.kind || query.kind === "title")) {
+      let nativeTitles: NativeFinalCutTitleMatch[];
+      try {
+        nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+        if (nativeTitles.length === 0) {
+          throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: native title provider returned no title assets");
+        }
+      } catch (error) {
+        nativeTitleError = error;
+        nativeTitles = [];
       }
-    } catch (error) {
-      // Filesystem assets remain usable when the optional native browser is
-      // unavailable, but keep the native diagnostic visible in the response.
-      if (filesystemAssets.length > 0) return withNativeTitleDiagnostic(filesystemAssets, error);
-      throw error;
+      nativeTitleAssets = nativeTitles.map(nativeTitleAsset);
     }
-    const composed = [...filesystemAssets, ...nativeTitles.map(nativeTitleAsset)];
-    return filterAssets(dedupeAssets(composed), query);
+
+    const nativeTransitionProvider = this.nativeTransitionProvider;
+    const shouldSearchNativeTransitions = nativeTransitionProvider
+      && (!query?.kind || query.kind === "transition");
+    if (shouldSearchNativeTransitions) {
+      let nativeTransitions: NativeFinalCutTransitionMatch[];
+      try {
+        nativeTransitions = await nativeTransitionProvider.searchTransitions(query?.query ?? "");
+      } catch (error) {
+        nativeTransitionError = error;
+        nativeTransitions = [];
+      }
+      nativeTransitionAssets = nativeTransitions.map(nativeTransitionAsset);
+    }
+
+    const nativeError = nativeTransitionError ?? nativeTitleError;
+    const filesystemResults = nativeError && filesystemAssets.length > 0
+      ? withNativeDiscoveryDiagnostic(filesystemAssets, nativeError)
+      : filesystemAssets;
+    const assets = filterAssets(dedupeAssets([
+      ...filesystemResults,
+      ...nativeTitleAssets,
+      ...nativeTransitionAssets,
+    ]), query);
+    if (assets.length === 0 && nativeError) throw nativeError;
+    return assets;
   }
 
   public refresh(): void {
@@ -160,13 +195,39 @@ function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
   };
 }
 
+function nativeTransitionAsset(match: NativeFinalCutTransitionMatch): EditorAsset {
+  if (!match.id.startsWith("final-cut:transition:") || !match.identity.trim() || !match.name.trim()) {
+    throw new Error("FINAL_CUT_NATIVE_TRANSITION_ID_UNAVAILABLE: native transition provider returned an unstable identity");
+  }
+  return {
+    id: match.id,
+    kind: "transition",
+    name: match.name,
+    vendor: match.vendor,
+    metadata: {
+      identity: match.identity,
+      provider: "final-cut-accessibility",
+      source: "final-cut-transitions-browser",
+      discovery: {
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      placement: {
+        backend: "final-cut-accessibility",
+        guarantee: "native-verified",
+        operation: "editor.native.transition.add.preview",
+      },
+    },
+  };
+}
+
 function dedupeAssets(assets: EditorAsset[]): EditorAsset[] {
   return assets
     .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
     .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
 }
 
-function withNativeTitleDiagnostic(assets: EditorAsset[], error: unknown): EditorAsset[] {
+function withNativeDiscoveryDiagnostic(assets: EditorAsset[], error: unknown): EditorAsset[] {
   const native = {
     backend: "final-cut-accessibility",
     guarantee: "none",

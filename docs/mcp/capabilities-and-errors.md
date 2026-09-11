@@ -81,15 +81,16 @@ state and never implies arbitrary editability.
 
 `editor.assets` preserves its array response while attaching provider
 provenance under each asset's `metadata.discovery`. Filesystem Motion-template
-assets use `filesystem-motion-template`; headed Titles-browser assets use
-`final-cut-accessibility` and stable IDs such as
-`final-cut:title:<AXIdentifier>`. Discovery has an `observed` guarantee and is
-not placement proof. Native title placement remains a separate operation with
-explicit text, timing, target, revision, and readback verification. If the
-Titles browser or Accessibility is unavailable, filesystem results may remain
-usable but include `metadata.discovery.native` with the native backend,
-`guarantee: "none"`, and `unavailableReason`; native-only queries fail closed
-with the native error instead of inventing an asset.
+assets use `filesystem-motion-template`; headed Titles- and
+Transitions-browser assets use `final-cut-accessibility` and stable IDs such as
+`final-cut:title:<AXIdentifier>` or `final-cut:transition:<AXIdentifier>`.
+Discovery has an `observed` guarantee and is not placement proof. Native title
+and transition placement remain separate operations with explicit targets,
+timing, revision, and readback verification. If a native browser or
+Accessibility is unavailable, filesystem results may remain usable but include
+`metadata.discovery.native` with the native backend, `guarantee: "none"`, and
+`unavailableReason`; native-only queries fail closed with the native error
+instead of inventing an asset.
 
 `editor.inspect` also returns an inspect-time `preflight` report. Its `mode` is
 `fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or
