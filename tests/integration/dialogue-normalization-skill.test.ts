@@ -184,6 +184,80 @@ test("dialogue execution remeasures after writing and verifies the new result", 
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });
 
+test("dialogue Skill targets the selected occurrence when media is repeated", async () => {
+  const ranges: Array<{ start: number; end: number } | undefined> = [];
+  const { runtime } = createFixture({
+    clips: [
+      { id: "dialogue-first", mediaId: "dialogue-media", start: 0, duration: 4, sourceStart: 0 },
+      { id: "dialogue-second", mediaId: "dialogue-media", start: 10, duration: 3, sourceStart: 5 },
+    ],
+    analyze: async ({ project }, range) => {
+      ranges.push(range);
+      const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-second")?.gainDb ?? 0;
+      return { integratedLufs: -20 + gain, truePeakDb: -6 + gain, silenceMs: 100, analyzedDurationSeconds: 3, dialoguePresent: true };
+    },
+  });
+  runtime.registerBuiltinSkills();
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "dialogue-normalization",
+    baseRevision: before.revision,
+    input: { mediaId: "dialogue-media", occurrenceId: "dialogue-second" },
+  });
+
+  assert.equal(preview.plan.operations[0]?.type, "set-gain");
+  assert.equal(preview.plan.operations[0]?.type === "set-gain" ? preview.plan.operations[0].clipId : undefined, "dialogue-second");
+  assert.deepEqual(preview.plan.affectedRanges, [{ start: 10, end: 13 }]);
+  assert.deepEqual(ranges, [{ start: 5, end: 8 }]);
+});
+
+test("unsafe dialogue decisions skip without changing canonical state", async () => {
+  const cases = [
+    { name: "no dialogue", options: { dialoguePresent: false }, reason: "NO_DIALOGUE" },
+    { name: "silence", options: { silenceMs: 10_000 }, reason: "SILENCE" },
+    { name: "insufficient duration", options: { analyzedDurationSeconds: 0.5, duration: 0.5 }, reason: "DIALOGUE_TOO_SHORT" },
+    { name: "gain clamp", options: { integratedLufs: -30 }, reason: "GAIN_OUT_OF_BOUNDS" },
+    { name: "peak risk", options: { truePeakDb: -2 }, reason: "PEAK_RISK" },
+  ] as const;
+
+  for (const current of cases) {
+    const { runtime, adapter } = createFixture(current.options);
+    runtime.registerBuiltinSkills();
+    const { before, preview } = await previewDialogue(runtime);
+    assert.equal(preview.plan.decision, "SKIP", current.name);
+    assert.deepEqual(preview.plan.warnings, [current.reason], current.name);
+    const result = await runtime.executeSkill(preview.previewToken);
+    assert.equal(result.status, "SKIPPED", current.name);
+    assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before), current.name);
+  }
+});
+
+test("post-write true-peak failure rolls back the complete transaction", async () => {
+  let calls = 0;
+  const { runtime, adapter } = createFixture({
+    analyze: async ({ project }) => {
+      calls += 1;
+      const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-occurrence")?.gainDb ?? 0;
+      return {
+        integratedLufs: -20 + gain,
+        truePeakDb: calls === 1 ? -6 : -0.5,
+        silenceMs: 100,
+        analyzedDurationSeconds: 10,
+        dialoguePresent: true,
+      };
+    },
+  });
+  runtime.registerBuiltinSkills();
+  const { before, preview } = await previewDialogue(runtime);
+
+  const result = await runtime.executeSkill(preview.previewToken);
+
+  assert.equal(calls, 2);
+  assert.equal(result.status, "ROLLED_BACK");
+  assert.equal(result.rollback.succeeded, true);
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
+});
+
 test("invalid post-write dialogue measurements roll back the transaction", async () => {
   let calls = 0;
   const { runtime, adapter } = createFixture({

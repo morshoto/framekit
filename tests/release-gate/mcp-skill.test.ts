@@ -90,17 +90,12 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
           mediaId: "dialogue-media",
           occurrenceId: "dialogue-clip",
           baseRevision: before.revision,
-          targetLufs: -16,
-          toleranceDb: 0.5,
-          maxTruePeakDb: -1,
-          minGainDb: -6,
-          maxGainDb: 6,
-          minDialogueDurationSeconds: 1,
         },
       },
     });
     const dialoguePlan = JSON.parse(textFrom(dialoguePreview)) as { previewToken: string; plan: { decision: string } };
     assert.equal(dialoguePlan.plan.decision, "APPLY");
+    assert.equal((dialoguePlan.plan as { normalizedInput?: { targetLufs?: number } }).normalizedInput?.targetLufs, -16);
     const dialogueResult = await client.callTool({
       name: "skill.execute",
       arguments: { skill: "dialogue-normalization", previewToken: dialoguePlan.previewToken },
