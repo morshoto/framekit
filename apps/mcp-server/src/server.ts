@@ -929,6 +929,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.importMedia(path));
   });
 
+  server.registerTool("editor.native.media.directory.preview", {
+    description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
+    inputSchema: { path: z.string().trim().min(1) },
+  }, async ({ path }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path));
+  });
+
+  server.registerTool("editor.native.media.directory.execute", {
+    description: "Import every file from a directory preview after explicit confirmation and return per-file stable media handles or failures.",
+    inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
+  }, async ({ previewToken, confirm }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm));
+  });
+
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
     inputSchema: nativeEditToolInputSchema,

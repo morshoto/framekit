@@ -212,6 +212,39 @@ accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 If Final Cut does not expose a ready Media Import window, folder sheet, or import
 button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
 
+To import all supported video files from one directory, first call
+`editor.native.media.directory.preview`:
+
+```json
+{
+  "path": "~/Desktop/video-clip"
+}
+```
+
+Framekit expands `~`, requires a readable directory, scans only that directory
+(not nested directories), and returns `.mov`, `.mp4`, and `.m4v` files sorted by
+normalized absolute path. Unsupported files and directories are not included.
+The preview only reads the filesystem; it does not focus or mutate Final Cut.
+
+After reviewing the returned `files`, call
+`editor.native.media.directory.execute` with the preview token and explicit
+confirmation:
+
+```json
+{
+  "previewToken": "media-directory-preview-...",
+  "confirm": true
+}
+```
+
+Files are imported in preview order. The result contains one entry per file with
+`status: "imported"` and a stable `media.mediaHandle`, or `status: "failed"`
+with an error code and message. `status: "partial"`, `importedCount`, and
+`failedCount` make partial completion explicit; one file failure does not hide
+the results of other files. The token expires after 30 seconds and is consumed
+by a confirmed execution. This workflow imports Browser media only; it does not
+append anything to the timeline.
+
 ## Live Browser search and Blade
 
 With native writes enabled, use `editor.native.media.target` for the common
