@@ -5,9 +5,9 @@ import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 const fieldSeparator = String.fromCharCode(31);
 const recordSeparator = String.fromCharCode(30);
 
-function context(): string {
+function context(frontmost = true): string {
   return [
-    "true",
+    String(frontmost),
     "Final Cut Pro",
     "0",
     "",
@@ -62,4 +62,24 @@ test("native title discovery capability follows the enabled native provider", ()
 
   assert.equal(enabled.capabilities().titleDiscovery, true);
   assert.equal(disabled.capabilities().titleDiscovery, false);
+});
+
+test("native title discovery fails closed without browser identities or frontmost access", async () => {
+  const missingIdentity = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("on preflightResult") || script.includes('set selectedName to ""')) return context();
+      return ["Lower Third", ""].join(fieldSeparator) + recordSeparator;
+    },
+  });
+  await assert.rejects(missingIdentity.searchTitles("Lower Third"), /FINAL_CUT_NATIVE_TITLE_ID_UNAVAILABLE/);
+
+  const background = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async () => context(false),
+  });
+  await assert.rejects(background.searchTitles("Lower Third"), /FINAL_CUT_NATIVE_NOT_FRONTMOST/);
+
+  const disabled = new FinalCutNativeAutomationAdapter({ enabled: false });
+  await assert.rejects(disabled.searchTitles("Lower Third"), /CAPABILITY_UNAVAILABLE/);
 });

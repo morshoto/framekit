@@ -1525,6 +1525,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       mediaAppend: Boolean(native?.mediaAppend),
       mediaInsert: Boolean(native?.mediaInsert),
       titlePlacement: Boolean(native?.titlePlacement),
+      titleDiscovery: Boolean(native?.titleDiscovery),
       transitionDiscovery: Boolean(native?.transitionDiscovery),
       transitionPlacement: Boolean(native?.transitionPlacement),
       timelineFocus: Boolean(native?.timelineFocus),

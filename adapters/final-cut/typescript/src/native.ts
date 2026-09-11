@@ -303,6 +303,7 @@ export interface NativeFinalCutCapabilities {
   mediaAppend: boolean;
   mediaInsert: boolean;
   titlePlacement: boolean;
+  titleDiscovery?: boolean;
   transitionDiscovery?: boolean;
   transitionPlacement?: boolean;
   timelineFocus: boolean;
@@ -505,6 +506,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
       titlePlacement: this.enabled,
+      titleDiscovery: this.enabled,
       transitionDiscovery: this.enabled,
       transitionPlacement: this.enabled,
       timelineFocus: this.enabled,
@@ -1369,7 +1371,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const endTimecode = this.toTimecode(preview.end, beforeLive);
     try {
       await this.executeNativeSequence(async () => {
-        await this.executor(titleAssetSelectionScript(preview.asset.name));
+        await this.executor(titleAssetSelectionScript(preview.asset.name, nativeTitleIdentity(preview.asset)));
         await this.focusTimelineForMediaInsertion();
         await this.executor(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
@@ -2129,6 +2131,13 @@ function verifyNativeUndo(
 function assertNativeTitleAsset(asset: EditorAsset): void {
   if (!asset.id.trim() || !asset.name.trim()) throw new Error("TITLE_ASSET_NOT_FOUND: native title asset identity is incomplete");
   if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${asset.id} is not a Final Cut title asset`);
+}
+
+function nativeTitleIdentity(asset: EditorAsset): string | undefined {
+  const idIdentity = titleIdentityFromId(asset.id);
+  if (idIdentity) return idIdentity;
+  const metadataIdentity = asset.metadata.identity;
+  return typeof metadataIdentity === "string" && metadataIdentity.trim() ? metadataIdentity : undefined;
 }
 
 function publicTitleAsset(asset: EditorAsset): Pick<EditorAsset, "id" | "kind" | "name" | "vendor"> {
@@ -4162,6 +4171,7 @@ tell application "System Events"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set mainOrigin to position of mainWindow
+    set targetIdentity to ${appleScriptString(assetIdentity ?? "")}
     -- Final Cut 10.7 exposes the Titles tab as a custom Browser control. Its
     -- Control-Command-1 shortcut is not stable across releases (on some
     -- builds it opens Export), so use the bounded window-relative fallback.
@@ -4210,14 +4220,14 @@ tell application "System Events"
           set candidateIdentity to ""
           try
             set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-            if candidateSourceIdentity is not "" then set candidateIdentity to "source:" & candidateSourceIdentity
+            if candidateSourceIdentity is not "" then set candidateIdentity to candidateSourceIdentity
           end try
           if candidateIdentity is "" then
             set candidateIdentity to (candidateRole as text) & "|" & (candidateName as text) & "|" & ((position of candidate) as text) & "|" & ((size of candidate) as text)
           end if
-          if (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}) and seenTitleIdentities does not contain candidateIdentity then
+          if ((targetIdentity is not "" and candidateIdentity is targetIdentity) or (targetIdentity is "" and (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}))) and seenTitleIdentities does not contain candidateIdentity then
             set end of seenTitleIdentities to candidateIdentity
-            if candidateName is ${appleScriptString(assetName)} then
+            if targetIdentity is not "" or candidateName is ${appleScriptString(assetName)} then
               set exactMatchCount to exactMatchCount + 1
               set exactTitleItem to candidate
             else
