@@ -295,7 +295,7 @@ export function renderReleaseGateReport(report: ReleaseGateReport): string {
     `metadata_only_status=${report.evidenceTiers["metadata-only"].status}`,
     `canonical_live_status=${report.evidenceTiers["canonical-live"].status}`,
     `headed_native_status=${report.evidenceTiers["headed-native"].status}`,
-    `release_ready=${report.provenance.releaseReady}`,
+    `provenance_ready=${report.provenance.releaseReady}`,
   ].join("\n");
 }
 

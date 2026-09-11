@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadReleaseGateCorpus, runReleaseGate } from "./runner.js";
+import { loadReleaseGateCorpus, renderReleaseGateReport, runReleaseGate } from "./runner.js";
 
 test("v0.1.6 release gate corpus carries controlled fixtures", () => {
   const corpus = loadReleaseGateCorpus();
@@ -32,6 +32,9 @@ test("release gate executes Skills and separates capability evidence", async () 
   assert.equal(report.evidenceTiers["metadata-only"].status, "verified");
   assert.equal(report.evidenceTiers["canonical-live"].status, "unsupported");
   assert.equal(report.evidenceTiers["headed-native"].status, "unrun");
+  const rendered = renderReleaseGateReport(report);
+  assert.match(rendered, /provenance_ready=false/);
+  assert.doesNotMatch(rendered, /release_ready=/);
   assert.deepEqual(report.repositoryChecks.checks.map((check) => check.status), [
     "unrun",
     "unrun",
