@@ -909,6 +909,113 @@ test("Final Cut MCP imports local media and returns a stable media handle", asyn
   }
 });
 
+test("Final Cut MCP previews and executes a confirmed directory media import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-finalcut-mcp-directory-import-"));
+  await writeFile(join(directory, "alpha.mov"), "video fixture");
+  await writeFile(join(directory, "beta.mp4"), "video fixture");
+  await writeFile(join(directory, "ignored.wav"), "audio fixture");
+
+  const calls: Array<{ method: string; value: unknown }> = [];
+  const preview = {
+    previewToken: "directory-preview-1",
+    directoryPath: directory,
+    files: [
+      { sourcePath: join(directory, "alpha.mov"), name: "alpha.mov", kind: "video" as const },
+      { sourcePath: join(directory, "beta.mp4"), name: "beta.mp4", kind: "video" as const },
+    ],
+    command: "Import all previewed video files" as const,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    previewToken: preview.previewToken,
+    directoryPath: directory,
+    files: preview.files,
+    results: preview.files.map((file, index) => ({
+      sourcePath: file.sourcePath,
+      name: file.name,
+      status: "imported" as const,
+      media: {
+        mediaHandle: `media-import-${index + 1}`,
+        sourcePath: file.sourcePath,
+        name: file.name,
+        kind: "video" as const,
+      },
+    })),
+    importedCount: 2,
+    failedCount: 0,
+    partial: false,
+    status: "completed" as const,
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    previewImportMediaDirectory: async (directoryPath: string) => {
+      calls.push({ method: "preview", value: directoryPath });
+      return preview;
+    },
+    executeImportMediaDirectory: async (previewToken: string, confirm: boolean) => {
+      calls.push({ method: "execute", value: { previewToken, confirm } });
+      return result;
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Directory Import Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "directory-import-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.media.directory.preview"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.media.directory.execute"));
+
+    const previewResult = await client.callTool({
+      name: "editor.native.media.directory.preview",
+      arguments: { path: directory },
+    });
+    assert.deepEqual(JSON.parse(textFrom(previewResult)), preview);
+
+    const unconfirmed = await client.callTool({
+      name: "editor.native.media.directory.execute",
+      arguments: { previewToken: preview.previewToken, confirm: false },
+    });
+    assert.equal(unconfirmed.isError, true);
+
+    const executeResult = await client.callTool({
+      name: "editor.native.media.directory.execute",
+      arguments: { previewToken: preview.previewToken, confirm: true },
+    });
+    assert.deepEqual(JSON.parse(textFrom(executeResult)), result);
+    assert.deepEqual(calls, [
+      { method: "preview", value: directory },
+      { method: "execute", value: { previewToken: preview.previewToken, confirm: true } },
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("Final Cut MCP exposes the native Undo command and preserves Undo errors", async () => {
   const nativeContext = {
     available: true,
