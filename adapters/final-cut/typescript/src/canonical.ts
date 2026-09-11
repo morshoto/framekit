@@ -324,16 +324,36 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       afterRevision: before.revision,
     };
 
-    const after = await this.readProject();
-    const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
-    if (!afterClip || afterClip.name !== operation.name) {
-      throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+    try {
+      const after = await this.readProject();
+      const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
+      if (!afterClip || afterClip.name !== operation.name) {
+        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+      }
+      if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
+        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
+      }
+      this.pending.afterRevision = after.revision;
+      return after.revision;
+    } catch (error) {
+      try {
+        const undone = await this.native.undo(nativeResult.operationId);
+        if (!undone.undone || undone.verification?.verified !== true) {
+          throw new Error("native Undo did not verify restoration");
+        }
+        const restored = await this.readProject();
+        if (canonicalSnapshotDigest(restored) !== this.pending.beforeDigest) {
+          throw new Error("restored canonical digest does not match the pre-edit state");
+        }
+      } catch (rollbackError) {
+        const original = error instanceof Error ? error.message : String(error);
+        const rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+        throw new Error(`FINAL_CUT_CANONICAL_ROLLBACK_FAILED: ${rollback}; original error: ${original}`);
+      } finally {
+        this.pending = undefined;
+      }
+      throw error;
     }
-    if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
-      throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
-    }
-    this.pending.afterRevision = after.revision;
-    return after.revision;
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
