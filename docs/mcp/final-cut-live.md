@@ -91,6 +91,13 @@ and native Undo that restores the original canonical digest. Duplicate media,
 duplicate occurrences, stale coordinates, missing Accessibility identity, or
 any failed verification returns an error before claiming success.
 
+The canonical transaction port currently supports one `rename-clip` transaction.
+Call `editor.timeline.edit.preview` with the explicit project, sequence, base
+revision, and operation, confirm that the preview is non-mutating, then call
+`editor.timeline.edit.execute` with its single-use token. The execute result
+contains the read-after-write snapshot, deterministic diff, verification, and
+the transaction ID used by `edit.undo`.
+
 The headed baseline is Final Cut Pro 10.7.1 on the repository's macOS/Xcode
 16.4 environment. A different Final Cut version requires fresh headed evidence.
 Use a disposable project, open the intended sequence before connecting, and
@@ -144,7 +151,8 @@ than the open Final Cut timeline.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
-through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`, `edit.diff`, and
+through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`,
+`editor.timeline.edit.preview`, `editor.timeline.edit.execute`, `edit.diff`, and
 `edit.undo` MCP tools only when `canonicalTimelineMode` is `canonical-read` or
 `canonical-write`. The bundled Workflow Extension cannot currently supply
 those methods and fails them with `CAPABILITY_UNAVAILABLE`.

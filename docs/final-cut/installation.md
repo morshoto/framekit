@@ -142,7 +142,9 @@ metadata socket with Final Cut's own UI. It exports the active timeline through
 canonical snapshot, and removes the file after each read. It does not read or
 write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
 Browser media match and a unique timeline occurrence with matching rational
-coordinates; native Accessibility Undo and a second export verify rollback.
+coordinates; native Accessibility Undo and a second export verify rollback. Its
+canonical transaction port currently supports one `rename-clip` operation through
+`editor.timeline.edit.preview` and `editor.timeline.edit.execute`.
 
 Use it only with Final Cut Pro 10.7.1 on the repository's macOS/Xcode 16.4
 baseline until a different Final Cut version has its own headed evidence:
