@@ -5,6 +5,7 @@ import {
   loadNativeEditingManifest,
   summarizeHeadedEvidence,
 } from "./native-editing.js";
+import { runReleaseGate } from "./runner.js";
 
 test("v0.1.6 manifest names every evidence tier and workflow", () => {
   const manifest = loadNativeEditingManifest();
@@ -125,4 +126,30 @@ test("missing external release state is unrun and cannot be release success", ()
   assert.ok(report.checks.some((check) => check.name === "github-release" && check.status === "unrun"));
   assert.ok(report.checks.some((check) => check.name === "native-assets" && check.status === "unrun"));
   assert.doesNotMatch(report.summary, /release ready/i);
+});
+
+test("release gate reports each v0.1.6 evidence tier independently", async () => {
+  const report = await runReleaseGate({ generatedAt: "2026-09-11T00:00:00.000Z" });
+
+  assert.equal(report.gate, "v0.1.6-native-editing");
+  assert.equal(report.manifestVersion, "2026-09-11");
+  assert.equal(report.deterministic.passed, true);
+  assert.equal(report.evidenceTiers.deterministic.status, "verified");
+  assert.equal(report.evidenceTiers["fcpxml-artifact"].status, "verified");
+  assert.equal(report.evidenceTiers["metadata-only"].status, "verified");
+  assert.equal(report.evidenceTiers["canonical-live"].status, "unsupported");
+  assert.equal(report.evidenceTiers["headed-native"].status, "unrun");
+  assert.deepEqual(
+    report.workflowMatrix.map((workflow) => workflow.workflowId),
+    [
+      "canonical-live",
+      "picture-in-picture",
+      "built-in-title-discovery",
+      "masking",
+      "filler-removal",
+      "dialogue-normalization",
+    ],
+  );
+  assert.ok(report.evidenceTiers["metadata-only"].preflight.unavailableReason);
+  assert.doesNotMatch(JSON.stringify(report), /operationId|sourceIdentity|\/private\/media/i);
 });

@@ -1,18 +1,37 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
+  createCapabilityPreflight,
+  withCapabilityFamilies,
   type AudioAnalyzer,
   type RuntimeOptions,
   type SpeechAnalyzer,
   type ProjectSnapshot,
+  type WorkflowOperation,
 } from "@framekit/runtime";
+import { FcpxmlDocumentAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
 import { InMemoryEditorAdapter, type InMemoryFixture } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { FRAMEKIT_VERSION } from "../../apps/mcp-server/src/version.js";
+import {
+  assessReleaseProvenance,
+  loadNativeEditingManifest,
+  summarizeHeadedEvidence,
+  type EvidenceMode,
+  type EvidenceStatus,
+  type HeadedEvidenceSummary,
+  type NativeEditingManifest,
+  type ReleaseProvenanceInput,
+  type ReleaseProvenanceReport,
+} from "./native-editing.js";
 
 const corpusPath = fileURLToPath(new URL("./corpus.json", import.meta.url));
 const requiredFillerCases = [
@@ -77,7 +96,9 @@ export interface ReleaseGateWorkflowEvidence {
 
 export interface ReleaseGateReport {
   schemaVersion: 1;
-  gate: "v0.0.3-closed-loop-speech-editing";
+  gate: "v0.1.6-native-editing";
+  manifestVersion: string;
+  releaseVersion: "0.1.6";
   corpusVersion: string;
   generatedAt: string;
   deterministic: {
@@ -97,10 +118,62 @@ export interface ReleaseGateReport {
     reason: string;
   };
   unsupportedCapabilities: string[];
+  evidenceTiers: ReleaseGateEvidenceTiers;
+  workflowMatrix: ReleaseGateWorkflowMatrixEntry[];
+  provenance: ReleaseProvenanceReport;
 }
 
 export interface RunReleaseGateOptions {
   generatedAt?: string;
+  headedEvidenceDirectory?: string;
+  provenance?: Partial<ReleaseProvenanceInput>;
+}
+
+export interface ReleaseGateWorkflowMatrixEntry {
+  workflowId: string;
+  operation: string;
+    capability: string;
+  evidence: Array<{
+    tier: string;
+    status: EvidenceStatus;
+    passed: boolean;
+    reason?: string;
+  }>;
+}
+
+export interface ReleaseGateEvidence {
+  tier: string;
+  status: EvidenceStatus;
+  attempted: boolean;
+  passed: boolean;
+  mode: EvidenceMode;
+  backend: string;
+  guarantee: string;
+  preflight: {
+    mode: EvidenceMode;
+    backend: string;
+    guarantee: string;
+    capabilities?: unknown;
+    unavailableReason?: string;
+  };
+  workflows: Array<{
+    workflowId: string;
+    status: EvidenceStatus;
+    passed: boolean;
+    evidenceType?: string;
+    target?: HeadedEvidenceSummary["target"];
+    revision?: HeadedEvidenceSummary["revision"];
+    verification?: { execute: boolean; undo: boolean };
+    reason?: string;
+  }>;
+}
+
+export interface ReleaseGateEvidenceTiers {
+  deterministic: ReleaseGateEvidence;
+  "fcpxml-artifact": ReleaseGateEvidence;
+  "metadata-only": ReleaseGateEvidence;
+  "canonical-live": ReleaseGateEvidence;
+  "headed-native": ReleaseGateEvidence;
 }
 
 export function loadReleaseGateCorpus(): ReleaseGateCorpus {
@@ -127,6 +200,7 @@ export function loadReleaseGateCorpus(): ReleaseGateCorpus {
 
 export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promise<ReleaseGateReport> {
   const corpus = loadReleaseGateCorpus();
+  const manifest = loadNativeEditingManifest();
   const workflows = [];
   for (const workflow of corpus.workflows) workflows.push(await runWorkflow(workflow));
   const fillerResults = workflows.filter((workflow) => workflow.family === "filler-removal"
@@ -134,9 +208,41 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
   const successfulFillers = fillerResults.filter((workflow) => workflow.passed && workflow.actualOutcome === "verified").length;
   const fillerVerificationRate = fillerResults.length === 0 ? 0 : successfulFillers / fillerResults.length;
   const deterministicPassed = workflows.every((workflow) => workflow.passed) && fillerVerificationRate >= 0.95;
-  return {
+  const deterministicEditing = await runDeterministicEditingWorkflows();
+  const fcpxmlArtifact = await runFcpxmlArtifactWorkflows();
+  const metadataOnly = await runMetadataOnlyPreflight();
+  const evidenceTiers = await collectEvidenceTiers({
+    manifest,
+    deterministicPassed,
+    deterministicWorkflows: [
+      ...deterministicEditing,
+      aggregateWorkflow("filler-removal", workflows),
+      aggregateWorkflow("dialogue-normalization", workflows),
+    ],
+    fcpxmlWorkflows: fcpxmlArtifact,
+    metadataOnly,
+    headedEvidenceDirectory: options.headedEvidenceDirectory,
+  });
+  const packageManifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+    name?: string;
+    version?: string;
+    private?: boolean;
+  };
+  const pluginManifest = JSON.parse(readFileSync(new URL("../../plugins/framekit/.codex-plugin/plugin.json", import.meta.url), "utf8")) as {
+    name?: string;
+    version?: string;
+  };
+  const provenance = assessReleaseProvenance({
+    packageManifest,
+    pluginManifest,
+    serverVersion: FRAMEKIT_VERSION,
+    ...options.provenance,
+  });
+  const report = {
     schemaVersion: 1,
-    gate: "v0.0.3-closed-loop-speech-editing",
+    gate: "v0.1.6-native-editing",
+    manifestVersion: manifest.manifestVersion,
+    releaseVersion: manifest.releaseVersion,
     corpusVersion: corpus.corpusVersion,
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     deterministic: {
@@ -164,19 +270,499 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
       "live canonical timeline enumeration",
       "live canonical timeline mutation",
     ],
-  };
+    evidenceTiers,
+    workflowMatrix: buildWorkflowMatrix(manifest, evidenceTiers),
+    provenance,
+  } satisfies ReleaseGateReport;
+  return report;
 }
 
 export function renderReleaseGateReport(report: ReleaseGateReport): string {
   return [
-    "Framekit v0.0.3 closed-loop speech editing release gate",
+    "Framekit v0.1.6 native-editing release gate",
+    `manifest_version=${report.manifestVersion}`,
     `corpus_version=${report.corpusVersion}`,
     `deterministic_passed=${report.deterministic.passed}`,
     `workflows=${report.deterministic.workflows.length}`,
     `filler_verification_rate=${(report.deterministic.fillerVerificationRate * 100).toFixed(1)}%`,
     `adapter_backend=${report.adapter.backend}`,
     `live_status=${report.live.status}`,
+    `fcpxml_status=${report.evidenceTiers["fcpxml-artifact"].status}`,
+    `metadata_only_status=${report.evidenceTiers["metadata-only"].status}`,
+    `canonical_live_status=${report.evidenceTiers["canonical-live"].status}`,
+    `headed_native_status=${report.evidenceTiers["headed-native"].status}`,
+    `release_ready=${report.provenance.releaseReady}`,
   ].join("\n");
+}
+
+interface TierWorkflowResult {
+  workflowId: string;
+  status: EvidenceStatus;
+  passed: boolean;
+  evidenceType?: string;
+  target?: HeadedEvidenceSummary["target"];
+  revision?: HeadedEvidenceSummary["revision"];
+  verification?: { execute: boolean; undo: boolean };
+  reason?: string;
+}
+
+interface MetadataOnlyResult {
+  preflight: ReleaseGateEvidence["preflight"];
+  workflows: TierWorkflowResult[];
+}
+
+async function runDeterministicEditingWorkflows(): Promise<TierWorkflowResult[]> {
+  return [
+    await runFixtureEditingWorkflow("picture-in-picture", {
+      type: "timeline.picture-in-picture.add",
+      occurrenceId: "pip-occurrence",
+      mediaId: "pip-media",
+      attachedTo: "primary-occurrence",
+      start: 2,
+      duration: 4,
+      targetLane: 1,
+      position: { x: 320, y: -180 },
+      scale: 0.35,
+      crop: { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 },
+    }),
+    await runFixtureEditingWorkflow("built-in-title-discovery", {
+      type: "timeline.title.add",
+      occurrenceId: "title-occurrence",
+      assetId: "title-basic",
+      text: "Framekit release proof",
+      start: 1,
+      duration: 2,
+      targetLane: 2,
+    }),
+    await runFixtureEditingWorkflow("masking", {
+      type: "timeline.mask.add",
+      occurrenceId: "primary-occurrence",
+      mask: { mode: "rectangle", bounds: { x: 0.1, y: 0.2, width: 0.6, height: 0.7 } },
+    }),
+  ];
+}
+
+async function runFixtureEditingWorkflow(
+  workflowId: string,
+  operation: WorkflowOperation,
+): Promise<TierWorkflowResult> {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "release-gate-fixture",
+    projectName: "Native Editing Release Gate",
+    timelineId: "release-gate-timeline",
+    timelineName: "Main Edit",
+    clips: [{
+      id: "primary-occurrence",
+      mediaId: "primary-media",
+      name: "Presenter",
+      start: 0,
+      duration: 10,
+      track: 1,
+    }],
+    media: [
+      { mediaId: "primary-media", source: "fixtures/presenter.mov", mediaKind: "video", duration: 10 },
+      { mediaId: "pip-media", source: "fixtures/guest.mov", mediaKind: "video", duration: 6 },
+    ],
+    assets: [{ id: "title-basic", kind: "title", name: "Basic Title", vendor: "Framekit Fixture", metadata: {} }],
+  });
+  const runtime = new AgentVideoRuntime(adapter);
+
+  try {
+    if (workflowId === "built-in-title-discovery") {
+      const titles = await runtime.listAssets({ kind: "title", query: "Basic Title" });
+      assert.equal(titles.length, 1, "fixture title discovery must be unique");
+    }
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: [operation] });
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    const after = await runtime.inspectProject();
+    const restored = await runtime.undo(transaction.id);
+    const changed = canonicalSnapshotDigest(before) !== canonicalSnapshotDigest(after);
+    const restoredOriginal = canonicalSnapshotDigest(before) === canonicalSnapshotDigest(restored);
+    const verified = transaction.status === "VERIFIED" && changed && restoredOriginal;
+    return {
+      workflowId,
+      status: verified ? "verified" : "failed",
+      passed: verified,
+      revision: {
+        before: before.revision.id,
+        after: after.revision.id,
+        restored: restored.revision.id,
+      },
+      verification: { execute: verified, undo: restoredOriginal },
+      ...(verified ? {} : { reason: "fixture edit did not verify a changed and restored canonical snapshot" }),
+    };
+  } catch (error) {
+    return { workflowId, status: "failed", passed: false, reason: safeFailure(error) };
+  }
+}
+
+async function runFcpxmlArtifactWorkflows(): Promise<TierWorkflowResult[]> {
+  return [await runFcpxmlPictureInPicture(), await runFcpxmlDialogueNormalization()];
+}
+
+async function runFcpxmlPictureInPicture(): Promise<TierWorkflowResult> {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-release-gate-fcpxml-"));
+  const artifactPath = join(directory, "pip.fcpxml");
+  try {
+    await writeFile(artifactPath, releaseGateFcpxml(), "utf8");
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewArtifactEdit(artifactPath, {
+      baseRevision: before.revision,
+      operations: [{
+        type: "timeline.picture-in-picture.add",
+        occurrenceId: "pip-occurrence",
+        mediaId: "pip-media",
+        attachedTo: "primary-occurrence",
+        start: 2,
+        duration: 4,
+        targetLane: 1,
+        position: { x: 320, y: -180 },
+        scale: 0.35,
+        crop: { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 },
+      }],
+    });
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    const after = await runtime.inspectProject();
+    const restored = await runtime.undo(transaction.id);
+    const verified = transaction.status === "VERIFIED"
+      && canonicalSnapshotDigest(before) !== canonicalSnapshotDigest(after)
+      && canonicalSnapshotDigest(before) === canonicalSnapshotDigest(restored);
+    return {
+      workflowId: "picture-in-picture",
+      status: verified ? "verified" : "failed",
+      passed: verified,
+      revision: { before: before.revision.id, after: after.revision.id, restored: restored.revision.id },
+      verification: { execute: verified, undo: canonicalSnapshotDigest(before) === canonicalSnapshotDigest(restored) },
+      ...(verified ? {} : { reason: "FCPXML PIP artifact did not verify and restore" }),
+    };
+  } catch (error) {
+    return { workflowId: "picture-in-picture", status: "failed", passed: false, reason: safeFailure(error) };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function runFcpxmlDialogueNormalization(): Promise<TierWorkflowResult> {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-release-gate-dialogue-"));
+  const artifactPath = join(directory, "dialogue.fcpxml");
+  try {
+    await writeFile(artifactPath, releaseGateFcpxml(), "utf8");
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewArtifactEdit(artifactPath, {
+      baseRevision: before.revision,
+      operations: [{
+        type: "set-gain",
+        clipId: "primary-occurrence",
+        gainDb: 4,
+      }],
+    });
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    const after = await runtime.inspectProject();
+    const restored = await runtime.undo(transaction.id);
+    const verified = transaction.status === "VERIFIED"
+      && canonicalSnapshotDigest(before) !== canonicalSnapshotDigest(after)
+      && canonicalSnapshotDigest(before) === canonicalSnapshotDigest(restored);
+    return {
+      workflowId: "dialogue-normalization",
+      status: verified ? "verified" : "failed",
+      passed: verified,
+      revision: { before: before.revision.id, after: after.revision.id, restored: restored.revision.id },
+      verification: { execute: verified, undo: canonicalSnapshotDigest(before) === canonicalSnapshotDigest(restored) },
+      ...(verified ? {} : { reason: "FCPXML dialogue artifact did not verify and restore" }),
+    };
+  } catch (error) {
+    return { workflowId: "dialogue-normalization", status: "failed", passed: false, reason: safeFailure(error) };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function releaseGateFcpxml(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11">
+  <resources>
+    <asset id="primary-media" name="Presenter" src="file:///fixtures/presenter.mov" duration="10s" />
+    <asset id="pip-media" name="Guest" src="file:///fixtures/guest.mov" duration="6s" />
+  </resources>
+  <library><event name="Release Gate"><project uid="release-gate-project" name="Native Editing Release Gate">
+    <sequence uid="release-gate-sequence" name="Main Edit" duration="10s"><spine>
+      <asset-clip id="primary-occurrence" ref="primary-media" name="Presenter" offset="0s" duration="10s" />
+    </spine></sequence>
+  </project></event></library>
+</fcpxml>
+`;
+}
+
+async function runMetadataOnlyPreflight(): Promise<MetadataOnlyResult> {
+  const metadataCapabilities = withCapabilityFamilies({
+    editor: {
+      projectRead: true,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      timelineArtifactWrite: false,
+      readAfterWrite: false,
+      incrementalChanges: true,
+      rollback: false,
+      assetDiscovery: false,
+      liveStateRead: true,
+      playheadWrite: false,
+      frameCapture: false,
+      projectCatalogRead: false,
+      projectSelection: false,
+      compositeTransactions: false,
+    },
+    analyzers: {
+      speechTranscribe: false,
+      speechVad: false,
+      audioLoudness: false,
+      visualTrack: false,
+    },
+  }, { backend: "workflow-extension-ipc" });
+  const live = {
+    getIdentity: async () => ({ name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" }),
+    getCapabilities: async () => metadataCapabilities,
+    readLiveState: async () => {
+      throw new Error("metadata-only fixture has no live state payload");
+    },
+    liveChangesSince: async () => [],
+  };
+  const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
+  const inspected = await runtime.inspectEditor();
+  const preflight = createCapabilityPreflight(inspected.identity, inspected.capabilities, { processMode: "headless" });
+  const unavailableReason = preflight.capabilities.canonicalDocument.write.unavailableReason
+    ?? "canonical timeline writes are unavailable";
+  return {
+    preflight: {
+      mode: "headless",
+      backend: preflight.backend,
+      guarantee: "observed",
+      capabilities: preflight.capabilities,
+      unavailableReason,
+    },
+    workflows: loadNativeEditingManifest().workflows.map((workflow) => ({
+      workflowId: workflow.id,
+      status: "unsupported",
+      passed: true,
+      reason: unavailableReason,
+    })),
+  };
+}
+
+async function collectEvidenceTiers(input: {
+  manifest: NativeEditingManifest;
+  deterministicPassed: boolean;
+  deterministicWorkflows: TierWorkflowResult[];
+  fcpxmlWorkflows: TierWorkflowResult[];
+  metadataOnly: MetadataOnlyResult;
+  headedEvidenceDirectory?: string;
+}): Promise<ReleaseGateEvidenceTiers> {
+  const deterministic = createTierEvidence(
+    "deterministic",
+    input.deterministicPassed && input.deterministicWorkflows.every((workflow) => workflow.passed),
+    "headless",
+    "fixture",
+    "verified",
+    input.deterministicWorkflows,
+    { mode: "headless", backend: "fixture", guarantee: "verified" },
+  );
+  const fcpxmlArtifact = createTierEvidence(
+    "fcpxml-artifact",
+    input.fcpxmlWorkflows.every((workflow) => workflow.passed),
+    "headless",
+    "fcpxml-document",
+    "artifact-write",
+    input.fcpxmlWorkflows,
+    { mode: "headless", backend: "fcpxml-document", guarantee: "artifact-write" },
+  );
+  const metadataOnly = createTierEvidence(
+    "metadata-only",
+    true,
+    "headless",
+    input.metadataOnly.preflight.backend,
+    "observed",
+    input.metadataOnly.workflows,
+    input.metadataOnly.preflight,
+  );
+  const canonicalWorkflows = input.manifest.workflows
+    .filter((workflow) => workflow.evidenceTiers.includes("canonical-live"))
+    .map((workflow) => ({
+      workflowId: workflow.id,
+      status: "unsupported" as const,
+      passed: true,
+      reason: input.metadataOnly.preflight.unavailableReason,
+    }));
+  const canonicalLive = createTierEvidence(
+    "canonical-live",
+    true,
+    "headless",
+    input.metadataOnly.preflight.backend,
+    "canonical-write",
+    canonicalWorkflows,
+    {
+      ...input.metadataOnly.preflight,
+      guarantee: "canonical-write",
+      unavailableReason: input.metadataOnly.preflight.unavailableReason,
+    },
+    "unsupported",
+  );
+  const headed = await collectHeadedNativeEvidence(input.manifest, input.headedEvidenceDirectory);
+  return { deterministic, "fcpxml-artifact": fcpxmlArtifact, "metadata-only": metadataOnly, "canonical-live": canonicalLive, "headed-native": headed };
+}
+
+function createTierEvidence(
+  tier: string,
+  passed: boolean,
+  mode: EvidenceMode,
+  backend: string,
+  guarantee: string,
+  workflows: TierWorkflowResult[],
+  preflight: ReleaseGateEvidence["preflight"],
+  explicitStatus?: EvidenceStatus,
+): ReleaseGateEvidence {
+  const status = explicitStatus ?? (passed ? "verified" : "failed");
+  return {
+    tier,
+    status,
+    attempted: true,
+    passed,
+    mode,
+    backend,
+    guarantee,
+    preflight,
+    workflows,
+  };
+}
+
+async function collectHeadedNativeEvidence(
+  manifest: NativeEditingManifest,
+  evidenceDirectory?: string,
+): Promise<ReleaseGateEvidence> {
+  const preflight: ReleaseGateEvidence["preflight"] = {
+    mode: "headed",
+    backend: "final-cut-accessibility",
+    guarantee: "native-verified",
+    unavailableReason: evidenceDirectory
+      ? "no matching headed evidence was supplied for this workflow"
+      : "opt-in headed evidence directory was not supplied",
+  };
+  const workflows = await readHeadedEvidence(manifest, evidenceDirectory);
+  const attempted = workflows.some((workflow) => workflow.status !== "unrun");
+  const failed = workflows.some((workflow) => workflow.status === "failed");
+  const status: EvidenceStatus = failed ? "failed" : attempted ? "verified" : "unrun";
+  return {
+    tier: "headed-native",
+    status,
+    attempted,
+    passed: status === "verified",
+    mode: "headed",
+    backend: "final-cut-accessibility",
+    guarantee: "native-verified",
+    preflight,
+    workflows,
+  };
+}
+
+async function readHeadedEvidence(
+  manifest: NativeEditingManifest,
+  evidenceDirectory?: string,
+): Promise<TierWorkflowResult[]> {
+  if (!evidenceDirectory) {
+    return manifest.workflows
+      .filter((workflow) => workflow.evidenceTiers.includes("headed-native"))
+      .map((workflow) => ({ workflowId: workflow.id, status: "unrun", passed: false, reason: "opt-in headed evidence was not requested" }));
+  }
+  let files: string[];
+  try {
+    files = (await readdir(evidenceDirectory)).filter((file) => file.endsWith(".json"));
+  } catch {
+    return manifest.workflows
+      .filter((workflow) => workflow.evidenceTiers.includes("headed-native"))
+      .map((workflow) => ({ workflowId: workflow.id, status: "failed", passed: false, reason: "headed evidence directory could not be read" }));
+  }
+  const values: unknown[] = [];
+  for (const file of files) {
+    try {
+      values.push(JSON.parse(await readFile(join(evidenceDirectory, file), "utf8")));
+    } catch {
+      values.push({ evidenceType: `invalid:${file}`, passed: false });
+    }
+  }
+  const results: TierWorkflowResult[] = [];
+  for (const workflow of manifest.workflows.filter((candidate) => candidate.evidenceTiers.includes("headed-native"))) {
+    if (workflow.evidenceTypes.length === 0) {
+      results.push({ workflowId: workflow.id, status: "unrun", passed: false, reason: "no headed runner is registered" });
+      continue;
+    }
+    const matches = values.filter((value) => {
+      const evidenceType = value && typeof value === "object" ? (value as Record<string, unknown>).evidenceType : undefined;
+      return typeof evidenceType === "string" && workflow.evidenceTypes.includes(evidenceType);
+    });
+    if (matches.length === 0) {
+      results.push({ workflowId: workflow.id, status: "unrun", passed: false, reason: "matching headed evidence was not supplied" });
+      continue;
+    }
+    if (matches.length > 1) {
+      results.push({ workflowId: workflow.id, status: "failed", passed: false, reason: "multiple headed evidence records matched one workflow" });
+      continue;
+    }
+    try {
+      const summary = summarizeHeadedEvidence(matches[0], workflow);
+      results.push({
+        workflowId: workflow.id,
+        status: "verified",
+        passed: true,
+        evidenceType: summary.evidenceType,
+        target: summary.target,
+        revision: summary.revision,
+        verification: summary.verification,
+      });
+    } catch (error) {
+      results.push({ workflowId: workflow.id, status: "failed", passed: false, reason: safeFailure(error) });
+    }
+  }
+  return results;
+}
+
+function buildWorkflowMatrix(
+  manifest: NativeEditingManifest,
+  evidenceTiers: ReleaseGateEvidenceTiers,
+): ReleaseGateWorkflowMatrixEntry[] {
+  return manifest.workflows.map((workflow) => ({
+    workflowId: workflow.id,
+    operation: workflow.operation,
+    capability: workflow.capability,
+    evidence: workflow.evidenceTiers.map((tier) => {
+      const result = evidenceTiers[tier].workflows.find((candidate) => candidate.workflowId === workflow.id);
+      return {
+        tier,
+        status: result?.status ?? "unrun",
+        passed: result?.passed ?? false,
+        ...(result?.reason ? { reason: result.reason } : {}),
+      };
+    }),
+  }));
+}
+
+function aggregateWorkflow(
+  workflowId: "filler-removal" | "dialogue-normalization",
+  workflows: ReleaseGateWorkflowEvidence[],
+): TierWorkflowResult {
+  const familyWorkflows = workflows.filter((workflow) => workflow.family === workflowId);
+  const passed = familyWorkflows.length > 0 && familyWorkflows.every((workflow) => workflow.passed);
+  return {
+    workflowId,
+    status: passed ? "verified" : "failed",
+    passed,
+    ...(passed ? {} : { reason: `deterministic ${workflowId} corpus did not pass` }),
+  };
+}
+
+function safeFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.split(":", 1)[0] || "release gate workflow failed";
 }
 
 async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWorkflowEvidence> {
