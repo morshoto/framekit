@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "corpusVersion": "2026-08-30",
-  "runtimeContract": "v0.0.3",
+  "corpusVersion": "2026-09-11",
+  "runtimeContract": "v0.1.6",
   "workflows": [
     { "id": "filler.obvious", "family": "filler-removal", "scenario": "obvious", "expectedOutcome": "verified", "fixture": { "kind": "filler", "case": "obvious" } },
     { "id": "filler.low-confidence", "family": "filler-removal", "scenario": "low-confidence", "expectedOutcome": "verified", "fixture": { "kind": "filler", "case": "low-confidence" } },

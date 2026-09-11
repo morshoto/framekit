@@ -4,6 +4,20 @@ Phase 0, Phase 1, and Phase 2 are local runtime spikes. Capability declarations 
 authoritative at runtime; unsupported operations must fail with an explicit
 `CAPABILITY_UNAVAILABLE` error.
 
+## v0.1.6 native-editing release gate
+
+The current repository-owned gate covers five separate evidence tiers:
+deterministic fixture edits, FCPXML artifact writes, metadata-only bridge
+observations, canonical live capability, and opt-in headed-native Final Cut
+verification. Its workflow matrix covers canonical live editing,
+picture-in-picture, built-in title discovery, masking, filler removal, and
+dialogue normalization. `unsupported` and `unrun` remain distinct from
+`verified` in the report.
+
+Release provenance also checks package, MCP server, plugin, tag, GitHub release,
+workflow, npm, native archive, and checksum alignment. A release is not complete
+until the external checks and both native assets are verified.
+
 ## v0.0.3 release gate
 
 The repository-owned deterministic corpus verifies both v0.0.3 Skills through

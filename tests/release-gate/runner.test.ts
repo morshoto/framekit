@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadReleaseGateCorpus, runReleaseGate } from "./runner.js";
 
-test("release gate corpus carries controlled fixtures for every workflow", () => {
+test("v0.1.6 release gate corpus carries controlled fixtures", () => {
   const corpus = loadReleaseGateCorpus();
 
   assert.equal(corpus.schemaVersion, 1);
+  assert.equal(corpus.runtimeContract, "v0.1.6");
   assert.ok(corpus.workflows.length >= 15);
   for (const workflow of corpus.workflows) {
     assert.ok(workflow.fixture, `${workflow.id} has no controlled fixture`);

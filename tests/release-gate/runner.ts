@@ -183,7 +183,7 @@ export function loadReleaseGateCorpus(): ReleaseGateCorpus {
   const parsed = JSON.parse(readFileSync(corpusPath, "utf8")) as ReleaseGateCorpus;
   assert.equal(parsed.schemaVersion, 1, "unsupported release gate corpus schema");
   assert.ok(parsed.corpusVersion, "release gate corpus version is required");
-  assert.equal(parsed.runtimeContract, "v0.0.3");
+  assert.equal(parsed.runtimeContract, "v0.1.6");
   assert.ok(Array.isArray(parsed.workflows) && parsed.workflows.length > 0, "release gate workflows are required");
   const ids = new Set<string>();
   for (const workflow of parsed.workflows) {
