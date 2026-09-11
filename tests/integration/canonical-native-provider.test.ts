@@ -125,8 +125,8 @@ test("canonical native provider rejects stale targets before native mutation", a
       type: "rename-clip",
       clipId: "final-cut:occurrence:clip-1",
       name: "Renamed",
-      baseRevision: { id: "stale", sequence: before.revision.sequence },
-    }, { id: "stale", sequence: before.revision.sequence }),
+      baseRevision: { ...before.revision, id: "stale" },
+    }, { ...before.revision, id: "stale" }),
     /STALE_CONTEXT/,
   );
   assert.deepEqual(calls, []);
