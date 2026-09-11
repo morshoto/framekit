@@ -2115,8 +2115,16 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const audio = await adapter.importMedia(audioPath);
   assert.equal(video.name, "interview.mov");
   assert.equal(video.kind, "video");
+  assert.equal(video.sourceIdentity, "file:///imported/interview.mov");
+  assert.deepEqual(video.verification, {
+    verified: true,
+    stage: "post-import-browser-discovery",
+    detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+  });
   assert.equal(audio.name, "music.wav");
   assert.equal(audio.kind, "audio");
+  assert.equal(audio.sourceIdentity, "file:///imported/music.wav");
+  assert.equal(audio.verification.verified, true);
   assert.notEqual(video.mediaHandle, audio.mediaHandle);
   assert.equal(searchCalls.get("interview.mov"), 2);
   assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 2);
