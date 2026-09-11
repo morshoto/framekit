@@ -12,6 +12,8 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 function createFixture(options: {
   words?: SpeechWord[];
   protectedSegments?: SpeechSegment[];
+  postWords?: SpeechWord[];
+  postAnalysisError?: boolean;
 } = {}) {
   const words = options.words ?? [
     { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
@@ -54,13 +56,15 @@ function createFixture(options: {
     analyze: async ({ project, media }) => {
       const clip = project.timeline.clips.find((candidate) => candidate.id === "filler-occurrence");
       if ((clip?.duration ?? 5) < 5) {
+        if (options.postAnalysisError) throw new Error("controlled post-write analyzer failure");
+        const postWords = options.postWords ?? words.filter((word) => word.filler !== true).map((word) => {
+          const removed = words
+            .filter((candidate) => candidate.filler === true && candidate.end <= word.start)
+            .reduce((total, candidate) => total + candidate.end - candidate.start, 0);
+          return { ...word, start: word.start - removed, end: word.end - removed };
+        });
         return {
-          words: words.filter((word) => word.filler !== true).map((word) => {
-            const removed = words
-              .filter((candidate) => candidate.filler === true && candidate.end <= word.start)
-              .reduce((total, candidate) => total + candidate.end - candidate.start, 0);
-            return { ...word, start: word.start - removed, end: word.end - removed };
-          }),
+          words: postWords,
           vadSegments: [{ start: 0, end: Math.max(0, (clip?.duration ?? 5) - 0.3), kind: "speech" as const }],
         };
       }
@@ -235,4 +239,69 @@ test("protected speech is never authorized for automatic filler removal", async 
   assert.equal(preview.plan.operations.length, 0);
   const execution = await runtime.executeSkill(preview.previewToken);
   assert.equal(execution.status, "VERIFIED");
+});
+
+test("invalid candidate selections are rejected during re-preview", async () => {
+  const { runtime } = createFixture();
+  register(runtime);
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 }, selectedCandidateIds: ["missing-candidate"] },
+  }), /CANDIDATE_NOT_FOUND/);
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("partial composite failures roll back every applied filler operation", async () => {
+  const { adapter, runtime } = createFixture();
+  register(runtime);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 } },
+  });
+  const firstOperation = preview.plan.operations.find((operation) => operation.type === "ripple-delete");
+  if (!firstOperation) throw new Error("test fixture did not produce a ripple-delete operation");
+  adapter.applyTransaction = async (operations, revision) => {
+    await adapter.apply(firstOperation, revision);
+    throw new Error("controlled partial composite failure");
+  };
+
+  await assert.rejects(runtime.executeSkill(preview.previewToken), /TRANSACTION_FAILED/);
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
+});
+
+test("post-write analysis failures roll back the complete filler transaction", async () => {
+  const { adapter, runtime } = createFixture({ postAnalysisError: true });
+  register(runtime);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 } },
+  });
+
+  await assert.rejects(runtime.executeSkill(preview.previewToken), /ANALYSIS_FAILED/);
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
+});
+
+test("speech continuity failure rolls back adjacent ordered speech", async () => {
+  const { adapter, runtime } = createFixture({
+    postWords: [{ text: "hello", start: 0.2, end: 0.6, confidence: 0.99 }],
+  });
+  register(runtime);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 } },
+  });
+
+  const execution = await runtime.executeSkill(preview.previewToken);
+  assert.equal(execution.status, "ROLLED_BACK");
+  assert.ok(execution.verification?.checks.some((check) => check.reason === "SPEECH_CONTINUITY_CHANGED"));
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });

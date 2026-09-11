@@ -1,6 +1,6 @@
 import type { SkillDefinition, SkillPlanningContext, SkillVerificationContext } from "../domain/skills.js";
 import type { TimeRange } from "../domain/primitives.js";
-import type { SpeechAnalysis, SpeechWord } from "../domain/media.js";
+import type { SpeechWord } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
 import type { TimelineDiff } from "../domain/diff.js";
 import { FillerDetector, type FillerCandidate } from "../speech/filler-detector.js";
@@ -152,10 +152,11 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
       decisions: structuredClone(decisions),
       selectedCandidateIds: [...selectedCandidateIds],
       candidateProvenance: operations.map((operation, operationIndex) => ({
-        candidateId: operation.candidateId,
+        candidateId: operation.candidateId!,
         occurrenceId: decisions.find((decision) => decision.candidateId === operation.candidateId)?.occurrenceId,
         operationIndex,
         operationRange: structuredClone(operation.range),
+        sourceDeleteRange: sourceDeleteRangeFor(operation, candidates),
         diffRanges: [structuredClone(operation.range)],
       })),
     },
@@ -170,6 +171,7 @@ interface FillerSkillDetails {
     occurrenceId?: string;
     operationIndex: number;
     operationRange: TimeRange;
+    sourceDeleteRange: TimeRange;
     diffRanges: TimeRange[];
   }>;
 }
@@ -180,6 +182,7 @@ function verifyFillerSkill(context: SkillVerificationContext): import("../domain
   const checks = [
     verifyFillerTargetsAbsent(transaction, details),
     verifyProtectedSpeech(transaction),
+    verifySpeechContinuity(transaction, details),
     verifyAuthorizedDiff(transaction, context.expectedDiff),
     verifyPlannedDuration(transaction, details),
   ];
@@ -206,6 +209,129 @@ function verifyFillerTargetsAbsent(
     expected: applied.map((candidate) => candidate.id),
     observed: remaining.map((candidate) => candidate.id),
   };
+}
+
+function verifySpeechContinuity(
+  transaction: EditTransaction,
+  details: Partial<FillerSkillDetails> | undefined,
+): import("../domain/verification.js").VerificationCheck {
+  const provenance = details?.candidateProvenance ?? [];
+  if (provenance.length === 0) {
+    return {
+      name: "filler-speech-continuity",
+      passed: false,
+      detail: "filler candidate provenance is unavailable for continuity verification",
+      reason: "SPEECH_CONTINUITY_UNAVAILABLE",
+    };
+  }
+  const candidateById = new Map((details?.candidates ?? []).map((candidate) => [candidate.id, candidate]));
+  const byOccurrence = new Map<string, typeof provenance>();
+  for (const item of provenance) {
+    const occurrence = item.occurrenceId;
+    if (!occurrence) return {
+      name: "filler-speech-continuity",
+      passed: false,
+      detail: `candidate ${item.candidateId} has no timeline occurrence provenance`,
+      reason: "SPEECH_CONTINUITY_UNAVAILABLE",
+    };
+    const items = byOccurrence.get(occurrence) ?? [];
+    items.push(item);
+    byOccurrence.set(occurrence, items);
+  }
+
+  for (const [occurrenceId, items] of byOccurrence) {
+    const beforeClip = transaction.before.timeline.clips.find((clip) => clip.id === occurrenceId);
+    const afterClip = transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === occurrenceId);
+    const mediaId = beforeClip?.mediaId;
+    const beforeWords = mediaId
+      ? transaction.before.media.find((media) => media.mediaId === mediaId)?.speech?.words
+      : undefined;
+    const actualWords = mediaId
+      ? transaction.attemptedAfter.media.find((media) => media.mediaId === mediaId)?.speech?.words
+      : undefined;
+    if (!beforeClip || !afterClip || !beforeWords || !actualWords) {
+      return {
+        name: "filler-speech-continuity",
+        passed: false,
+        detail: `complete pre- and post-edit speech analysis is unavailable for filler target clip ${occurrenceId}`,
+        reason: "SPEECH_CONTINUITY_UNAVAILABLE",
+      };
+    }
+    const candidateIds = new Set(items.map((item) => item.candidateId));
+    const deletes = items
+      .map((item) => item.sourceDeleteRange)
+      .sort((left, right) => left.start - right.start);
+    const expectedWords = beforeWords
+      .filter((word) => ![...candidateIds].some((candidateId) => {
+        const candidate = candidateById.get(candidateId);
+        return candidate ? sameSpeechWord(candidate.word, word) : false;
+      }))
+      .map((word) => translateSpeechWordAfterDeletes(word, deletes));
+    if (expectedWords.length !== actualWords.length) {
+      return {
+        name: "filler-speech-continuity",
+        passed: false,
+        detail: `post-edit transcript has ${actualWords.length} words; expected ${expectedWords.length} adjacent words after filler removal`,
+        reason: "SPEECH_CONTINUITY_CHANGED",
+      };
+    }
+    for (let index = 0; index < expectedWords.length; index += 1) {
+      const expected = expectedWords[index]!;
+      const actual = actualWords[index]!;
+      if (!sameSpeechWord(expected, actual)
+        || actual.end > (afterClip.sourceStart ?? 0) + afterClip.duration + 0.02) {
+        return {
+          name: "filler-speech-continuity",
+          passed: false,
+          detail: `post-edit transcript boundary ${index + 1} does not preserve adjacent speech around the removed fillers`,
+          reason: "SPEECH_CONTINUITY_CHANGED",
+        };
+      }
+    }
+  }
+  return {
+    name: "filler-speech-continuity",
+    passed: true,
+    detail: "post-edit speech re-analysis preserves adjacent words and clip bounds",
+  };
+}
+
+function sourceDeleteRangeFor(
+  operation: Extract<import("../domain/editing.js").WorkflowOperation, { type: "ripple-delete" }>,
+  candidates: FillerCandidate[],
+): TimeRange {
+  const candidate = candidates.find((item) => item.id === operation.candidateId);
+  if (!candidate) return structuredClone(operation.range);
+  return {
+    start: candidate.sourceRange.start + operation.range.start - candidate.sequenceRange.start,
+    end: candidate.sourceRange.start + operation.range.end - candidate.sequenceRange.start,
+  };
+}
+
+function translateSpeechWordAfterDeletes(word: SpeechWord, deletes: TimeRange[]): SpeechWord {
+  return {
+    ...word,
+    start: translateBoundaryAfterDeletes(word.start, deletes),
+    end: translateBoundaryAfterDeletes(word.end, deletes),
+  };
+}
+
+function translateBoundaryAfterDeletes(boundary: number, deletes: TimeRange[]): number {
+  let translated = boundary;
+  let removed = 0;
+  for (const deletion of deletes) {
+    if (boundary <= deletion.start) break;
+    if (boundary < deletion.end) return deletion.start - removed;
+    translated -= deletion.end - deletion.start;
+    removed += deletion.end - deletion.start;
+  }
+  return translated;
+}
+
+function sameSpeechWord(left: SpeechWord, right: SpeechWord): boolean {
+  return left.text.trim().toLowerCase() === right.text.trim().toLowerCase()
+    && Math.abs(left.start - right.start) <= 0.02
+    && Math.abs(left.end - right.end) <= 0.02;
 }
 
 function verifyProtectedSpeech(transaction: EditTransaction): import("../domain/verification.js").VerificationCheck {
