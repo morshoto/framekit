@@ -70,6 +70,30 @@ test("masking is independent from PIP and person cutout", async () => {
   assert.equal(capabilities.families?.editing.personCutout.available, false);
 });
 
+test("mixed mask modes require both independent capabilities", async () => {
+  const adapter = maskFixture();
+  const getCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => {
+    const capabilities = await getCapabilities();
+    capabilities.editor.masking = false;
+    capabilities.editor.personCutout = true;
+    return capabilities;
+  };
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(
+    runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [
+        rectangleMask(),
+        { type: "timeline.mask.add", occurrenceId: "clip-subject", mask: { mode: "person-cutout" } },
+      ],
+    }),
+    /CAPABILITY_UNAVAILABLE: masking/,
+  );
+});
+
 test("mask preview is non-mutating and execution verifies diff and rollback", async () => {
   const adapter = maskFixture();
   const runtime = new AgentVideoRuntime(adapter);
