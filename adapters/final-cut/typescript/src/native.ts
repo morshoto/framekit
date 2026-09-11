@@ -45,6 +45,31 @@ export interface NativeFinalCutMediaMatch {
   uiIndex?: number;
 }
 
+export type NativeFinalCutMediaImportStage =
+  | "pre-import-browser-discovery"
+  | "native-import-ui"
+  | "post-import-browser-discovery";
+
+export interface NativeFinalCutMediaImportFailureDetails {
+  stage: NativeFinalCutMediaImportStage;
+  elapsedMs: number;
+  stageElapsedMs: number;
+  partialImportPossible: boolean;
+  diagnostics?: string;
+}
+
+export class NativeFinalCutMediaImportError extends Error {
+  public constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details: NativeFinalCutMediaImportFailureDetails,
+  ) {
+    const diagnostics = details.diagnostics ? `; diagnostics=${details.diagnostics}` : "";
+    super(`${code}: ${message}; stage=${details.stage}; elapsedMs=${details.elapsedMs}; stageElapsedMs=${details.stageElapsedMs}; partialImportPossible=${details.partialImportPossible}${diagnostics}`);
+    this.name = "NativeFinalCutMediaImportError";
+  }
+}
+
 export interface NativeFinalCutMediaImportResult {
   mediaHandle: string;
   sourcePath: string;
@@ -888,6 +913,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
     this.assertEnabled();
+    const importStartedAt = this.now();
+    let stage: NativeFinalCutMediaImportStage = "pre-import-browser-discovery";
+    let stageStartedAt = importStartedAt;
+    let partialImportPossible = false;
+    const beginStage = (nextStage: NativeFinalCutMediaImportStage): void => {
+      stage = nextStage;
+      stageStartedAt = this.now();
+    };
+    const fail = (code: string, message: string, partialImportPossible: boolean, diagnostics?: string): never => {
+      throw new NativeFinalCutMediaImportError(code, message, {
+        stage,
+        elapsedMs: Math.max(0, this.now() - importStartedAt),
+        stageElapsedMs: Math.max(0, this.now() - stageStartedAt),
+        partialImportPossible,
+        ...(diagnostics ? { diagnostics } : {}),
+      });
+    };
     const normalizedPath = resolveLocalPath(sourcePath);
     const name = basename(normalizedPath);
     if (!sourcePath.trim()) throw new Error("INVALID_OPERATION: local media path cannot be empty");
@@ -899,84 +941,98 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE: ${normalizedPath} is not a readable local media file (${String(error)})`);
     }
 
-    const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
-    await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
-    const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
-    const beforeIdentities = new Set(
-      beforeMatches
-        .filter((match) => match.name.toLowerCase() === name.toLowerCase())
-        .map((match) => browserMediaIdentity(match))
-        .filter((identity): identity is string => Boolean(identity)),
-    );
-    const hasIndistinguishablePreExistingMatch = beforeMatches.some(
-      (match) => match.name.toLowerCase() === name.toLowerCase() && !browserMediaIdentity(match),
-    );
-    if (hasIndistinguishablePreExistingMatch) {
-      throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`);
-    }
     try {
-      await this.executeNativeScript(importMediaScript(dirname(normalizedPath), name), this.now() + this.mediaImportTimeoutMs);
-    } catch (error) {
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
-    }
+      const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
+      await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+      const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+      const beforeIdentities = new Set(
+        beforeMatches
+          .filter((match) => match.name.toLowerCase() === name.toLowerCase())
+          .map((match) => browserMediaIdentity(match))
+          .filter((identity): identity is string => Boolean(identity)),
+      );
+      const hasIndistinguishablePreExistingMatch = beforeMatches.some(
+        (match) => match.name.toLowerCase() === name.toLowerCase() && !browserMediaIdentity(match),
+      );
+      if (hasIndistinguishablePreExistingMatch) {
+        fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`, false);
+      }
 
-    const discoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
-    let sawPreExistingMatch = false;
-    while (this.now() <= discoveryDeadline) {
-      let matches: NativeFinalCutMediaMatch[];
+      beginStage("native-import-ui");
+      partialImportPossible = true;
       try {
-        matches = await this.searchMediaNative(name, discoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+        await this.executeNativeScript(importMediaScript(dirname(normalizedPath), name), this.now() + this.mediaImportTimeoutMs);
       } catch (error) {
-        if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT") {
-          throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity before the ${this.mediaImportDiscoveryTimeoutMs}ms discovery deadline`);
+        fail(nativeErrorCode(error), nativeErrorMessage(error), true);
+      }
+
+      beginStage("post-import-browser-discovery");
+      const discoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
+      let sawPreExistingMatch = false;
+      while (this.now() <= discoveryDeadline) {
+        let matches: NativeFinalCutMediaMatch[] = [];
+        try {
+          matches = await this.searchMediaNative(name, discoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
+        } catch (error) {
+          const code = nativeErrorCode(error);
+          const diagnostics = code === "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT"
+            ? await this.readBrowserMediaDiagnostics(name)
+            : undefined;
+          fail(code, nativeErrorMessage(error), true, diagnostics);
         }
-        throw error;
-      }
-      const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
-      if (exactMatches.some((match) => !browserMediaIdentity(match))) {
-        throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
-      }
-      const newMatches = exactMatches.filter((match) => {
-        const identity = browserMediaIdentity(match);
-        if (!identity) return false;
-        if (beforeIdentities.has(identity)) {
-          sawPreExistingMatch = true;
-          return false;
+        const exactMatches = matches.filter((match) => match.name.toLowerCase() === name.toLowerCase());
+        if (exactMatches.some((match) => !browserMediaIdentity(match))) {
+          fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for ${name}`, true);
         }
-        return true;
-      });
-      if (newMatches.length > 1) {
-        throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS: Final Cut exposed multiple newly appearing Browser results for ${name}`);
+        const newMatches = exactMatches.filter((match) => {
+          const identity = browserMediaIdentity(match);
+          if (!identity) return false;
+          if (beforeIdentities.has(identity)) {
+            sawPreExistingMatch = true;
+            return false;
+          }
+          return true;
+        });
+        if (newMatches.length > 1) {
+          fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS", `Final Cut exposed multiple newly appearing Browser results for ${name}`, true);
+        }
+        const match = newMatches[0];
+        if (match) {
+          const identity = browserMediaIdentity(match);
+          if (!identity) {
+            fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for ${name}`, true);
+            throw new Error("unreachable");
+          }
+          const mediaHandle = this.stableMediaHandle(identity);
+          const stableMatch = { ...match, handle: mediaHandle };
+          this.stableMediaHandles.set(identity, mediaHandle);
+          this.mediaHandles.set(mediaHandle, stableMatch);
+          return {
+            mediaHandle,
+            sourcePath: normalizedPath,
+            sourceIdentity: identity,
+            name,
+            kind: mediaKind(normalizedPath),
+            verification: {
+              verified: true,
+              stage: "post-import-browser-discovery",
+              detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+            },
+          };
+        }
+        if (this.now() >= discoveryDeadline) break;
+        await this.sleep(Math.min(this.mediaImportPollMs, discoveryDeadline - this.now()));
       }
-      const match = newMatches[0];
-      if (match) {
-        const identity = browserMediaIdentity(match);
-        if (!identity) throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE: Final Cut did not expose an immutable Browser source identity for ${name}`);
-        const mediaHandle = this.stableMediaHandle(identity);
-        const stableMatch = { ...match, handle: mediaHandle };
-        this.stableMediaHandles.set(identity, mediaHandle);
-        this.mediaHandles.set(mediaHandle, stableMatch);
-        return {
-          mediaHandle,
-          sourcePath: normalizedPath,
-          sourceIdentity: identity,
-          name,
-          kind: mediaKind(normalizedPath),
-          verification: {
-            verified: true,
-            stage: "post-import-browser-discovery",
-            detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
-          },
-        };
+      const diagnostics = await this.readBrowserMediaDiagnostics(name);
+      if (sawPreExistingMatch) {
+        fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING", `Final Cut exposed only pre-existing Browser results for ${name}`, true, diagnostics);
       }
-      if (this.now() >= discoveryDeadline) break;
-      await this.sleep(Math.min(this.mediaImportPollMs, discoveryDeadline - this.now()));
+      fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT", `Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity before the ${this.mediaImportDiscoveryTimeoutMs}ms discovery deadline`, true, diagnostics);
+    } catch (error) {
+      if (error instanceof NativeFinalCutMediaImportError) throw error;
+      fail(nativeErrorCode(error), nativeErrorMessage(error), partialImportPossible);
     }
-    if (sawPreExistingMatch) {
-      throw new Error(`FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING: Final Cut exposed only pre-existing Browser results for ${name}`);
-    }
-    const diagnostics = await this.readBrowserMediaDiagnostics(name);
-    throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
+    return fail("FINAL_CUT_NATIVE_AUTOMATION_FAILED", "native media import ended without a result", partialImportPossible);
   }
 
   private async executeImportMediaDirectoryNative(
