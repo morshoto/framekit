@@ -5708,6 +5708,7 @@ function resolveLocalPath(sourcePath: string): string {
   const trimmed = sourcePath.trim();
   if (trimmed === "~") return homedir();
   if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  if (trimmed.startsWith("~")) throw new Error(`INVALID_OPERATION: local media path must be absolute or start with ~/`);
   return resolve(trimmed);
 }
 
