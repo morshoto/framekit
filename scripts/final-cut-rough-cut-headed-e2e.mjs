@@ -322,8 +322,6 @@ async function disposableUndoPreflight(liveBefore) {
 }
 
 async function placeMedia(mediaHandle) {
-  const before = await callJson("editor.live.inspect");
-  recordTool("editor.live.inspect");
   const previewName = placement === "append" ? "editor.native.media.append.preview" : "editor.native.media.insert.preview";
   const executeName = placement === "append" ? "editor.native.media.append.execute" : "editor.native.media.insert.execute";
   const preview = await runStep("media.placement.preview", async () => {
@@ -387,12 +385,12 @@ async function placeTitle() {
   const result = await runStep("animation.execute", async () => {
     const next = await callJson("editor.native.title.add.execute", { previewToken: preview.previewToken });
     recordTool("editor.native.title.add.execute");
-      if (!next.verification?.verified
-        || next.asset?.id !== assets.id
-        || !next.after?.target?.identity
-        || next.beforeRevision?.id === next.afterRevision?.id
-        || !next.undoAvailable
-        || !sameRational(next.duration, titleDuration)) {
+    if (!next.verification?.verified
+      || next.asset?.id !== assets.id
+      || !next.after?.target?.identity
+      || next.beforeRevision?.id === next.afterRevision?.id
+      || !next.undoAvailable
+      || !sameRational(next.duration, titleDuration)) {
       throw new Error("FINAL_CUT_E2E_TITLE_PLACEMENT_FAILED: visible title placement was not read-back verified");
     }
     return next;
