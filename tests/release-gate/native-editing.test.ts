@@ -35,6 +35,10 @@ test("v0.1.6 manifest names every evidence tier and workflow", () => {
     manifest.workflows.find((workflow) => workflow.id === "picture-in-picture")?.headedRunner,
     "scripts/final-cut-picture-in-picture-headed-e2e.mjs",
   );
+  const dialogue = manifest.workflows.find((workflow) => workflow.id === "dialogue-normalization");
+  assert.deepEqual(dialogue?.evidenceTiers, ["deterministic", "fcpxml-artifact", "canonical-live"]);
+  assert.deepEqual(dialogue?.evidenceTypes, []);
+  assert.equal(dialogue?.headedRunner, undefined);
 });
 
 test("headed evidence is reduced to a target, revision, verification, and restoration summary", () => {

@@ -56,7 +56,7 @@
       "id": "dialogue-normalization",
       "operation": "dialogue-normalization",
       "capability": "canonicalDocument.write + analyzers.audioLoudness",
-      "evidenceTiers": ["deterministic", "fcpxml-artifact", "canonical-live", "headed-native"],
+      "evidenceTiers": ["deterministic", "fcpxml-artifact", "canonical-live"],
       "evidenceTypes": []
     }
   ]
