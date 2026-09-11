@@ -28,6 +28,7 @@
     "test:golden": "tsx --test tests/golden/*.test.ts",
     "test:release-gate": "tsx --test tests/release-gate/*.test.ts",
     "release-gate": "tsx scripts/run-release-gate.ts",
+    "verify-release-provenance": "tsx scripts/verify-release-provenance.ts",
     "test:codex-plugin": "node scripts/codex-plugin-smoke.mjs",
     "test:clean-mcp-clients": "node scripts/clean-mcp-client-smoke.mjs",
     "evaluate": "tsx scripts/run-mcp-evaluation.ts",
@@ -68,6 +69,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@openai/codex": "0.144.1",
     "@types/node": "24.13.3",
     "tsc-alias": "1.9.4",
     "tsx": "4.23.13",

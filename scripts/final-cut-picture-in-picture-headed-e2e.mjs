@@ -124,6 +124,10 @@ try {
       nativeUndo: editor.native.undo,
       nativeTimelineOccurrenceLocate: editor.native.timelineOccurrenceLocate,
     },
+    target: {
+      sequenceId: anchorOccurrence.sequenceId,
+      occurrenceName: anchorOccurrence.name,
+    },
     placement: {
       project: expectedProject,
       anchorMedia: { name: anchorMedia.name, sourceIdentity: anchorMedia.sourceIdentity },
@@ -136,6 +140,7 @@ try {
       operationId: executed.operationId,
       undoOperationId: undone.operationId,
       undoVerified: undone.verification,
+      undoRevision: undone.context?.revision?.id,
     },
   }, null, 2)}\n`);
 } finally {

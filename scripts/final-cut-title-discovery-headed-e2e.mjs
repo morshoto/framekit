@@ -119,6 +119,7 @@ try {
       backend: title.metadata.discovery.backend,
       guarantee: title.metadata.discovery.guarantee,
     },
+    target: { sequenceId: preview.sequenceId },
     placement: {
       text: titleText,
       target: preview.target,
@@ -126,6 +127,7 @@ try {
       duration: preview.duration,
       beforeRevision: executed.beforeRevision.id,
       afterRevision: executed.afterRevision.id,
+      undoRevision: undone.context?.revision?.id,
       verified: executed.verification.verified,
       undo: { command: executed.undoCommand, verified: undone.verification.verified },
     },

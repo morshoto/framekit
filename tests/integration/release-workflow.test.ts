@@ -101,6 +101,32 @@ test("release workflow validates the package before publishing", async () => {
   assert.match(workflow, /releases\/\$\{release_id\}/);
 });
 
+test("release workflow gates publication on v0.1.6 evidence and native checksums", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const gate = workflow.indexOf("pnpm run release-gate --output-dir");
+  const npmPublish = workflow.indexOf("npm publish --access public");
+  const npmVerification = workflow.indexOf("name: Verify npm publication");
+  const assetVerification = workflow.indexOf("name: Verify native release assets");
+  const githubRelease = workflow.indexOf("name: Publish GitHub release");
+  const finalProvenance = workflow.indexOf("name: Verify complete release provenance");
+
+  assert.notEqual(gate, -1);
+  assert.ok(gate < npmPublish, "release gate must run before npm publication");
+  assert.notEqual(assetVerification, -1);
+  assert.notEqual(npmVerification, -1);
+  assert.ok(npmVerification < assetVerification, "native assets follow npm verification");
+  assert.ok(assetVerification < githubRelease, "native assets must precede public release");
+  assert.ok(githubRelease < finalProvenance, "complete provenance follows public release");
+  assert.match(workflow, /FramekitFinalCutWorkflow-\$\{expected_version\}\.zip/);
+  assert.match(workflow, /gh release download "\$\{RELEASE_TAG\}"/);
+  assert.match(workflow, /shasum -a 256 -c/);
+  assert.match(workflow, /pnpm run test:codex-plugin/);
+  assert.match(workflow, /validate-codex-plugin:[\s\S]*?permissions:\s+contents: read[\s\S]*?pnpm install --frozen-lockfile[\s\S]*?pnpm run test:codex-plugin/);
+  assert.match(workflow, /publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin/);
+  assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
+  assert.match(workflow, /RELEASE_PROVENANCE_OUTPUT_DIR: artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/);
+});
+
 test("release workflow can retry an exact existing tag", async () => {
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
 
