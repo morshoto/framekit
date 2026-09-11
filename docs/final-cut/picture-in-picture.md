@@ -13,10 +13,12 @@ target, a connected non-primary lane, a video media ID, an existing primary
 occurrence, frame-aligned timing, position, and scale. Optional crop and solid
 frame properties are validated before mutation.
 
-The FCPXML document backend writes the connected `asset-clip` and preserves the
-transform, crop, frame, and attachment properties in the canonical snapshot.
-Its preview is non-mutating; execute returns a verified transaction, diff, and
-Undo restoration digest.
+The FCPXML document backend writes the connected `asset-clip`, transform, and
+schema-compatible crop adjustment (`adjust-crop` / `crop-rect`) in the
+canonical snapshot. Solid frame styling is not an FCPXML document capability;
+artifact requests that include a frame fail closed and must use the native
+Final Cut provider. Its preview is non-mutating; execute returns a verified
+transaction, diff, and Undo restoration digest.
 
 The headed Final Cut backend uses the native tools:
 

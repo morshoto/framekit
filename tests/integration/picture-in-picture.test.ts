@@ -59,6 +59,11 @@ function pipOperation(): Extract<WorkflowOperation, { type: "timeline.picture-in
   };
 }
 
+function fcpxmlPipOperation(): Extract<WorkflowOperation, { type: "timeline.picture-in-picture.add" }> {
+  const { frame: _frame, ...operation } = pipOperation();
+  return operation;
+}
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
@@ -222,9 +227,18 @@ test("FCPXML PIP preview and undo preserve canonical artifact state", async () =
 
   const preview = await runtime.previewArtifactEdit(artifactPath, {
     baseRevision: before.revision,
-    operations: [pipOperation()],
+    operations: [fcpxmlPipOperation()],
   });
   assert.equal(preview.expectedDiff.added[0]?.itemId, "guest-pip");
+  assert.equal(await readFile(artifactPath, "utf8"), originalXml);
+
+  await assert.rejects(
+    runtime.previewArtifactEdit(artifactPath, {
+      baseRevision: before.revision,
+      operations: [pipOperation()],
+    }),
+    /CAPABILITY_UNAVAILABLE: FCPXML picture-in-picture frame/,
+  );
   assert.equal(await readFile(artifactPath, "utf8"), originalXml);
 
   const transaction = await runtime.executeEdit(preview.previewToken);
@@ -234,11 +248,12 @@ test("FCPXML PIP preview and undo preserve canonical artifact state", async () =
   assert.deepEqual(pip.position, { x: 320, y: -180 });
   assert.equal(pip.scale, 0.35);
   assert.deepEqual(pip.crop, { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 });
-  assert.deepEqual(pip.frame, { style: "solid", color: "#FFFFFF", width: 8 });
+  assert.equal(pip.frame, undefined);
   const writtenXml = await readFile(artifactPath, "utf8");
   assert.match(writtenXml, /adjust-transform/);
-  assert.match(writtenXml, /adjust-crop/);
-  assert.match(writtenXml, /#FFFFFF/);
+  assert.match(writtenXml, /<adjust-crop mode="crop">/);
+  assert.match(writtenXml, /<crop-rect top="10%" right="5%" bottom="10%" left="5%"><\/crop-rect>/);
+  assert.doesNotMatch(writtenXml, /frame-style|frame-color|frame-width/);
 
   await runtime.undo(transaction.id);
   assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest);

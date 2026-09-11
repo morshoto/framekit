@@ -322,6 +322,9 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       && anchorEntry.kind !== "mc-clip") {
       throw new Error("INVALID_OPERATION: PIP anchor must be a video occurrence");
     }
+    if (operation.frame) {
+      throw new Error("CAPABILITY_UNAVAILABLE: FCPXML picture-in-picture frame requires the native Final Cut provider");
+    }
     validatePictureInPictureOperation(operation, anchorEntry.startTime, anchorEntry.durationTime, media.duration);
     const connected = {
       "asset-clip": [],
@@ -341,20 +344,22 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       ":@": {
         "@_position": `${operation.position.x} ${operation.position.y}`,
         "@_scale": `${operation.scale * 100} ${operation.scale * 100}`,
-        ...(operation.frame ? {
-          "@_frame-style": operation.frame.style,
-          "@_frame-color": operation.frame.color,
-          "@_frame-width": String(operation.frame.width),
-        } : {}),
       },
     });
     if (operation.crop) {
       appendChild(connected, "adjust-crop", {
         ":@": {
-          "@_top": String(operation.crop.top),
-          "@_right": String(operation.crop.right),
-          "@_bottom": String(operation.crop.bottom),
-          "@_left": String(operation.crop.left),
+          "@_mode": "crop",
+        },
+      });
+      const crop = firstChild(connected, "adjust-crop");
+      if (!crop) throw new Error("FCPXML_INVALID_PIP: crop adjustment could not be created");
+      appendChild(crop, "crop-rect", {
+        ":@": {
+          "@_top": formatPictureInPicturePercentage(operation.crop.top),
+          "@_right": formatPictureInPicturePercentage(operation.crop.right),
+          "@_bottom": formatPictureInPicturePercentage(operation.crop.bottom),
+          "@_left": formatPictureInPicturePercentage(operation.crop.left),
         },
       });
     }
@@ -726,48 +731,29 @@ function validatePictureInPictureCrop(crop: NonNullable<Clip["crop"]>): void {
   }
 }
 
-function validatePictureInPictureFrame(frame: NonNullable<Clip["frame"]>): void {
-  if (frame.style !== "solid" || !/^#[0-9a-f]{6}$/i.test(frame.color)
-    || !Number.isFinite(frame.width) || frame.width < 0) {
-    throw new Error("INVALID_OPERATION: PIP frame must be a solid hex-colored non-negative width");
-  }
-}
-
 function pictureInPictureProperties(node: XmlNode): Pick<Clip, "position" | "scale" | "crop" | "frame"> {
   const transform = firstChild(node, "adjust-transform");
   const crop = firstChild(node, "adjust-crop");
   const positionValue = transform ? attribute(transform, "position") : undefined;
   const scaleValue = transform ? attribute(transform, "scale") : undefined;
-  const frameStyle = transform ? attribute(transform, "frame-style") : undefined;
-  const frameColor = transform ? attribute(transform, "frame-color") : undefined;
-  const frameWidth = transform ? attribute(transform, "frame-width") : undefined;
   const position = positionValue === undefined ? undefined : parsePictureInPicturePosition(positionValue);
   const scale = scaleValue === undefined ? undefined : parsePictureInPictureScale(scaleValue);
+  const cropRect = crop ? firstChild(crop, "crop-rect") : undefined;
   const cropKeys = ["top", "right", "bottom", "left"];
-  const hasCrop = cropKeys.some((key) => crop && attribute(crop, key) !== undefined);
+  const hasCrop = cropRect !== undefined && cropKeys.some((key) => attribute(cropRect, key) !== undefined);
   const parsedCrop = hasCrop
     ? {
-      top: parsePictureInPictureNumber(crop && attribute(crop, "top"), "top crop"),
-      right: parsePictureInPictureNumber(crop && attribute(crop, "right"), "right crop"),
-      bottom: parsePictureInPictureNumber(crop && attribute(crop, "bottom"), "bottom crop"),
-      left: parsePictureInPictureNumber(crop && attribute(crop, "left"), "left crop"),
-    }
-    : undefined;
-  const hasFrame = frameStyle !== undefined || frameColor !== undefined || frameWidth !== undefined;
-  const frame = hasFrame
-    ? {
-      style: String(frameStyle ?? "") as "solid",
-      color: String(frameColor ?? ""),
-      width: parsePictureInPictureNumber(frameWidth, "frame width"),
+      top: parsePictureInPictureNumber(cropRect && attribute(cropRect, "top"), "top crop"),
+      right: parsePictureInPictureNumber(cropRect && attribute(cropRect, "right"), "right crop"),
+      bottom: parsePictureInPictureNumber(cropRect && attribute(cropRect, "bottom"), "bottom crop"),
+      left: parsePictureInPictureNumber(cropRect && attribute(cropRect, "left"), "left crop"),
     }
     : undefined;
   if (parsedCrop) validatePictureInPictureCrop(parsedCrop);
-  if (frame) validatePictureInPictureFrame(frame);
   return {
     ...(position ? { position } : {}),
     ...(scale !== undefined ? { scale } : {}),
     ...(parsedCrop ? { crop: parsedCrop } : {}),
-    ...(frame ? { frame } : {}),
   };
 }
 
@@ -789,9 +775,14 @@ function parsePictureInPictureScale(value: unknown): number {
 }
 
 function parsePictureInPictureNumber(value: unknown, label: string): number {
-  const parsed = Number(value);
+  const text = String(value ?? "").trim();
+  const parsed = Number(text.replace(/%$/, ""));
   if (!Number.isFinite(parsed)) throw new Error(`FCPXML_INVALID_PIP: ${label} is not finite`);
-  return parsed;
+  return text.endsWith("%") ? parsed / 100 : parsed;
+}
+
+function formatPictureInPicturePercentage(value: number): string {
+  return `${value * 100}%`;
 }
 
 function emptyAnalyzerCapabilities() {
