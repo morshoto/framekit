@@ -198,11 +198,15 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
 
   const preview = await adapter.previewTitleAdd({
     asset: {
-      id: "/Motion Templates.localized/Titles.localized/Lower Third.moti",
+      id: "final-cut:title:fcp://title/lower-third",
       kind: "title",
       name: "Lower Third",
-      vendor: "Framekit Fixture",
-      metadata: {},
+      vendor: "Final Cut Pro",
+      metadata: {
+        identity: "fcp://title/lower-third",
+        provider: "final-cut-accessibility",
+        source: "final-cut-titles-browser",
+      },
     },
     text: "Framekit Native Title",
     duration: { value: "3", timescale: "1" },
@@ -222,6 +226,7 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
   assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 385")), true);
   assert.equal(scripts.some((script) => script.includes("(item 1 of mainSize) - 215")), true);
   assert.equal(scripts.some((script) => script.includes("Lower Third")), true);
+  assert.equal(scripts.some((script) => script.includes("fcp://title/lower-third")), true);
   assert.equal(scripts.some((script) => script.includes("Framekit Native Title")), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "i"')), true);
   assert.equal(scripts.some((script) => script.includes('keystroke "o"')), true);
