@@ -214,8 +214,9 @@ It does not report success until Final Cut has produced a non-empty file and
 unless the request includes `overwrite: true`.
 
 Framekit activates Final Cut and focuses the timeline before timeline-native
-operations using Accessibility hierarchy discovery with bounded coordinate
-fallbacks. If the visible Framekit extension window overlaps the editor,
+operations using bounded Accessibility hierarchy discovery. Browser search
+also requires a labelled Browser or Events Accessibility relationship; it does
+not use ambiguous screen-coordinate fallback. If the visible Framekit extension window overlaps the editor,
 Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
 and verifies the focused window after each attempt. It never clicks the
 Framekit close button. The user must open the intended project timeline and

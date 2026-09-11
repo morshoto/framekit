@@ -3803,7 +3803,7 @@ function selectedBrowserMediaScript(): string {
     set seenSourceIdentities to {}
     set browserRoot to mainWindow
     try
-      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0, origin, size of mainWindow)
+      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
       if browserSearchResult is not missing value then set browserRoot to item 2 of browserSearchResult
     end try
     try
@@ -3852,62 +3852,14 @@ end tell`;
 
 function browserSearchFieldScript(): string {
   return `
-    set origin to position of mainWindow
-    set windowSize to size of mainWindow
     set searchFieldFound to false
     set searchField to missing value
     set searchButton to missing value
-    set browserRoot to mainWindow
-    -- The Transitions browser may already be open. Prefer the bounded
-    -- Browser search control so its Effects Library field cannot capture a
-    -- media query.
-    try
-      set searchField to UI element 4 of UI element 5 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
-      set searchFieldFound to true
-    on error
-      set searchField to missing value
-    end try
-    try
-      if not searchFieldFound then
-        set focusedCandidate to value of attribute "AXFocusedUIElement"
-        set focusedRole to role of focusedCandidate as text
-        set focusedDescription to ""
-        try
-          set focusedDescription to description of focusedCandidate as text
-        end try
-        if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) and my browserSearchCandidateVisible(focusedCandidate, origin, windowSize) then
-          set searchField to focusedCandidate
-          set searchFieldFound to true
-        end if
-      end if
-    end try
-    if not searchFieldFound then
-      repeat with searchOffset in {368, 400, 340, 561, 531, 501}
-        repeat with searchY in {52, 38}
-          try
-            click at {(item 1 of origin) + (searchOffset as integer), (item 2 of origin) + (searchY as integer)}
-            delay 0.15
-            set focusedCandidate to value of attribute "AXFocusedUIElement"
-            set focusedRole to role of focusedCandidate as text
-            set focusedDescription to ""
-            try
-              set focusedDescription to description of focusedCandidate as text
-            end try
-            if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
-              set searchField to focusedCandidate
-              set searchFieldFound to true
-              exit repeat
-            end if
-          end try
-        end repeat
-        if searchFieldFound then exit repeat
-      end repeat
-    end if
     try
       if my revealBrowser(mainWindow, 0) then delay 0.5
     end try
     try
-      set searchControlResult to my findBrowserSearchControl(mainWindow, 0, origin, windowSize)
+      set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
       if searchControlResult is not missing value then
         set searchControl to item 1 of searchControlResult
         set browserRoot to item 2 of searchControlResult
@@ -3920,9 +3872,11 @@ function browserSearchFieldScript(): string {
         end if
       end if
     end try
-    if not searchFieldFound then
+    if not searchFieldFound and searchButton is not missing value then
       try
-        set searchControlResult to my findBrowserSearchControl(mainWindow, 0, origin, windowSize)
+        perform action "AXPress" of searchButton
+        delay 0.2
+        set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
         if searchControlResult is not missing value then
           set searchControl to item 1 of searchControlResult
           set browserRoot to item 2 of searchControlResult
@@ -3930,40 +3884,11 @@ function browserSearchFieldScript(): string {
           if searchRole is "AXSearchField" or searchRole is "AXTextField" then
             set searchField to searchControl
             set searchFieldFound to true
-          else if searchRole is "AXButton" then
-            set searchButton to searchControl
           end if
         end if
       end try
     end if
-    if not searchFieldFound and searchButton is missing value then
-      try
-        set directSearchButton to UI element 3 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
-        set directSearchDescription to description of directSearchButton as text
-        if directSearchDescription contains "search" or directSearchDescription contains "Search" then
-          set searchButton to directSearchButton
-        end if
-      end try
-    end if
-    if not searchFieldFound then
-      if searchButton is not missing value then
-        try
-          perform action "AXPress" of searchButton
-          delay 0.2
-          set focusedCandidate to value of attribute "AXFocusedUIElement"
-          set focusedRole to role of focusedCandidate as text
-          set focusedDescription to ""
-          try
-            set focusedDescription to description of focusedCandidate as text
-          end try
-          if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
-            set searchField to focusedCandidate
-            set searchFieldFound to true
-          end if
-        end try
-      end if
-    end if
-    if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not found through Accessibility or coordinate fallback"
+    if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search control was not exposed by Accessibility"
     set searchRole to role of searchField as text
     if searchRole is not "AXTextField" and searchRole is not "AXSearchField" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
     try
@@ -3978,28 +3903,53 @@ function browserSearchFieldScript(): string {
 function browserSearchControlFinderScript(): string {
   return `
   using terms from application "System Events"
-    on browserSearchCandidateVisible(candidate, mainOrigin, mainSize)
+    on browserSearchContainer(candidate)
       try
-        set candidatePosition to position of candidate
-        set candidateX to item 1 of candidatePosition
-        set candidateY to item 2 of candidatePosition
-        return candidateX is less than ((item 1 of mainOrigin) + ((item 1 of mainSize) * 0.60)) and candidateY is less than ((item 2 of mainOrigin) + ((item 2 of mainSize) * 0.60))
+        set candidateRole to role of candidate as text
+        if candidateRole is not "AXGroup" and candidateRole is not "AXScrollArea" and candidateRole is not "AXSplitGroup" and candidateRole is not "AXLayoutArea" and candidateRole is not "AXToolbar" and candidateRole is not "AXList" and candidateRole is not "AXOutline" and candidateRole is not "AXCollection" then return false
+        set candidateText to ""
+        try
+          set candidateText to description of candidate as text
+        end try
+        if candidateText is "" then
+          try
+            set candidateText to name of candidate as text
+          end try
+        end if
+        if candidateText is "" then
+          try
+            set candidateText to value of candidate as text
+          end try
+        end if
+        return candidateText contains "Browser" or candidateText contains "browser" or candidateText contains "Events" or candidateText contains "events" or candidateText contains "Event" or candidateText contains "event"
       on error
         return false
       end try
-    end browserSearchCandidateVisible
+    end browserSearchContainer
 
-    on findBrowserSearchControl(containerItem, depth, mainOrigin, mainSize)
+    on findBrowserSearchControl(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot)
       if depth > 12 then return missing value
+      set browserContext to inheritedBrowserContext
+      set browserRoot to inheritedBrowserRoot
+      if my browserSearchContainer(containerItem) then
+        set browserContext to true
+        set browserRoot to containerItem
+      end if
       set candidateItems to UI elements of containerItem
       repeat with candidateIndex in my orderedChildIndices(containerItem)
         try
           set candidate to item (contents of candidateIndex) of candidateItems
-          set candidateRole to role of candidate as text
-          if candidateRole is "AXSearchField" and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
-            return {candidate, containerItem}
+          set candidateBrowserContext to browserContext
+          set candidateBrowserRoot to browserRoot
+          if my browserSearchContainer(candidate) then
+            set candidateBrowserContext to true
+            set candidateBrowserRoot to candidate
           end if
-          if candidateRole is "AXTextField" then
+          set candidateRole to role of candidate as text
+          if candidateBrowserContext and candidateRole is "AXSearchField" then
+            return {candidate, candidateBrowserRoot}
+          end if
+          if candidateBrowserContext and candidateRole is "AXTextField" then
             set candidateName to ""
             set candidateDescription to ""
             try
@@ -4008,19 +3958,19 @@ function browserSearchControlFinderScript(): string {
             try
               set candidateDescription to description of candidate as text
             end try
-            if (candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search") and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
-              return {candidate, containerItem}
+            if candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" then
+              return {candidate, candidateBrowserRoot}
             end if
           end if
-          if candidateRole is "AXButton" then
+          if candidateBrowserContext and candidateRole is "AXButton" then
             set candidateDescription to description of candidate as text
-            if (candidateDescription contains "search" or candidateDescription contains "Search") and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
-              return {candidate, containerItem}
+            if candidateDescription contains "search" or candidateDescription contains "Search" then
+              return {candidate, candidateBrowserRoot}
             end if
           end if
         end try
         try
-          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1, mainOrigin, mainSize)
+          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1, candidateBrowserContext, candidateBrowserRoot)
           if nestedCandidate is not missing value then
             return nestedCandidate
           end if

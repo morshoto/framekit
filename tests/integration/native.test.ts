@@ -1361,7 +1361,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.equal(matches[0].sourceIdentity, "media-source-1");
   assert.equal(scripts.some((script) => script.includes('candidateDescription contains "search"') && script.includes('perform action "AXPress" of searchButton')), true);
   assert.equal(scripts.some((script) => script.includes('return "browser-focused"')), true);
-  assert.equal(scripts.some((script) => script.includes("repeat with searchOffset in {368, 400, 340, 561, 531, 501}")), true);
+  assert.equal(scripts.some((script) => script.includes("repeat with searchOffset")), false);
   assert.equal(scripts.some((script) => script.includes('set searchFieldFound to false') && script.includes('candidateRole is "AXSearchField"')), true);
   assert.equal(scripts.some((script) => script.includes('value of attribute "AXFocusedUIElement"')), true);
   const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
@@ -1371,11 +1371,11 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.ok(activationIndex >= 0);
   assert.ok(frontmostGuardIndex > activationIndex);
   assert.equal(searchScript.includes('tell application "Final Cut Pro" to activate'), false);
-  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth, mainOrigin, mainSize\)/);
+  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
   assert.match(searchScript, /on revealBrowser\(containerItem, depth\)/);
   assert.match(searchScript, /candidateDescription contains "Browser"/);
   assert.match(searchScript, /if depth > 12 then return missing value/);
-  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0, origin, windowSize\)/);
+  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0, false, missing value\)/);
   assert.match(searchScript, /on collectBrowserMedia\(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath\)/);
   assert.match(searchScript, /on collectSelectedBrowserMedia\(containerItem, depth, origin, inheritedContext, seenIdentities, browserPath\)/);
   assert.match(searchScript, /containerText contains "Events"/);
@@ -1386,8 +1386,8 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /set candidateItems to UI elements of containerItem/);
   assert.match(searchScript, /set candidatePath to browserPath & "\/" & \(candidateIndex as text\)/);
   assert.match(searchScript, /if depth > 12 then return ""/);
-  assert.match(searchScript, /focusedDescription to ""\s+try\s+set focusedDescription to description of focusedCandidate as text/);
-  assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 2);
+  assert.equal(searchScript.includes('value of attribute "AXFocusedUIElement"'), false);
+  assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 1);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
   assert.equal(scripts.some((script) => script.includes('keystroke "f" using {command down}')), false);
@@ -1482,6 +1482,38 @@ test("native Final Cut Browser discovery accepts generic Events media and reuses
   assert.equal(scripts.some((script) => script.includes("AXIdentifier")), true);
   assert.equal(scripts.some((script) => script.includes("collectBrowserMedia(browserRoot")), true);
   assert.equal(scripts.some((script) => script.includes("on orderedChildIndices(containerItem)")), true);
+});
+
+test("native Final Cut Browser search stays scoped to Accessibility relationships", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false, true, true);
+      if (script.includes("set value of searchField to searchQuery")) return serializeBrowserFixture();
+      return "";
+    },
+  });
+
+  const matches = await adapter.searchMedia("Blue Steel Guitar");
+  assert.equal(matches.length, 2);
+
+  const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
+  assert.ok(searchScript);
+  assert.match(searchScript, /on browserSearchContainer\(candidate\)/);
+  assert.match(searchScript, /on findBrowserSearchControl\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
+  assert.match(searchScript, /findBrowserSearchControl\(mainWindow, 0, false, missing value\)/);
+  assert.match(searchScript, /candidateBrowserContext/);
+  assert.match(searchScript, /candidateBrowserRoot/);
+  assert.match(searchScript, /return \{candidate, candidateBrowserRoot\}/);
+  const searchFieldSection = searchScript.slice(
+    searchScript.indexOf("set searchFieldFound"),
+    searchScript.indexOf("set searchQuery"),
+  );
+  assert.equal(searchFieldSection.includes("searchOffset"), false);
+  assert.equal(searchFieldSection.includes("click at"), false);
+  assert.equal(searchFieldSection.includes("coordinate fallback"), false);
 });
 
 test("native Final Cut selected-media traversal returns the stable generic Browser identity", async () => {
