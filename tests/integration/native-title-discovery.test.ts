@@ -9,7 +9,7 @@ const recordSeparator = String.fromCharCode(30);
 
 test("headed title evidence records the revision restored by Undo", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-title-discovery-headed-e2e.mjs"), "utf8");
-  assert.match(runner, /restoredRevision:\s*undone\.context\?\.revision\?\.id/);
+  assert.match(runner, /undoRevision:\s*undone\.context\?\.revision\?\.id/);
   assert.match(runner, /target:\s*\{\s*sequenceId:\s*preview\.sequenceId/);
 });
 
