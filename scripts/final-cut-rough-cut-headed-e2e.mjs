@@ -176,7 +176,7 @@ async function run() {
       return result;
     });
 
-    const mediaPlacement = await placeMedia(discovered.handle);
+    const mediaPlacement = await placeMedia(discovered.handle, workflowBefore);
     const occurrence = await runStep("media.occurrence.verify", async () => {
       const located = await callJson("editor.native.timeline.locate", { mediaHandle: discovered.handle });
       recordTool("editor.native.timeline.locate");
@@ -321,7 +321,7 @@ async function disposableUndoPreflight(liveBefore) {
   return { trimmed, undo, restored };
 }
 
-async function placeMedia(mediaHandle) {
+async function placeMedia(mediaHandle, before) {
   const previewName = placement === "append" ? "editor.native.media.append.preview" : "editor.native.media.insert.preview";
   const executeName = placement === "append" ? "editor.native.media.append.execute" : "editor.native.media.insert.execute";
   const preview = await runStep("media.placement.preview", async () => {
@@ -342,8 +342,10 @@ async function placeMedia(mediaHandle) {
   });
   const duration = subtractRational(result.afterDuration, result.beforeDuration);
   if (compareRational(duration, zeroRational()) <= 0) throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: placement did not increase the sequence duration");
-  if (placement === "append" && compareRational(preview.insertionTime, result.beforeDuration) !== 0n) {
-    throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: append insertion time did not equal the pre-edit duration");
+  const sequenceStart = before.sequenceTimeRange?.start ?? before.sequence?.startTime;
+  if (!sequenceStart) throw new Error("FINAL_CUT_E2E_LIVE_STATE_UNAVAILABLE: sequence start is required to verify append placement");
+  if (placement === "append" && compareRational(preview.insertionTime, addRational(sequenceStart, result.beforeDuration)) !== 0n) {
+    throw new Error("FINAL_CUT_E2E_MEDIA_PLACEMENT_FAILED: append insertion time did not equal the pre-edit sequence end");
   }
   return {
     operation: placement,
@@ -467,6 +469,13 @@ function parseRational(value) {
 function subtractRational(left, right) {
   return normalizeRational(
     BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale),
+    BigInt(left.timescale) * BigInt(right.timescale),
+  );
+}
+
+function addRational(left, right) {
+  return normalizeRational(
+    BigInt(left.value) * BigInt(right.timescale) + BigInt(right.value) * BigInt(left.timescale),
     BigInt(left.timescale) * BigInt(right.timescale),
   );
 }
