@@ -68,6 +68,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@openai/codex": "0.144.1",
     "@types/node": "24.13.3",
     "tsc-alias": "1.9.4",
     "tsx": "4.23.13",

@@ -119,6 +119,9 @@ test("release workflow gates publication on v0.1.6 evidence and native checksums
   assert.match(workflow, /gh release download "\$\{RELEASE_TAG\}"/);
   assert.match(workflow, /shasum -a 256 -c/);
   assert.match(workflow, /pnpm run test:codex-plugin/);
+  assert.match(workflow, /validate-codex-plugin:[\s\S]*?permissions:\s+contents: read[\s\S]*?pnpm install --frozen-lockfile[\s\S]*?pnpm run test:codex-plugin/);
+  assert.match(workflow, /publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin/);
+  assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
 });
 
 test("release workflow can retry an exact existing tag", async () => {

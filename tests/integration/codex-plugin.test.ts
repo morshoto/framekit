@@ -76,8 +76,8 @@ test("CI runs the clean Codex plugin installation smoke test", async () => {
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
 
   const workflow = await readFile(resolve(repository, ".github/workflows/typescript.yml"), "utf8");
-  assert.match(workflow, /npm install --global @openai\/codex@0\.144\.1/);
   assert.match(workflow, /pnpm run test:codex-plugin/);
+  assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
 
   const smoke = await readFile(resolve(repository, "scripts/codex-plugin-smoke.mjs"), "utf8");
   assert.match(smoke, /package\.json/);

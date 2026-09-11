@@ -62,9 +62,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Codex CLI
-        run: npm install --global @openai/codex@0.144.1
-
       - name: Validate clean Codex plugin installation
         run: pnpm run test:codex-plugin
 
