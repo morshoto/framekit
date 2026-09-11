@@ -85,6 +85,37 @@ test("Final Cut asset discovery propagates native browser unavailability", async
   );
 });
 
+test("Final Cut asset discovery reports native unavailability with filesystem results", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-title-assets-diagnostic-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(
+    join(bundle, "Contents", "Info.plist"),
+    "<plist><key>CFBundleDisplayName</key><string>Lower Third</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></plist>",
+  );
+  const registry = new FinalCutAssetRegistry({
+    roots: [root],
+    nativeTitleProvider: {
+      searchTitles: async () => {
+        throw new Error("FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION: Accessibility permission is required");
+      },
+    },
+  });
+
+  const assets = await registry.listAssets({ kind: "title", query: "lower" });
+
+  assert.equal(assets.length, 1);
+  assert.deepEqual(assets[0]?.metadata.discovery, {
+    backend: "filesystem-motion-template",
+    guarantee: "observed",
+    native: {
+      backend: "final-cut-accessibility",
+      guarantee: "none",
+      unavailableReason: "FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION: Accessibility permission is required",
+    },
+  });
+});
+
 test("MCP editor.assets exposes native title provenance", async () => {
   const nativeTitle: NativeFinalCutTitleMatch = {
     id: "final-cut:title:fcp://title/lower-third",
