@@ -89,7 +89,7 @@ jobs:
           path: artifacts/filler-removal/${{ github.run_id }}
           if-no-files-found: warn
 
-      - name: Run v0.0.3 release gate
+      - name: Run v0.1.6 native-editing release gate
         run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
 
       - name: Upload release gate evidence

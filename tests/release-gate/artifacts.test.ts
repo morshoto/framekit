@@ -23,6 +23,7 @@ test("release gate artifacts retain the report and an auditable manifest", async
     evidenceTiers: Record<string, { status: string; attempted: boolean; passed: boolean }>;
     workflowMatrix: Array<{ workflowId: string }>;
     provenance: { releaseReady: boolean; checks: Array<{ name: string; status: string }> };
+    repositoryChecks: { passed: boolean; checks: Array<{ name: string; status: string }> };
   };
 
   assert.equal(manifest.schemaVersion, 2);
@@ -45,6 +46,8 @@ test("release gate artifacts retain the report and an auditable manifest", async
   assert.deepEqual(manifest.workflowMatrix.map((workflow) => workflow.workflowId), report.workflowMatrix.map((workflow) => workflow.workflowId));
   assert.equal(manifest.provenance.releaseReady, report.provenance.releaseReady);
   assert.deepEqual(manifest.provenance.checks.map((check) => check.name), report.provenance.checks.map((check) => check.name));
+  assert.equal(manifest.repositoryChecks.passed, report.repositoryChecks.passed);
+  assert.deepEqual(manifest.repositoryChecks.checks.map((check) => check.status), report.repositoryChecks.checks.map((check) => check.status));
   assert.deepEqual(JSON.parse(await readFile(paths.reportPath, "utf8")), report);
   assert.doesNotMatch(await readFile(paths.reportPath, "utf8"), /\/private\/|operationId|sourceIdentity/);
   await assert.rejects(writeReleaseGateArtifacts(report, outputDirectory), /RELEASE_GATE_ARTIFACT_EXISTS/);

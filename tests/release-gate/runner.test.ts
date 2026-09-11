@@ -31,5 +31,12 @@ test("release gate executes Skills and separates capability evidence", async () 
   assert.equal(report.evidenceTiers["metadata-only"].status, "verified");
   assert.equal(report.evidenceTiers["canonical-live"].status, "unsupported");
   assert.equal(report.evidenceTiers["headed-native"].status, "unrun");
+  assert.deepEqual(report.repositoryChecks.checks.map((check) => check.status), [
+    "unrun",
+    "unrun",
+    "unrun",
+    "unrun",
+    "unrun",
+  ]);
   assert.equal(report.generatedAt, "2026-08-30T00:00:00.000Z");
 });

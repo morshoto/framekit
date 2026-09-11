@@ -32,6 +32,7 @@ import {
   type ReleaseProvenanceInput,
   type ReleaseProvenanceReport,
 } from "./native-editing.js";
+import { unrunRepositoryChecks, type RepositoryChecksReport } from "./repository-checks.js";
 
 const corpusPath = fileURLToPath(new URL("./corpus.json", import.meta.url));
 const requiredFillerCases = [
@@ -121,12 +122,14 @@ export interface ReleaseGateReport {
   evidenceTiers: ReleaseGateEvidenceTiers;
   workflowMatrix: ReleaseGateWorkflowMatrixEntry[];
   provenance: ReleaseProvenanceReport;
+  repositoryChecks: RepositoryChecksReport;
 }
 
 export interface RunReleaseGateOptions {
   generatedAt?: string;
   headedEvidenceDirectory?: string;
   provenance?: Partial<ReleaseProvenanceInput>;
+  repositoryChecks?: RepositoryChecksReport;
 }
 
 export interface ReleaseGateWorkflowMatrixEntry {
@@ -273,6 +276,7 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
     evidenceTiers,
     workflowMatrix: buildWorkflowMatrix(manifest, evidenceTiers),
     provenance,
+    repositoryChecks: options.repositoryChecks ?? unrunRepositoryChecks(),
   } satisfies ReleaseGateReport;
   return report;
 }

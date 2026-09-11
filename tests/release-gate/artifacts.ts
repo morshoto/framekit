@@ -38,6 +38,10 @@ export interface ReleaseGateArtifactManifest {
     checks: Array<{ name: string; status: string }>;
     summary: string;
   };
+  repositoryChecks: {
+    passed: boolean;
+    checks: Array<{ name: string; status: string }>;
+  };
 }
 
 export async function writeReleaseGateArtifacts(
@@ -85,6 +89,10 @@ export async function writeReleaseGateArtifacts(
       releaseReady: report.provenance.releaseReady,
       checks: report.provenance.checks.map(({ name, status }) => ({ name, status })),
       summary: report.provenance.summary,
+    },
+    repositoryChecks: {
+      passed: report.repositoryChecks.passed,
+      checks: report.repositoryChecks.checks.map(({ name, status }) => ({ name, status })),
     },
   };
 

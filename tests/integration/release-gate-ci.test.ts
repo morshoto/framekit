@@ -7,10 +7,14 @@ test("release gate is wired into local and CI validation", async () => {
     scripts?: Record<string, string>;
   };
   const workflow = await readFile(".github/workflows/typescript.yml", "utf8");
+  const runner = await readFile("scripts/run-release-gate.ts", "utf8");
 
   assert.match(packageJson.scripts?.test ?? "", /tests\/release-gate\/\*\.test\.ts/);
   assert.equal(packageJson.scripts?.["test:release-gate"], "tsx --test tests/release-gate/*.test.ts");
   assert.equal(packageJson.scripts?.["release-gate"], "tsx scripts/run-release-gate.ts");
+  assert.match(workflow, /name: Run v0\.1\.6 native-editing release gate/);
+  assert.match(runner, /runRepositoryChecks/);
+  assert.match(runner, /repositoryChecks/);
   assert.match(workflow, /pnpm run release-gate --output-dir artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/);
   assert.match(workflow, /name: release-gate-\$\{\{ github\.run_id \}\}/);
   assert.match(workflow, /path: artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/);

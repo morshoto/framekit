@@ -1,21 +1,52 @@
-export function parseReleaseGateOutputDirectory(
+export interface ReleaseGateCliOptions {
+  outputDirectory: string;
+  headedEvidenceDirectory?: string;
+}
+
+export function parseReleaseGateArgs(
   args: string[],
   defaultOutputDirectory: string,
-): string {
+): ReleaseGateCliOptions {
   let outputDirectory: string | undefined;
+  let headedEvidenceDirectory: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    const value = argument === "--output-dir"
+    const outputValue = argument === "--output-dir"
       ? args[++index]
       : argument.startsWith("--output-dir=")
         ? argument.slice("--output-dir=".length)
         : undefined;
-    if (value === undefined) throw new Error("USAGE: only --output-dir is supported");
-    if (!value || value.startsWith("--")) throw new Error("USAGE: --output-dir requires a path");
-    if (outputDirectory !== undefined) throw new Error("USAGE: specify --output-dir once");
-    outputDirectory = value;
+    const headedValue = argument === "--headed-evidence-dir"
+      ? args[++index]
+      : argument.startsWith("--headed-evidence-dir=")
+        ? argument.slice("--headed-evidence-dir=".length)
+        : undefined;
+
+    if (outputValue !== undefined) {
+      if (!outputValue || outputValue.startsWith("--")) throw new Error("USAGE: --output-dir requires a path");
+      if (outputDirectory !== undefined) throw new Error("USAGE: specify --output-dir once");
+      outputDirectory = outputValue;
+      continue;
+    }
+    if (headedValue !== undefined) {
+      if (!headedValue || headedValue.startsWith("--")) throw new Error("USAGE: --headed-evidence-dir requires a path");
+      if (headedEvidenceDirectory !== undefined) throw new Error("USAGE: specify --headed-evidence-dir once");
+      headedEvidenceDirectory = headedValue;
+      continue;
+    }
+    throw new Error("USAGE: only --output-dir and --headed-evidence-dir are supported");
   }
 
-  return outputDirectory ?? defaultOutputDirectory;
+  return {
+    outputDirectory: outputDirectory ?? defaultOutputDirectory,
+    ...(headedEvidenceDirectory ? { headedEvidenceDirectory } : {}),
+  };
+}
+
+export function parseReleaseGateOutputDirectory(
+  args: string[],
+  defaultOutputDirectory: string,
+): string {
+  return parseReleaseGateArgs(args, defaultOutputDirectory).outputDirectory;
 }
