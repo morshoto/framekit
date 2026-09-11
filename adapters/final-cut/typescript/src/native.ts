@@ -1572,6 +1572,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     validatePictureInPictureAnchor(anchorOccurrence, beforeLive);
     const startTimecode = this.toTimecode(preview.start, beforeLive);
     const endTimecode = this.toTimecode(preview.end, beforeLive);
+    const operationId = opaqueHandle("native-picture-in-picture");
 
     try {
       await this.executeNativeSequence(async () => {
@@ -1594,10 +1595,27 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         await this.focusTimelineForMediaInsertion();
       });
     } catch (error) {
+      const observedContext = await this.inspectRawNative();
+      const observedLive = await this.readLiveState();
+      if (observedLive && observedLive.revision.id !== beforeLive.revision.id && observedContext.undoCommand) {
+        this.rememberOperation(operationId, {
+          kind: "picture-in-picture",
+          before,
+          after: observedContext,
+          beforeLive,
+          afterLive: observedLive,
+          undoCommand: observedContext.undoCommand,
+        });
+        try {
+          await this.undo(operationId);
+        } catch (rollbackError) {
+          throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+        }
+        throw new Error(`${nativeErrorCode(error)}: ${String(error)}; picture-in-picture placement was rolled back`);
+      }
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
 
-    const operationId = opaqueHandle("native-picture-in-picture");
     let after: NativeFinalCutContext | undefined;
     let afterLive: EditorLiveState | undefined;
     try {

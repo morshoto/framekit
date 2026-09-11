@@ -327,6 +327,85 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Native Picture-in-Picture" of menu "Edit"')), true);
 });
 
+test("native PIP rolls back when transform fails after connect", async () => {
+  let revision = 1;
+  let playhead = "0";
+  let pipAdded = false;
+  let undoCalls = 0;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      if (script.includes('set searchQuery to "Anchor"')) {
+        return `Anchor${separator}AXBrowserMedia${separator}browser-anchor${separator}media-anchor${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set searchQuery to "Guest"')) {
+        return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
+      }
+      if (script.includes("collectTimelineClipMatches")) {
+        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}`;
+      }
+      if (script.includes("00:00:02:00")) playhead = "2";
+      if (script.includes("00:00:06:00")) playhead = "6";
+      if (script.includes('keystroke "q"')) {
+        pipAdded = true;
+        revision = 2;
+      }
+      if (script.includes("set value of positionXField")) {
+        throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_TRANSFORM_UNAVAILABLE: Inspector transform failed");
+      }
+      if (script.includes('click menu item "Undo Native Picture-in-Picture"')) {
+        undoCalls += 1;
+        pipAdded = false;
+        revision = 3;
+      }
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo")
+        : "";
+    },
+  });
+
+  const [anchorMedia] = await adapter.searchMedia("Anchor");
+  const anchorOccurrences = await adapter.locateOccurrence(anchorMedia.handle);
+  const anchor = anchorOccurrences.occurrences[0];
+  assert.ok(anchor);
+  const [guestMedia] = await adapter.searchMedia("Guest");
+  await adapter.selectMedia(guestMedia.handle);
+  const preview = await adapter.previewPictureInPicture({
+    mediaHandle: guestMedia.handle,
+    anchorOccurrenceHandle: anchor.handle,
+    start: { value: "2", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+  });
+
+  await assert.rejects(
+    adapter.executePictureInPicture(preview.previewToken),
+    /picture-in-picture placement was rolled back/,
+  );
+  assert.equal(pipAdded, false);
+  assert.equal(undoCalls, 1);
+  assert.equal(revision, 3);
+});
+
 test("native title previews bind explicit selected ranges and reject incompatible or out-of-bounds assets", async () => {
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
