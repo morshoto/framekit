@@ -123,6 +123,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "visual.analyze",
       ].sort(),
     );
+    const nativeMaskPreviewTool = tools.tools.find((tool) => tool.name === "editor.native.mask.preview");
+    assert.doesNotMatch(JSON.stringify(nativeMaskPreviewTool?.inputSchema ?? {}), /inverted/);
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
       "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
