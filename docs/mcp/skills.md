@@ -43,9 +43,23 @@ so raw operations and editable plans cannot be submitted.
 result. Unsupported requirements are reported with exact missing leaves and
 stable reason codes; they do not fall back to a fixture or another editor.
 
-`filler-removal` skips low-confidence, ambiguous, overlapping, or protected
-speech rather than choosing a cut in natural-language code. It re-analyzes
-affected speech and preserves adjacent words.
+`filler-removal` previews every detected candidate with its confidence,
+reason codes, occurrence mapping, safe-cut evidence, and a decision of
+`AUTO_APPLY`, `SUGGESTED`, or `SKIPPED`. High-confidence frame-aligned cuts
+use the canonical sequence frame duration and are authorized automatically; a
+`SUGGESTED` candidate requires a fresh preview with its revision-bound ID in
+`selectedCandidateIds`. If canonical frame timing is unavailable, planning
+fails closed. Low-confidence, ambiguous, overlapping, or protected speech is
+never selected implicitly.
+
+The Skill applies all authorized ripple deletions in one composite transaction.
+Each operation carries its candidate ID, and the preview and execution details
+include candidate provenance and affected diff ranges. A preview with no valid
+operations executes as a verified no-op without mutating the timeline.
+Execution re-analyzes the affected speech, confirms filler targets are absent,
+adjacent speech remains ordered, protected speech is unchanged, the canonical
+diff matches the preview, and the timeline duration changes by the authorized
+deleted frames. Any failed check rolls back the complete transaction.
 
 `dialogue-normalization` operates on one complete clip occurrence. It measures
 dialogue loudness and true peak before planning gain, returns `NO_OP` for clips

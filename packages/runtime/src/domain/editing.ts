@@ -67,6 +67,8 @@ export type EditOperation =
       timelineId: string;
       range: TimeRange;
       reason?: string;
+      /** Optional Skill provenance for a guarded semantic deletion. */
+      candidateId?: string;
       baseRevision?: ContextRevision;
     }
   | {
