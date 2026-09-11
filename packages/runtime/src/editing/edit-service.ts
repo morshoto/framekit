@@ -15,6 +15,7 @@ import type {
   EditorTimelineEditTargetInput,
   WorkflowOperation,
 } from "../domain/editing.js";
+import { assertValidMaskConfiguration } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineDiff } from "../domain/diff.js";
 import type { VerificationCheck, VerificationEngine, VerificationPolicy } from "../domain/verification.js";
@@ -412,6 +413,15 @@ export class EditService {
       && (!capabilities.transitionPlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline transition placement");
     }
+    const maskOperations = operations.filter(
+      (operation): operation is Extract<WorkflowOperation, { type: "timeline.mask.add" }> => operation.type === "timeline.mask.add",
+    );
+    if (maskOperations.some((operation) => operation.mask.mode !== "person-cutout") && !capabilities.masking) {
+      throw new Error("CAPABILITY_UNAVAILABLE: masking");
+    }
+    if (maskOperations.some((operation) => operation.mask.mode === "person-cutout") && !capabilities.personCutout) {
+      throw new Error("CAPABILITY_UNAVAILABLE: person cutout");
+    }
     if (operations.some((operation) => operation.type === "timeline.audio.attach") && !capabilities.audioAttachment) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline audio attachment");
     }
@@ -527,6 +537,11 @@ function sameDiffContent(left: TimelineDiff, right: TimelineDiff): boolean {
 }
 
 function assertValidWorkflowOperation(operation: WorkflowOperation): void {
+  if (operation.type === "timeline.mask.add") {
+    if (!operation.occurrenceId.trim()) throw new Error("INVALID_OPERATION: mask occurrenceId is required");
+    assertValidMaskConfiguration(operation.mask);
+    return;
+  }
   if (operation.type !== "trim-clip") return;
   if (!Number.isFinite(operation.duration) || operation.duration <= 0) {
     throw new Error("INVALID_OPERATION: clip duration must be positive");

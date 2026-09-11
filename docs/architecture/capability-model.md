@@ -41,7 +41,8 @@ one operation at a time:
       "compositeTransactions": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "composite editing transactions are unavailable" },
       "titlePlacement": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "title placement is unavailable" },
       "pictureInPicture": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "picture-in-picture editing is unavailable" },
-      "masking": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "masking is unavailable" }
+      "masking": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "masking is unavailable" },
+      "personCutout": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "person cutout is unavailable" }
     },
     "native": {
       "selectionWrite": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native selection write is unavailable" },
@@ -103,5 +104,14 @@ routed capabilities rather than only the identity of the composed editor:
 process with an available native write capability. A native-write report does not
 promote metadata-only or artifact results to canonical evidence. Each operation
 under `capabilities` retains its provider `backend`, `guarantee`, and, when
-unavailable, `unavailableReason`. PIP and masking remain explicit unavailable
-operations until a provider implements and verifies them.
+unavailable, `unavailableReason`. PIP and masking are independent operations:
+the deterministic fixture supports verified rectangle and supplied-alpha masks,
+and the native Accessibility provider supports a verified bounded Draw Mask.
+Person cutout remains explicitly unavailable until a provider can perform and
+read back that configuration.
+
+Mask configurations are target-bound workflow operations. Rectangle masks use
+normalized `x`, `y`, `width`, and `height` bounds that fit within the frame;
+supplied-alpha masks require an explicit video `alphaMediaId`. Unsupported or
+ambiguous targets fail closed before mutation, and verification compares the
+requested configuration with the observed canonical or native state.

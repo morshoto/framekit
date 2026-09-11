@@ -40,6 +40,8 @@ this routing tool.
 | `editor.native.transition.search` | Search the visible Final Cut Transitions browser | Returns only transitions with stable native identities; native writes required |
 | `editor.native.transition.add.preview` | Preview adding a discovered transition between two adjacent timeline occurrences | Requires occurrence handles, exact rational timing, unchanged live revision, and native writes opt-in |
 | `editor.native.transition.add.execute` | Add the previewed transition and verify selection, revision, and Undo | Requires unchanged sequence and timeline revision; returns a native Undo operation ID |
+| `editor.native.mask.preview` | Preview a bounded native Draw Mask on one located timeline occurrence | Requires a unique occurrence handle, unchanged live revision, and native writes opt-in; preview is non-mutating |
+| `editor.native.mask.execute` | Apply the previewed Draw Mask and verify readback, revision, and Undo | Fails closed if Final Cut does not expose the requested mask properties |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
 | `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle |
 | `editor.native.media.search` | Search the active Final Cut Browser | Automatically focuses the Browser and returns short-lived media handles; native writes required |
@@ -71,6 +73,8 @@ this routing tool.
 | `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
 | `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
 | `editor.timeline.edit.execute` | Execute one live timeline preview token and verify the timeline transaction | Requires an unexpired, single-use live timeline preview token |
+| `timeline.mask.add.preview` | Preview a rectangle or supplied-alpha mask for an explicit project, sequence, revision, and occurrence | Non-mutating; requires `editor.masking` and canonical transaction guarantees |
+| `timeline.mask.add.execute` | Execute one mask preview token and verify the requested mask state | Requires an unexpired, single-use preview token; person cutout remains unavailable |
 | `timeline.inspect` | Canonical timeline snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
@@ -292,6 +296,27 @@ adapter write restores the pre-transaction timeline and media registry. The
 deterministic fixture advertises this contract; FCPXML and live Final Cut
 backends continue to fail closed until they implement the same atomic adapter
 port.
+
+## Masking workflow
+
+`timeline.mask.add.preview` accepts an explicit project ID, sequence ID, base
+revision, occurrence ID, and one mask configuration. Rectangle bounds are
+normalized to the frame. `supplied-alpha` requires an explicit video media ID;
+it does not infer an alpha source from a filename. `person-cutout` is part of
+the versioned contract but fails closed unless the selected backend advertises
+and verifies it. Preview does not mutate the project or revision.
+
+Execute with `timeline.mask.add.execute`, then inspect `edit.diff` and
+`edit.verify`. The runtime checks the target identity and requested properties,
+returns a `mask-state` verification check, and restores the complete pre-edit
+state if verification fails. PIP is a separate capability and is never a
+fallback or prerequisite for masking.
+
+For the headed native path, use `editor.native.timeline.locate` followed by
+`editor.native.mask.preview` and `editor.native.mask.execute`. The native
+adapter applies Final Cut's Draw Mask to the selected occurrence and requires
+readback of the bounded configuration plus a changed revision and native Undo.
+Native evidence does not claim canonical timeline enumeration.
 
 ## Explicit editing intent
 
