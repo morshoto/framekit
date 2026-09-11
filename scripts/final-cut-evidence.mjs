@@ -557,8 +557,8 @@ function revisionIdentity(value) {
 function sanitizeBooleanCapabilities(value, keys) {
   const result = {};
   for (const key of keys) {
-    if (value?.[key] !== undefined) assert(typeof value[key] === "boolean", `${key} capability must be boolean`);
-    if (value?.[key] !== undefined) result[key] = value[key];
+    assert(value?.[key] === true, `${key} capability is required`);
+    result[key] = true;
   }
   return result;
 }
