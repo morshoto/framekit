@@ -65,8 +65,7 @@ export class FinalCutCanonicalSnapshotSource {
     const exportPath = join(directory, "active.fcpxml");
     try {
       await this.executor(buildFinalCutCanonicalExportScript(exportPath));
-      await waitForExportFile(exportPath, this.exportTimeoutMs, this.pollIntervalMs);
-      return new FcpxmlDocumentAdapter(exportPath).readProject();
+      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       if (detail.includes("FINAL_CUT_CANONICAL_")) throw error;
@@ -440,18 +439,34 @@ async function executeCanonicalAppleScript(script: string): Promise<string> {
   }
 }
 
-async function waitForExportFile(path: string, timeoutMs: number, pollIntervalMs: number): Promise<void> {
+async function readCanonicalExport(path: string, timeoutMs: number, pollIntervalMs: number): Promise<ProjectSnapshot> {
   const deadline = Date.now() + timeoutMs;
+  let previousSignature: string | undefined;
+  let lastReadError: unknown;
+
   while (Date.now() <= deadline) {
+    let signature: string | undefined;
     try {
       const details = await stat(path);
-      if (details.isFile() && details.size > 0) return;
+      if (details.isFile() && details.size > 0) {
+        signature = `${details.size}:${details.mtimeMs}`;
+      }
     } catch {
       // The Save dialog may still be open.
     }
+
+    if (signature && signature === previousSignature) {
+      try {
+        return await new FcpxmlDocumentAdapter(path).readProject();
+      } catch (error) {
+        lastReadError = error;
+      }
+    }
+    previousSignature = signature;
     await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
   }
-  throw new Error(`FINAL_CUT_CANONICAL_EXPORT_TIMEOUT: Final Cut did not create ${path}`);
+  const detail = lastReadError instanceof Error ? `: ${lastReadError.message}` : "";
+  throw new Error(`FINAL_CUT_CANONICAL_EXPORT_TIMEOUT: Final Cut did not provide a complete export at ${path}${detail}`);
 }
 
 function sourceBasename(source: string): string {
