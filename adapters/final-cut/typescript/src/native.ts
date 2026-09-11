@@ -179,6 +179,14 @@ export interface NativeFinalCutTransitionMatch {
   identity: string;
 }
 
+export interface NativeFinalCutTitleMatch {
+  id: string;
+  kind: "title";
+  name: string;
+  vendor: string;
+  identity: string;
+}
+
 export interface NativeFinalCutTransitionPreview {
   previewToken: string;
   asset: NativeFinalCutTransitionMatch;
@@ -295,6 +303,7 @@ export interface NativeFinalCutCapabilities {
   mediaAppend: boolean;
   mediaInsert: boolean;
   titlePlacement: boolean;
+  titleDiscovery?: boolean;
   transitionDiscovery?: boolean;
   transitionPlacement?: boolean;
   timelineFocus: boolean;
@@ -389,6 +398,7 @@ export interface NativeFinalCutEditor {
   executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
   previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
   executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult>;
+  searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]>;
   searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]>;
   previewTransitionAdd(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview>;
   executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult>;
@@ -496,6 +506,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
       titlePlacement: this.enabled,
+      titleDiscovery: this.enabled,
       transitionDiscovery: this.enabled,
       transitionPlacement: this.enabled,
       timelineFocus: this.enabled,
@@ -1069,6 +1080,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.executeTitleAddNative(previewToken));
   }
 
+  public async searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]> {
+    return this.withNativeUi(() => this.searchTitlesNative(query));
+  }
+
   public async searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]> {
     return this.withNativeUi(() => this.searchTransitionsNative(query));
   }
@@ -1079,6 +1094,36 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult> {
     return this.withNativeUi(() => this.executeTransitionAddNative(previewToken));
+  }
+
+  private async searchTitlesNative(query: string): Promise<NativeFinalCutTitleMatch[]> {
+    this.assertEnabled();
+    try {
+      await this.ensureTitleBrowserReady();
+      const normalizedQuery = query.trim();
+      const identity = titleIdentityFromId(normalizedQuery);
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return parseTitleMatches(await this.executeNativeScript(
+            titleSearchScript(identity ?? normalizedQuery, identity !== undefined),
+          ));
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) await this.sleep(250);
+        }
+      }
+      throw lastError;
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+  }
+
+  private async ensureTitleBrowserReady(): Promise<void> {
+    const output = await this.executeNativeScript(titleBrowserPreflightScript());
+    const [frontmost = "false", windowAvailable = "false"] = output.split(String.fromCharCode(31));
+    if (frontmost !== "true") throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for title discovery");
+    if (windowAvailable !== "true") throw new Error("FINAL_CUT_NATIVE_TITLE_BROWSER_UNAVAILABLE: Final Cut's Titles browser is unavailable");
   }
 
   private async searchTransitionsNative(query: string): Promise<NativeFinalCutTransitionMatch[]> {
@@ -1332,7 +1377,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const endTimecode = this.toTimecode(preview.end, beforeLive);
     try {
       await this.executeNativeSequence(async () => {
-        await this.executor(titleAssetSelectionScript(preview.asset.name));
+        await this.executor(titleAssetSelectionScript(preview.asset.name, nativeTitleIdentity(preview.asset)));
         await this.focusTimelineForMediaInsertion();
         await this.executor(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
@@ -2094,6 +2139,11 @@ function assertNativeTitleAsset(asset: EditorAsset): void {
   if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${asset.id} is not a Final Cut title asset`);
 }
 
+function nativeTitleIdentity(asset: EditorAsset): string | undefined {
+  const idIdentity = titleIdentityFromId(asset.id);
+  return idIdentity?.trim() || undefined;
+}
+
 function publicTitleAsset(asset: EditorAsset): Pick<EditorAsset, "id" | "kind" | "name" | "vendor"> {
   return { id: asset.id, kind: asset.kind, name: asset.name, vendor: asset.vendor };
 }
@@ -2219,6 +2269,30 @@ function verifyNativeTransition(
     verified: true,
     detail: `Final Cut verified ${preview.asset.name} at ${preview.editPoint.value}/${preview.editPoint.timescale} for requested and observed duration ${observedDuration.value}/${observedDuration.timescale} at revision ${afterLive.revision.id}`,
   };
+}
+
+function parseTitleMatches(output: string): NativeFinalCutTitleMatch[] {
+  const matches = new Map<string, NativeFinalCutTitleMatch>();
+  for (const record of output.split(String.fromCharCode(30)).map((value) => value.trim()).filter(Boolean)) {
+    const [name = "", identity = ""] = record.split(String.fromCharCode(31));
+    if (!name || !identity) {
+      throw new Error("FINAL_CUT_NATIVE_TITLE_ID_UNAVAILABLE: title browser did not expose stable identities");
+    }
+    const match = {
+      id: `final-cut:title:${identity}`,
+      kind: "title" as const,
+      name,
+      vendor: "Final Cut Pro",
+      identity,
+    };
+    matches.set(match.id, match);
+  }
+  return [...matches.values()].sort((left, right) => `${left.name}:${left.identity}`.localeCompare(`${right.name}:${right.identity}`));
+}
+
+function titleIdentityFromId(value: string): string | undefined {
+  const prefix = "final-cut:title:";
+  return value.startsWith(prefix) ? value.slice(prefix.length) : undefined;
 }
 
 function parseTransitionMatches(output: string): NativeFinalCutTransitionMatch[] {
@@ -3987,13 +4061,140 @@ function occurrenceRangeEndpointScript(timelineOffset: number, endpoint: "start"
   end tell`;
 }
 
-function titleAssetSelectionScript(assetName: string): string {
+function titleSearchScript(query: string, identityQuery = false): string {
+  const searchQuery = identityQuery ? "" : query;
+  return `
+  using terms from application "System Events"
+    on titlePaneVisible(candidate, mainOrigin, mainSize)
+      try
+        set candidatePosition to position of candidate
+        set candidateSize to size of candidate
+        set candidateX to item 1 of candidatePosition
+        set candidateY to item 2 of candidatePosition
+        set candidateRight to candidateX + (item 1 of candidateSize)
+        set candidateBottom to candidateY + (item 2 of candidateSize)
+        set minimumX to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.02)
+        set minimumY to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.25)
+        set maximumX to (item 1 of mainOrigin) + (item 1 of mainSize)
+        set maximumY to (item 2 of mainOrigin) + (item 2 of mainSize)
+        return candidateRight is greater than minimumX and candidateBottom is greater than minimumY and candidateX is less than maximumX and candidateY is less than maximumY
+      on error
+        return false
+      end try
+    end titlePaneVisible
+
+    on titleCandidateName(candidate)
+      set candidateName to ""
+      try
+        set candidateName to name of candidate as text
+      end try
+      if candidateName is "missing value" then set candidateName to ""
+      if candidateName is "" then
+        try
+          set candidateName to value of candidate as text
+        end try
+      end if
+      if candidateName is "missing value" then set candidateName to ""
+      return candidateName
+    end titleCandidateName
+
+    on collectTitleMatches(nodes, depth, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
+      if depth > 12 then return ""
+      set output to ""
+      repeat with candidateIndex from 1 to count of nodes
+        try
+          set candidate to contents of item candidateIndex of nodes
+          if my titlePaneVisible(candidate, mainOrigin, mainSize) then
+            set candidateName to my titleCandidateName(candidate)
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            set matches to false
+            if candidateName is not "" and candidateIdentity is not "" then
+              if identityQuery then
+                set matches to candidateIdentity is queryText
+              else
+                set matches to candidateName contains queryText
+              end if
+            end if
+            if matches and seenIdentities does not contain candidateIdentity then
+              set end of seenIdentities to candidateIdentity
+              set output to output & candidateName & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+            end if
+            set output to output & my collectTitleMatches(UI elements of candidate, depth + 1, queryText, identityQuery, seenIdentities, mainOrigin, mainSize)
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return output
+    end collectTitleMatches
+  end using terms from
+  tell application "System Events"
+    tell process "Final Cut Pro"
+      ${requireFrontmostAppleScript()}
+      set mainWindow to window "Final Cut Pro"
+      set mainOrigin to position of mainWindow
+      set mainSize to size of mainWindow
+      click at {(item 1 of mainOrigin) + 104, (item 2 of mainOrigin) + 53}
+      delay 0.3
+      set titleSearchField to missing value
+      repeat with candidate in entire contents of front window
+        try
+          set candidateRole to role of candidate as text
+          set candidateDescription to description of candidate as text
+          if (candidateRole is "AXTextField" or candidateRole is "AXSearchField") and (candidateDescription contains "search" or candidateDescription contains "Search") then
+            set titleSearchField to candidate
+            exit repeat
+          end if
+        end try
+      end repeat
+      if titleSearchField is not missing value then
+        set value of titleSearchField to ${appleScriptString(searchQuery)}
+        try
+          set value of attribute "AXFocused" of titleSearchField to true
+        end try
+      else if ${searchQuery === "" ? "false" : "true"} then
+        click at {(item 1 of mainOrigin) + 280, (item 2 of mainOrigin) + 83}
+        keystroke "a" using {command down}
+        key code 51
+        keystroke ${appleScriptString(searchQuery)}
+      end if
+      delay 0.6
+      set seenIdentities to {}
+      return my collectTitleMatches(UI elements of mainWindow, 0, ${appleScriptString(identityQuery ? query : searchQuery)}, ${identityQuery ? "true" : "false"}, seenIdentities, mainOrigin, mainSize)
+    end tell
+  end tell`;
+}
+
+function titleBrowserPreflightScript(): string {
+  return `
+on titleBrowserPreflightResult(processFrontmost, browserWindowAvailable)
+  return processFrontmost & (ASCII character 31) & browserWindowAvailable
+end titleBrowserPreflightResult
+
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set processFrontmost to frontmost as text
+    set browserWindowAvailable to false
+    try
+      set browserWindow to window "Final Cut Pro"
+      set browserWindowAvailable to true
+    end try
+    return my titleBrowserPreflightResult(processFrontmost, browserWindowAvailable)
+  end tell
+end tell`;
+}
+
+function titleAssetSelectionScript(assetName: string, assetIdentity?: string): string {
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}
     set mainWindow to window "Final Cut Pro"
     set mainOrigin to position of mainWindow
+    set targetIdentity to ${appleScriptString(assetIdentity ?? "")}
     -- Final Cut 10.7 exposes the Titles tab as a custom Browser control. Its
     -- Control-Command-1 shortcut is not stable across releases (on some
     -- builds it opens Export), so use the bounded window-relative fallback.
@@ -4042,14 +4243,14 @@ tell application "System Events"
           set candidateIdentity to ""
           try
             set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-            if candidateSourceIdentity is not "" then set candidateIdentity to "source:" & candidateSourceIdentity
+            if candidateSourceIdentity is not "" then set candidateIdentity to candidateSourceIdentity
           end try
           if candidateIdentity is "" then
             set candidateIdentity to (candidateRole as text) & "|" & (candidateName as text) & "|" & ((position of candidate) as text) & "|" & ((size of candidate) as text)
           end if
-          if (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}) and seenTitleIdentities does not contain candidateIdentity then
+          if ((targetIdentity is not "" and candidateIdentity is targetIdentity) or (targetIdentity is "" and (candidateName is ${appleScriptString(assetName)} or candidateName contains ${appleScriptString(assetName)}))) and seenTitleIdentities does not contain candidateIdentity then
             set end of seenTitleIdentities to candidateIdentity
-            if candidateName is ${appleScriptString(assetName)} then
+            if targetIdentity is not "" or candidateName is ${appleScriptString(assetName)} then
               set exactMatchCount to exactMatchCount + 1
               set exactTitleItem to candidate
             else

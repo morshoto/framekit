@@ -97,6 +97,7 @@ export type NativeCapabilityOperation =
   | "mediaAppend"
   | "mediaInsert"
   | "titlePlacement"
+  | "titleDiscovery"
   | "timelineFocus"
   | "projectCreation"
   | "clipInsertion"

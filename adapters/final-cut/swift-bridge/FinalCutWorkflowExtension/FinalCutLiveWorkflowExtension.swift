@@ -132,6 +132,7 @@ private struct NativeCapabilities: Codable {
     let mediaAppend: CapabilityDescriptor
     let mediaInsert: CapabilityDescriptor
     let titlePlacement: CapabilityDescriptor
+    let titleDiscovery: CapabilityDescriptor
     let transitionDiscovery: CapabilityDescriptor
     let transitionPlacement: CapabilityDescriptor
     let timelineFocus: CapabilityDescriptor
@@ -239,6 +240,7 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
             mediaAppend: unavailableCapability(backend: nativeBackend, operation: "native media append"),
             mediaInsert: unavailableCapability(backend: nativeBackend, operation: "native media insert"),
             titlePlacement: unavailableCapability(backend: nativeBackend, operation: "native title placement"),
+            titleDiscovery: unavailableCapability(backend: nativeBackend, operation: "native title discovery"),
             transitionDiscovery: unavailableCapability(backend: nativeBackend, operation: "native transition discovery"),
             transitionPlacement: unavailableCapability(backend: nativeBackend, operation: "native transition placement"),
             timelineFocus: unavailableCapability(backend: nativeBackend, operation: "native timeline focus"),
