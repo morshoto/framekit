@@ -4,7 +4,7 @@ import { FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
 
 const separator = String.fromCharCode(31);
 
-function context(selectedName: string, undoCommand: string): string {
+function context(selectedName: string, undoCommand: string, selectedIdentity = selectedName ? `native:${selectedName}` : ""): string {
   return [
     "true",
     "Final Cut Pro",
@@ -25,7 +25,7 @@ function context(selectedName: string, undoCommand: string): string {
     "Final Cut Pro",
     "false",
     undoCommand,
-    selectedName ? `test:${selectedName}` : "",
+    selectedIdentity,
   ].join(separator);
 }
 
@@ -65,6 +65,7 @@ function addOccurrence(adapter: FinalCutNativeAutomationAdapter): void {
     timelineOffset: 120,
     sequenceId: "sequence-1",
     revision: "rev-1",
+    nativeIdentity: "native:Subject",
   });
 }
 
@@ -155,4 +156,26 @@ test("native masking rolls back when requested configuration is not read back", 
   );
   assert.equal(revision, 3);
   assert.equal(maskApplied, false);
+});
+
+test("native masking rejects a same-name occurrence with a different identity", async () => {
+  let selectedIdentity = "native:Subject";
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => liveState(1),
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable") || script.includes("set selectedName to \"\"")) {
+        return context("Subject", "Undo", selectedIdentity);
+      }
+      return "";
+    },
+  });
+  addOccurrence(adapter);
+
+  const preview = await adapter.previewMask({ occurrenceHandle: "occurrence-1", mask: rectangleMask() });
+  selectedIdentity = "native:Subject-duplicate";
+  await assert.rejects(
+    adapter.executeMask(preview.previewToken),
+    /FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed/,
+  );
 });
