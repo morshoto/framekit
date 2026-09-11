@@ -50,9 +50,9 @@ export class FinalCutAssetRegistry {
     try {
       nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
     } catch (error) {
-      // Filesystem assets remain truthful when the optional native browser is
-      // unavailable; native-only queries still fail closed below.
-      if (filesystemAssets.length > 0) return filesystemAssets;
+      // Filesystem assets remain usable when the optional native browser is
+      // unavailable, but keep the native diagnostic visible in the response.
+      if (filesystemAssets.length > 0) return withNativeTitleDiagnostic(filesystemAssets, error);
       throw error;
     }
     const composed = [...filesystemAssets, ...nativeTitles.map(nativeTitleAsset)];
@@ -161,6 +161,27 @@ function dedupeAssets(assets: EditorAsset[]): EditorAsset[] {
   return assets
     .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
     .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
+}
+
+function withNativeTitleDiagnostic(assets: EditorAsset[], error: unknown): EditorAsset[] {
+  const native = {
+    backend: "final-cut-accessibility",
+    guarantee: "none",
+    unavailableReason: error instanceof Error ? error.message : String(error),
+  };
+  return assets.map((asset) => {
+    const discovery = asset.metadata.discovery;
+    return {
+      ...asset,
+      metadata: {
+        ...asset.metadata,
+        discovery: {
+          ...(typeof discovery === "object" && discovery !== null ? discovery : {}),
+          native: { ...native },
+        },
+      },
+    };
+  });
 }
 
 async function readMetadata(bundlePath: string): Promise<{ name?: string; vendor?: string; [key: string]: unknown }> {

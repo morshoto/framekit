@@ -85,8 +85,10 @@ assets use `filesystem-motion-template`; headed Titles-browser assets use
 `final-cut:title:<AXIdentifier>`. Discovery has an `observed` guarantee and is
 not placement proof. Native title placement remains a separate operation with
 explicit text, timing, target, revision, and readback verification. If the
-Titles browser or Accessibility is unavailable, the provider fails closed with
-the native error instead of inventing an asset.
+Titles browser or Accessibility is unavailable, filesystem results may remain
+usable but include `metadata.discovery.native` with the native backend,
+`guarantee: "none"`, and `unavailableReason`; native-only queries fail closed
+with the native error instead of inventing an asset.
 
 `editor.inspect` also returns an inspect-time `preflight` report. Its `mode` is
 `fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or

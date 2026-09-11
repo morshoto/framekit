@@ -248,7 +248,9 @@ browser with a guarded preview/execute flow:
    choose one returned provider-qualified `id`. Native browser results use IDs
    such as `final-cut:title:<AXIdentifier>` and identify their source under
    `metadata.discovery`; filesystem results use
-   `filesystem:title:<absolute-path>`.
+   `filesystem:title:<absolute-path>`. If native discovery is unavailable while
+   filesystem results remain usable, inspect `metadata.discovery.native` for
+   the native backend, `guarantee: "none"`, and `unavailableReason`.
 2. Call `editor.native.title.add.preview` with that `id` as `assetId`, title `text`,
    and a positive rational `duration`. Omit `start` to use the current
    playhead; provide `start` to place the title across an explicit range.
