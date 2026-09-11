@@ -251,6 +251,14 @@ jobs:
             gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
           fi
 
+      - name: Verify complete release provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+          RELEASE_PROVENANCE_OUTPUT_DIR: artifacts/release-gate/${{ github.run_id }}
+        run: pnpm run verify-release-provenance
+
   validate-codex-plugin:
     if: needs.tagpr.outputs.release-tag != ''
     needs: tagpr

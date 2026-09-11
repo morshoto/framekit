@@ -34,12 +34,14 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 2. The `tagpr` job creates the version tag and a draft GitHub release with
    generated notes. If the merge already placed the release tag on `HEAD`,
    the workflow reuses that tag instead of trying to create it again.
-3. The `publish-npm` job installs npm 11.5.1, publishes the matching package,
-   and verifies the version on the public registry.
-4. The v0.1.6 release gate verifies the repository checks, artifact evidence,
-   capability boundaries, and release provenance before completion.
-5. Only after npm, native asset/checksum, and gate verification succeeds, the
-   workflow publishes the GitHub release and its notes.
+3. The `publish-npm` job installs npm 11.5.1, runs the v0.1.6 repository gate,
+   publishes the matching package, and verifies the version on the public
+   registry.
+4. The workflow verifies the native archive and checksum, then publishes the
+   GitHub release and its notes.
+5. A final provenance gate verifies package, MCP server, plugin, tag, workflow,
+   GitHub release, npm, native archive, and checksum alignment before the
+   workflow can succeed.
 
 If npm publishing fails, the GitHub release remains a draft so the failure can
 be repaired without presenting an incomplete release as public.
@@ -82,6 +84,8 @@ pnpm run test
 pnpm run check:boundaries
 npm pack --dry-run
 pnpm run release-gate --output-dir artifacts/release-gate/local-run
+RELEASE_TAG=v0.1.6 GITHUB_REPOSITORY=morshoto/framekit \
+  pnpm run verify-release-provenance
 ```
 
 For the v0.1.6 release, attach the release gate `report.json` and
@@ -97,4 +101,5 @@ archive before the GitHub release is made public. Missing assets or a malformed
 checksum keep release completion blocked.
 
 The release workflow performs the registry and GitHub release steps on GitHub's
-hosted runner; OIDC authentication cannot be fully reproduced locally.
+hosted runner; OIDC authentication cannot be fully reproduced locally. The
+final provenance command is therefore an authenticated post-publication check.

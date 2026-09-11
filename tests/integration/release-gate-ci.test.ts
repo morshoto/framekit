@@ -12,6 +12,7 @@ test("release gate is wired into local and CI validation", async () => {
   assert.match(packageJson.scripts?.test ?? "", /tests\/release-gate\/\*\.test\.ts/);
   assert.equal(packageJson.scripts?.["test:release-gate"], "tsx --test tests/release-gate/*.test.ts");
   assert.equal(packageJson.scripts?.["release-gate"], "tsx scripts/run-release-gate.ts");
+  assert.equal(packageJson.scripts?.["verify-release-provenance"], "tsx scripts/verify-release-provenance.ts");
   assert.match(workflow, /name: Run v0\.1\.6 native-editing release gate/);
   assert.match(runner, /runRepositoryChecks/);
   assert.match(runner, /repositoryChecks/);
