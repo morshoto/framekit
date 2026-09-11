@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { appendFile, writeFile } from "node:fs/promises";
 import {
   buildFinalCutCanonicalExportScript,
   createFinalCutNativeTargetResolver,
+  FinalCutCanonicalSnapshotSource,
   FinalCutCanonicalNativeProvider,
   type CanonicalNativeTargetResolver,
 } from "@framekit/final-cut";
@@ -208,6 +210,37 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   assert.match(script, /XML/);
   assert.match(script, /framekit-canonical\.fcpxml/);
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
+});
+
+test("canonical Final Cut export waits for a complete FCPXML file", async () => {
+  const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-export\" name=\"Exported\"><sequence uid=\"sequence-export\" name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
+  let finishExport: Promise<void> | undefined;
+  const source = new FinalCutCanonicalSnapshotSource({
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      const match = script.match(/set value of text field 1 of pathSheet to "([^"]+)"/);
+      assert.ok(match?.[1]);
+      const exportPath = match[1];
+      const partialDocument = completeDocument.slice(0, Math.floor(completeDocument.length / 2));
+      await writeFile(exportPath, partialDocument);
+      finishExport = new Promise((resolve) => {
+        setTimeout(() => {
+          void appendFile(exportPath, completeDocument.slice(partialDocument.length))
+            .catch(() => undefined)
+            .finally(resolve);
+        }, 40);
+      });
+    },
+  });
+
+  let project: ProjectSnapshot;
+  try {
+    project = await source.readSnapshot();
+  } finally {
+    await finishExport;
+  }
+  assert.equal(project!.projectName, "Exported");
 });
 
 test("canonical target resolver requires one exact native occurrence", async () => {
