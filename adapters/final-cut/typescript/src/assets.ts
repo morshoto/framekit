@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { AssetSearchQuery, EditorAsset } from "@framekit/runtime";
+import type { NativeFinalCutTitleMatch } from "./native.js";
 
 const CATEGORY_BY_DIRECTORY: Record<string, EditorAsset["kind"]> = {
   "Audio Effects.localized": "audio-effect",
@@ -16,6 +17,11 @@ const BUNDLE_SUFFIXES = new Set([".moef", ".moti", ".motn", ".motr"]);
 
 export interface FinalCutAssetRegistryOptions {
   roots?: string[];
+  nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
+}
+
+export interface NativeTitleProvider {
+  searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]>;
 }
 
 export function defaultFinalCutAssetRoots(): string[] {
@@ -28,15 +34,21 @@ export function defaultFinalCutAssetRoots(): string[] {
 
 export class FinalCutAssetRegistry {
   private readonly roots: string[];
+  private readonly nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
   private cached?: EditorAsset[];
 
   public constructor(options: FinalCutAssetRegistryOptions = {}) {
     this.roots = (options.roots ?? defaultFinalCutAssetRoots()).map((root) => resolve(root));
+    this.nativeTitleProvider = options.nativeTitleProvider;
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
     if (!this.cached) this.cached = await this.scan();
-    return filterAssets(this.cached, query);
+    const filesystemAssets = filterAssets(this.cached, query);
+    if (!this.nativeTitleProvider || (query?.kind && query.kind !== "title")) return filesystemAssets;
+    const nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+    const composed = [...filesystemAssets, ...nativeTitles.map(nativeTitleAsset)];
+    return filterAssets(dedupeAssets(composed), query);
   }
 
   public refresh(): void {
@@ -83,13 +95,39 @@ async function scanCategory(directory: string, kind: EditorAsset["kind"], assets
     const path = join(directory, entry.name);
     const metadata = await readMetadata(path);
     assets.push({
-      id: path,
+      id: `filesystem:${kind}:${path}`,
       kind,
       name: metadata.name ?? basename(entry.name, extension(entry.name)),
       vendor: metadata.vendor ?? "Unknown",
-      metadata: { path, ...metadata },
+      metadata: {
+        path,
+        ...metadata,
+        identity: path,
+        provider: "filesystem-motion-template",
+        source: "filesystem",
+      },
     });
   }
+}
+
+function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
+  return {
+    id: match.id,
+    kind: "title",
+    name: match.name,
+    vendor: match.vendor,
+    metadata: {
+      identity: match.identity,
+      provider: "final-cut-accessibility",
+      source: "final-cut-titles-browser",
+    },
+  };
+}
+
+function dedupeAssets(assets: EditorAsset[]): EditorAsset[] {
+  return assets
+    .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
+    .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
 }
 
 async function readMetadata(bundlePath: string): Promise<{ name?: string; vendor?: string; [key: string]: unknown }> {

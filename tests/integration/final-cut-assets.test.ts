@@ -32,13 +32,13 @@ test("Final Cut asset discovery composes stable filesystem and native title iden
   const assets = await registry.listAssets({ kind: "title", query: "lower" });
 
   assert.deepEqual(assets.map((asset) => asset.id), [
-    nativeTitle.id,
     `filesystem:title:${bundle}`,
+    nativeTitle.id,
   ]);
   assert.deepEqual(assets.map((asset) => asset.metadata.provider), [
-    "final-cut-accessibility",
     "filesystem-motion-template",
+    "final-cut-accessibility",
   ]);
-  assert.equal(assets[0]?.metadata.identity, nativeTitle.identity);
-  assert.equal(assets[1]?.metadata.path, bundle);
+  assert.equal(assets[0]?.metadata.path, bundle);
+  assert.equal(assets[1]?.metadata.identity, nativeTitle.identity);
 });
