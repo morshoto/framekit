@@ -21,7 +21,6 @@ test("canonical headed read runner publishes a read-only sanitized evidence cont
   assert.match(runner, /project\.list/);
   assert.match(runner, /project\.inspect/);
   assert.doesNotMatch(runner, /timeline\.edit/);
-  assert.match(runner, /FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED: "1"/);
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
 });
 

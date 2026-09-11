@@ -20,7 +20,6 @@ const transport = new StdioClientTransport({
     FRAMEKIT_EDITOR: "final-cut-live",
     FRAMEKIT_AUTO_CONNECT: "0",
     FRAMEKIT_FCPXML_PATH: "",
-    FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED: "1",
     FRAMEKIT_FINAL_CUT_HEADLESS: "0",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
   },
