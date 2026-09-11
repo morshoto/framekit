@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { AssetSearchQuery, EditorAsset } from "@framekit/runtime";
+import type { NativeFinalCutTitleMatch } from "./native.js";
 
 const CATEGORY_BY_DIRECTORY: Record<string, EditorAsset["kind"]> = {
   "Audio Effects.localized": "audio-effect",
@@ -16,6 +17,11 @@ const BUNDLE_SUFFIXES = new Set([".moef", ".moti", ".motn", ".motr"]);
 
 export interface FinalCutAssetRegistryOptions {
   roots?: string[];
+  nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
+}
+
+export interface NativeTitleProvider {
+  searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]>;
 }
 
 export function defaultFinalCutAssetRoots(): string[] {
@@ -28,15 +34,29 @@ export function defaultFinalCutAssetRoots(): string[] {
 
 export class FinalCutAssetRegistry {
   private readonly roots: string[];
+  private readonly nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
   private cached?: EditorAsset[];
 
   public constructor(options: FinalCutAssetRegistryOptions = {}) {
     this.roots = (options.roots ?? defaultFinalCutAssetRoots()).map((root) => resolve(root));
+    this.nativeTitleProvider = options.nativeTitleProvider;
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
     if (!this.cached) this.cached = await this.scan();
-    return filterAssets(this.cached, query);
+    const filesystemAssets = filterAssets(this.cached, query);
+    if (!this.nativeTitleProvider || (query?.kind && query.kind !== "title")) return filesystemAssets;
+    let nativeTitles: NativeFinalCutTitleMatch[];
+    try {
+      nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+    } catch (error) {
+      // Filesystem assets remain usable when the optional native browser is
+      // unavailable, but keep the native diagnostic visible in the response.
+      if (filesystemAssets.length > 0) return withNativeTitleDiagnostic(filesystemAssets, error);
+      throw error;
+    }
+    const composed = [...filesystemAssets, ...nativeTitles.map(nativeTitleAsset)];
+    return filterAssets(dedupeAssets(composed), query);
   }
 
   public refresh(): void {
@@ -83,13 +103,85 @@ async function scanCategory(directory: string, kind: EditorAsset["kind"], assets
     const path = join(directory, entry.name);
     const metadata = await readMetadata(path);
     assets.push({
-      id: path,
+      id: `filesystem:${kind}:${path}`,
       kind,
       name: metadata.name ?? basename(entry.name, extension(entry.name)),
       vendor: metadata.vendor ?? "Unknown",
-      metadata: { path, ...metadata },
+      metadata: {
+        path,
+        ...metadata,
+        identity: path,
+        provider: "filesystem-motion-template",
+        source: "filesystem",
+        discovery: {
+          backend: "filesystem-motion-template",
+          guarantee: "observed",
+        },
+        ...(kind === "title"
+          ? {
+              placement: {
+                backend: "final-cut-accessibility",
+                guarantee: "native-verified",
+                operation: "editor.native.title.add",
+              },
+            }
+          : {}),
+      },
     });
   }
+}
+
+function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
+  if (!match.id.startsWith("final-cut:title:") || !match.identity.trim() || !match.name.trim()) {
+    throw new Error("FINAL_CUT_NATIVE_TITLE_ID_UNAVAILABLE: native title provider returned an unstable identity");
+  }
+  return {
+    id: match.id,
+    kind: "title",
+    name: match.name,
+    vendor: match.vendor,
+    metadata: {
+      identity: match.identity,
+      provider: "final-cut-accessibility",
+      source: "final-cut-titles-browser",
+      discovery: {
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      placement: {
+        backend: "final-cut-accessibility",
+        guarantee: "native-verified",
+        operation: "editor.native.title.add",
+      },
+    },
+  };
+}
+
+function dedupeAssets(assets: EditorAsset[]): EditorAsset[] {
+  return assets
+    .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
+    .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
+}
+
+function withNativeTitleDiagnostic(assets: EditorAsset[], error: unknown): EditorAsset[] {
+  const native = {
+    backend: "final-cut-accessibility",
+    guarantee: "none",
+    unavailableReason: error instanceof Error ? error.message : String(error),
+  };
+  return assets.map((asset) => {
+    const discovery = asset.metadata.discovery;
+    return {
+      ...asset,
+      metadata: {
+        ...asset.metadata,
+        discovery: {
+          ...(typeof discovery === "object" && discovery !== null ? discovery : {}),
+          native: { ...native },
+        },
+      },
+    };
+  });
 }
 
 async function readMetadata(bundlePath: string): Promise<{ name?: string; vendor?: string; [key: string]: unknown }> {

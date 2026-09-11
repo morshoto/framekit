@@ -76,6 +76,13 @@ const nativeOperationLease = autoConnect
       () => connection?.startAutoConnect(),
     )
   : undefined;
+const nativeEditor = liveMode
+  ? new FinalCutNativeAutomationAdapter({
+      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
+      liveState: () => liveAdapter!.readLiveState(),
+      nativeOperationLease,
+    })
+  : undefined;
 
 const editor = liveMode
   ? new FinalCutSessionAdapter({
@@ -91,6 +98,7 @@ const editor = liveMode
           ?.split(process.platform === "win32" ? ";" : ":")
           .map((root) => root.trim())
           .filter(Boolean),
+        nativeTitleProvider: nativeEditor?.capabilities().titleDiscovery ? nativeEditor : undefined,
       }),
     })
   : fixture;
@@ -111,13 +119,6 @@ const analyzers = liveMode
     };
 
 const runtime = new AgentVideoRuntime(editor, analyzers);
-const nativeEditor = liveMode
-  ? new FinalCutNativeAutomationAdapter({
-      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
-      liveState: () => liveAdapter!.readLiveState(),
-      nativeOperationLease,
-    })
-  : undefined;
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
       native: nativeEditor,

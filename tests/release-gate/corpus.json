@@ -4,7 +4,7 @@
   "runtimeContract": "v0.0.3",
   "workflows": [
     { "id": "filler.obvious", "family": "filler-removal", "scenario": "obvious", "expectedOutcome": "verified", "fixture": { "kind": "filler", "case": "obvious" } },
-    { "id": "filler.low-confidence", "family": "filler-removal", "scenario": "low-confidence", "expectedOutcome": "skipped", "fixture": { "kind": "filler", "case": "low-confidence" } },
+    { "id": "filler.low-confidence", "family": "filler-removal", "scenario": "low-confidence", "expectedOutcome": "verified", "fixture": { "kind": "filler", "case": "low-confidence" } },
     { "id": "filler.unsafe-boundary", "family": "filler-removal", "scenario": "unsafe-boundary", "expectedOutcome": "skipped", "fixture": { "kind": "filler", "case": "unsafe-boundary" } },
     { "id": "filler.overlapping-speech", "family": "filler-removal", "scenario": "overlapping-speech", "expectedOutcome": "skipped", "fixture": { "kind": "filler", "case": "overlapping-speech" } },
     { "id": "filler.protected-segment", "family": "filler-removal", "scenario": "protected-segment", "expectedOutcome": "skipped", "fixture": { "kind": "filler", "case": "protected-segment" } },

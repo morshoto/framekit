@@ -130,7 +130,7 @@ test("tagpr releases publish the package consumed by the plugin", async () => {
   assert.match(workflow, /publish-npm:/);
   assert.match(
     workflow,
-    /publish-npm:[\s\S]*?actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)\s+with:\s+persist-credentials:\s+false/,
+    /publish-npm:[\s\S]*?actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)\s+with:\s+ref: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}\s+persist-credentials:\s+false/,
   );
   assert.match(workflow, /needs:\s+tagpr/);
   assert.match(workflow, /needs\.tagpr\.outputs\.release-tag != ''/);

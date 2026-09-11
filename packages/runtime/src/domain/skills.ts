@@ -4,6 +4,8 @@ import type { ProjectSnapshot } from "./project.js";
 import type { WorkflowOperation } from "./editing.js";
 import type { TimelineDiff } from "./diff.js";
 import type { VerificationPolicy, VerificationReport } from "./verification.js";
+import type { VerificationCheck } from "./verification.js";
+import type { EditTransaction } from "./editing.js";
 import type { AudioMeasurement, NoiseMeasurement, SpeechAnalysis } from "./media.js";
 
 /** Version of the editor-independent Skill contract. */
@@ -113,9 +115,13 @@ export interface SkillManifest {
   title: string;
   description: string;
   inputSchema: SkillInputSchema;
+  /** Version-pinned values used when the input omits optional policy fields. */
+  defaults?: Record<string, unknown>;
   requirements: SkillRequirement;
   verification?: VerificationPolicy;
 }
+
+export type SkillPlanDecision = "APPLY" | "NO_OP" | "SKIP";
 
 export interface SkillPlanningContext {
   /** The snapshot is read-only input to a handler; it is not an adapter. */
@@ -136,6 +142,7 @@ export interface SkillPlan {
   operations: WorkflowOperation[];
   affectedRanges: TimeRange[];
   warnings: string[];
+  decision?: SkillPlanDecision;
   verification?: VerificationPolicy;
   details?: Record<string, unknown>;
 }
@@ -143,7 +150,7 @@ export interface SkillPlan {
 export interface SkillPreview {
   previewToken: string;
   plan: SkillPlan;
-  expectedDiff?: unknown;
+  expectedDiff?: TimelineDiff;
   expiresAt: string;
 }
 
@@ -162,12 +169,20 @@ export interface SkillExecution {
   transactionIds: string[];
   diff?: TimelineDiff;
   verification?: VerificationReport;
+  details?: Record<string, unknown>;
   rollback: SkillRollbackResult;
+}
+
+export interface SkillVerificationContext {
+  plan: SkillPlan;
+  expectedDiff?: TimelineDiff;
+  transaction: EditTransaction;
 }
 
 export interface SkillHandler<Input extends Record<string, unknown> = Record<string, unknown>> {
   normalize(input: unknown): Promise<Input> | Input;
   plan(context: SkillPlanningContext, input: Input): Promise<Omit<SkillPlan, "id" | "skillId" | "skillVersion" | "baseRevision" | "normalizedInput">> | Omit<SkillPlan, "id" | "skillId" | "skillVersion" | "baseRevision" | "normalizedInput">;
+  verify?(context: SkillVerificationContext): Promise<VerificationCheck[]> | VerificationCheck[];
 }
 
 /** Metadata and executable behavior are separate so manifests remain inspectable. */

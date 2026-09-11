@@ -4,7 +4,8 @@ Framekit uses two distinct Final Cut backends:
 
 - FCPXML interchange for supported canonical timeline reads and artifact writes.
 - `FinalCutSessionAdapter` to compose the document and live providers.
-- Configurable local JSON analyzers and read-only Motion-template asset discovery.
+- Configurable local JSON analyzers, filesystem Motion-template discovery, and
+  opt-in headed Titles-browser discovery with provider-qualified asset IDs.
 - Guarded selection-scoped native UI edits through Accessibility automation.
 - A native Workflow Extension for live project/sequence metadata, playhead,
   selected range, and change events.

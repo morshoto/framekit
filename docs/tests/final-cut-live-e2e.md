@@ -73,6 +73,26 @@ Then verify `project.inspect`, `timeline.inspect`, `context.inspect`,
 JSON analyzers and Motion-template roots separately when testing media analysis
 and `editor.assets`.
 
+## Headed native title discovery and placement
+
+Use a disposable Final Cut project with the Titles browser visible to prove
+native discovery and placement separately from fixture and FCPXML evidence:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Native E2E" \
+FRAMEKIT_FINAL_CUT_E2E_TITLE_QUERY="Basic Title" \
+FRAMEKIT_FINAL_CUT_E2E_TITLE_TEXT="Framekit title proof" \
+pnpm run test:final-cut-title-headed
+```
+
+The runner requires a provider-qualified `final-cut:title:` asset with
+`final-cut-accessibility` discovery provenance, previews placement at the live
+playhead, executes with explicit text and duration, verifies the new revision
+and selected title, then restores the disposable project with native Undo. Its
+JSON evidence records discovery and placement as separate sections. Missing
+Accessibility permission, an unavailable Titles browser, ambiguous results,
+or missing identities fail closed.
+
 ## Safety boundary
 
 The live-only test must not write timeline edits, alter media, or claim full

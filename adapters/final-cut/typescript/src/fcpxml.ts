@@ -98,7 +98,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         projectCatalogRead: true,
         projectSelection: true,
         compositeTransactions: true,
-        semanticOperations: { "add-marker": true },
+        semanticOperations: { "add-marker": true, "set-gain": true },
       },
       analyzers: emptyAnalyzerCapabilities(),
     }, { backend: "fcpxml-document" });
@@ -130,6 +130,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const clips = elements
       .filter(({ kind }) => CLIP_KINDS.has(kind))
       .map((entry) => this.clipFromXml(entry, timelineId));
+    const frameDuration = sequenceFrameDuration(sequence, this.xml ?? []);
     const durationValue = attribute(sequence, "duration")
       ?? formatSeconds(Math.max(0, ...storyElements.map((element) => element.start + element.duration)));
     return {
@@ -140,6 +141,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         name: sequenceName,
         duration: parseSeconds(durationValue),
         durationTime: parseRational(durationValue),
+        ...(frameDuration ? { frameDuration } : {}),
         clips,
         storyElements,
         markers: this.markersFromXml(elements),
@@ -517,6 +519,17 @@ function attributes(node: XmlNode): XmlNode {
 
 function attribute(node: XmlNode, name: string): unknown {
   return attributes(node)[`@_${name}`];
+}
+
+function sequenceFrameDuration(sequence: XmlNode, document: OrderedXml): RationalTime | undefined {
+  const formatId = attribute(sequence, "format");
+  if (formatId === undefined) return undefined;
+  const resources = findElement(document, "resources");
+  const format = storyEntries(resources ?? {}).find((entry) =>
+    entry.kind === "format" && attribute(entry.node, "id") === String(formatId),
+  )?.node;
+  const value = attribute(format ?? {}, "frameDuration");
+  return value === undefined ? undefined : parseRational(value);
 }
 
 function setAttribute(node: XmlNode, name: string, value: string): void {
