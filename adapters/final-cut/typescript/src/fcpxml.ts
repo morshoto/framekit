@@ -233,16 +233,26 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     if (!sameRevision(expectedRevision, this.revision())) {
       throw new Error("STALE_CONTEXT: FCPXML document changed before transaction");
     }
+    const originalXml = structuredClone(this.xml!);
+    const originalSequence = this.sequence;
+    const originalSignature = this.fileSignature;
     this.history.set(expectedRevision.id, structuredClone(this.xml!));
-    for (const operation of operations) {
-      if (operation.type === "media.import"
-        || operation.type.startsWith("timeline.") && operation.type !== "timeline.picture-in-picture.add") {
-        throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML transaction does not support ${operation.type}`);
+    try {
+      for (const operation of operations) {
+        if (operation.type === "media.import"
+          || operation.type.startsWith("timeline.") && operation.type !== "timeline.picture-in-picture.add") {
+          throw new Error(`CAPABILITY_UNAVAILABLE: FCPXML transaction does not support ${operation.type}`);
+        }
+        this.applyOperation(operation as EditOperation | AddPictureInPictureOperation);
       }
-      this.applyOperation(operation as EditOperation | AddPictureInPictureOperation);
+      this.sequence += 1;
+      await this.persist();
+    } catch (error) {
+      this.xml = originalXml;
+      this.sequence = originalSequence;
+      this.fileSignature = originalSignature;
+      throw error;
     }
-    this.sequence += 1;
-    await this.persist();
   }
 
   private applyOperation(operation: EditOperation | AddPictureInPictureOperation): void {

@@ -258,3 +258,41 @@ test("FCPXML PIP preview and undo preserve canonical artifact state", async () =
   await runtime.undo(transaction.id);
   assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest);
 });
+
+test("FCPXML transactions restore artifact state after a later operation fails", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-pip-fcpxml-rollback-"));
+  const artifactPath = join(directory, "pip.fcpxml");
+  const originalXml = `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11">
+  <resources>
+    <asset id="primary-media" name="Presenter" src="file:///fixtures/presenter.mov" duration="10s" />
+    <asset id="pip-media" name="Guest" src="file:///fixtures/guest.mov" duration="6s" />
+  </resources>
+  <library>
+    <event name="PIP Event">
+      <project uid="project-pip" name="PIP Project">
+        <sequence uid="sequence-pip" name="Main Edit" duration="10s" format="r-format">
+          <spine>
+            <asset-clip id="primary-occurrence" name="Presenter" ref="primary-media" offset="0s" start="0s" duration="10s" />
+          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>
+`;
+  await writeFile(artifactPath, originalXml, "utf8");
+  const adapter = new FcpxmlDocumentAdapter(artifactPath);
+  const before = await adapter.readProject();
+
+  await assert.rejects(
+    adapter.applyTransaction([
+      fcpxmlPipOperation(),
+      { ...fcpxmlPipOperation(), occurrenceId: "guest-pip-2", attachedTo: "missing-anchor" },
+    ], before.revision),
+    /CLIP_NOT_FOUND: missing-anchor/,
+  );
+
+  assert.equal(await readFile(artifactPath, "utf8"), originalXml);
+  assert.deepEqual(await adapter.readProject(), before);
+});
