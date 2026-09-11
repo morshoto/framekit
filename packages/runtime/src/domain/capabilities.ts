@@ -45,6 +45,10 @@ export interface EditorCapabilities {
   audioMixing?: boolean;
   noiseReduction?: boolean;
   colorCorrection?: boolean;
+  /** The backend can add and verify a bounded or supplied-alpha mask. */
+  masking?: boolean;
+  /** The backend can add and verify a person cutout. */
+  personCutout?: boolean;
   /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
   semanticOperations?: Partial<Record<SkillOperation, boolean>>;
 }
@@ -81,7 +85,8 @@ export type EditingCapabilityOperation =
   | "compositeTransactions"
   | "titlePlacement"
   | "pictureInPicture"
-  | "masking";
+  | "masking"
+  | "personCutout";
 
 export type NativeCapabilityOperation =
   | "selectionWrite"
@@ -102,7 +107,8 @@ export type NativeCapabilityOperation =
   | "clipInsertion"
   | "clipMovement"
   | "transitionDiscovery"
-  | "transitionPlacement";
+  | "transitionPlacement"
+  | "masking";
 
 export interface CapabilityFamilies {
   connection: {

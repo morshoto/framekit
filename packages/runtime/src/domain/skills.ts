@@ -94,6 +94,7 @@ export const SKILL_OPERATIONS = [
   "timeline.transition.add",
   "timeline.audio.attach",
   "timeline.audio.mix",
+  "timeline.mask.add",
 ] as const satisfies readonly WorkflowOperation["type"][];
 
 export type SkillOperation = (typeof SKILL_OPERATIONS)[number];
