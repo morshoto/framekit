@@ -2,12 +2,29 @@ import { CAPABILITY_SCHEMA_VERSION } from "./domain/capabilities.js";
 import type {
   CapabilityDescriptor,
   CapabilityFamilies,
+  EditingCapabilityOperation,
+  EditorIdentity,
   NativeCapabilityOperation,
   RuntimeCapabilities,
   VersionedRuntimeCapabilities,
 } from "./domain/capabilities.js";
 
 export type CanonicalTimelineMode = "metadata-only" | "canonical-read" | "canonical-write";
+export type CapabilityProcessMode = "headless" | "headed";
+export type CapabilityPreflightMode =
+  | "fixture"
+  | "fcpxml-artifact"
+  | "metadata-only"
+  | "canonical-live"
+  | "native-write";
+
+export interface CapabilityPreflight {
+  mode: CapabilityPreflightMode;
+  documentMode: Exclude<CapabilityPreflightMode, "native-write">;
+  processMode: CapabilityProcessMode;
+  backend: string;
+  capabilities: CapabilityFamilies;
+}
 
 export function canonicalTimelineMode(capabilities: RuntimeCapabilities): CanonicalTimelineMode {
   const editor = capabilities.editor;
@@ -36,17 +53,54 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
   };
   const previous = capabilities.families;
   if (!previous) return normalized;
+  const canonicalRead = normalized.editor.canonicalTimelineMode === "canonical-read"
+    || normalized.editor.canonicalTimelineMode === "canonical-write";
+  const canonicalWrite = normalized.editor.canonicalTimelineMode === "canonical-write";
+  const compositeTransactions = Boolean(
+    normalized.editor.compositeTransactions
+    && normalized.editor.timelineSnapshotRead
+    && normalized.editor.readAfterWrite
+    && normalized.editor.rollback
+    && (normalized.editor.timelineArtifactWrite || canonicalWrite),
+  );
   return withCapabilityFamilies(normalized, {
     backend: previous.connection.status.backend,
     nativeBackend: previous.native.selectionWrite.backend,
     publishingBackend: previous.publishing.projectCreation.backend,
     exportBackend: previous.export.timeline.backend,
-    analyzerBackend: previous.analyzers.speechTranscribe.backend,
+    analyzerBackends: {
+      speechTranscribe: previous.analyzers.speechTranscribe.backend,
+      speechVad: previous.analyzers.speechVad.backend,
+      audioLoudness: previous.analyzers.audioLoudness.backend,
+      audioNoise: previous.analyzers.audioNoise?.backend,
+      visualTrack: previous.analyzers.visualTrack.backend,
+    },
     connection: previous.connection.status,
+    canonicalDocument: {
+      read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
+      write: refreshDescriptor(canonicalWrite, previous.canonicalDocument.write, "canonical-write", "canonical timeline writes are unavailable"),
+      artifactWrite: refreshDescriptor(normalized.editor.timelineArtifactWrite, previous.canonicalDocument.artifactWrite, "artifact-write", "canonical artifact writes are unavailable"),
+    },
+    editing: {
+      compositeTransactions: refreshDescriptor(compositeTransactions, previous.editing.compositeTransactions, "verified", "composite editing transactions are unavailable"),
+      titlePlacement: refreshDescriptor(Boolean(normalized.editor.titlePlacement), previous.editing.titlePlacement, "verified", "title placement is unavailable"),
+      pictureInPicture: previous.editing.pictureInPicture,
+      masking: previous.editing.masking,
+    },
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
     export: previous.export.timeline,
   });
+}
+
+function refreshDescriptor(
+  available: boolean,
+  previous: CapabilityDescriptor,
+  guarantee: Exclude<CapabilityDescriptor["guarantee"], "none">,
+  unavailableReason: string,
+): CapabilityDescriptor {
+  if (available && previous.available) return previous;
+  return descriptorFrom(available, previous.backend, guarantee, unavailableReason);
 }
 
 export interface CapabilityFamilyOptions {
@@ -56,6 +110,10 @@ export interface CapabilityFamilyOptions {
   publishingBackend?: string;
   exportBackend?: string;
   analyzerBackend?: string;
+  analyzerBackends?: Partial<Record<keyof CapabilityFamilies["analyzers"], string | undefined>>;
+  canonicalDocument?: Partial<Record<"read" | "write" | "artifactWrite", boolean | CapabilityDescriptor>>;
+  editing?: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>;
+  editingBackend?: string;
   connection?: boolean | CapabilityDescriptor;
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
@@ -81,9 +139,22 @@ export function withCapabilityFamilies(
     },
   };
   const editor = normalized.editor;
+  const analyzerBackend = (operation: keyof CapabilityFamilies["analyzers"]): string =>
+    options.analyzerBackends?.[operation]
+    ?? options.analyzerBackend
+    ?? previous?.analyzers[operation]?.backend
+    ?? backend;
   const native = {
     ...nativeAvailability(previous?.native),
     ...options.native,
+  };
+  const canonicalDocument = {
+    ...previous?.canonicalDocument,
+    ...options.canonicalDocument,
+  };
+  const editing = {
+    ...previous?.editing,
+    ...options.editing,
   };
   const families: CapabilityFamilies = {
     connection: {
@@ -110,25 +181,30 @@ export function withCapabilityFamilies(
     },
     canonicalDocument: {
       read: descriptorFrom(
-        editor.canonicalTimelineMode === "canonical-read"
-          || editor.canonicalTimelineMode === "canonical-write",
+        canonicalDocument.read ?? (editor.canonicalTimelineMode === "canonical-read"
+          || editor.canonicalTimelineMode === "canonical-write"),
         backend,
         "canonical-read",
         "canonical timeline reads are unavailable",
       ),
       write: descriptorFrom(
-        editor.canonicalTimelineMode === "canonical-write",
+        canonicalDocument.write ?? (editor.canonicalTimelineMode === "canonical-write"),
         backend,
         "canonical-write",
         "canonical timeline writes are unavailable",
       ),
       artifactWrite: descriptorFrom(
-        editor.timelineArtifactWrite,
+        canonicalDocument.artifactWrite ?? editor.timelineArtifactWrite,
         backend,
         "artifact-write",
         "canonical artifact writes are unavailable",
       ),
     },
+    editing: editingFamily(
+      editor,
+      editing,
+      options.editingBackend ?? previous?.editing?.compositeTransactions.backend ?? backend,
+    ),
     native: nativeFamily(native, options.nativeBackend ?? previous?.native.selectionWrite.backend ?? backend),
     publishing: {
       projectCreation: descriptorFrom(
@@ -147,14 +223,79 @@ export function withCapabilityFamilies(
       ),
     },
     analyzers: {
-      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, options.analyzerBackend ?? backend, "speech transcription"),
-      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, options.analyzerBackend ?? backend, "speech VAD"),
-      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, options.analyzerBackend ?? backend, "audio loudness analysis"),
-      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), options.analyzerBackend ?? backend, "audio noise analysis"),
-      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, options.analyzerBackend ?? backend, "visual analysis"),
+      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, analyzerBackend("speechTranscribe"), "speech transcription"),
+      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, analyzerBackend("speechVad"), "speech VAD"),
+      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, analyzerBackend("audioLoudness"), "audio loudness analysis"),
+      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), analyzerBackend("audioNoise"), "audio noise analysis"),
+      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, analyzerBackend("visualTrack"), "visual analysis"),
     },
   };
   return { ...normalized, families };
+}
+
+function editingFamily(
+  editor: RuntimeCapabilities["editor"],
+  overrides: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>,
+  backend: string,
+): Record<EditingCapabilityOperation, CapabilityDescriptor> {
+  return {
+    compositeTransactions: descriptorFrom(
+      overrides.compositeTransactions ?? Boolean(editor.compositeTransactions),
+      backend,
+      "verified",
+      "composite editing transactions are unavailable",
+    ),
+    titlePlacement: descriptorFrom(
+      overrides.titlePlacement ?? Boolean(editor.titlePlacement),
+      backend,
+      "verified",
+      "title placement is unavailable",
+    ),
+    pictureInPicture: descriptorFrom(
+      overrides.pictureInPicture ?? false,
+      backend,
+      "verified",
+      "picture-in-picture editing is unavailable",
+    ),
+    masking: descriptorFrom(
+      overrides.masking ?? false,
+      backend,
+      "verified",
+      "masking is unavailable",
+    ),
+  };
+}
+
+export function createCapabilityPreflight(
+  identity: EditorIdentity,
+  capabilities: RuntimeCapabilities,
+  options: {
+    processMode?: CapabilityProcessMode;
+    nativeWrite?: boolean;
+  } = {},
+): CapabilityPreflight {
+  const normalized = capabilities.families
+    ? capabilities as VersionedRuntimeCapabilities
+    : withCapabilityFamilies(capabilities, { backend: identity.backend });
+  const editor = normalized.editor;
+  const documentMode: CapabilityPreflight["documentMode"] = identity.backend === "fixture"
+    ? "fixture"
+    : editor.timelineArtifactWrite && !editor.timelineWrite
+      ? "fcpxml-artifact"
+      : editor.canonicalTimelineMode === "metadata-only"
+        ? "metadata-only"
+        : "canonical-live";
+  const processMode = options.processMode ?? "headless";
+  const mode: CapabilityPreflightMode = options.nativeWrite && processMode === "headed"
+    ? "native-write"
+    : documentMode;
+  return {
+    mode,
+    documentMode,
+    processMode,
+    backend: identity.backend,
+    capabilities: normalized.families,
+  };
 }
 
 function descriptorFrom(

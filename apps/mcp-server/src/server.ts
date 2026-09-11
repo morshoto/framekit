@@ -3,8 +3,10 @@ import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   AgentVideoRuntime,
+  createCapabilityPreflight,
   resolveEditingIntent,
   withCapabilityFamilies,
+  type CapabilityProcessMode,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
@@ -21,6 +23,7 @@ import {
   type EditorRoutingContext,
   type EditingRouteOperation,
 } from "./routing.js";
+import { FRAMEKIT_VERSION } from "./version.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -655,6 +658,7 @@ export interface McpConnectionStatus {
 }
 
 export interface McpServerOptions {
+  processMode?: CapabilityProcessMode;
   connectionStatus?: () => McpConnectionStatus | undefined | Promise<McpConnectionStatus | undefined>;
   nativeEditor?: NativeFinalCutEditor;
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
@@ -665,7 +669,7 @@ export interface McpServerOptions {
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
   const server = new McpServer(
-    { name: "framekit", version: "0.1.0" },
+    { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
@@ -1496,44 +1500,49 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
+  const capabilities = withCapabilityFamilies({
+    ...inspected.capabilities,
+    editor: {
+      ...inspected.capabilities.editor,
+      artifactPublish: publishingAvailable,
+      ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
+      videoExport: exportAvailable,
+    },
+  }, {
+    backend: inspected.identity.backend,
+    nativeBackend: "final-cut-accessibility",
+    native: {
+      selectionWrite: Boolean(native?.selectionEdit),
+      undo: Boolean(native?.undo),
+      mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
+      mediaImport: Boolean(native?.mediaImport),
+      mediaSelection: Boolean(native?.mediaSelection),
+      mediaAppendSelected: Boolean(native?.mediaAppendSelected),
+      timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
+      bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
+      deleteRange: Boolean(native?.deleteRange),
+      trimToDuration: Boolean(native?.trimToDuration),
+      mediaAppend: Boolean(native?.mediaAppend),
+      mediaInsert: Boolean(native?.mediaInsert),
+      titlePlacement: Boolean(native?.titlePlacement),
+      transitionDiscovery: Boolean(native?.transitionDiscovery),
+      transitionPlacement: Boolean(native?.transitionPlacement),
+      timelineFocus: Boolean(native?.timelineFocus),
+      projectCreation: false,
+      clipInsertion: false,
+      clipMovement: false,
+    },
+    publishing: publishingAvailable,
+    publishingBackend: "fcpxml-publisher",
+    export: exportAvailable,
+    exportBackend: "final-cut-native-export",
+  });
   return {
     ...inspected,
-    capabilities: withCapabilityFamilies({
-      ...inspected.capabilities,
-      editor: {
-        ...inspected.capabilities.editor,
-        artifactPublish: publishingAvailable,
-        ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
-        videoExport: exportAvailable,
-      },
-    }, {
-      backend: inspected.identity.backend,
-      nativeBackend: "final-cut-accessibility",
-      native: {
-        selectionWrite: Boolean(native?.selectionEdit),
-        undo: Boolean(native?.undo),
-        mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
-        mediaImport: Boolean(native?.mediaImport),
-        mediaSelection: Boolean(native?.mediaSelection),
-        mediaAppendSelected: Boolean(native?.mediaAppendSelected),
-        timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
-        bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
-        deleteRange: Boolean(native?.deleteRange),
-        trimToDuration: Boolean(native?.trimToDuration),
-        mediaAppend: Boolean(native?.mediaAppend),
-        mediaInsert: Boolean(native?.mediaInsert),
-        titlePlacement: Boolean(native?.titlePlacement),
-        transitionDiscovery: Boolean(native?.transitionDiscovery),
-        transitionPlacement: Boolean(native?.transitionPlacement),
-        timelineFocus: Boolean(native?.timelineFocus),
-        projectCreation: false,
-        clipInsertion: false,
-        clipMovement: false,
-      },
-      publishing: publishingAvailable,
-      publishingBackend: "fcpxml-publisher",
-      export: exportAvailable,
-      exportBackend: "final-cut-native-export",
+    capabilities,
+    preflight: createCapabilityPreflight(inspected.identity, capabilities, {
+      processMode: options.processMode ?? (native ? "headed" : "headless"),
+      nativeWrite: Boolean(native?.selectionEdit),
     }),
     ...(native ? { native } : {}),
   };

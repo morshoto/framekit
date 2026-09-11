@@ -326,6 +326,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         start: operation.start,
         duration: operation.duration,
         track: typeof lane === "number" ? lane : 0,
+        role: operation.role,
       });
       return {
         ...snapshot,

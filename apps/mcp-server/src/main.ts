@@ -144,6 +144,7 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
     })
   : undefined;
 const server = createMcpServer(runtime, {
+  processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
   connectionStatus: () => connection?.getStatus(),
   nativeEditor,
   disposableNative,

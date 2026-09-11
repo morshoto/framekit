@@ -29,6 +29,33 @@ function fixtureAdapter() {
   });
 }
 
+function publisherLiveState(projectName: string) {
+  let imported = false;
+  return async () => {
+    const wasImported = imported;
+    const state = imported
+      ? {
+          project: { id: "published-project", name: projectName },
+          sequence: { id: "published-sequence", name: projectName },
+        }
+      : {
+          project: { id: "existing-project", name: "Existing Project" },
+          sequence: { id: "existing-sequence", name: "Existing Sequence" },
+        };
+    imported = true;
+    return {
+      ...state,
+      sequence: {
+        ...state.sequence,
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "1", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: wasImported ? "revision-after" : "revision-before", sequence: wasImported ? 2 : 1, timestamp: new Date(0).toISOString() },
+    };
+  };
+}
+
 test("editor timeline edits bind the active project, sequence, and verification target", async () => {
   const runtime = new AgentVideoRuntime(fixtureAdapter());
   const before = await runtime.inspectProject();
@@ -143,6 +170,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
         sourcePath: artifactPath,
         waitMs: 0,
         executor: async () => "imported",
+        liveState: publisherLiveState("Artifact Project"),
       }),
     });
     const client = new Client({ name: "artifact-publish-test", version: "0.1.0" });
@@ -160,7 +188,13 @@ test("MCP publishing requires the verified artifact target and returns the creat
       assert.equal(published.isError, undefined);
       const result = JSON.parse(textFrom(published));
       assert.deepEqual(result.sourceTarget, { kind: "artifact", artifactPath });
-      assert.deepEqual(result.createdTarget, { kind: "editor.project", projectName: "Artifact Project" });
+      assert.deepEqual(result.createdTarget, {
+        kind: "editor.project",
+        projectId: "published-project",
+        sequenceId: "published-sequence",
+        projectName: "Artifact Project",
+        sequenceName: "Artifact Project",
+      });
 
       const unconfirmed = await client.callTool({
         name: "artifact.publish",

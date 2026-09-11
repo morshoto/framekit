@@ -19,7 +19,7 @@ import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineDiff } from "../domain/diff.js";
 import type { VerificationEngine, VerificationPolicy } from "../domain/verification.js";
 import { sameRevision } from "../context/revision.js";
-import { MediaAnalysisService } from "../application/media-analysis-service.js";
+import { MediaAnalysisService, type PostWriteAnalysisRequirements } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
@@ -118,8 +118,7 @@ export class EditService {
       status: "APPLIED",
     };
     try {
-      transaction.attemptedAfter = await this.analysis.reanalyzeAffectedRanges(transaction);
-      transaction.after = transaction.attemptedAfter;
+      await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
       this.assertRestored(before, await this.project.inspectProject());
@@ -275,8 +274,7 @@ export class EditService {
       status: "APPLIED",
     };
     try {
-      transaction.attemptedAfter = await this.analysis.reanalyzeAffectedRanges(transaction);
-      transaction.after = transaction.attemptedAfter;
+      await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
       this.assertRestored(before, await this.project.inspectProject());
@@ -318,6 +316,16 @@ export class EditService {
 
   public async verifyTransaction(transactionId: string): Promise<NonNullable<EditTransaction["verification"]>> {
     return this.getTransaction(transactionId).verification!;
+  }
+
+  private async reanalyzeForVerification(
+    transaction: EditTransaction,
+    policy: VerificationPolicy,
+  ): Promise<void> {
+    const requirements = postWriteAnalysisRequirements(policy);
+    if (!Object.values(requirements).some(Boolean)) return;
+    transaction.attemptedAfter = await this.analysis.reanalyzeAffectedRanges(transaction, requirements);
+    transaction.after = transaction.attemptedAfter;
   }
 
   public async undo(transactionId: string): Promise<ProjectSnapshot> {
@@ -478,6 +486,18 @@ export class EditService {
       if (now > Date.parse(preview.expiresAt)) this.editPreviews.delete(previewToken);
     }
   }
+}
+
+function postWriteAnalysisRequirements(policy: VerificationPolicy): PostWriteAnalysisRequirements {
+  const assertions = policy.assertions ?? [];
+  return {
+    speech: policy.requireSpeechContinuity === true,
+    audio: policy.maxTruePeakDb !== undefined
+      || policy.targetLufs !== undefined
+      || assertions.some((assertion) => assertion.type === "audio-audibility" || assertion.type === "audio-loudness"),
+    noise: assertions.some((assertion) => assertion.type === "audio-noise"),
+    visual: assertions.some((assertion) => assertion.type === "visual-content"),
+  };
 }
 
 function assertValidWorkflowOperation(operation: WorkflowOperation): void {

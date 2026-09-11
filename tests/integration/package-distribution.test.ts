@@ -57,6 +57,9 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
     const [packed] = JSON.parse(stdout) as Array<{ filename: string }>;
     const archive = join(directory, packed.filename);
     await exec("npm", ["install", "--ignore-scripts", archive], { cwd: directory });
+    const installedManifest = JSON.parse(
+      await readFile(join(directory, "node_modules", "@morshoto", "framekit", "package.json"), "utf8"),
+    ) as { version?: string };
 
     const executable = join(directory, "node_modules", ".bin", "framekit");
     const help = await exec(executable, ["help"], { cwd: directory });
@@ -70,6 +73,7 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
     });
     client = new Client({ name: "framekit-package-smoke", version: "0.1.0" });
     await client.connect(transport);
+    assert.equal(client.getServerVersion()?.version, installedManifest.version);
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "connection.status"));
     assert.ok(tools.tools.some((tool) => tool.name === "editor.live.inspect"));

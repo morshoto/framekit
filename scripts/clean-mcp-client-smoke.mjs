@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { sanitizeCleanMcpEvidence } from "./clean-mcp-client-evidence.mjs";
+import { assertMcpServerVersion } from "./mcp-version.mjs";
 
 const execFile = promisify(execFileCallback);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -192,13 +193,14 @@ async function runMcpWorkflow({ clientName, clientVersion, executable, framekitV
     if (undone.timeline?.clips?.[0]?.name !== "Interview") throw new Error(`${clientName} undo workflow did not restore the fixture`);
 
     const serverInfo = client.getServerVersion?.();
+    const serverVersion = assertMcpServerVersion(serverInfo?.version, framekitVersion, clientName);
     const protocolVersion = client.negotiatedProtocolVersion;
     if (!protocolVersion) throw new Error(`${clientName} did not negotiate an MCP protocol version`);
     return {
       name: "pending",
       clientVersion,
       server: {
-        version: serverInfo?.version ?? framekitVersion,
+        version: serverVersion,
         protocolVersion,
       },
       editor: editor.identity,

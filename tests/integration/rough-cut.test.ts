@@ -487,6 +487,7 @@ test("rough-cut construction contract documents lifecycle and backend boundaries
   }
   assert.match(contract, /CAPABILITY_UNAVAILABLE/);
   assert.match(contract, /timeline\.publish\.new-project/);
-  assert.match(contract, /does not replace the active project/i);
+  assert.match(contract, /Final Cut makes the imported\s+project active/i);
+  assert.match(contract, /never modifies the previously\s+open project/i);
   assert.ok(tools.indexOf("`music.add` is the high-level") < tools.indexOf("## Rough-cut construction workflow"));
 });
