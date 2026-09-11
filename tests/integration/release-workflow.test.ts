@@ -103,6 +103,7 @@ test("release workflow validates the package before publishing", async () => {
 
 test("release workflow gates publication on v0.1.6 evidence and native checksums", async () => {
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const nativePackaging = workflow.indexOf("native-release-assets:");
   const gate = workflow.indexOf("pnpm run release-gate --output-dir");
   const npmPublish = workflow.indexOf("npm publish --access public");
   const npmVerification = workflow.indexOf("name: Verify npm publication");
@@ -111,7 +112,12 @@ test("release workflow gates publication on v0.1.6 evidence and native checksums
   const finalProvenance = workflow.indexOf("name: Verify complete release provenance");
 
   assert.notEqual(gate, -1);
+  assert.notEqual(nativePackaging, -1);
   assert.ok(gate < npmPublish, "release gate must run before npm publication");
+  assert.match(
+    workflow,
+    /native-release-assets:[\s\S]*?runs-on:\s*\[self-hosted, macOS, framekit-release\][\s\S]*?scripts\/package-final-cut-release\.sh[\s\S]*?upload_url[\s\S]*?gh api --method POST/,
+  );
   assert.notEqual(assetVerification, -1);
   assert.notEqual(npmVerification, -1);
   assert.ok(npmVerification < assetVerification, "native assets follow npm verification");
@@ -125,6 +131,10 @@ test("release workflow gates publication on v0.1.6 evidence and native checksums
   assert.match(workflow, /publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin/);
   assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
   assert.match(workflow, /RELEASE_PROVENANCE_OUTPUT_DIR: artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/);
+  assert.match(
+    workflow,
+    /publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin\n\s+- native-release-assets/,
+  );
 });
 
 test("release workflow can retry an exact existing tag", async () => {
