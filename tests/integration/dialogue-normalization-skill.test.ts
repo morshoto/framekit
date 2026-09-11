@@ -184,6 +184,34 @@ test("dialogue execution remeasures after writing and verifies the new result", 
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });
 
+test("invalid post-write dialogue measurements roll back the transaction", async () => {
+  let calls = 0;
+  const { runtime, adapter } = createFixture({
+    analyze: async ({ project }) => {
+      calls += 1;
+      const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-occurrence")?.gainDb ?? 0;
+      return {
+        integratedLufs: -20 + gain,
+        truePeakDb: -6 + gain,
+        silenceMs: 100,
+        analyzedDurationSeconds: 10,
+        dialoguePresent: true,
+        valid: calls === 1,
+        ...(calls === 1 ? {} : { invalidReason: "post-write analyzer rejected the sample" }),
+      };
+    },
+  });
+  runtime.registerBuiltinSkills();
+  const { before, preview } = await previewDialogue(runtime);
+
+  const result = await runtime.executeSkill(preview.previewToken);
+
+  assert.equal(calls, 2);
+  assert.equal(result.status, "ROLLED_BACK");
+  assert.equal(result.rollback.succeeded, true);
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
+});
+
 class UnexpectedDiffAdapter extends InMemoryEditorAdapter {
   public override async applyTransaction(
     operations: Parameters<InMemoryEditorAdapter["applyTransaction"]>[0],
