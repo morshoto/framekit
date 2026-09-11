@@ -57,8 +57,11 @@ gh workflow run release.yml \
 
 The manual run verifies that the tag exists and points to a commit reachable
 from `main`, checks out that exact tag, and skips `npm publish` if the matching
-version is already present. Registry errors other than a missing version fail
-closed.
+version is already present. After a publish, registry visibility is retried
+with bounded backoff. If a retry races with an earlier successful publish and
+npm reports that the version already exists, the workflow proceeds to that
+same verification path. Registry errors other than a missing version or an
+immutable-version conflict fail closed.
 
 The npm Trusted Publisher relationship is configured in npm account settings;
 repository permissions alone cannot create or repair that relationship. The

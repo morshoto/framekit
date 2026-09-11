@@ -147,13 +147,44 @@ test("release retries do not republish an existing npm version", async () => {
 
   const statusStep = workflow.slice(workflow.lastIndexOf("- id: npm-status", statusCheck), publication);
   assert.match(statusStep, /id: npm-status/);
-  assert.match(statusStep, /npm view "\$\{package_name\}@\$\{expected_version\}" version/);
+  assert.match(statusStep, /npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/);
   assert.match(statusStep, /E404\|404 Not Found/);
   assert.match(statusStep, /published=true/);
   assert.match(statusStep, /published=false/);
 
   const publicationStep = workflow.slice(publication, verification);
   assert.match(publicationStep, /if: steps\.npm-status\.outputs\.published != 'true'/);
+});
+
+test("release verification retries transient npm registry visibility", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const statusCheck = workflow.slice(
+    workflow.indexOf("name: Check npm publication status"),
+    workflow.indexOf("name: Publish npm package"),
+  );
+  const verification = workflow.slice(
+    workflow.indexOf("name: Verify npm publication"),
+    workflow.indexOf("name: Publish GitHub release"),
+  );
+
+  assert.match(statusCheck, /npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/);
+  assert.match(verification, /max_attempts=6/);
+  assert.match(verification, /for attempt in \$\(seq 1 "\$\{max_attempts\}"\)/);
+  assert.match(verification, /npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/);
+  assert.match(verification, /No match found for version/);
+  assert.match(verification, /sleep "\$\{delay\}"/);
+});
+
+test("release retries tolerate a duplicate npm publish after a visibility race", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const publication = workflow.indexOf("name: Publish npm package");
+  const verification = workflow.indexOf("name: Verify npm publication");
+  const publicationStep = workflow.slice(publication, verification);
+
+  assert.match(publicationStep, /npm publish --access public/);
+  assert.match(publicationStep, /EPUBLISHCONFLICT|previously published versions/);
+  assert.match(publicationStep, /verification will confirm/i);
+  assert.match(publicationStep, /exit 0/);
 });
 
 test("release workflow validates the built MCP server version before publishing", async () => {

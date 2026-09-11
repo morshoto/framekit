@@ -130,7 +130,7 @@ jobs:
           expected_version="${RELEASE_TAG#v}"
           package_name="$(node -p "require('./package.json').name")"
           error_log="${RUNNER_TEMP}/npm-view-error.log"
-          if published_version="$(npm view "${package_name}@${expected_version}" version 2>"${error_log}")"; then
+          if published_version="$(npm view --prefer-online "${package_name}@${expected_version}" version 2>"${error_log}")"; then
             if [ "${published_version}" != "${expected_version}" ]; then
               echo "Unexpected npm version: ${published_version}" >&2
               exit 1
@@ -144,21 +144,55 @@ jobs:
           fi
       - name: Publish npm package
         if: steps.npm-status.outputs.published != 'true'
+        env:
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        shell: bash
         run: |
-          if ! npm publish --access public; then
-            echo "::error::npm publish failed. For E404 or ENEEDAUTH, verify that @morshoto/framekit trusts morshoto/framekit release.yml and allows direct npm publish."
-            exit 1
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          package_name="$(node -p "require('./package.json').name")"
+          error_log="${RUNNER_TEMP}/npm-publish-error.log"
+          if npm publish --access public 2>"${error_log}"; then
+            exit 0
           fi
+          cat "${error_log}" >&2
+          if grep -Eq 'EPUBLISHCONFLICT|previously published versions' "${error_log}"; then
+            echo "npm ${package_name}@${expected_version} was published by an earlier attempt; verification will confirm it."
+            exit 0
+          fi
+          echo "::error::npm publish failed. For E404 or ENEEDAUTH, verify that @morshoto/framekit trusts morshoto/framekit release.yml and allows direct npm publish."
+          exit 1
 
       - name: Verify npm publication
         env:
           RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
         run: |
-          set -eu
+          set -euo pipefail
           expected_version="${RELEASE_TAG#v}"
           package_name="$(node -p "require('./package.json').name")"
-          published_version="$(npm view "${package_name}@${expected_version}" version)"
-          test "${published_version}" = "${expected_version}"
+          error_log="${RUNNER_TEMP}/npm-verify-error.log"
+          max_attempts=6
+          for attempt in $(seq 1 "${max_attempts}"); do
+            if published_version="$(npm view --prefer-online "${package_name}@${expected_version}" version 2>"${error_log}")"; then
+              if [ "${published_version}" != "${expected_version}" ]; then
+                echo "Unexpected npm version: ${published_version}" >&2
+                exit 1
+              fi
+              echo "Verified ${package_name}@${expected_version} on attempt ${attempt}."
+              exit 0
+            fi
+            if ! grep -Eq 'E404|404 Not Found|No match found for version' "${error_log}"; then
+              cat "${error_log}" >&2
+              exit 1
+            fi
+            if [ "${attempt}" -lt "${max_attempts}" ]; then
+              delay=$((attempt * 5))
+              echo "npm ${package_name}@${expected_version} is not visible yet; retrying in ${delay}s (attempt ${attempt}/${max_attempts})."
+              sleep "${delay}"
+            fi
+          done
+          cat "${error_log}" >&2
+          exit 1
 
       - name: Publish GitHub release
         env:
