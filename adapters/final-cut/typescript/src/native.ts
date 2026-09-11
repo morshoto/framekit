@@ -1080,54 +1080,46 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     validateMaskPreviewBinding(preview, beforeLive);
     await this.validateOccurrenceBinding(preview.occurrence);
 
-    let observedMask: NativeFinalCutMaskConfiguration;
+    let observedAfter: NativeFinalCutContext | undefined;
+    let observedLive: EditorLiveState | undefined;
     try {
-      observedMask = parseNativeMaskReadback(await this.executor(applyMaskScript(preview.mask)));
-    } catch (error) {
-      await this.rollbackFailedMask(before, beforeLive, previewToken, error);
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
-    }
-
-    const after = await this.requireTimelineContext();
-    const afterLive = await this.waitForRevision(beforeLive.revision.id);
-    const verification = verifyNativeMask(preview, after, beforeLive, afterLive, observedMask);
-    const operationId = opaqueHandle("native-mask");
-    const operation = {
-      kind: "masking" as const,
-      before,
-      after,
-      beforeLive,
-      afterLive,
-      undoCommand: after.undoCommand,
-    } satisfies NativeOperationRecord;
-    if (!verification.verified) {
-      if (afterLive.revision.id !== beforeLive.revision.id && after.undoAvailable && after.undoCommand) {
-        this.rememberOperation(operationId, operation);
-        try {
-          await this.undo(operationId);
-        } catch (rollbackError) {
-          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
-        }
-        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; mask placement was rolled back`);
+      const observedMask = parseNativeMaskReadback(await this.executor(applyMaskScript(preview.mask)));
+      observedAfter = await this.requireTimelineContext();
+      observedLive = await this.waitForRevision(beforeLive.revision.id);
+      const verification = verifyNativeMask(preview, observedAfter, beforeLive, observedLive, observedMask);
+      if (!verification.verified) {
+        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
       }
-      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+      const operationId = opaqueHandle("native-mask");
+      const operation = {
+        kind: "masking" as const,
+        before,
+        after: observedAfter,
+        beforeLive,
+        afterLive: observedLive,
+        undoCommand: observedAfter.undoCommand,
+      } satisfies NativeOperationRecord;
+      this.rememberOperation(operationId, operation);
+      return {
+        operationId,
+        previewToken,
+        occurrence: structuredClone(preview.occurrence),
+        mask: structuredClone(preview.mask),
+        observedMask,
+        before,
+        after: observedAfter,
+        beforeRevision: beforeLive.revision,
+        afterRevision: observedLive.revision,
+        verification,
+        undoAvailable: observedAfter.undoAvailable,
+        ...(observedAfter.undoCommand ? { undoCommand: observedAfter.undoCommand } : {}),
+      };
+    } catch (error) {
+      const rollback = await this.rollbackFailedMask(before, beforeLive, previewToken, error, observedAfter, observedLive);
+      const failure = `${nativeErrorCode(error)}: ${String(error)}`;
+      if (rollback.rolledBack) throw new Error(`${failure}; mask placement was rolled back`);
+      throw new Error(`${failure}; rollback unavailable: ${rollback.detail}`);
     }
-
-    this.rememberOperation(operationId, operation);
-    return {
-      operationId,
-      previewToken,
-      occurrence: structuredClone(preview.occurrence),
-      mask: structuredClone(preview.mask),
-      observedMask,
-      before,
-      after,
-      beforeRevision: beforeLive.revision,
-      afterRevision: afterLive.revision,
-      verification,
-      undoAvailable: after.undoAvailable,
-      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
-    };
   }
 
   private async rollbackFailedMask(
@@ -1135,11 +1127,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     beforeLive: EditorLiveState,
     previewToken: string,
     error: unknown,
-  ): Promise<void> {
-    const observedAfter = await this.inspectRawNative();
-    const observedLive = await this.readLiveState();
-    if (!observedLive || observedLive.revision.id === beforeLive.revision.id
-      || !observedAfter.undoAvailable || !observedAfter.undoCommand) return;
+    after?: NativeFinalCutContext,
+    afterLive?: EditorLiveState,
+  ): Promise<{ rolledBack: boolean; detail: string }> {
+    const observedAfter = after ?? await this.inspectRawNative();
+    const observedLive = afterLive ?? await this.readLiveState();
+    if (!observedAfter.available || !observedAfter.undoAvailable || !observedAfter.undoCommand) {
+      return {
+        rolledBack: false,
+        detail: observedAfter.error?.message ?? "Final Cut did not expose a matching Undo command",
+      };
+    }
+    const revisionChanged = Boolean(observedLive && observedLive.revision.id !== beforeLive.revision.id);
+    const undoChanged = observedAfter.undoCommand !== before.undoCommand;
+    if (!revisionChanged && !undoChanged) {
+      return { rolledBack: false, detail: "Final Cut did not expose a changed revision or Undo command after mask placement" };
+    }
     const operationId = opaqueHandle("native-mask-failed");
     this.rememberOperation(operationId, {
       kind: "masking",
@@ -1150,11 +1153,17 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       undoCommand: observedAfter.undoCommand,
     });
     try {
-      await this.undo(operationId);
+      const undoResult = await this.undo(operationId);
+      if (!undoResult.verification.verified) {
+        return { rolledBack: false, detail: undoResult.verification.detail };
+      }
     } catch (rollbackError) {
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
+      return {
+        rolledBack: false,
+        detail: `operationId=${operationId}; native rollback failed: ${String(rollbackError)}`,
+      };
     }
-    throw new Error(`${nativeErrorCode(error)}: ${String(error)}; mask placement was rolled back; preview=${previewToken}`);
+    return { rolledBack: true, detail: `preview=${previewToken}; original failure=${String(error)}` };
   }
 
   private async executeBladeNative(previewToken: string): Promise<NativeFinalCutBladeResult> {
