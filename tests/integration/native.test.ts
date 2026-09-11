@@ -2522,6 +2522,32 @@ test("native Final Cut rejects an unavailable local media path before opening im
   assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
 });
 
+test("native Final Cut expands home paths and rejects ambiguous tilde paths", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return "";
+    },
+  });
+  const homePath = join(os.homedir(), "framekit-media-does-not-exist.mov");
+
+  await assert.rejects(
+    adapter.importMedia("~/framekit-media-does-not-exist.mov"),
+    (error: unknown) => {
+      assert.match(String(error), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
+      assert.match(String(error), new RegExp(homePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      return true;
+    },
+  );
+  await assert.rejects(
+    adapter.importMedia("~other/framekit-media-does-not-exist.mov"),
+    /INVALID_OPERATION: local media path must be absolute or start with ~\//,
+  );
+  assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+});
+
 test("native Final Cut preserves explicit command errors over embedded frontmost guards", async () => {
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
