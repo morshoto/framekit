@@ -106,7 +106,7 @@ test("release provenance verifies aligned versions, tag, workflow, npm, and chec
     serverVersion: "0.1.6",
     releaseTag: "v0.1.6",
     githubRelease: { tagName: "v0.1.6", draft: false },
-    workflow: { status: "completed", conclusion: "success", headSha: "c".repeat(40) },
+    workflow: { status: "completed", conclusion: "success", headSha: "c".repeat(40), tagSha: "c".repeat(40) },
     npmVersion: "0.1.6",
     nativeAssets: [
       { name: "FramekitFinalCutWorkflow-0.1.6.zip", sha256: "d".repeat(64) },
@@ -120,6 +120,17 @@ test("release provenance verifies aligned versions, tag, workflow, npm, and chec
 
   assert.equal(report.releaseReady, true);
   assert.ok(report.checks.every((check) => check.status === "verified"));
+});
+
+test("release provenance rejects workflow evidence without a tag commit", () => {
+  const report = assessReleaseProvenance({
+    packageManifest: { version: "0.1.6" },
+    pluginManifest: { version: "0.1.6" },
+    serverVersion: "0.1.6",
+    workflow: { status: "completed", conclusion: "success", headSha: "c".repeat(40) },
+  });
+
+  assert.equal(report.checks.find((check) => check.name === "release-workflow")?.status, "failed");
 });
 
 test("release provenance rejects a checksum file for a different archive", () => {

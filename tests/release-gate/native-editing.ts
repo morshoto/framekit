@@ -192,7 +192,11 @@ export function assessReleaseProvenance(input: ReleaseProvenanceInput): ReleaseP
 
   if (input.workflow) {
     const successful = input.workflow.status === "completed" && input.workflow.conclusion === "success";
-    const tagMatches = !input.workflow.tagSha || input.workflow.tagSha === input.workflow.headSha;
+    const tagMatches = Boolean(
+      input.workflow.headSha
+      && input.workflow.tagSha
+      && input.workflow.tagSha === input.workflow.headSha,
+    );
     checks.push(successful && tagMatches
       ? verified("release-workflow", "release workflow completed successfully")
       : failed("release-workflow", "release workflow is incomplete, failed, or points at a different commit"));
