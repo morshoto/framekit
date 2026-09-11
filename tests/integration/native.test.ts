@@ -1993,7 +1993,7 @@ test("native Final Cut media targeting preserves Browser search failures", async
     return true;
   });
   assert.equal(scripts.some((script) => script.includes("collectTimelineClipMatches")), false);
-  assert.equal(scripts.some((script) => script.includes("targetIdentity") && script.includes("AXPress")), false);
+  assert.equal(scripts.some((script) => script.includes('set targetIdentity to "')), false);
 });
 
 test("native Final Cut refuses a Blade retry without live state", async () => {

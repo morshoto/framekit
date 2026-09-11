@@ -891,7 +891,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.ensureBrowserReady(deadline, timeoutCode);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const rawMatches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode));
+      const output = await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode);
+      const explicitFailure = output.trim();
+      if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
+        throw new Error(explicitFailure);
+      }
+      const rawMatches = parseMediaMatches(output);
       const normalizedQuery = query.toLocaleLowerCase();
       if (rawMatches.some((match) => !browserMediaIdentity(match) && match.name.toLocaleLowerCase().includes(normalizedQuery))) {
         const diagnostics = await this.readBrowserMediaDiagnostics(query);
@@ -920,6 +925,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
     } catch (error) {
+      if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE") throw error;
       if (deadline !== undefined && nativeErrorCode(error) === timeoutCode) throw error;
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
