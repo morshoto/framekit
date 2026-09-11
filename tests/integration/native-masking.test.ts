@@ -73,7 +73,6 @@ function rectangleMask() {
   return {
     mode: "rectangle" as const,
     bounds: { x: 0.1, y: 0.2, width: 0.6, height: 0.7 },
-    inverted: false,
   };
 }
 
@@ -89,7 +88,7 @@ test("native masking advertises a bounded path and verifies Draw Mask readback",
       if (script.includes("Apply native Draw Mask")) {
         maskApplied = true;
         revision = 2;
-        return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|0.1|0.2|0.6|0.7|false";
+        return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|0.1|0.2|0.6|0.7";
       }
       if (script.includes('click menu item "Undo Add Draw Mask"')) {
         maskApplied = false;
@@ -134,7 +133,7 @@ test("native masking rolls back when requested configuration is not read back", 
       if (script.includes("Apply native Draw Mask")) {
         maskApplied = true;
         revision = 2;
-        return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|0|0|0.5|0.5|false";
+        return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|0|0|0.5|0.5";
       }
       if (script.includes('click menu item "Undo Add Draw Mask"')) {
         maskApplied = false;

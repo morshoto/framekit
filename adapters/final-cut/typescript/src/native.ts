@@ -106,7 +106,6 @@ export interface NativeFinalCutMaskBounds {
 export interface NativeFinalCutMaskConfiguration {
   mode: "rectangle";
   bounds: NativeFinalCutMaskBounds;
-  inverted?: boolean;
 }
 
 export interface NativeFinalCutMaskRequest {
@@ -2413,20 +2412,18 @@ function parseNativeMaskReadback(output: string): NativeFinalCutMaskConfiguratio
   if (markerIndex < 0) {
     throw new Error("FINAL_CUT_NATIVE_MASK_READBACK_UNAVAILABLE: Final Cut did not return Draw Mask properties");
   }
-  const [mode, xText, yText, widthText, heightText, invertedText] = output
+  const [mode, xText, yText, widthText, heightText] = output
     .slice(markerIndex + marker.length)
     .split(/\r?\n/, 1)[0]!
     .trim()
     .split("|");
   const values = [xText, yText, widthText, heightText].map((value) => Number(value));
-  if (mode !== "rectangle" || values.some((value) => !Number.isFinite(value))
-    || (invertedText !== "true" && invertedText !== "false")) {
+  if (mode !== "rectangle" || values.some((value) => !Number.isFinite(value))) {
     throw new Error("FINAL_CUT_NATIVE_MASK_READBACK_UNAVAILABLE: Final Cut returned malformed Draw Mask properties");
   }
   const mask: NativeFinalCutMaskConfiguration = {
     mode: "rectangle",
     bounds: { x: values[0]!, y: values[1]!, width: values[2]!, height: values[3]! },
-    inverted: invertedText === "true",
   };
   assertNativeMaskConfiguration(mask);
   return mask;
@@ -2465,7 +2462,6 @@ function verifyNativeMask(
 
 function sameNativeMask(left: NativeFinalCutMaskConfiguration, right: NativeFinalCutMaskConfiguration): boolean {
   return left.mode === right.mode
-    && left.inverted === right.inverted
     && left.bounds.x === right.bounds.x
     && left.bounds.y === right.bounds.y
     && left.bounds.width === right.bounds.width
@@ -4332,8 +4328,7 @@ function applyMaskScript(mask: NativeFinalCutMaskConfiguration): string {
     set observedY to value of positionYField as text
     set observedWidth to value of widthField as text
     set observedHeight to value of heightField as text
-    set observedInverted to "${mask.inverted === true ? "true" : "false"}"
-    return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|" & observedX & "|" & observedY & "|" & observedWidth & "|" & observedHeight & "|" & observedInverted
+    return "FRAMEKIT_NATIVE_MASK_READBACK|rectangle|" & observedX & "|" & observedY & "|" & observedWidth & "|" & observedHeight
   end tell
   end tell`;
 }

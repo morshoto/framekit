@@ -162,12 +162,11 @@ function parseMask(value) {
   if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
     throw new Error(`FINAL_CUT_E2E_MASK_BOUNDS_INVALID: bounds must fit within 0..1, observed ${value}`);
   }
-  return { mode: "rectangle", bounds: { x, y, width, height }, inverted: false };
+  return { mode: "rectangle", bounds: { x, y, width, height } };
 }
 
 function sameMask(left, right) {
   return left?.mode === right?.mode
-    && left?.inverted === right?.inverted
     && left?.bounds?.x === right?.bounds?.x
     && left?.bounds?.y === right?.bounds?.y
     && left?.bounds?.width === right?.bounds?.width

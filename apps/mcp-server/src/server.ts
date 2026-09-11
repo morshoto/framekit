@@ -115,7 +115,6 @@ const maskSchema = z.discriminatedUnion("mode", [
 const nativeMaskSchema = z.object({
   mode: z.literal("rectangle"),
   bounds: maskBoundsSchema,
-  inverted: z.boolean().optional(),
 }).strict();
 const renameClipSchema = z.object({ type: z.literal("rename-clip"), clipId: z.string().min(1), name: z.string().min(1), baseRevision: revisionSchema });
 const trimClipSchema = z.object({
