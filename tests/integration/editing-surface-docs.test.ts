@@ -10,6 +10,8 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   const compatibility = await readFile(join(repositoryRoot, "docs/COMPATIBILITY.md"), "utf8");
   const backendSelection = await readFile(join(repositoryRoot, "docs/architecture/backend-selection.md"), "utf8");
   const mcpTools = await readFile(join(repositoryRoot, "docs/mcp/tools.md"), "utf8");
+  const finalCutInstallation = await readFile(join(repositoryRoot, "docs/final-cut/installation.md"), "utf8");
+  const finalCutLive = await readFile(join(repositoryRoot, "docs/mcp/final-cut-live.md"), "utf8");
   const liveE2e = await readFile(join(repositoryRoot, "docs/tests/final-cut-live-e2e.md"), "utf8");
   const roughCutConstruction = await readFile(join(repositoryRoot, "docs/architecture/rough-cut-construction.md"), "utf8");
 
@@ -23,6 +25,10 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   }
   assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*confirm/);
   assert.match(mcpTools, /PUBLISH_CONFIRMATION_REQUIRED/);
+  assert.match(finalCutInstallation, /FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED/);
+  assert.match(finalCutInstallation, /FINAL_CUT_CANONICAL_FALLBACK_CONFLICT/);
+  assert.match(finalCutLive, /canonical-write/);
+  assert.match(finalCutLive, /metadata-only/);
   assert.doesNotMatch(mcpTools, /\| `timeline\.edit` \|/);
   assert.doesNotMatch(mcpTools, /\| `timeline\.publish\.new-project` \|/);
   assert.match(liveE2e, /FCPXML publisher headed E2E/);
