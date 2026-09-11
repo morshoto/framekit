@@ -49,6 +49,6 @@ test("release gate artifacts retain the report and an auditable manifest", async
   assert.equal(manifest.repositoryChecks.passed, report.repositoryChecks.passed);
   assert.deepEqual(manifest.repositoryChecks.checks.map((check) => check.status), report.repositoryChecks.checks.map((check) => check.status));
   assert.deepEqual(JSON.parse(await readFile(paths.reportPath, "utf8")), report);
-  assert.doesNotMatch(await readFile(paths.reportPath, "utf8"), /\/private\/|operationId|sourceIdentity/);
+  assert.doesNotMatch(await readFile(paths.reportPath, "utf8"), /\/private\/|\/Users\/|\/home\/|operationId|sourceIdentity/);
   await assert.rejects(writeReleaseGateArtifacts(report, outputDirectory), /RELEASE_GATE_ARTIFACT_EXISTS/);
 });

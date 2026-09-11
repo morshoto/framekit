@@ -81,6 +81,32 @@ test("headed evidence is reduced to a target, revision, verification, and restor
   assert.doesNotMatch(JSON.stringify(summary), /private-occurrence|sourceIdentity|operationId|diagnostic/i);
 });
 
+test("headed evidence omits path-like target identities", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "picture-in-picture");
+  assert.ok(workflow);
+
+  const summary = summarizeHeadedEvidence({
+    evidenceType: "headed-native-picture-in-picture",
+    passed: true,
+    environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
+    project: "/Users/example/Disposable PIP.fcpbundle",
+    target: {
+      sequenceId: "/home/example/sequence",
+      occurrenceId: "C:\\Users\\example\\clip",
+      occurrenceName: "Guest",
+    },
+    placement: {
+      beforeRevision: "rev-1",
+      afterRevision: "rev-2",
+      undoRevision: "rev-3",
+      observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+      undoVerified: { verified: true },
+    },
+  }, workflow);
+
+  assert.deepEqual(summary.target, { occurrenceName: "Guest" });
+});
+
 test("headed evidence requires a verified rollback for mutating workflows", () => {
   const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "masking");
   assert.ok(workflow);

@@ -255,13 +255,26 @@ function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"
   const sequenceId = typeof project === "object" ? project?.sequenceId : target?.sequenceId;
   const occurrenceId = target?.occurrenceId;
   const occurrenceName = target?.occurrenceName ?? target?.name;
+  const safeProject = safeTargetString(projectValue);
+  const safeProjectId = safeTargetString(projectId);
+  const safeSequenceId = safeTargetString(sequenceId);
+  const safeOccurrenceId = safeTargetString(occurrenceId);
+  const safeOccurrenceName = safeTargetString(occurrenceName);
   return {
-    ...(typeof projectValue === "string" ? { project: projectValue } : {}),
-    ...(typeof projectId === "string" ? { projectId } : {}),
-    ...(typeof sequenceId === "string" ? { sequenceId } : {}),
-    ...(typeof occurrenceId === "string" ? { occurrenceId } : {}),
-    ...(typeof occurrenceName === "string" ? { occurrenceName } : {}),
+    ...(safeProject ? { project: safeProject } : {}),
+    ...(safeProjectId ? { projectId: safeProjectId } : {}),
+    ...(safeSequenceId ? { sequenceId: safeSequenceId } : {}),
+    ...(safeOccurrenceId ? { occurrenceId: safeOccurrenceId } : {}),
+    ...(safeOccurrenceName ? { occurrenceName: safeOccurrenceName } : {}),
   };
+}
+
+function safeTargetString(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  if (value.startsWith("/") || value.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\")) {
+    return undefined;
+  }
+  return value;
 }
 
 function extractRevisions(raw: Record<string, any>): HeadedEvidenceSummary["revision"] {
