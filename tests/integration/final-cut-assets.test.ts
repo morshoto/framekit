@@ -85,6 +85,20 @@ test("Final Cut asset discovery propagates native browser unavailability", async
   );
 });
 
+test("Final Cut asset discovery fails closed on empty native title results", async () => {
+  const registry = new FinalCutAssetRegistry({
+    roots: [],
+    nativeTitleProvider: {
+      searchTitles: async () => [],
+    },
+  });
+
+  await assert.rejects(
+    registry.listAssets({ kind: "title" }),
+    /FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY/,
+  );
+});
+
 test("Final Cut asset discovery reports native unavailability with filesystem results", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-title-assets-diagnostic-"));
   const bundle = join(root, "Titles.localized", "Lower Third.moti");
