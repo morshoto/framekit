@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="g" cx="75%" cy="35%" r="50%">
+      <stop offset="0" stop-color="#37f69c" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#050a12" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#050a12"/>
+  <path d="M0 70h1200M0 140h1200M0 210h1200M0 280h1200M0 350h1200M0 420h1200M0 490h1200M0 560h1200M70 0v630M140 0v630M210 0v630M280 0v630M350 0v630M420 0v630M490 0v630M560 0v630M630 0v630M700 0v630M770 0v630M840 0v630M910 0v630M980 0v630M1050 0v630M1120 0v630M1190 0v630" stroke="#a6c6cd" stroke-opacity=".04"/>
+  <rect width="1200" height="630" fill="url(#g)"/>
+  <rect x="76" y="72" width="62" height="62" rx="16" fill="#10271f" stroke="#37f69c" stroke-opacity=".55"/>
+  <text x="107" y="111" text-anchor="middle" fill="#37f69c" font-family="monospace" font-size="19" font-weight="700">FK</text>
+  <text x="159" y="113" fill="#f1f8f5" font-family="Arial, sans-serif" font-size="34" font-weight="700">FrameKit</text>
+  <text x="76" y="300" fill="#f1f8f5" font-family="Arial, sans-serif" font-size="88" font-weight="700" letter-spacing="-5">Edit Final Cut with AI.</text>
+  <text x="80" y="366" fill="#9eafb9" font-family="Arial, sans-serif" font-size="29">A capability-aware bridge between your AI and Final Cut Pro.</text>
+  <text x="80" y="530" fill="#37f69c" font-family="monospace" font-size="19" letter-spacing="3">OPEN SOURCE  /  REVIEW FIRST  /  MCP</text>
+</svg>

@@ -2,6 +2,10 @@ node_modules/
 dist/
 dist-package/
 artifacts/
+.next/
+out/
+storybook-static/
+*.tsbuildinfo
 .DS_Store
 
 PLAN.md

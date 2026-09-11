@@ -1,0 +1,63 @@
+name: Wiki CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "wiki/**"
+      - "tests/integration/wiki-site.test.ts"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/wiki.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/web/**"
+      - "wiki/**"
+      - "tests/integration/wiki-site.test.ts"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/wiki.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22.14.0
+
+jobs:
+  validate:
+    name: Lint, test, and static builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint and type-check wiki site
+        run: pnpm --filter @framekit/web lint
+
+      - name: Test wiki components
+        run: pnpm --filter @framekit/web test
+
+      - name: Build static wiki site
+        run: pnpm --filter @framekit/web build
+
+      - name: Build Storybook
+        run: pnpm --filter @framekit/web build-storybook
