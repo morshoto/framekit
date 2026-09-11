@@ -60,6 +60,21 @@ export interface NativeFinalCutMediaImportDirectoryFile {
   kind: "video";
 }
 
+interface NativeFinalCutMediaImportDirectoryFileIdentity {
+  device: number;
+  inode: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}
+
+interface NativeFinalCutMediaImportDirectoryPreviewRecord {
+  directoryPath: string;
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  fileIdentities: Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>;
+  expiresAt: number;
+}
+
 export interface NativeFinalCutMediaImportDirectoryPreview {
   previewToken: string;
   directoryPath: string;
@@ -593,11 +608,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly stableMediaHandles = new Map<string, string>();
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
-  private readonly mediaImportDirectoryPreviews = new Map<string, {
-    directoryPath: string;
-    files: NativeFinalCutMediaImportDirectoryFile[];
-    expiresAt: number;
-  }>();
+  private readonly mediaImportDirectoryPreviews = new Map<string, NativeFinalCutMediaImportDirectoryPreviewRecord>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
   private readonly maskPreviews = new Map<string, {
     occurrence: NativeFinalCutOccurrence;
@@ -842,18 +853,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const trimmedPath = directoryPath.trim();
     if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
     const normalizedPath = resolveLocalPath(trimmedPath);
-    const files = await enumerateSupportedVideoFiles(normalizedPath);
+    const snapshot = await snapshotSupportedVideoFiles(normalizedPath);
     const expiresAt = this.now() + 30_000;
     const previewToken = opaqueHandle("media-directory-preview");
     this.mediaImportDirectoryPreviews.set(previewToken, {
       directoryPath: normalizedPath,
-      files,
+      files: snapshot.files,
+      fileIdentities: snapshot.fileIdentities,
       expiresAt,
     });
     return {
       previewToken,
       directoryPath: normalizedPath,
-      files: structuredClone(files),
+      files: structuredClone(snapshot.files),
       command: "Import all previewed video files",
       expiresAt: new Date(expiresAt).toISOString(),
     };
@@ -963,6 +975,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown media directory preview");
     this.mediaImportDirectoryPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory preview has expired");
+    await assertMediaImportDirectoryPreviewFresh(preview);
 
     const results: NativeFinalCutMediaImportDirectoryFileResult[] = [];
     for (const file of preview.files) {
@@ -5735,6 +5748,68 @@ async function enumerateSupportedVideoFiles(directoryPath: string): Promise<Nati
     }
   }
   return files;
+}
+
+async function snapshotSupportedVideoFiles(directoryPath: string): Promise<{
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  fileIdentities: Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>;
+}> {
+  const files = await enumerateSupportedVideoFiles(directoryPath);
+  const fileIdentities = new Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>();
+  for (const file of files) {
+    try {
+      const details = await stat(file.sourcePath);
+      await access(file.sourcePath, constants.R_OK);
+      if (!details.isFile()) throw new Error("path is not a file");
+      fileIdentities.set(file.sourcePath, {
+        device: details.dev,
+        inode: details.ino,
+        size: details.size,
+        mtimeMs: details.mtimeMs,
+        ctimeMs: details.ctimeMs,
+      });
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_FILE_UNAVAILABLE: ${file.sourcePath} could not be snapshotted (${String(error)})`);
+    }
+  }
+  return { files, fileIdentities };
+}
+
+async function assertMediaImportDirectoryPreviewFresh(
+  preview: NativeFinalCutMediaImportDirectoryPreviewRecord,
+): Promise<void> {
+  let current: Awaited<ReturnType<typeof snapshotSupportedVideoFiles>>;
+  try {
+    current = await snapshotSupportedVideoFiles(preview.directoryPath);
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview (${String(error)})`);
+  }
+
+  const sameFileSet = preview.files.length === current.files.length
+    && preview.files.every((file, index) => {
+      const currentFile = current.files[index];
+      return currentFile?.sourcePath === file.sourcePath
+        && currentFile.name === file.name
+        && currentFile.kind === file.kind;
+    });
+  if (!sameFileSet) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview");
+  }
+
+  const sameFileIdentities = preview.files.every((file) => {
+    const expected = preview.fileIdentities.get(file.sourcePath);
+    const actual = current.fileIdentities.get(file.sourcePath);
+    return expected !== undefined
+      && actual !== undefined
+      && expected.device === actual.device
+      && expected.inode === actual.inode
+      && expected.size === actual.size
+      && expected.mtimeMs === actual.mtimeMs
+      && expected.ctimeMs === actual.ctimeMs;
+  });
+  if (!sameFileIdentities) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview");
+  }
 }
 
 function mediaKind(sourcePath: string): "video" | "audio" {
