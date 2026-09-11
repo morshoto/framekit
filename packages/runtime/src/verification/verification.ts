@@ -735,6 +735,7 @@ function constructionStateIsValid(transaction: EditTransaction): boolean {
         && media.sourceDigest === operation.sourceDigest;
     }
     if (operation.type === "timeline.media.add"
+      || operation.type === "timeline.picture-in-picture.add"
       || operation.type === "timeline.media.move"
       || operation.type === "timeline.media.replace"
       || operation.type === "timeline.media.remove"

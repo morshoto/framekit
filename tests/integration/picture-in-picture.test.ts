@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
-import type { WorkflowOperation } from "@framekit/runtime";
+import type { ContextRevision, ProjectSnapshot, WorkflowOperation } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
@@ -79,6 +79,34 @@ function jsonFrom(result: unknown): any {
     return JSON.parse(text);
   } catch {
     throw new Error(`MCP tool failed: ${text}`);
+  }
+}
+
+class MismatchedPipAdapter extends InMemoryEditorAdapter {
+  private reportMismatchedPip = false;
+
+  public override async applyTransaction(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<void> {
+    await super.applyTransaction(operations, expectedRevision);
+    this.reportMismatchedPip = true;
+  }
+
+  public override async readProject(): Promise<ProjectSnapshot> {
+    const snapshot = await super.readProject();
+    if (!this.reportMismatchedPip) return snapshot;
+    return {
+      ...snapshot,
+      timeline: {
+        ...snapshot.timeline,
+        clips: snapshot.timeline.clips.map((clip) => clip.id === "guest-pip"
+          ? { ...clip, attachedTo: "wrong-anchor" }
+          : clip),
+      },
+    };
+  }
+
+  public override async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
+    await super.restore(snapshot, expectedRevision);
+    this.reportMismatchedPip = false;
   }
 }
 
@@ -195,6 +223,22 @@ test("PIP rejects invalid connected lanes, crops, and non-video media", async ()
     /MEDIA_NOT_FOUND/,
   );
   assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
+});
+
+test("PIP verification rejects a mismatched construction attachment", async () => {
+  const adapter = new MismatchedPipAdapter(fixture);
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const beforeDigest = canonicalSnapshotDigest(before);
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: [pipOperation()],
+  });
+
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.equal(transaction.verification?.checks.find((check) => check.name === "construction-state")?.passed, false);
+  assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest);
 });
 
 test("FCPXML PIP preview and undo preserve canonical artifact state", async () => {
