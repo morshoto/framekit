@@ -42,6 +42,8 @@ The headed-native tier claims exactly five workflows. Run each command against
 its own disposable Final Cut project, redirecting stdout to a fresh JSON file:
 
 ```sh
+mkdir -p artifacts/final-cut-headed
+
 pnpm run test:final-cut-canonical-headed > artifacts/final-cut-headed/canonical-live.json
 pnpm run test:final-cut-pip-headed > artifacts/final-cut-headed/picture-in-picture.json
 pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title-discovery.json
