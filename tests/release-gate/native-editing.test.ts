@@ -165,6 +165,19 @@ test("missing external release state is unrun and cannot be release success", ()
   assert.doesNotMatch(report.summary, /release ready/i);
 });
 
+test("release gate keeps repository-owned provenance values authoritative", async () => {
+  const report = await runReleaseGate({
+    provenance: {
+      packageManifest: { version: "9.9.9" },
+      pluginManifest: { version: "9.9.9" },
+      serverVersion: "9.9.9",
+    } as never,
+  });
+
+  assert.match(report.provenance.checks.find((check) => check.name === "package-plugin-versions")?.detail ?? "", /0\.1\.5/);
+  assert.match(report.provenance.checks.find((check) => check.name === "mcp-server-version")?.detail ?? "", /0\.1\.5/);
+});
+
 test("release gate reports each v0.1.6 evidence tier independently", async () => {
   const report = await runReleaseGate({ generatedAt: "2026-09-11T00:00:00.000Z" });
 

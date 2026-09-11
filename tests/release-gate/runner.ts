@@ -128,7 +128,7 @@ export interface ReleaseGateReport {
 export interface RunReleaseGateOptions {
   generatedAt?: string;
   headedEvidenceDirectory?: string;
-  provenance?: Partial<ReleaseProvenanceInput>;
+  provenance?: Partial<Omit<ReleaseProvenanceInput, "packageManifest" | "pluginManifest" | "serverVersion">>;
   repositoryChecks?: RepositoryChecksReport;
 }
 
@@ -236,10 +236,10 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
     version?: string;
   };
   const provenance = assessReleaseProvenance({
+    ...options.provenance,
     packageManifest,
     pluginManifest,
     serverVersion: FRAMEKIT_VERSION,
-    ...options.provenance,
   });
   const report = {
     schemaVersion: 1,
