@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.1.6](https://github.com/morshoto/framekit/compare/v0.1.5...v0.1.6) - 2026-09-11
+
+- fix: make tagged release retries idempotent by @morshoto in https://github.com/morshoto/framekit/pull/163
+- Implement dialogue-normalization Skill by @morshoto in https://github.com/morshoto/framekit/pull/188
+- feat: implement filler-removal Skill by @morshoto in https://github.com/morshoto/framekit/pull/189
+- Discover built-in Final Cut Motion titles by @morshoto in https://github.com/morshoto/framekit/pull/190
+- feat: add native masking capability by @morshoto in https://github.com/morshoto/framekit/pull/191
+- feat: add native picture-in-picture by @morshoto in https://github.com/morshoto/framekit/pull/192
+- [Improvement] Add the v0.1.6 native-editing release gate by @morshoto in https://github.com/morshoto/framekit/pull/193
+- feat: produce sanitized headed-native evidence by @morshoto in https://github.com/morshoto/framekit/pull/196
+- fix: sanitize staged commits and repair release gate by @morshoto in https://github.com/morshoto/framekit/pull/198
+- feat: Enable headed canonical Final Cut provider by @morshoto in https://github.com/morshoto/framekit/pull/197
+- fix: reject out-of-bounds ripple-delete ranges (#199) by @morshoto in https://github.com/morshoto/framekit/pull/201
+- test: cover canonical live MCP boundary (#194) by @morshoto in https://github.com/morshoto/framekit/pull/200
+
 ## [v0.1.5](https://github.com/morshoto/framekit/compare/v0.1.4...v0.1.5) - 2026-09-11
 
 - test: align pnpm lockfile assertion by @morshoto in https://github.com/morshoto/framekit/pull/174
