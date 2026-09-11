@@ -56,6 +56,7 @@ export interface NativeFinalCutOccurrence {
   sequenceId?: string;
   revision?: string;
   uiContext?: string;
+  nativeIdentity?: string;
 }
 
 export interface NativeFinalCutOccurrenceSearchResult {
@@ -960,6 +961,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         }
         await selectTimelineOccurrence(this.executor, timelineOffset);
         await this.ensureOccurrenceRange(occurrences[0]!);
+        const selectedContext = await this.inspectRawNative();
+        if (selectedContext.target.kind !== "selected-clip" || !selectedContext.target.identity) {
+          throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_IDENTITY_UNAVAILABLE: selected timeline occurrence has no stable native identity");
+        }
+        occurrences[0]!.nativeIdentity = selectedContext.target.identity;
       }
       const live = this.liveState ? await this.liveState().catch(() => undefined) : liveBefore;
       for (const occurrence of occurrences) {
@@ -1036,10 +1042,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
-    if (context.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
-    if (context.target.name && context.target.name !== occurrence.name) {
-      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
-    }
+    assertNativeMaskTarget(context, occurrence);
     await this.validateOccurrenceBinding(occurrence);
     const live = await this.requireLiveState();
     const expiresAt = this.now() + 30_000;
@@ -1074,9 +1077,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const beforeLive = await this.requireLiveState();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
-    if (before.target.name && before.target.name !== preview.occurrence.name) {
-      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
-    }
+    assertNativeMaskTarget(before, preview.occurrence);
     validateMaskPreviewBinding(preview, beforeLive);
     await this.validateOccurrenceBinding(preview.occurrence);
 
@@ -2394,6 +2395,18 @@ function validateMaskPreviewBinding(
   }
 }
 
+function assertNativeMaskTarget(context: NativeFinalCutContext, occurrence: NativeFinalCutOccurrence): void {
+  if (context.target.kind !== "selected-clip") {
+    throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
+  }
+  if (context.target.name && context.target.name !== occurrence.name) {
+    throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
+  }
+  if (!occurrence.nativeIdentity || !context.target.identity || context.target.identity !== occurrence.nativeIdentity) {
+    throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
+  }
+}
+
 function parseNativeMaskReadback(output: string): NativeFinalCutMaskConfiguration {
   const marker = "FRAMEKIT_NATIVE_MASK_READBACK|";
   const markerIndex = output.lastIndexOf(marker);
@@ -2420,7 +2433,7 @@ function parseNativeMaskReadback(output: string): NativeFinalCutMaskConfiguratio
 }
 
 function verifyNativeMask(
-  preview: { mask: NativeFinalCutMaskConfiguration },
+  preview: { mask: NativeFinalCutMaskConfiguration; occurrence: NativeFinalCutOccurrence },
   after: NativeFinalCutContext,
   beforeLive: EditorLiveState,
   afterLive: EditorLiveState,
@@ -2431,6 +2444,9 @@ function verifyNativeMask(
   }
   if (after.target.kind !== "selected-clip") {
     return { verified: false, detail: "Final Cut did not retain the masked occurrence as the selected timeline item" };
+  }
+  if (!preview.occurrence.nativeIdentity || after.target.identity !== preview.occurrence.nativeIdentity) {
+    return { verified: false, detail: "Final Cut did not retain the exact masked timeline occurrence" };
   }
   if (!after.undoAvailable || !after.undoCommand) {
     return { verified: false, detail: "Final Cut did not expose an Undo command for native Draw Mask placement" };
