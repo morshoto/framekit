@@ -101,6 +101,25 @@ test("release workflow validates the package before publishing", async () => {
   assert.match(workflow, /releases\/\$\{release_id\}/);
 });
 
+test("release workflow gates publication on v0.1.6 evidence and native checksums", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const gate = workflow.indexOf("pnpm run release-gate --output-dir");
+  const npmPublish = workflow.indexOf("npm publish --access public");
+  const npmVerification = workflow.indexOf("name: Verify npm publication");
+  const assetVerification = workflow.indexOf("name: Verify native release assets");
+  const githubRelease = workflow.indexOf("name: Publish GitHub release");
+
+  assert.notEqual(gate, -1);
+  assert.ok(gate < npmPublish, "release gate must run before npm publication");
+  assert.notEqual(assetVerification, -1);
+  assert.ok(npmVerification < assetVerification, "native assets follow npm verification");
+  assert.ok(assetVerification < githubRelease, "native assets must precede public release");
+  assert.match(workflow, /FramekitFinalCutWorkflow-\$\{expected_version\}\.zip/);
+  assert.match(workflow, /gh release download "\$\{RELEASE_TAG\}"/);
+  assert.match(workflow, /shasum -a 256 -c/);
+  assert.match(workflow, /pnpm run test:codex-plugin/);
+});
+
 test("release workflow can retry an exact existing tag", async () => {
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
 

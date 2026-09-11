@@ -69,7 +69,7 @@ export interface ReleaseProvenanceInput {
   githubRelease?: { tagName?: string; draft?: boolean };
   workflow?: { status?: string; conclusion?: string; headSha?: string; tagSha?: string };
   npmVersion?: string;
-  nativeAssets?: Array<{ name: string; sha256?: string }>;
+  nativeAssets?: Array<{ name: string; sha256?: string; content?: string }>;
 }
 
 export interface ReleaseProvenanceReport {
@@ -230,10 +230,16 @@ function assessNativeAssets(
   const checksum = assets.find((asset) => asset.name === checksumName);
   const valid = Boolean(archive && checksum)
     && Boolean(archive?.sha256 && /^[a-f0-9]{64}$/i.test(archive.sha256))
-    && Boolean(checksum?.sha256 && /^[a-f0-9]{64}$/i.test(checksum.sha256));
+    && Boolean(checksum?.sha256 && /^[a-f0-9]{64}$/i.test(checksum.sha256))
+    && Boolean(archive?.sha256 && checksum?.content && checksumLineMatches(checksum.content, archiveName, archive.sha256));
   return valid
     ? verified("native-assets", `native archive and checksum exist for ${packageVersion}`)
-    : failed("native-assets", "native archive or checksum is missing or malformed");
+    : failed("native-assets", "native archive or checksum is missing, malformed, or mismatched");
+}
+
+function checksumLineMatches(content: string, archiveName: string, archiveSha256: string): boolean {
+  const escapedName = archiveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${archiveSha256}\\s+\\*?${escapedName}$`, "i").test(content.trim());
 }
 
 function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"] {

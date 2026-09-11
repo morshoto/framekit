@@ -107,12 +107,35 @@ test("release provenance verifies aligned versions, tag, workflow, npm, and chec
     npmVersion: "0.1.6",
     nativeAssets: [
       { name: "FramekitFinalCutWorkflow-0.1.6.zip", sha256: "d".repeat(64) },
-      { name: "FramekitFinalCutWorkflow-0.1.6.zip.sha256", sha256: "e".repeat(64) },
+      {
+        name: "FramekitFinalCutWorkflow-0.1.6.zip.sha256",
+        sha256: "e".repeat(64),
+        content: `${"d".repeat(64)}  FramekitFinalCutWorkflow-0.1.6.zip\n`,
+      },
     ],
   });
 
   assert.equal(report.releaseReady, true);
   assert.ok(report.checks.every((check) => check.status === "verified"));
+});
+
+test("release provenance rejects a checksum file for a different archive", () => {
+  const report = assessReleaseProvenance({
+    packageManifest: { version: "0.1.6" },
+    pluginManifest: { version: "0.1.6" },
+    serverVersion: "0.1.6",
+    nativeAssets: [
+      { name: "FramekitFinalCutWorkflow-0.1.6.zip", sha256: "d".repeat(64) },
+      {
+        name: "FramekitFinalCutWorkflow-0.1.6.zip.sha256",
+        sha256: "e".repeat(64),
+        content: `${"f".repeat(64)}  FramekitFinalCutWorkflow-0.1.6.zip\n`,
+      },
+    ],
+  });
+
+  assert.equal(report.checks.find((check) => check.name === "native-assets")?.status, "failed");
+  assert.match(report.checks.find((check) => check.name === "native-assets")?.detail ?? "", /checksum/i);
 });
 
 test("missing external release state is unrun and cannot be release success", () => {

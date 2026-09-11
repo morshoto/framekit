@@ -120,6 +120,23 @@ jobs:
       - name: Validate MCP server version
         run: node scripts/validate-mcp-server-version.mjs
 
+      - name: Install Codex CLI for plugin validation
+        run: npm install --global @openai/codex@0.144.1
+
+      - name: Validate package and plugin alignment
+        run: pnpm run test:codex-plugin
+
+      - name: Run v0.1.6 native-editing release gate
+        run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
+
+      - name: Upload release gate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-gate-${{ github.run_id }}
+          path: artifacts/release-gate/${{ github.run_id }}
+          if-no-files-found: warn
+
       - id: npm-status
         name: Check npm publication status
         env:
@@ -193,6 +210,31 @@ jobs:
           done
           cat "${error_log}" >&2
           exit 1
+
+      - name: Verify native release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
+          checksum_name="${archive_name}.sha256"
+          native_dir="${RUNNER_TEMP}/framekit-native-release"
+          mkdir -p "${native_dir}"
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "${archive_name}" \
+            --pattern "${checksum_name}" \
+            --dir "${native_dir}"
+          test -s "${native_dir}/${archive_name}"
+          test -s "${native_dir}/${checksum_name}"
+          (
+            cd "${native_dir}"
+            shasum -a 256 -c "${checksum_name}"
+          )
 
       - name: Publish GitHub release
         env:
