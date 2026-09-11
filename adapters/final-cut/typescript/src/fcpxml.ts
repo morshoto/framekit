@@ -719,7 +719,6 @@ function validatePictureInPictureOperation(
     throw new Error("INVALID_OPERATION: PIP timing, connected lane, position, and scale are invalid");
   }
   if (operation.crop) validatePictureInPictureCrop(operation.crop);
-  if (operation.frame) validatePictureInPictureFrame(operation.frame);
 }
 
 function validatePictureInPictureCrop(crop: NonNullable<Clip["crop"]>): void {

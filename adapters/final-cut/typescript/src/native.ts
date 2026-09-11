@@ -2594,7 +2594,7 @@ function inspectorFraction(value: string | undefined): number {
 }
 
 function verifyNativePictureInPicture(
-  preview: { media: NativeFinalCutMediaMatch; position: PictureInPicturePosition; scale: number; crop?: PictureInPictureCrop; frame?: PictureInPictureFrame; start: RationalTime; end: RationalTime },
+  preview: { media: NativeFinalCutMediaMatch; position: PictureInPicturePosition; scale: number; crop?: PictureInPictureCrop; frame?: PictureInPictureFrame; start: RationalTime; end: RationalTime; duration: RationalTime },
   after: NativeFinalCutContext,
   beforeLive: EditorLiveState,
   afterLive: EditorLiveState,
