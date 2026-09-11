@@ -372,6 +372,7 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
   assert(run?.passed === true, "headed filler-removal run did not pass");
   assert(run.editor && run.project && run.removal && run.restoration, "filler-removal evidence is incomplete");
   assert(run.removal.status === "VERIFIED", "filler-removal mutation was not verified");
+  assert(run.removal.continuityVerified === true, "filler-removal continuity was not verified");
   assert(run.restoration.restored === true && run.restoration.status === "VERIFIED", "filler-removal Undo was not verified");
   const project = {
     id: requireString(run.project.id, "filler-removal project id"),

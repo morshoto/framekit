@@ -41,6 +41,7 @@ test("headed PIP evidence keeps the exact target and removes native secrets", ()
       beforeRevision: { id: "rev-1" },
       afterRevision: { id: "rev-2" },
       undoRevision: "rev-3",
+      undoVerified: { verified: true },
       anchorOccurrence: { handle: "private-handle" },
       pipMedia: { sourceIdentity: "/private/media/guest.mov" },
       operationId: "private-operation",
@@ -89,7 +90,7 @@ test("headed title evidence keeps the project, sequence, and discovered asset", 
   assert.deepEqual(evidence.target, { project: "Disposable Titles", sequenceId: "sequence-2" });
   assert.equal(evidence.discovery.assetId, "final-cut:title:basic-title");
   assert.deepEqual(evidence.revisions, { before: "rev-4", after: "rev-5", restored: "rev-6" });
-  assert.doesNotMatch(JSON.stringify(evidence), /operationId|diagnostic|sourceIdentity/i);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|sourceIdentity|native-operation-secret/i);
 });
 
 test("headed masking evidence keeps the stable occurrence identity", () => {
@@ -111,12 +112,68 @@ test("headed masking evidence keeps the stable occurrence identity", () => {
     },
     revisions: { before: "rev-7", after: "rev-8", restored: "rev-9" },
     verification: { execute: { verified: true }, undo: { verified: true } },
-    toolResults: [],
+    toolResults: [{ name: "editor.native.undo", status: "passed" }],
   }, environment);
 
   assert.equal(evidence.target.occurrenceId, "occurrence-mask");
   assert.deepEqual(evidence.revisions, { before: "rev-7", after: "rev-8", restored: "rev-9" });
   assert.deepEqual(evidence.verification, { execute: true, undo: true });
+});
+
+test("headed filler evidence keeps rollback proof without private state", () => {
+  const evidence = sanitizeFillerRemovalEvidence({
+    passed: true,
+    recordedAt: "2026-09-11T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: {
+      editor: {
+        canonicalTimelineMode: "canonical-write",
+        projectRead: true,
+        timelineSnapshotRead: true,
+        timelineWrite: true,
+        readAfterWrite: true,
+        rollback: true,
+        projectCatalogRead: true,
+        projectSelection: true,
+        privateDiagnostic: "/Users/private/diagnostic.log",
+      },
+      analyzers: { speechTranscribe: true },
+    },
+    project: { id: "project-filler", name: "Disposable Filler", sequenceId: "sequence-filler" },
+    selection: { start: 2, end: 4 },
+    toolResults: [
+      { name: "editor.inspect", status: "passed" },
+      { name: "editor.live.inspect", status: "passed" },
+      { name: "speech.filler.remove.preview", status: "passed" },
+      { name: "speech.filler.remove.execute", status: "VERIFIED" },
+      { name: "edit.undo", status: "passed" },
+    ],
+    removal: {
+      status: "VERIFIED",
+      candidateCount: 1,
+      operationCount: 1,
+      removedDurationSeconds: 0.5,
+      affectedRangeCount: 1,
+      continuityVerified: true,
+      beforeRevision: { id: "rev-10" },
+      afterRevision: { id: "rev-11" },
+      operationId: "private-operation",
+    },
+    restoration: {
+      status: "VERIFIED",
+      restored: true,
+      restoredRevision: { id: "rev-12" },
+      rawSnapshot: { source: "/private/media/audio.wav" },
+    },
+  }, environment);
+
+  assert.deepEqual(evidence.target, {
+    project: "Disposable Filler",
+    projectId: "project-filler",
+    sequenceId: "sequence-filler",
+  });
+  assert.deepEqual(evidence.revisions, { before: "rev-10", after: "rev-11", restored: "rev-12" });
+  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|\/private\/media/);
 });
 
 test("all claimed headed runners publish through an allowlisted sanitizer", async () => {
@@ -135,4 +192,3 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
   assert.match(runners[3], /sanitizeMaskEvidence/);
   assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
 });
-
