@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { AgentVideoRuntime, canonicalSnapshotDigest } from "@framekit/runtime";
 import type { WorkflowOperation } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -186,4 +190,56 @@ test("PIP rejects invalid connected lanes, crops, and non-video media", async ()
     /MEDIA_NOT_FOUND/,
   );
   assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
+});
+
+test("FCPXML PIP preview and undo preserve canonical artifact state", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-pip-fcpxml-"));
+  const artifactPath = join(directory, "pip.fcpxml");
+  const originalXml = `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11">
+  <resources>
+    <asset id="primary-media" name="Presenter" src="file:///fixtures/presenter.mov" duration="10s" />
+    <asset id="pip-media" name="Guest" src="file:///fixtures/guest.mov" duration="6s" />
+  </resources>
+  <library>
+    <event name="PIP Event">
+      <project uid="project-pip" name="PIP Project">
+        <sequence uid="sequence-pip" name="Main Edit" duration="10s" format="r-format">
+          <spine>
+            <asset-clip id="primary-occurrence" name="Presenter" ref="primary-media" offset="0s" start="0s" duration="10s" />
+          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>
+`;
+  await writeFile(artifactPath, originalXml, "utf8");
+  const adapter = new FcpxmlDocumentAdapter(artifactPath);
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const beforeDigest = canonicalSnapshotDigest(before);
+
+  const preview = await runtime.previewArtifactEdit(artifactPath, {
+    baseRevision: before.revision,
+    operations: [pipOperation()],
+  });
+  assert.equal(preview.expectedDiff.added[0]?.itemId, "guest-pip");
+  assert.equal(await readFile(artifactPath, "utf8"), originalXml);
+
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "VERIFIED");
+  const pip = transaction.after.timeline.clips.find((clip) => clip.id === "guest-pip");
+  assert.ok(pip);
+  assert.deepEqual(pip.position, { x: 320, y: -180 });
+  assert.equal(pip.scale, 0.35);
+  assert.deepEqual(pip.crop, { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 });
+  assert.deepEqual(pip.frame, { style: "solid", color: "#FFFFFF", width: 8 });
+  const writtenXml = await readFile(artifactPath, "utf8");
+  assert.match(writtenXml, /adjust-transform/);
+  assert.match(writtenXml, /adjust-crop/);
+  assert.match(writtenXml, /#FFFFFF/);
+
+  await runtime.undo(transaction.id);
+  assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest);
 });
