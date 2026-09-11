@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
+  type RationalTime,
   type SpeechSegment,
   type SpeechAnalyzer,
   type SpeechWord,
@@ -16,9 +17,13 @@ function createFixture(options: {
   postAnalysisError?: boolean;
   clipDuration?: number;
   mediaDuration?: number;
+  frameDuration?: RationalTime | null;
 } = {}) {
   const clipDuration = options.clipDuration ?? 5;
   const mediaDuration = options.mediaDuration ?? clipDuration;
+  const frameDuration: RationalTime | null = options.frameDuration === undefined
+    ? { value: "1", timescale: "30" }
+    : options.frameDuration;
   const words = options.words ?? [
     { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
     { text: "um", start: 0.8, end: 1.1, confidence: 0.98, filler: true },
@@ -30,6 +35,7 @@ function createFixture(options: {
     projectName: "Skill Filler Fixture",
     timelineId: "skill-filler-timeline",
     timelineName: "Main Edit",
+    ...(frameDuration ? { frameDuration } : {}),
       clips: [{ id: "filler-occurrence", mediaId: "filler-media", name: "Interview", start: 0, duration: clipDuration, track: 0 }],
     media: [{
       mediaId: "filler-media",
@@ -255,6 +261,34 @@ test("repeated filler text outside the selected range remains independent", asyn
 
   assert.equal(execution.status, "VERIFIED");
   assert.equal(execution.verification?.checks.find((check) => check.name === "filler-targets-absent")?.passed, true);
+});
+
+test("filler Skill uses the canonical non-30-fps sequence timing", async () => {
+  const { runtime } = createFixture({ frameDuration: { value: "1", timescale: "24" } });
+  register(runtime);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 } },
+  });
+  const details = preview.plan.details as {
+    decisions: Array<{ evidence: { frameDuration: RationalTime } }>;
+  };
+
+  assert.deepEqual(details.decisions[0]?.evidence.frameDuration, { value: "1", timescale: "24" });
+});
+
+test("filler Skill fails closed when sequence frame timing is unavailable", async () => {
+  const { runtime } = createFixture({ frameDuration: null });
+  register(runtime);
+  const before = await runtime.inspectProject();
+
+  await assert.rejects(runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 5 } },
+  }), /CAPABILITY_UNAVAILABLE: sequence frame duration/);
 });
 
 test("unexpected canonical changes roll back the complete filler transaction", async () => {

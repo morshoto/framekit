@@ -27,6 +27,7 @@ export interface InMemoryProjectFixture {
   projectName: string;
   timelineId: string;
   timelineName: string;
+  frameDuration?: RationalTime;
   clips: Array<Omit<Clip, "startTime" | "durationTime"> & Partial<Pick<Clip, "startTime" | "durationTime">>>;
   media?: MediaContext[];
   markers?: Marker[];
@@ -796,6 +797,7 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
       name: fixture.timelineName,
       duration: clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
       durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
+      ...(fixture.frameDuration ? { frameDuration: structuredClone(fixture.frameDuration) } : {}),
       clips,
       storyElements: clips.map((clip) => ({
         id: clip.id,

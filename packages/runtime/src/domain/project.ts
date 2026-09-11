@@ -63,6 +63,7 @@ export interface ProjectSnapshot {
     name: string;
     duration: number;
     durationTime?: RationalTime;
+    frameDuration?: RationalTime;
     clips: Clip[];
     storyElements: StoryElement[];
     markers: Marker[];
