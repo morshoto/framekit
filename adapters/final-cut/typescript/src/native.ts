@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, constants, stat } from "node:fs/promises";
+import { access, constants, readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -49,6 +50,41 @@ export interface NativeFinalCutMediaImportResult {
   sourcePath: string;
   name: string;
   kind: "video" | "audio";
+}
+
+export const SUPPORTED_VIDEO_EXTENSIONS = Object.freeze([".m4v", ".mov", ".mp4"]);
+
+export interface NativeFinalCutMediaImportDirectoryFile {
+  sourcePath: string;
+  name: string;
+  kind: "video";
+}
+
+export interface NativeFinalCutMediaImportDirectoryPreview {
+  previewToken: string;
+  directoryPath: string;
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  command: "Import all previewed video files";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutMediaImportDirectoryFileResult {
+  sourcePath: string;
+  name: string;
+  status: "imported" | "failed";
+  media?: NativeFinalCutMediaImportResult;
+  error?: { code: string; message: string };
+}
+
+export interface NativeFinalCutMediaImportDirectoryResult {
+  previewToken: string;
+  directoryPath: string;
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  results: NativeFinalCutMediaImportDirectoryFileResult[];
+  importedCount: number;
+  failedCount: number;
+  partial: boolean;
+  status: "completed" | "partial" | "failed";
 }
 
 export interface NativeFinalCutOccurrence {
@@ -498,6 +534,8 @@ export interface NativeFinalCutEditor {
   edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult>;
   undo(operationId: string): Promise<NativeFinalCutUndoResult>;
   importMedia(sourcePath: string): Promise<NativeFinalCutMediaImportResult>;
+  previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview>;
+  executeImportMediaDirectory(previewToken: string, confirm: boolean): Promise<NativeFinalCutMediaImportDirectoryResult>;
   searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
@@ -555,6 +593,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly stableMediaHandles = new Map<string, string>();
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
+  private readonly mediaImportDirectoryPreviews = new Map<string, {
+    directoryPath: string;
+    files: NativeFinalCutMediaImportDirectoryFile[];
+    expiresAt: number;
+  }>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
   private readonly maskPreviews = new Map<string, {
     occurrence: NativeFinalCutOccurrence;
@@ -794,11 +837,38 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.importMediaNative(sourcePath));
   }
 
+  public async previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview> {
+    this.assertEnabled();
+    const normalizedPath = resolveLocalPath(directoryPath);
+    const files = await enumerateSupportedVideoFiles(normalizedPath);
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle("media-directory-preview");
+    this.mediaImportDirectoryPreviews.set(previewToken, {
+      directoryPath: normalizedPath,
+      files,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      directoryPath: normalizedPath,
+      files: structuredClone(files),
+      command: "Import all previewed video files",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  public async executeImportMediaDirectory(
+    previewToken: string,
+    confirm: boolean,
+  ): Promise<NativeFinalCutMediaImportDirectoryResult> {
+    return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm));
+  }
+
   private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
     this.assertEnabled();
-    const normalizedPath = resolve(sourcePath.trim());
+    const normalizedPath = resolveLocalPath(sourcePath);
     const name = basename(normalizedPath);
-    if (!name) throw new Error("INVALID_OPERATION: local media path cannot be empty");
+    if (!sourcePath.trim()) throw new Error("INVALID_OPERATION: local media path cannot be empty");
     try {
       const details = await stat(normalizedPath);
       await access(normalizedPath, constants.R_OK);
@@ -879,6 +949,53 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     const diagnostics = await this.readBrowserMediaDiagnostics(name);
     throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
+  }
+
+  private async executeImportMediaDirectoryNative(
+    previewToken: string,
+    confirm: boolean,
+  ): Promise<NativeFinalCutMediaImportDirectoryResult> {
+    this.assertEnabled();
+    if (!confirm) throw new Error("FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED: batch media import requires confirm=true");
+    const preview = this.mediaImportDirectoryPreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown media directory preview");
+    this.mediaImportDirectoryPreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory preview has expired");
+
+    const results: NativeFinalCutMediaImportDirectoryFileResult[] = [];
+    for (const file of preview.files) {
+      try {
+        const media = await this.importMedia(file.sourcePath);
+        results.push({
+          sourcePath: file.sourcePath,
+          name: file.name,
+          status: "imported",
+          media,
+        });
+      } catch (error) {
+        results.push({
+          sourcePath: file.sourcePath,
+          name: file.name,
+          status: "failed",
+          error: {
+            code: nativeErrorCode(error),
+            message: String(error),
+          },
+        });
+      }
+    }
+    const importedCount = results.filter((result) => result.status === "imported").length;
+    const failedCount = results.length - importedCount;
+    return {
+      previewToken,
+      directoryPath: preview.directoryPath,
+      files: structuredClone(preview.files),
+      results,
+      importedCount,
+      failedCount,
+      partial: importedCount > 0 && failedCount > 0,
+      status: failedCount === 0 ? "completed" : importedCount > 0 ? "partial" : "failed",
+    };
   }
 
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
@@ -5572,6 +5689,50 @@ function timelineTimecodeToRational(
 
 function opaqueHandle(kind: string, suffix?: number): string {
   return `${kind}-${Date.now().toString(36)}-${suffix ?? Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveLocalPath(sourcePath: string): string {
+  const trimmed = sourcePath.trim();
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  return resolve(trimmed);
+}
+
+async function enumerateSupportedVideoFiles(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryFile[]> {
+  let details;
+  try {
+    details = await stat(directoryPath);
+    await access(directoryPath, constants.R_OK);
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: ${directoryPath} is not a readable directory (${String(error)})`);
+  }
+  if (!details.isDirectory()) {
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: ${directoryPath} is not a directory`);
+  }
+
+  let entries;
+  try {
+    entries = await readdir(directoryPath, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: ${directoryPath} could not be enumerated (${String(error)})`);
+  }
+
+  const files = entries
+    .filter((entry) => entry.isFile() && SUPPORTED_VIDEO_EXTENSIONS.includes(extname(entry.name).toLowerCase()))
+    .map((entry) => ({
+      sourcePath: resolve(directoryPath, entry.name),
+      name: entry.name,
+      kind: "video" as const,
+    }))
+    .sort((left, right) => left.sourcePath < right.sourcePath ? -1 : left.sourcePath > right.sourcePath ? 1 : 0);
+  for (const file of files) {
+    try {
+      await access(file.sourcePath, constants.R_OK);
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_FILE_UNAVAILABLE: ${file.sourcePath} is not readable (${String(error)})`);
+    }
+  }
+  return files;
 }
 
 function mediaKind(sourcePath: string): "video" | "audio" {
