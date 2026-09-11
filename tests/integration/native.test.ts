@@ -239,6 +239,70 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Native Title" of menu "Edit"')), true);
 });
 
+test("native title placement keeps filesystem assets on name fallback", async () => {
+  const scripts: string[] = [];
+  let revision = 1;
+  let playhead = "5";
+  let titleAdded = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:05:00")) playhead = "5";
+      if (script.includes("00:00:08:00")) playhead = "8";
+      if (script.includes("Filesystem Title")) {
+        titleAdded = true;
+        revision = 2;
+      }
+      if (script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", titleAdded ? "Lower Third" : "", titleAdded ? 1 : 0, true);
+      }
+      return "";
+    },
+  });
+  const filesystemPath = "/Motion Templates.localized/Titles.localized/Lower Third.moti";
+
+  const preview = await adapter.previewTitleAdd({
+    asset: {
+      id: `filesystem:title:${filesystemPath}`,
+      kind: "title",
+      name: "Lower Third",
+      vendor: "Framekit Fixture",
+      metadata: {
+        identity: filesystemPath,
+        provider: "filesystem-motion-template",
+      },
+    },
+    text: "Filesystem Title",
+    duration: { value: "3", timescale: "1" },
+  });
+
+  const result = await adapter.executeTitleAdd(preview.previewToken);
+  assert.equal(result.verification.verified, true);
+  const selectionScript = scripts.find((script) => script.includes("set targetIdentity"));
+  assert.ok(selectionScript);
+  assert.match(selectionScript, /set targetIdentity to ""/);
+  assert.equal(selectionScript.includes(filesystemPath), false);
+});
+
 test("native title previews bind explicit selected ranges and reject incompatible or out-of-bounds assets", async () => {
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
