@@ -91,6 +91,13 @@ and native Undo that restores the original canonical digest. Duplicate media,
 duplicate occurrences, stale coordinates, missing Accessibility identity, or
 any failed verification returns an error before claiming success.
 
+The canonical transaction port currently supports one `rename-clip` transaction.
+Call `editor.timeline.edit.preview` with the explicit project, sequence, base
+revision, and operation, confirm that the preview is non-mutating, then call
+`editor.timeline.edit.execute` with its single-use token. The execute result
+contains the read-after-write snapshot, deterministic diff, verification, and
+the transaction ID used by `edit.undo`.
+
 The headed baseline is Final Cut Pro 10.7.1 on the repository's macOS/Xcode
 16.4 environment. A different Final Cut version requires fresh headed evidence.
 Use a disposable project, open the intended sequence before connecting, and
@@ -144,7 +151,8 @@ than the open Final Cut timeline.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
-through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`, `edit.diff`, and
+through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`,
+`editor.timeline.edit.preview`, `editor.timeline.edit.execute`, `edit.diff`, and
 `edit.undo` MCP tools only when `canonicalTimelineMode` is `canonical-read` or
 `canonical-write`. The bundled Workflow Extension cannot currently supply
 those methods and fails them with `CAPABILITY_UNAVAILABLE`.
@@ -211,6 +219,39 @@ before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 If Final Cut does not expose a ready Media Import window, folder sheet, or import
 button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
+
+To import all supported video files from one directory, first call
+`editor.native.media.directory.preview`:
+
+```json
+{
+  "path": "~/Desktop/video-clip"
+}
+```
+
+Framekit expands `~`, requires a readable directory, scans only that directory
+(not nested directories), and returns `.mov`, `.mp4`, and `.m4v` files sorted by
+normalized absolute path. Unsupported files and directories are not included.
+The preview only reads the filesystem; it does not focus or mutate Final Cut.
+
+After reviewing the returned `files`, call
+`editor.native.media.directory.execute` with the preview token and explicit
+confirmation:
+
+```json
+{
+  "previewToken": "media-directory-preview-...",
+  "confirm": true
+}
+```
+
+Files are imported in preview order. The result contains one entry per file with
+`status: "imported"` and a stable `media.mediaHandle`, or `status: "failed"`
+with an error code and message. `status: "partial"`, `importedCount`, and
+`failedCount` make partial completion explicit; one file failure does not hide
+the results of other files. The token expires after 30 seconds and is consumed
+by a confirmed execution. This workflow imports Browser media only; it does not
+append anything to the timeline.
 
 ## Live Browser search and Blade
 
@@ -330,7 +371,10 @@ Accessibility automation to open Final Cut's Titles and Generators browser,
 select the discovered template by its stable AX identity, apply the text, and
 verify the selected title and live revision. Missing Accessibility permission,
 an unavailable browser, or a missing AX identity is not converted into a
-fabricated asset.
+fabricated asset. An empty native browser response is reported as
+`FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY`; native-only queries fail explicitly,
+while filesystem Motion-template results remain usable with a native
+unavailable diagnostic when present.
 
 ## Native transition placement
 

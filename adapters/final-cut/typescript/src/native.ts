@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, constants, stat } from "node:fs/promises";
+import { access, constants, readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -49,6 +50,56 @@ export interface NativeFinalCutMediaImportResult {
   sourcePath: string;
   name: string;
   kind: "video" | "audio";
+}
+
+export const SUPPORTED_VIDEO_EXTENSIONS = Object.freeze([".m4v", ".mov", ".mp4"]);
+
+export interface NativeFinalCutMediaImportDirectoryFile {
+  sourcePath: string;
+  name: string;
+  kind: "video";
+}
+
+interface NativeFinalCutMediaImportDirectoryFileIdentity {
+  device: number;
+  inode: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}
+
+interface NativeFinalCutMediaImportDirectoryPreviewRecord {
+  directoryPath: string;
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  fileIdentities: Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>;
+  expiresAt: number;
+}
+
+export interface NativeFinalCutMediaImportDirectoryPreview {
+  previewToken: string;
+  directoryPath: string;
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  command: "Import all previewed video files";
+  expiresAt: string;
+}
+
+export interface NativeFinalCutMediaImportDirectoryFileResult {
+  sourcePath: string;
+  name: string;
+  status: "imported" | "failed";
+  media?: NativeFinalCutMediaImportResult;
+  error?: { code: string; message: string };
+}
+
+export interface NativeFinalCutMediaImportDirectoryResult {
+  previewToken: string;
+  directoryPath: string;
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  results: NativeFinalCutMediaImportDirectoryFileResult[];
+  importedCount: number;
+  failedCount: number;
+  partial: boolean;
+  status: "completed" | "partial" | "failed";
 }
 
 export interface NativeFinalCutOccurrence {
@@ -498,6 +549,8 @@ export interface NativeFinalCutEditor {
   edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult>;
   undo(operationId: string): Promise<NativeFinalCutUndoResult>;
   importMedia(sourcePath: string): Promise<NativeFinalCutMediaImportResult>;
+  previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview>;
+  executeImportMediaDirectory(previewToken: string, confirm: boolean): Promise<NativeFinalCutMediaImportDirectoryResult>;
   searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
@@ -535,6 +588,7 @@ export interface NativeFinalCutTransitionRequest {
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
+  private titleDiscoveryAvailable: boolean;
   private readonly executor: NativeFinalCutExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
@@ -555,6 +609,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly stableMediaHandles = new Map<string, string>();
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
+  private readonly mediaImportDirectoryPreviews = new Map<string, NativeFinalCutMediaImportDirectoryPreviewRecord>();
   private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
   private readonly maskPreviews = new Map<string, {
     occurrence: NativeFinalCutOccurrence;
@@ -620,6 +675,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
+    this.titleDiscoveryAvailable = this.enabled;
     this.executor = options.executor ?? runAppleScript;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
@@ -649,7 +705,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaAppend: this.enabled,
       mediaInsert: this.enabled,
       titlePlacement: this.enabled,
-      titleDiscovery: this.enabled,
+      titleDiscovery: this.titleDiscoveryAvailable,
       pictureInPicture: this.enabled,
       transitionDiscovery: this.enabled,
       transitionPlacement: this.enabled,
@@ -794,11 +850,41 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.importMediaNative(sourcePath));
   }
 
+  public async previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview> {
+    this.assertEnabled();
+    const trimmedPath = directoryPath.trim();
+    if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
+    const normalizedPath = resolveLocalPath(trimmedPath);
+    const snapshot = await snapshotSupportedVideoFiles(normalizedPath);
+    const expiresAt = this.now() + 30_000;
+    const previewToken = opaqueHandle("media-directory-preview");
+    this.mediaImportDirectoryPreviews.set(previewToken, {
+      directoryPath: normalizedPath,
+      files: snapshot.files,
+      fileIdentities: snapshot.fileIdentities,
+      expiresAt,
+    });
+    return {
+      previewToken,
+      directoryPath: normalizedPath,
+      files: structuredClone(snapshot.files),
+      command: "Import all previewed video files",
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  public async executeImportMediaDirectory(
+    previewToken: string,
+    confirm: boolean,
+  ): Promise<NativeFinalCutMediaImportDirectoryResult> {
+    return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm));
+  }
+
   private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
     this.assertEnabled();
-    const normalizedPath = resolve(sourcePath.trim());
+    const normalizedPath = resolveLocalPath(sourcePath);
     const name = basename(normalizedPath);
-    if (!name) throw new Error("INVALID_OPERATION: local media path cannot be empty");
+    if (!sourcePath.trim()) throw new Error("INVALID_OPERATION: local media path cannot be empty");
     try {
       const details = await stat(normalizedPath);
       await access(normalizedPath, constants.R_OK);
@@ -881,6 +967,54 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     throw new Error(`FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity${diagnostics ? `; diagnostics=${diagnostics}` : ""}`);
   }
 
+  private async executeImportMediaDirectoryNative(
+    previewToken: string,
+    confirm: boolean,
+  ): Promise<NativeFinalCutMediaImportDirectoryResult> {
+    this.assertEnabled();
+    if (!confirm) throw new Error("FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED: batch media import requires confirm=true");
+    const preview = this.mediaImportDirectoryPreviews.get(previewToken);
+    if (!preview) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: unknown media directory preview");
+    this.mediaImportDirectoryPreviews.delete(previewToken);
+    if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory preview has expired");
+    await assertMediaImportDirectoryPreviewFresh(preview);
+
+    const results: NativeFinalCutMediaImportDirectoryFileResult[] = [];
+    for (const file of preview.files) {
+      try {
+        const media = await this.importMedia(file.sourcePath);
+        results.push({
+          sourcePath: file.sourcePath,
+          name: file.name,
+          status: "imported",
+          media,
+        });
+      } catch (error) {
+        results.push({
+          sourcePath: file.sourcePath,
+          name: file.name,
+          status: "failed",
+          error: {
+            code: nativeErrorCode(error),
+            message: String(error),
+          },
+        });
+      }
+    }
+    const importedCount = results.filter((result) => result.status === "imported").length;
+    const failedCount = results.length - importedCount;
+    return {
+      previewToken,
+      directoryPath: preview.directoryPath,
+      files: structuredClone(preview.files),
+      results,
+      importedCount,
+      failedCount,
+      partial: importedCount > 0 && failedCount > 0,
+      status: failedCount === 0 ? "completed" : importedCount > 0 ? "partial" : "failed",
+    };
+  }
+
   public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
     return this.withNativeUi(() => this.searchMediaNative(query));
   }
@@ -891,7 +1025,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.ensureBrowserReady(deadline, timeoutCode);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const rawMatches = parseMediaMatches(await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode));
+      const output = await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode);
+      const explicitFailure = output.trim();
+      if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
+        throw new Error(explicitFailure);
+      }
+      const rawMatches = parseMediaMatches(output);
       const normalizedQuery = query.toLocaleLowerCase();
       if (rawMatches.some((match) => !browserMediaIdentity(match) && match.name.toLocaleLowerCase().includes(normalizedQuery))) {
         const diagnostics = await this.readBrowserMediaDiagnostics(query);
@@ -920,6 +1059,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       for (const match of matches) this.mediaHandles.set(match.handle, match);
       return matches;
     } catch (error) {
+      if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE") throw error;
       if (deadline !== undefined && nativeErrorCode(error) === timeoutCode) throw error;
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -1406,9 +1546,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          return parseTitleMatches(await this.executeNativeScript(
+          const matches = parseTitleMatches(await this.executeNativeScript(
             titleSearchScript(identity ?? normalizedQuery, identity !== undefined),
           ));
+          if (matches.length === 0) {
+            this.titleDiscoveryAvailable = false;
+            throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: Final Cut's Titles browser returned no title assets");
+          }
+          this.titleDiscoveryAvailable = true;
+          return matches;
         } catch (error) {
           lastError = error;
           if (attempt === 0) await this.sleep(250);
@@ -1429,7 +1575,6 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async searchTransitionsNative(query: string): Promise<NativeFinalCutTransitionMatch[]> {
     this.assertEnabled();
-    if (!query.trim()) throw new Error("INVALID_OPERATION: transition search query cannot be empty");
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut must be frontmost for transition discovery");
     try {
@@ -3657,7 +3802,7 @@ function selectedBrowserMediaScript(): string {
     set seenSourceIdentities to {}
     set browserRoot to mainWindow
     try
-      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0, origin, size of mainWindow)
+      set browserSearchResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
       if browserSearchResult is not missing value then set browserRoot to item 2 of browserSearchResult
     end try
     try
@@ -3706,62 +3851,14 @@ end tell`;
 
 function browserSearchFieldScript(): string {
   return `
-    set origin to position of mainWindow
-    set windowSize to size of mainWindow
     set searchFieldFound to false
     set searchField to missing value
     set searchButton to missing value
-    set browserRoot to mainWindow
-    -- The Transitions browser may already be open. Prefer the bounded
-    -- Browser search control so its Effects Library field cannot capture a
-    -- media query.
-    try
-      set searchField to UI element 4 of UI element 5 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
-      set searchFieldFound to true
-    on error
-      set searchField to missing value
-    end try
-    try
-      if not searchFieldFound then
-        set focusedCandidate to value of attribute "AXFocusedUIElement"
-        set focusedRole to role of focusedCandidate as text
-        set focusedDescription to ""
-        try
-          set focusedDescription to description of focusedCandidate as text
-        end try
-        if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) and my browserSearchCandidateVisible(focusedCandidate, origin, windowSize) then
-          set searchField to focusedCandidate
-          set searchFieldFound to true
-        end if
-      end if
-    end try
-    if not searchFieldFound then
-      repeat with searchOffset in {368, 400, 340, 561, 531, 501}
-        repeat with searchY in {52, 38}
-          try
-            click at {(item 1 of origin) + (searchOffset as integer), (item 2 of origin) + (searchY as integer)}
-            delay 0.15
-            set focusedCandidate to value of attribute "AXFocusedUIElement"
-            set focusedRole to role of focusedCandidate as text
-            set focusedDescription to ""
-            try
-              set focusedDescription to description of focusedCandidate as text
-            end try
-            if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
-              set searchField to focusedCandidate
-              set searchFieldFound to true
-              exit repeat
-            end if
-          end try
-        end repeat
-        if searchFieldFound then exit repeat
-      end repeat
-    end if
     try
       if my revealBrowser(mainWindow, 0) then delay 0.5
     end try
     try
-      set searchControlResult to my findBrowserSearchControl(mainWindow, 0, origin, windowSize)
+      set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
       if searchControlResult is not missing value then
         set searchControl to item 1 of searchControlResult
         set browserRoot to item 2 of searchControlResult
@@ -3774,9 +3871,11 @@ function browserSearchFieldScript(): string {
         end if
       end if
     end try
-    if not searchFieldFound then
+    if not searchFieldFound and searchButton is not missing value then
       try
-        set searchControlResult to my findBrowserSearchControl(mainWindow, 0, origin, windowSize)
+        perform action "AXPress" of searchButton
+        delay 0.2
+        set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
         if searchControlResult is not missing value then
           set searchControl to item 1 of searchControlResult
           set browserRoot to item 2 of searchControlResult
@@ -3784,40 +3883,11 @@ function browserSearchFieldScript(): string {
           if searchRole is "AXSearchField" or searchRole is "AXTextField" then
             set searchField to searchControl
             set searchFieldFound to true
-          else if searchRole is "AXButton" then
-            set searchButton to searchControl
           end if
         end if
       end try
     end if
-    if not searchFieldFound and searchButton is missing value then
-      try
-        set directSearchButton to UI element 3 of UI element 3 of UI element 1 of UI element 2 of UI element 1 of UI element 1 of UI element 1 of mainWindow
-        set directSearchDescription to description of directSearchButton as text
-        if directSearchDescription contains "search" or directSearchDescription contains "Search" then
-          set searchButton to directSearchButton
-        end if
-      end try
-    end if
-    if not searchFieldFound then
-      if searchButton is not missing value then
-        try
-          perform action "AXPress" of searchButton
-          delay 0.2
-          set focusedCandidate to value of attribute "AXFocusedUIElement"
-          set focusedRole to role of focusedCandidate as text
-          set focusedDescription to ""
-          try
-            set focusedDescription to description of focusedCandidate as text
-          end try
-          if (focusedRole is "AXSearchField" or (focusedRole is "AXTextField" and (focusedDescription contains "search" or focusedDescription contains "Search"))) then
-            set searchField to focusedCandidate
-            set searchFieldFound to true
-          end if
-        end try
-      end if
-    end if
-    if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not found through Accessibility or coordinate fallback"
+    if not searchFieldFound then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search control was not exposed by Accessibility"
     set searchRole to role of searchField as text
     if searchRole is not "AXTextField" and searchRole is not "AXSearchField" then error "FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser search field was not hit"
     try
@@ -3832,28 +3902,53 @@ function browserSearchFieldScript(): string {
 function browserSearchControlFinderScript(): string {
   return `
   using terms from application "System Events"
-    on browserSearchCandidateVisible(candidate, mainOrigin, mainSize)
+    on browserSearchContainer(candidate)
       try
-        set candidatePosition to position of candidate
-        set candidateX to item 1 of candidatePosition
-        set candidateY to item 2 of candidatePosition
-        return candidateX is less than ((item 1 of mainOrigin) + ((item 1 of mainSize) * 0.60)) and candidateY is less than ((item 2 of mainOrigin) + ((item 2 of mainSize) * 0.60))
+        set candidateRole to role of candidate as text
+        if candidateRole is not "AXGroup" and candidateRole is not "AXScrollArea" and candidateRole is not "AXSplitGroup" and candidateRole is not "AXLayoutArea" and candidateRole is not "AXToolbar" and candidateRole is not "AXList" and candidateRole is not "AXOutline" and candidateRole is not "AXCollection" then return false
+        set candidateText to ""
+        try
+          set candidateText to description of candidate as text
+        end try
+        if candidateText is "" then
+          try
+            set candidateText to name of candidate as text
+          end try
+        end if
+        if candidateText is "" then
+          try
+            set candidateText to value of candidate as text
+          end try
+        end if
+        return candidateText contains "Browser" or candidateText contains "browser" or candidateText contains "Events" or candidateText contains "events" or candidateText contains "Event" or candidateText contains "event"
       on error
         return false
       end try
-    end browserSearchCandidateVisible
+    end browserSearchContainer
 
-    on findBrowserSearchControl(containerItem, depth, mainOrigin, mainSize)
+    on findBrowserSearchControl(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot)
       if depth > 12 then return missing value
+      set browserContext to inheritedBrowserContext
+      set browserRoot to inheritedBrowserRoot
+      if my browserSearchContainer(containerItem) then
+        set browserContext to true
+        set browserRoot to containerItem
+      end if
       set candidateItems to UI elements of containerItem
       repeat with candidateIndex in my orderedChildIndices(containerItem)
         try
           set candidate to item (contents of candidateIndex) of candidateItems
-          set candidateRole to role of candidate as text
-          if candidateRole is "AXSearchField" and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
-            return {candidate, containerItem}
+          set candidateBrowserContext to browserContext
+          set candidateBrowserRoot to browserRoot
+          if my browserSearchContainer(candidate) then
+            set candidateBrowserContext to true
+            set candidateBrowserRoot to candidate
           end if
-          if candidateRole is "AXTextField" then
+          set candidateRole to role of candidate as text
+          if candidateBrowserContext and candidateRole is "AXSearchField" then
+            return {candidate, candidateBrowserRoot}
+          end if
+          if candidateBrowserContext and candidateRole is "AXTextField" then
             set candidateName to ""
             set candidateDescription to ""
             try
@@ -3862,19 +3957,19 @@ function browserSearchControlFinderScript(): string {
             try
               set candidateDescription to description of candidate as text
             end try
-            if (candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search") and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
-              return {candidate, containerItem}
+            if candidateName contains "search" or candidateName contains "Search" or candidateDescription contains "search" or candidateDescription contains "Search" then
+              return {candidate, candidateBrowserRoot}
             end if
           end if
-          if candidateRole is "AXButton" then
+          if candidateBrowserContext and candidateRole is "AXButton" then
             set candidateDescription to description of candidate as text
-            if (candidateDescription contains "search" or candidateDescription contains "Search") and my browserSearchCandidateVisible(candidate, mainOrigin, mainSize) then
-              return {candidate, containerItem}
+            if candidateDescription contains "search" or candidateDescription contains "Search" then
+              return {candidate, candidateBrowserRoot}
             end if
           end if
         end try
         try
-          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1, mainOrigin, mainSize)
+          set nestedCandidate to my findBrowserSearchControl(candidate, depth + 1, candidateBrowserContext, candidateBrowserRoot)
           if nestedCandidate is not missing value then
             return nestedCandidate
           end if
@@ -5572,6 +5667,112 @@ function timelineTimecodeToRational(
 
 function opaqueHandle(kind: string, suffix?: number): string {
   return `${kind}-${Date.now().toString(36)}-${suffix ?? Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveLocalPath(sourcePath: string): string {
+  const trimmed = sourcePath.trim();
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  return resolve(trimmed);
+}
+
+async function enumerateSupportedVideoFiles(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryFile[]> {
+  let details;
+  try {
+    details = await stat(directoryPath);
+    await access(directoryPath, constants.R_OK);
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: ${directoryPath} is not a readable directory (${String(error)})`);
+  }
+  if (!details.isDirectory()) {
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: ${directoryPath} is not a directory`);
+  }
+
+  let entries;
+  try {
+    entries = await readdir(directoryPath, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE: ${directoryPath} could not be enumerated (${String(error)})`);
+  }
+
+  const files = entries
+    .filter((entry) => entry.isFile() && SUPPORTED_VIDEO_EXTENSIONS.includes(extname(entry.name).toLowerCase()))
+    .map((entry) => ({
+      sourcePath: resolve(directoryPath, entry.name),
+      name: entry.name,
+      kind: "video" as const,
+    }))
+    .sort((left, right) => left.sourcePath < right.sourcePath ? -1 : left.sourcePath > right.sourcePath ? 1 : 0);
+  for (const file of files) {
+    try {
+      await access(file.sourcePath, constants.R_OK);
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_FILE_UNAVAILABLE: ${file.sourcePath} is not readable (${String(error)})`);
+    }
+  }
+  return files;
+}
+
+async function snapshotSupportedVideoFiles(directoryPath: string): Promise<{
+  files: NativeFinalCutMediaImportDirectoryFile[];
+  fileIdentities: Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>;
+}> {
+  const files = await enumerateSupportedVideoFiles(directoryPath);
+  const fileIdentities = new Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>();
+  for (const file of files) {
+    try {
+      const details = await stat(file.sourcePath);
+      await access(file.sourcePath, constants.R_OK);
+      if (!details.isFile()) throw new Error("path is not a file");
+      fileIdentities.set(file.sourcePath, {
+        device: details.dev,
+        inode: details.ino,
+        size: details.size,
+        mtimeMs: details.mtimeMs,
+        ctimeMs: details.ctimeMs,
+      });
+    } catch (error) {
+      throw new Error(`FINAL_CUT_NATIVE_MEDIA_FILE_UNAVAILABLE: ${file.sourcePath} could not be snapshotted (${String(error)})`);
+    }
+  }
+  return { files, fileIdentities };
+}
+
+async function assertMediaImportDirectoryPreviewFresh(
+  preview: NativeFinalCutMediaImportDirectoryPreviewRecord,
+): Promise<void> {
+  let current: Awaited<ReturnType<typeof snapshotSupportedVideoFiles>>;
+  try {
+    current = await snapshotSupportedVideoFiles(preview.directoryPath);
+  } catch (error) {
+    throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview (${String(error)})`);
+  }
+
+  const sameFileSet = preview.files.length === current.files.length
+    && preview.files.every((file, index) => {
+      const currentFile = current.files[index];
+      return currentFile?.sourcePath === file.sourcePath
+        && currentFile.name === file.name
+        && currentFile.kind === file.kind;
+    });
+  if (!sameFileSet) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview");
+  }
+
+  const sameFileIdentities = preview.files.every((file) => {
+    const expected = preview.fileIdentities.get(file.sourcePath);
+    const actual = current.fileIdentities.get(file.sourcePath);
+    return expected !== undefined
+      && actual !== undefined
+      && expected.device === actual.device
+      && expected.inode === actual.inode
+      && expected.size === actual.size
+      && expected.mtimeMs === actual.mtimeMs
+      && expected.ctimeMs === actual.ctimeMs;
+  });
+  if (!sameFileIdentities) {
+    throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: media directory contents changed after preview");
+  }
 }
 
 function mediaKind(sourcePath: string): "video" | "audio" {

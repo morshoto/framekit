@@ -718,6 +718,17 @@ function normalizeConnectionStatus(value: unknown): unknown {
   };
 }
 
+function nativeMediaIntentCapabilities(nativeEditor?: NativeFinalCutEditor): Record<string, boolean> {
+  const capabilities = nativeEditor?.capabilities();
+  return {
+    "native.mediaImport": Boolean(capabilities?.mediaImport),
+    "native.mediaSelection": Boolean(capabilities?.mediaSelection),
+    "native.mediaAppendSelected": Boolean(capabilities?.mediaAppendSelected),
+    "native.mediaAppend": Boolean(capabilities?.mediaAppend),
+    "native.mediaInsert": Boolean(capabilities?.mediaInsert),
+  };
+}
+
 function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const capabilities = value as Record<string, unknown>;
@@ -882,7 +893,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editing.intent.resolve", {
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
     inputSchema: { request: z.string().trim().min(1) },
-  }, async ({ request }) => jsonResult(resolveEditingIntent(request)));
+  }, async ({ request }) => jsonResult(resolveEditingIntent(request, {
+    availableCapabilities: nativeMediaIntentCapabilities(options.nativeEditor),
+  })));
 
   server.registerTool("editing.route", {
     description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
@@ -927,6 +940,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ path }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
     return jsonResult(await options.nativeEditor.importMedia(path));
+  });
+
+  server.registerTool("editor.native.media.directory.preview", {
+    description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
+    inputSchema: { path: z.string().trim().min(1) },
+  }, async ({ path }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path));
+  });
+
+  server.registerTool("editor.native.media.directory.execute", {
+    description: "Import every file from a directory preview after explicit confirmation and return per-file stable media handles or failures.",
+    inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
+  }, async ({ previewToken, confirm }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm));
   });
 
   server.registerTool("editor.native.edit", {
