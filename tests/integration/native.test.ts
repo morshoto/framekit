@@ -958,6 +958,58 @@ test("native Final Cut rejects a false timeline focus from the Effects search fi
   assert.equal(focused.focusedWindowName, "Final Cut Pro");
 });
 
+test("native Final Cut retries stale focus metadata before accepting the timeline", async () => {
+  let clock = 0;
+  let preflightCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    nativePreflightTimeoutMs: 200,
+    executor: async (script) => {
+      if (!script.includes("timelineWindowAvailable")) return "";
+      preflightCalls += 1;
+      return preflightCalls === 1
+        ? contextWithFocus(true, "Final Cut Pro", "Interview", 1, true, {
+            focusedName: "Effect Library Search Field",
+            focusedRole: "AXTextField",
+            focusedDescription: "Effect Library Search Field",
+          })
+        : contextWithFocus(true, "Final Cut Pro", "Interview", 1, true);
+    },
+  });
+
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.available, true);
+  assert.equal(focused.timelineFocused, true);
+  assert.equal(focused.focusTarget, "timeline");
+  assert.equal(focused.focusedRole, "AXLayoutArea");
+  assert.equal(focused.focusedDescription, "Timeline");
+  assert.equal(preflightCalls, 2);
+});
+
+test("native Final Cut rejects timeline focus from another focused window", async () => {
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    nativePreflightTimeoutMs: 100,
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? contextWithFocus(true, "Final Cut Pro", "Interview", 1, true, {
+          focusedWindowName: "Effects Library",
+        })
+      : "",
+  });
+
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.available, false);
+  assert.equal(focused.error?.code, "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED");
+  assert.equal(focused.timelineFocused, false);
+  assert.equal(focused.focusTarget, "unknown");
+  assert.equal(focused.focusedWindowName, "Effects Library");
+});
+
 test("native Final Cut preflight minimizes the Framekit overlay and raises the timeline", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
