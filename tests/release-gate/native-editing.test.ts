@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -289,9 +289,15 @@ test("release gate keeps repository-owned provenance values authoritative", asyn
       serverVersion: "9.9.9",
     } as never,
   });
+  const packageManifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
+    version?: string;
+  };
+  if (typeof packageManifest.version !== "string") throw new Error("repository package version is missing");
+  assert.notEqual(packageManifest.version, "9.9.9");
+  const expectedVersion = new RegExp(escapeRegExp(packageManifest.version));
 
-  assert.match(report.provenance.checks.find((check) => check.name === "package-plugin-versions")?.detail ?? "", /0\.1\.5/);
-  assert.match(report.provenance.checks.find((check) => check.name === "mcp-server-version")?.detail ?? "", /0\.1\.5/);
+  assert.match(report.provenance.checks.find((check) => check.name === "package-plugin-versions")?.detail ?? "", expectedVersion);
+  assert.match(report.provenance.checks.find((check) => check.name === "mcp-server-version")?.detail ?? "", expectedVersion);
 });
 
 test("release gate reports each v0.1.6 evidence tier independently", async () => {
@@ -348,6 +354,10 @@ test("partial headed evidence cannot promote the headed tier", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 test("complete headed evidence promotes every claimed native workflow", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-complete-headed-evidence-"));
