@@ -18,4 +18,12 @@ test("release gate CLI rejects duplicate or unknown options", () => {
     () => parseReleaseGateArgs(["--unknown"], "default"),
     /only --output-dir and --headed-evidence-dir are supported/,
   );
+  assert.throws(
+    () => parseReleaseGateArgs(["--output-dir"], "default"),
+    /--output-dir requires a path/,
+  );
+  assert.throws(
+    () => parseReleaseGateArgs(["--headed-evidence-dir"], "default"),
+    /--headed-evidence-dir requires a path/,
+  );
 });

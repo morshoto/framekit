@@ -124,6 +124,10 @@ try {
       nativeUndo: editor.native.undo,
       nativeTimelineOccurrenceLocate: editor.native.timelineOccurrenceLocate,
     },
+    target: {
+      sequenceId: anchorOccurrence.sequenceId,
+      occurrenceName: anchorOccurrence.name,
+    },
     placement: {
       project: expectedProject,
       anchorMedia: { name: anchorMedia.name, sourceIdentity: anchorMedia.sourceIdentity },

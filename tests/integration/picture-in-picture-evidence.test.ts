@@ -14,6 +14,7 @@ test("headed PIP runner preserves native evidence boundaries", async () => {
   assert.match(runner, /observed.*position/);
   assert.match(runner, /observed.*frame/);
   assert.match(runner, /undoRevision:\s*undone\.context\?\.revision\?\.id/);
+  assert.match(runner, /target:\s*\{\s*sequenceId:\s*anchorOccurrence\.sequenceId/);
   assert.doesNotMatch(runner, /masking|cutout|tracking/);
 });
 

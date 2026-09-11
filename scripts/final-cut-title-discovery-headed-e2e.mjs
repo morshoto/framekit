@@ -119,6 +119,7 @@ try {
       backend: title.metadata.discovery.backend,
       guarantee: title.metadata.discovery.guarantee,
     },
+    target: { sequenceId: preview.sequenceId },
     placement: {
       text: titleText,
       target: preview.target,

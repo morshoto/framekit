@@ -56,6 +56,7 @@ export interface HeadedEvidenceSummary {
     projectId?: string;
     sequenceId?: string;
     occurrenceId?: string;
+    occurrenceName?: string;
   };
   revision: { before: string; after: string; restored: string };
   verification: { execute: true; undo: true };
@@ -249,11 +250,13 @@ function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"
   const projectId = typeof project === "object" ? project?.id : undefined;
   const sequenceId = typeof project === "object" ? project?.sequenceId : target?.sequenceId;
   const occurrenceId = target?.occurrenceId;
+  const occurrenceName = target?.occurrenceName ?? target?.name;
   return {
     ...(typeof projectValue === "string" ? { project: projectValue } : {}),
     ...(typeof projectId === "string" ? { projectId } : {}),
     ...(typeof sequenceId === "string" ? { sequenceId } : {}),
     ...(typeof occurrenceId === "string" ? { occurrenceId } : {}),
+    ...(typeof occurrenceName === "string" ? { occurrenceName } : {}),
   };
 }
 
