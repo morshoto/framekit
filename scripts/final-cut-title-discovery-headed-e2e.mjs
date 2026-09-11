@@ -126,6 +126,7 @@ try {
       duration: preview.duration,
       beforeRevision: executed.beforeRevision.id,
       afterRevision: executed.afterRevision.id,
+      restoredRevision: undone.context?.revision?.id,
       verified: executed.verification.verified,
       undo: { command: executed.undoCommand, verified: undone.verification.verified },
     },

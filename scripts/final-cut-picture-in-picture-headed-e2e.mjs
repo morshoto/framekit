@@ -136,6 +136,7 @@ try {
       operationId: executed.operationId,
       undoOperationId: undone.operationId,
       undoVerified: undone.verification,
+      undoRevision: undone.context?.revision?.id,
     },
   }, null, 2)}\n`);
 } finally {
