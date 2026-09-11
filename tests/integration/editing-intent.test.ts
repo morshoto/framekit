@@ -314,6 +314,16 @@ test("editing intent asks whether append should use a handle or current selectio
   });
 });
 
+test("editing intent treats an incomplete Browser selection as non-destructive", () => {
+  assert.deepEqual(resolveEditingIntent("Select Browser media"), {
+    status: "clarification_required",
+    destructive: false,
+    previewRequired: false,
+    question: "Which Browser media handle should Framekit select?",
+    options: ["media_select"],
+  });
+});
+
 test("editing intent fails closed when a required native capability is unavailable", () => {
   assert.deepEqual(resolveEditingIntent("Insert media with handle media-42 at the playhead", {
     availableCapabilities: {

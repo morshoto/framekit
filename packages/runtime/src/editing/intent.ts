@@ -99,7 +99,7 @@ export type EditingIntentResolution =
     }
   | {
       status: "clarification_required";
-      destructive: true;
+      destructive: boolean;
       previewRequired: false;
       question: string;
       options: EditingIntentOperation["type"][];
@@ -190,6 +190,7 @@ export function resolveEditingIntent(
     return mediaClarification(
       "Which local media path should Framekit import?",
       ["media_import"],
+      false,
     );
   }
 
@@ -209,6 +210,7 @@ export function resolveEditingIntent(
     return mediaClarification(
       "Which Browser media handle should Framekit select?",
       ["media_select"],
+      false,
     );
   }
 
@@ -376,10 +378,11 @@ function mediaResolution(input: {
 function mediaClarification(
   question: string,
   options: Extract<EditingIntentOperation["type"], `media_${string}`>[],
+  destructive = true,
 ): EditingIntentResolution {
   return {
     status: "clarification_required",
-    destructive: true,
+    destructive,
     previewRequired: false,
     question,
     options,
