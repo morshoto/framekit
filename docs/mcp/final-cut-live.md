@@ -212,7 +212,11 @@ media handle can be passed to `editor.native.media.select` and
 `editor.native.timeline.locate`. The handle is stable for the current native
 session and does not itself insert the asset into the timeline.
 
-Invalid paths fail before any import UI command. If Final Cut does not expose
+Invalid paths fail before any import UI command. A readable directory is not
+guessed as a file: the MCP response uses
+`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT` and includes structured guidance for
+`editor.native.media.directory.preview` followed by
+`editor.native.media.directory.execute` with `confirm: true`. If Final Cut does not expose
 the imported asset before the bounded wait expires, Framekit returns
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`. If polling finds only pre-existing
 same-name results, it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if
