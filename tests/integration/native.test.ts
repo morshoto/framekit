@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, relative } from "node:path";
 import test from "node:test";
-import { createNativeOperationLease, FinalCutNativeAutomationAdapter } from "@framekit/final-cut";
+import {
+  createNativeOperationLease,
+  FinalCutNativeAutomationAdapter,
+  NativeFinalCutMediaImportDirectoryError,
+} from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 
 const separator = String.fromCharCode(31);
@@ -2620,6 +2624,29 @@ test("native Final Cut expands home paths and rejects ambiguous tilde paths", as
     adapter.importMedia("~other/framekit-media-does-not-exist.mov"),
     /INVALID_OPERATION: local media path must be absolute or start with ~\//,
   );
+});
+
+test("native Final Cut reports directory media import guidance before opening import UI", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-import-directory-input-"));
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.importMedia(directory), (error: unknown) => {
+    assert.ok(error instanceof NativeFinalCutMediaImportDirectoryError);
+    assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT");
+    assert.match(error.message, /editor\.native\.media\.import accepts one readable local media file/);
+    assert.deepEqual(error.guidance, {
+      previewTool: "editor.native.media.directory.preview",
+      executeTool: "editor.native.media.directory.execute",
+    });
+    return true;
+  });
   assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
 });
 
