@@ -220,6 +220,7 @@ export interface NativeFinalCutPictureInPictureResult {
   previewToken: string;
   media: NativeFinalCutMediaMatch;
   anchorOccurrence: NativeFinalCutOccurrence;
+  occurrence: NativeFinalCutOccurrence;
   start: RationalTime;
   end: RationalTime;
   duration: RationalTime;
@@ -1623,8 +1624,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       after = await this.requireTimelineContext();
       afterLive = await this.waitForRevision(beforeLive.revision.id);
+      const occurrence = await this.readPictureInPictureOccurrence(preview, anchorOccurrence);
       const observed = parsePictureInPictureReadback(await this.executor(pictureInPictureInspectorReadbackScript()));
-      const verification = verifyNativePictureInPicture({ ...preview, media }, after, beforeLive, afterLive, observed);
+      const verification = verifyNativePictureInPicture({ ...preview, media }, after, beforeLive, afterLive, observed, occurrence);
       const operation = {
         kind: "picture-in-picture" as const,
         before,
@@ -1651,6 +1653,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         previewToken,
         media: structuredClone(media),
         anchorOccurrence: structuredClone(anchorOccurrence),
+        occurrence: structuredClone(occurrence),
         start: structuredClone(preview.start),
         end: structuredClone(preview.end),
         duration: structuredClone(preview.duration),
@@ -2213,6 +2216,32 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
+  private async readPictureInPictureOccurrence(
+    preview: { mediaHandle: string; start: RationalTime; duration: RationalTime },
+    anchor: NativeFinalCutOccurrence,
+  ): Promise<NativeFinalCutOccurrence> {
+    const located = await this.locateOccurrenceNative(preview.mediaHandle, true);
+    const matches = located.occurrences.filter((occurrence) => pictureInPictureOccurrenceMatchesRange(occurrence, preview));
+    if (matches.length === 0) {
+      throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_OCCURRENCE_UNAVAILABLE: inserted clip range was not read back");
+    }
+    if (matches.length > 1) {
+      throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_OCCURRENCE_AMBIGUOUS: multiple inserted clips match the requested range");
+    }
+    const occurrence = matches[0]!;
+    if (!occurrence.identity) {
+      throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_OCCURRENCE_UNAVAILABLE: inserted clip has no stable identity");
+    }
+    const context = await this.requireTimelineContext();
+    if (context.target.kind !== "selected-clip" || context.target.identity !== occurrence.identity) {
+      throw new Error("FINAL_CUT_NATIVE_PICTURE_IN_PICTURE_OCCURRENCE_STALE: selected clip does not match the inserted occurrence");
+    }
+    if (!anchor.identity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: native PIP anchor identity is unavailable");
+    }
+    return occurrence;
+  }
+
   private async ensureOccurrenceRange(occurrence: NativeFinalCutOccurrence): Promise<void> {
     if (occurrence.start && occurrence.duration) return;
     if (occurrence.timelineOffset === undefined) {
@@ -2570,12 +2599,19 @@ function verifyNativePictureInPicture(
   beforeLive: EditorLiveState,
   afterLive: EditorLiveState,
   observed: NativeFinalCutPictureInPictureReadback,
+  occurrence: NativeFinalCutOccurrence,
 ): NativeFinalCutPictureInPictureResult["verification"] {
   if (afterLive.revision.id === beforeLive.revision.id) {
     return { verified: false, detail: "Final Cut did not expose a new revision after native picture-in-picture placement" };
   }
   if (after.target.kind !== "selected-clip") {
     return { verified: false, detail: "Final Cut did not expose the inserted picture-in-picture clip as the selected timeline item" };
+  }
+  if (!occurrence.identity || after.target.identity !== occurrence.identity) {
+    return { verified: false, detail: "Final Cut did not expose the inserted picture-in-picture occurrence identity" };
+  }
+  if (!pictureInPictureOccurrenceMatchesRange(occurrence, preview)) {
+    return { verified: false, detail: "Final Cut did not read back the requested picture-in-picture timeline range" };
   }
   const observedName = after.target.name ?? "";
   if (observedName && !observedName.toLowerCase().includes(preview.media.name.toLowerCase())) {
@@ -2598,8 +2634,17 @@ function verifyNativePictureInPicture(
   }
   return {
     verified: true,
-    detail: `Final Cut verified ${preview.media.name} at ${preview.start.value}/${preview.start.timescale}-${preview.end.value}/${preview.end.timescale} with transform readback at revision ${afterLive.revision.id}`,
+    detail: `Final Cut verified ${preview.media.name} occurrence ${occurrence.identity} at ${preview.start.value}/${preview.start.timescale}-${preview.end.value}/${preview.end.timescale} on the selected anchor's connected lane with transform readback at revision ${afterLive.revision.id}`,
   };
+}
+
+function pictureInPictureOccurrenceMatchesRange(
+  occurrence: NativeFinalCutOccurrence,
+  preview: { start: RationalTime; duration: RationalTime },
+): boolean {
+  if (!occurrence.start || !occurrence.duration) return false;
+  return compareRational(parseRationalString(occurrence.start, "picture-in-picture occurrence start"), preview.start) === 0
+    && compareRational(parseRationalString(occurrence.duration, "picture-in-picture occurrence duration"), preview.duration) === 0;
 }
 
 function assertNativeTransitionAsset(asset: NativeFinalCutTransitionMatch): void {

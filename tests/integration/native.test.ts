@@ -268,7 +268,9 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
         return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
       }
       if (script.includes("collectTimelineClipMatches")) {
-        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
+        return pipAdded
+          ? `Guest${separator}AXRow${separator}media-guest${separator}800${separator}2/1${separator}4/1${separator}pip-occurrence${String.fromCharCode(30)}`
+          : `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
       }
       if (script.includes("00:00:02:00")) playhead = "2";
       if (script.includes("00:00:06:00")) playhead = "6";
@@ -316,6 +318,9 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
   assert.equal(result.observed.scale, 0.35);
   assert.deepEqual(result.observed.frame, { style: "solid", color: "#FFFFFF", width: 8 });
   assert.deepEqual(result.observed.crop, { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 });
+  assert.equal(result.occurrence.identity, "pip-occurrence");
+  assert.equal(result.occurrence.start, "2/1");
+  assert.equal(result.occurrence.duration, "4/1");
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(scripts.some((script) => script.includes('keystroke "q"')), true);
   assert.equal(scripts.some((script) => script.includes("FRAMEKIT_NATIVE_PIP_READBACK")), true);
@@ -360,7 +365,9 @@ test("native PIP rolls back when transform fails after connect", async () => {
         return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
       }
       if (script.includes("collectTimelineClipMatches")) {
-        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
+        return pipAdded
+          ? `Guest${separator}AXRow${separator}media-guest${separator}800${separator}2/1${separator}4/1${separator}pip-occurrence${String.fromCharCode(30)}`
+          : `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
       }
       if (script.includes("00:00:02:00")) playhead = "2";
       if (script.includes("00:00:06:00")) playhead = "6";
