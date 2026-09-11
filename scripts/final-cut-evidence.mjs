@@ -330,6 +330,8 @@ export function sanitizeRoughCutEvidence(run, environment) {
   const restoredRevision = requireSafeIdentity(run.revisions?.restored, "rough-cut restored revision");
   assert(beforeRevision !== afterRevision, "rough-cut mutation revision did not advance");
   assert(afterRevision !== restoredRevision, "rough-cut restoration revision did not advance");
+  const steps = sanitizeToolResultList(run.stepResults ?? run.toolResults);
+  assert(steps.every((step) => step.status === "passed"), "successful rough-cut evidence contains a non-passed step");
 
   return {
     schemaVersion: 1,
@@ -405,7 +407,7 @@ export function sanitizeRoughCutEvidence(run, environment) {
       status: requireSafeIdentity(run.rollback.status, "rough-cut rollback status"),
       restored: true,
     },
-    steps: sanitizeToolResultList(run.stepResults ?? run.toolResults),
+    steps,
     toolResults: sanitizeToolResultList(run.toolResults),
     sanitization: {
       strategy: "allowlisted-summary",

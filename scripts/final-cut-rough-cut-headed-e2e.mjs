@@ -191,6 +191,9 @@ async function run() {
       if (!sameRational(candidate.duration, mediaPlacement.range.duration)) {
         throw new Error("FINAL_CUT_E2E_MEDIA_OCCURRENCE_UNVERIFIED: occurrence duration did not match the inserted range");
       }
+      if (!sameRational(candidate.start, mediaPlacement.range.start)) {
+        throw new Error("FINAL_CUT_E2E_MEDIA_OCCURRENCE_UNVERIFIED: occurrence start did not match the inserted range");
+      }
       return { ...candidate, id: identity };
     });
 
@@ -201,6 +204,13 @@ async function run() {
       requireLiveTarget(result, expectedProject);
       if (result.revision?.id !== animation.result.afterRevision?.id) {
         throw new Error("FINAL_CUT_E2E_REVISION_UNVERIFIED: final live revision did not match the verified title placement revision");
+      }
+      if (result.project.id !== workflowBefore.project.id || result.sequence.id !== workflowBefore.sequence.id) {
+        throw new Error("FINAL_CUT_E2E_TARGET_CHANGED: project or sequence changed during the rough-cut workflow");
+      }
+      const finalDuration = result.sequenceTimeRange?.duration ?? result.sequence?.duration;
+      if (!finalDuration || !sameRational(finalDuration, mediaPlacement.afterDuration)) {
+        throw new Error("FINAL_CUT_E2E_RANGE_UNVERIFIED: final sequence duration did not match the verified media placement");
       }
       return result;
     });
@@ -377,11 +387,12 @@ async function placeTitle() {
   const result = await runStep("animation.execute", async () => {
     const next = await callJson("editor.native.title.add.execute", { previewToken: preview.previewToken });
     recordTool("editor.native.title.add.execute");
-    if (!next.verification?.verified
-      || next.asset?.id !== assets.id
-      || !next.after?.target?.identity
-      || next.beforeRevision?.id === next.afterRevision?.id
-      || !next.undoAvailable) {
+      if (!next.verification?.verified
+        || next.asset?.id !== assets.id
+        || !next.after?.target?.identity
+        || next.beforeRevision?.id === next.afterRevision?.id
+        || !next.undoAvailable
+        || !sameRational(next.duration, titleDuration)) {
       throw new Error("FINAL_CUT_E2E_TITLE_PLACEMENT_FAILED: visible title placement was not read-back verified");
     }
     return next;

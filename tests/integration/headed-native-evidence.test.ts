@@ -7,6 +7,7 @@ import {
   sanitizeMaskEvidence,
   sanitizeNativeTitleEvidence,
   sanitizePictureInPictureEvidence,
+  sanitizeRoughCutEvidence,
 } from "../../scripts/final-cut-evidence.mjs";
 
 const environment = {
@@ -252,6 +253,7 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
     readFile(join(root, "scripts/final-cut-title-discovery-headed-e2e.mjs"), "utf8"),
     readFile(join(root, "scripts/final-cut-masking-headed-e2e.mjs"), "utf8"),
     readFile(join(root, "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8"),
+    readFile(join(root, "scripts/final-cut-rough-cut-headed-e2e.mjs"), "utf8"),
   ]);
 
   assert.match(runners[0], /sanitizeCanonicalEvidence/);
@@ -259,6 +261,7 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
   assert.match(runners[2], /sanitizeNativeTitleEvidence/);
   assert.match(runners[3], /sanitizeMaskEvidence/);
   assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
+  assert.match(runners[5], /sanitizeRoughCutEvidence/);
   assert.match(runners[2], /occurrenceId:\s*executed\.after\.target\.identity/);
   assert.match(runners[4], /occurrenceId[,:]/);
 });
