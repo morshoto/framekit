@@ -537,13 +537,14 @@ function validateReadSnapshot(snapshot) {
 }
 
 function summarizeWorkflowRevisions(value, label) {
-  const before = revisionIdentity(value.before ?? value.beforeRevision);
-  const after = revisionIdentity(value.after ?? value.afterRevision);
-  const restored = revisionIdentity(value.restored ?? value.restoredRevision ?? value.undoRevision);
+  const before = requireString(revisionIdentity(value.before ?? value.beforeRevision), `${label} before revision`);
+  const after = requireString(revisionIdentity(value.after ?? value.afterRevision), `${label} after revision`);
+  const restored = requireString(revisionIdentity(value.restored ?? value.restoredRevision ?? value.undoRevision), `${label} restored revision`);
+  assert(before !== after, `${label} revision did not advance`);
   return {
-    before: requireString(before, `${label} before revision`),
-    after: requireString(after, `${label} after revision`),
-    restored: requireString(restored, `${label} restored revision`),
+    before,
+    after,
+    restored,
   };
 }
 
