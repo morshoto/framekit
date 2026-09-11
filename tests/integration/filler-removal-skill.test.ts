@@ -14,7 +14,11 @@ function createFixture(options: {
   protectedSegments?: SpeechSegment[];
   postWords?: SpeechWord[];
   postAnalysisError?: boolean;
+  clipDuration?: number;
+  mediaDuration?: number;
 } = {}) {
+  const clipDuration = options.clipDuration ?? 5;
+  const mediaDuration = options.mediaDuration ?? clipDuration;
   const words = options.words ?? [
     { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
     { text: "um", start: 0.8, end: 1.1, confidence: 0.98, filler: true },
@@ -26,11 +30,11 @@ function createFixture(options: {
     projectName: "Skill Filler Fixture",
     timelineId: "skill-filler-timeline",
     timelineName: "Main Edit",
-    clips: [{ id: "filler-occurrence", mediaId: "filler-media", name: "Interview", start: 0, duration: 5, track: 0 }],
+      clips: [{ id: "filler-occurrence", mediaId: "filler-media", name: "Interview", start: 0, duration: clipDuration, track: 0 }],
     media: [{
       mediaId: "filler-media",
       source: "fixtures/interview.wav",
-      duration: 5,
+      duration: mediaDuration,
       speech: {
         words,
         vadSegments: [
@@ -53,17 +57,26 @@ function createFixture(options: {
   });
   const analyzer: SpeechAnalyzer = {
     capabilities: { transcription: true, vad: true },
-    analyze: async ({ project, media }) => {
+    analyze: async ({ project, media }, range) => {
       const clip = project.timeline.clips.find((candidate) => candidate.id === "filler-occurrence");
-      if ((clip?.duration ?? 5) < 5) {
+      if ((clip?.duration ?? clipDuration) < clipDuration) {
         if (options.postAnalysisError) throw new Error("controlled post-write analyzer failure");
         const postWords = options.postWords ?? words.filter((word) => word.filler !== true);
+        const scopedWords = range
+          ? postWords.filter((word) => word.start >= range.start && word.end <= range.end)
+          : postWords;
         return {
-          words: postWords,
+          words: scopedWords,
           vadSegments: [{ start: 0, end: Math.max(0, (clip?.duration ?? 5) - 0.3), kind: "speech" as const }],
         };
       }
-      return structuredClone(media.speech!);
+      const scopedWords = range
+        ? media.speech!.words.filter((word) => word.start >= range.start && word.end <= range.end)
+        : media.speech!.words;
+      return {
+        ...structuredClone(media.speech!),
+        words: scopedWords,
+      };
     },
   };
   return { adapter, analyzer, runtime: new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer }) };
@@ -212,6 +225,36 @@ test("source-media speech timestamps remain unchanged after ripple delete", asyn
 
   assert.equal(execution.status, "VERIFIED");
   assert.equal(execution.verification?.checks.find((check) => check.name === "filler-speech-continuity")?.passed, true);
+});
+
+test("repeated filler text outside the selected range remains independent", async () => {
+  const words: SpeechWord[] = [
+    { text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
+    { text: "um", start: 0.8, end: 1.1, confidence: 0.98, filler: true },
+    { text: "world", start: 1.3, end: 1.8, confidence: 0.99 },
+    { text: "hello", start: 5.2, end: 5.6, confidence: 0.99 },
+    { text: "um", start: 5.8, end: 6.1, confidence: 0.98, filler: true },
+    { text: "world", start: 6.3, end: 6.8, confidence: 0.99 },
+  ];
+  const { runtime } = createFixture({
+    words,
+    clipDuration: 7,
+    mediaDuration: 7,
+    postWords: words.filter((word) => word.start !== 0.8),
+  });
+  register(runtime);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewSkill({
+    skillId: "filler-removal",
+    baseRevision: before.revision,
+    input: { range: { start: 0, end: 4 } },
+  });
+
+  assert.equal(preview.plan.operations.length, 1);
+  const execution = await runtime.executeSkill(preview.previewToken);
+
+  assert.equal(execution.status, "VERIFIED");
+  assert.equal(execution.verification?.checks.find((check) => check.name === "filler-targets-absent")?.passed, true);
 });
 
 test("unexpected canonical changes roll back the complete filler transaction", async () => {
