@@ -76,6 +76,8 @@ test("native title discovery fails closed without browser identities or frontmos
 
   const background = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    nativePreflightTimeoutMs: 1,
+    sleep: async () => {},
     executor: async () => context(false),
   });
   await assert.rejects(background.searchTitles("Lower Third"), /FINAL_CUT_NATIVE_NOT_FRONTMOST/);

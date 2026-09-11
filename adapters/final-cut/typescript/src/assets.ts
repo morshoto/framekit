@@ -46,7 +46,15 @@ export class FinalCutAssetRegistry {
     if (!this.cached) this.cached = await this.scan();
     const filesystemAssets = filterAssets(this.cached, query);
     if (!this.nativeTitleProvider || (query?.kind && query.kind !== "title")) return filesystemAssets;
-    const nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+    let nativeTitles: NativeFinalCutTitleMatch[];
+    try {
+      nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+    } catch (error) {
+      // Filesystem assets remain truthful when the optional native browser is
+      // unavailable; native-only queries still fail closed below.
+      if (filesystemAssets.length > 0) return filesystemAssets;
+      throw error;
+    }
     const composed = [...filesystemAssets, ...nativeTitles.map(nativeTitleAsset)];
     return filterAssets(dedupeAssets(composed), query);
   }
@@ -105,12 +113,28 @@ async function scanCategory(directory: string, kind: EditorAsset["kind"], assets
         identity: path,
         provider: "filesystem-motion-template",
         source: "filesystem",
+        discovery: {
+          backend: "filesystem-motion-template",
+          guarantee: "observed",
+        },
+        ...(kind === "title"
+          ? {
+              placement: {
+                backend: "final-cut-accessibility",
+                guarantee: "native-verified",
+                operation: "editor.native.title.add",
+              },
+            }
+          : {}),
       },
     });
   }
 }
 
 function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
+  if (!match.id.startsWith("final-cut:title:") || !match.identity.trim() || !match.name.trim()) {
+    throw new Error("FINAL_CUT_NATIVE_TITLE_ID_UNAVAILABLE: native title provider returned an unstable identity");
+  }
   return {
     id: match.id,
     kind: "title",
@@ -120,6 +144,15 @@ function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
       identity: match.identity,
       provider: "final-cut-accessibility",
       source: "final-cut-titles-browser",
+      discovery: {
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      placement: {
+        backend: "final-cut-accessibility",
+        guarantee: "native-verified",
+        operation: "editor.native.title.add",
+      },
     },
   };
 }

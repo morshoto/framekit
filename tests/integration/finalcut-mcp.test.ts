@@ -59,6 +59,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     env: finalCutMcpEnvironment({
       FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
       FRAMEKIT_FCPXML_PATH: xmlPath,
+      FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
       FRAMEKIT_FINAL_CUT_ASSET_ROOTS: join(directory, "Motion Templates.localized"),
       FRAMEKIT_SPEECH_ANALYZER: speech,
       FRAMEKIT_AUDIO_ANALYZER: audio,
@@ -113,6 +114,15 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
         identity: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
         provider: "filesystem-motion-template",
         source: "filesystem",
+        discovery: {
+          backend: "filesystem-motion-template",
+          guarantee: "observed",
+        },
+        placement: {
+          backend: "final-cut-accessibility",
+          guarantee: "native-verified",
+          operation: "editor.native.title.add",
+        },
       },
     });
 

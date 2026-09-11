@@ -3,8 +3,21 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { FinalCutAssetRegistry } from "@framekit/final-cut";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { FinalCutAssetRegistry, FinalCutSessionAdapter } from "@framekit/final-cut";
 import type { NativeFinalCutTitleMatch } from "@framekit/final-cut";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  if (typeof first?.text !== "string") throw new Error("MCP result did not contain text");
+  return first.text;
+}
 
 test("Final Cut asset discovery composes stable filesystem and native title identities", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-title-assets-"));
@@ -41,4 +54,76 @@ test("Final Cut asset discovery composes stable filesystem and native title iden
   ]);
   assert.equal(assets[0]?.metadata.path, bundle);
   assert.equal(assets[1]?.metadata.identity, nativeTitle.identity);
+  assert.deepEqual(assets[0]?.metadata.discovery, {
+    backend: "filesystem-motion-template",
+    guarantee: "observed",
+  });
+  assert.deepEqual(assets[1]?.metadata.discovery, {
+    backend: "final-cut-accessibility",
+    guarantee: "observed",
+  });
+  assert.deepEqual(assets[1]?.metadata.placement, {
+    backend: "final-cut-accessibility",
+    guarantee: "native-verified",
+    operation: "editor.native.title.add",
+  });
+});
+
+test("Final Cut asset discovery propagates native browser unavailability", async () => {
+  const registry = new FinalCutAssetRegistry({
+    roots: [],
+    nativeTitleProvider: {
+      searchTitles: async () => {
+        throw new Error("FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION: Accessibility permission is required");
+      },
+    },
+  });
+
+  await assert.rejects(
+    registry.listAssets({ kind: "title" }),
+    /FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION/,
+  );
+});
+
+test("MCP editor.assets exposes native title provenance", async () => {
+  const nativeTitle: NativeFinalCutTitleMatch = {
+    id: "final-cut:title:fcp://title/lower-third",
+    kind: "title",
+    name: "Lower Third",
+    vendor: "Final Cut Pro",
+    identity: "fcp://title/lower-third",
+  };
+  const editor = new FinalCutSessionAdapter({
+    snapshot: new InMemoryEditorAdapter({
+      projectId: "project-1",
+      projectName: "Asset MCP Fixture",
+      timelineId: "timeline-1",
+      timelineName: "Main",
+      clips: [],
+    }),
+    assets: new FinalCutAssetRegistry({
+      roots: [],
+      nativeTitleProvider: { searchTitles: async () => [nativeTitle] },
+    }),
+  });
+  const server = createMcpServer(new AgentVideoRuntime(editor));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "asset-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const assets = JSON.parse(textFrom(await client.callTool({
+      name: "editor.assets",
+      arguments: { kind: "title", query: "lower" },
+    })));
+    assert.equal(assets[0].id, nativeTitle.id);
+    assert.deepEqual(assets[0].metadata.discovery, {
+      backend: "final-cut-accessibility",
+      guarantee: "observed",
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });

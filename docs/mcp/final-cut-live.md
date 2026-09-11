@@ -239,11 +239,17 @@ already at or beyond the current duration returns a verified no-op.
 
 ## Native title placement
 
-Native titles use the installed Motion-template registry and a guarded
-preview/execute flow:
+Native titles use the composed Motion-template registry and headed Titles
+browser with a guarded preview/execute flow:
 
-1. Call `editor.assets` with `kind: "title"` and choose one returned `assetId`.
-2. Call `editor.native.title.add.preview` with that `assetId`, title `text`,
+1. Call `editor.inspect` and require
+   `capabilities.families.native.titleDiscovery` and `titlePlacement` when
+   using a headed native title. Call `editor.assets` with `kind: "title"` and
+   choose one returned provider-qualified `id`. Native browser results use IDs
+   such as `final-cut:title:<AXIdentifier>` and identify their source under
+   `metadata.discovery`; filesystem results use
+   `filesystem:title:<absolute-path>`.
+2. Call `editor.native.title.add.preview` with that `id` as `assetId`, title `text`,
    and a positive rational `duration`. Omit `start` to use the current
    playhead; provide `start` to place the title across an explicit range.
 3. Confirm the returned title, range, sequence, and revision, then call
@@ -260,8 +266,10 @@ misaligned timing and `FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS` when the Titles
 browser exposes multiple matching templates. The native adapter does
 not invent title assets or claim canonical timeline enumeration; it uses
 Accessibility automation to open Final Cut's Titles and Generators browser,
-select the discovered template, apply the text, and verify the selected title
-and live revision.
+select the discovered template by its stable AX identity, apply the text, and
+verify the selected title and live revision. Missing Accessibility permission,
+an unavailable browser, or a missing AX identity is not converted into a
+fabricated asset.
 
 ## Native transition placement
 
