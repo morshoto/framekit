@@ -332,8 +332,11 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
   if (clip.mediaId !== request.mediaId) {
     throw new Error(`TARGET_MISMATCH: occurrence ${request.occurrenceId} does not reference media ${request.mediaId}`);
   }
+  const existingGainDb = clip.gainDb ?? 0;
+  if (!Number.isFinite(existingGainDb)) throw new Error(`INVALID_OPERATION: occurrence ${request.occurrenceId} has an invalid gain`);
   const measurement = await context.measureAudio(request.mediaId, request.occurrenceId);
   const plan = planDialogueGain(measurement, request);
+  const targetGainDb = Number((existingGainDb + plan.clampedGainDb).toFixed(6));
   const verification = plan.decision === "APPLY" ? {
     requireExpectedChange: true,
     maxTruePeakDb: request.maxTruePeakDb,
@@ -349,7 +352,7 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
     operations: plan.decision === "APPLY" ? [{
       type: "set-gain" as const,
       clipId: request.occurrenceId,
-      gainDb: plan.clampedGainDb,
+      gainDb: targetGainDb,
       baseRevision: context.baseRevision,
     }] : [],
     decision: plan.decision,
@@ -362,6 +365,8 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
     details: {
       occurrenceId: request.occurrenceId,
       mediaId: request.mediaId,
+      existingGainDb,
+      targetGainDb,
       measurement: structuredClone(measurement),
       truePeakDb: measurement.truePeakDb,
       ...structuredClone(plan),
