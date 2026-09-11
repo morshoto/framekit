@@ -68,6 +68,36 @@ revision-bearing responses. `editor.inspect` is the first check; then use
 Successful mutation evidence must show a target-matching before/after diff, an
 advancing revision, and a restored canonical digest after `edit.undo`.
 
+### Headed native canonical provider
+
+For the bundled provider, set `FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native`
+with headed native writes enabled:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+pnpm run framekit -- mcp --editor final-cut-live
+```
+
+This provider uses the socket only for live identity/state and change events.
+Each canonical read drives Final Cut's `File > Export XML` command into a
+private temporary file, parses the result, and removes it. It never uses
+`FRAMEKIT_FCPXML_PATH`. The supported write is `rename-clip`: Framekit requires
+one exact Browser media result, one timeline occurrence, matching rational
+start/duration coordinates, native readback, an advancing canonical revision,
+and native Undo that restores the original canonical digest. Duplicate media,
+duplicate occurrences, stale coordinates, missing Accessibility identity, or
+any failed verification returns an error before claiming success.
+
+The headed baseline is Final Cut Pro 10.7.1 on the repository's macOS/Xcode
+16.4 environment. A different Final Cut version requires fresh headed evidence.
+Use a disposable project, open the intended sequence before connecting, and
+grant Accessibility and Automation permission to the MCP host. The provider
+exposes only the active project/sequence in `project.list`; it does not infer a
+project from an arbitrary artifact.
+
 ## Headless mode
 
 For repository development without the plugin, start the equivalent headless

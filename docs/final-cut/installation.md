@@ -134,6 +134,34 @@ versions in its identity; the repository's supported transport boundary is
 protocol v1, while provider-specific version compatibility must be confirmed by
 the sanitized headed evidence.
 
+### Bundled headed canonical provider
+
+The repository also provides an explicit headed provider that composes the
+metadata socket with Final Cut's own UI. It exports the active timeline through
+`File > Export XML` into a private temporary file, parses that export as the
+canonical snapshot, and removes the file after each read. It does not read or
+write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
+Browser media match and a unique timeline occurrence with matching rational
+coordinates; native Accessibility Undo and a second export verify rollback.
+
+Use it only with Final Cut Pro 10.7.1 on the repository's macOS/Xcode 16.4
+baseline until a different Final Cut version has its own headed evidence:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+pnpm run framekit -- mcp --editor final-cut-live
+```
+
+Keep `FRAMEKIT_FCPXML_PATH` unset. Open the disposable project and intended
+sequence in Final Cut before connecting, and grant Accessibility and Automation
+permission to the MCP host. `project.list` exposes the one active project and
+sequence; `project.select` must confirm that exact target. If the export,
+identity binding, readback, advancing revision, or native Undo verification is
+unavailable, the provider fails closed and must not claim canonical-write.
+
 Use the canonical headed runners only with a disposable project and stable
 project, sequence, and occurrence IDs:
 

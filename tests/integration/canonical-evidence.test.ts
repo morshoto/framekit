@@ -10,7 +10,8 @@ test("canonical headed runner publishes the sanitized evidence contract", async 
   assert.match(runner, /sanitizeCanonicalEvidence/);
   assert.match(runner, /evidenceEnvironment\(root\)/);
   assert.match(runner, /editStatus: transaction\.status/);
-  assert.match(runner, /FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED: "1"/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER: "native"/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1"/);
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
 });
 
