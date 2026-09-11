@@ -118,6 +118,33 @@ test("canonical native provider exposes one explicit active project and sequence
   assert.equal((await provider.getCapabilities()).editor.canonicalTimelineMode, "canonical-write");
 });
 
+test("canonical native provider previews and applies its supported timeline transaction", async () => {
+  const calls: string[] = [];
+  const provider = providerFor([
+    snapshot("Original"),
+    snapshot("Original"),
+    snapshot("Original"),
+    snapshot("Original"),
+    snapshot("Renamed"),
+  ], calls);
+  const before = await provider.readProject();
+  const operation = {
+    type: "rename-clip" as const,
+    clipId: "final-cut:occurrence:clip-1",
+    name: "Renamed",
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.clips[0]?.name, "Renamed");
+  assert.deepEqual(await provider.readProject(), before);
+  assert.deepEqual(calls, []);
+
+  await provider.applyTransaction([operation], before.revision);
+
+  assert.deepEqual(calls, ["edit"]);
+});
+
 test("canonical native provider rejects stale targets before native mutation", async () => {
   const calls: string[] = [];
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);

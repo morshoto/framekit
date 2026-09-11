@@ -17,6 +17,7 @@ import {
   type ProjectSelection,
   type ProjectSnapshot,
   type RuntimeCapabilities,
+  type WorkflowOperation,
 } from "@framekit/runtime";
 import type {
   NativeFinalCutEditor,
@@ -267,6 +268,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         playbackControl: false,
         projectCatalogRead: true,
         projectSelection: true,
+        compositeTransactions: true,
       },
       analyzers: {
         speechTranscribe: false,
@@ -300,6 +302,31 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
     this.lastSnapshot = { ...snapshot, revision: this.revision };
     return structuredClone(this.lastSnapshot);
+  }
+
+  public async previewTransaction(
+    operations: WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<ProjectSnapshot> {
+    const before = await this.readProject();
+    assertSameRevision(expectedRevision, before.revision);
+    const operation = supportedCanonicalOperation(operations);
+    const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
+    if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+    const preview = structuredClone(before);
+    preview.timeline.clips = preview.timeline.clips.map((candidate) => (
+      candidate.id === operation.clipId ? { ...candidate, name: operation.name } : candidate
+    ));
+    preview.revision = previewRevision(preview, before.revision);
+    return preview;
+  }
+
+  public async applyTransaction(
+    operations: WorkflowOperation[],
+    expectedRevision: ContextRevision,
+  ): Promise<void> {
+    const operation = supportedCanonicalOperation(operations);
+    await this.apply(operation, expectedRevision);
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
@@ -416,6 +443,23 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
     }
   }
+}
+
+function supportedCanonicalOperation(operations: WorkflowOperation[]): Extract<WorkflowOperation, { type: "rename-clip" }> {
+  if (operations.length !== 1 || operations[0]?.type !== "rename-clip") {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip transaction");
+  }
+  const operation = operations[0];
+  if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
+  return operation;
+}
+
+function previewRevision(snapshot: ProjectSnapshot, before: ContextRevision): ContextRevision {
+  return {
+    id: `canonical:${canonicalSnapshotDigest(snapshot)}`,
+    sequence: before.sequence + 1,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 function assertSameRevision(expected: ContextRevision, actual: ContextRevision): void {
