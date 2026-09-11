@@ -37,6 +37,8 @@ this routing tool.
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
+| `editor.native.picture-in-picture.preview` | Preview connecting selected Browser video to a stable timeline occurrence | Requires native PIP capability, selected media and occurrence handles, frame-aligned timing, and explicit transform properties |
+| `editor.native.picture-in-picture.execute` | Connect the previewed video, apply transform/crop/frame, and verify Inspector readback | Requires unchanged sequence revision; returns headed-native placement evidence and a native Undo operation ID |
 | `editor.native.transition.search` | Search the visible Final Cut Transitions browser | Returns only transitions with stable native identities; native writes required |
 | `editor.native.transition.add.preview` | Preview adding a discovered transition between two adjacent timeline occurrences | Requires occurrence handles, exact rational timing, unchanged live revision, and native writes opt-in |
 | `editor.native.transition.add.execute` | Add the previewed transition and verify selection, revision, and Undo | Requires unchanged sequence and timeline revision; returns a native Undo operation ID |

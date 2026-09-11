@@ -132,6 +132,7 @@ private struct NativeCapabilities: Codable {
     let mediaAppend: CapabilityDescriptor
     let mediaInsert: CapabilityDescriptor
     let titlePlacement: CapabilityDescriptor
+    let pictureInPicture: CapabilityDescriptor
     let transitionDiscovery: CapabilityDescriptor
     let transitionPlacement: CapabilityDescriptor
     let timelineFocus: CapabilityDescriptor
@@ -155,10 +156,18 @@ private struct AnalyzerFamilyCapabilities: Codable {
     let visualTrack: CapabilityDescriptor
 }
 
+private struct EditingCapabilities: Codable {
+    let compositeTransactions: CapabilityDescriptor
+    let titlePlacement: CapabilityDescriptor
+    let pictureInPicture: CapabilityDescriptor
+    let masking: CapabilityDescriptor
+}
+
 private struct CapabilityFamilies: Codable {
     let connection: ConnectionCapabilities
     let observation: ObservationCapabilities
     let canonicalDocument: CanonicalDocumentCapabilities
+    let editing: EditingCapabilities
     let native: NativeCapabilities
     let publishing: PublishingCapabilities
     let `export`: ExportCapabilities
@@ -225,6 +234,12 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
             write: unavailableCapability(backend: liveBackend, operation: "canonical timeline writes"),
             artifactWrite: unavailableCapability(backend: liveBackend, operation: "canonical artifact writes")
         ),
+        editing: EditingCapabilities(
+            compositeTransactions: unavailableCapability(backend: liveBackend, operation: "composite editing transactions"),
+            titlePlacement: unavailableCapability(backend: nativeBackend, operation: "title placement"),
+            pictureInPicture: unavailableCapability(backend: nativeBackend, operation: "picture-in-picture placement"),
+            masking: unavailableCapability(backend: nativeBackend, operation: "masking")
+        ),
         native: NativeCapabilities(
             selectionWrite: unavailableCapability(backend: nativeBackend, operation: "native selection write"),
             undo: unavailableCapability(backend: nativeBackend, operation: "native undo"),
@@ -239,6 +254,7 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
             mediaAppend: unavailableCapability(backend: nativeBackend, operation: "native media append"),
             mediaInsert: unavailableCapability(backend: nativeBackend, operation: "native media insert"),
             titlePlacement: unavailableCapability(backend: nativeBackend, operation: "native title placement"),
+            pictureInPicture: unavailableCapability(backend: nativeBackend, operation: "native picture-in-picture placement"),
             transitionDiscovery: unavailableCapability(backend: nativeBackend, operation: "native transition discovery"),
             transitionPlacement: unavailableCapability(backend: nativeBackend, operation: "native transition placement"),
             timelineFocus: unavailableCapability(backend: nativeBackend, operation: "native timeline focus"),
