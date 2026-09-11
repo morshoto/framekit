@@ -112,6 +112,7 @@ test("release workflow gates publication on v0.1.6 evidence and native checksums
   assert.notEqual(gate, -1);
   assert.ok(gate < npmPublish, "release gate must run before npm publication");
   assert.notEqual(assetVerification, -1);
+  assert.notEqual(npmVerification, -1);
   assert.ok(npmVerification < assetVerification, "native assets follow npm verification");
   assert.ok(assetVerification < githubRelease, "native assets must precede public release");
   assert.match(workflow, /FramekitFinalCutWorkflow-\$\{expected_version\}\.zip/);
