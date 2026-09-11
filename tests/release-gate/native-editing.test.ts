@@ -286,3 +286,64 @@ test("partial headed evidence cannot promote the headed tier", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("complete headed evidence promotes every claimed native workflow", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-complete-headed-evidence-"));
+  const environment = {
+    framekitVersion: "0.1.6",
+    finalCutVersion: "10.7.1",
+    gitCommit: "d".repeat(40),
+  };
+  const records = [
+    {
+      file: "canonical.json",
+      evidenceType: "headed-native-canonical-mutation",
+      target: { project: "Disposable Canonical", projectId: "project-1", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    },
+    {
+      file: "pip.json",
+      evidenceType: "headed-native-picture-in-picture",
+      target: { project: "Disposable PIP", sequenceId: "sequence-2", occurrenceId: "occurrence-2" },
+    },
+    {
+      file: "title.json",
+      evidenceType: "headed-native-title-discovery-and-placement",
+      target: { project: "Disposable Title", sequenceId: "sequence-3" },
+    },
+    {
+      file: "mask.json",
+      evidenceType: "headed-native-mask-placement",
+      target: { project: "Disposable Mask", sequenceId: "sequence-4", occurrenceId: "occurrence-4" },
+    },
+    {
+      file: "filler.json",
+      evidenceType: "headed-native-filler-removal",
+      target: { project: "Disposable Filler", projectId: "project-5", sequenceId: "sequence-5" },
+    },
+  ];
+
+  try {
+    for (const record of records) {
+      await writeFile(join(directory, record.file), JSON.stringify({
+        schemaVersion: 1,
+        evidenceType: record.evidenceType,
+        passed: true,
+        environment,
+        target: record.target,
+        revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
+        verification: { execute: true, undo: true },
+      }), "utf8");
+    }
+
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+
+    assert.equal(report.evidenceTiers["headed-native"].status, "verified");
+    assert.equal(report.evidenceTiers["headed-native"].passed, true);
+    assert.deepEqual(
+      report.evidenceTiers["headed-native"].workflows.map((workflow) => workflow.status),
+      ["verified", "verified", "verified", "verified", "verified"],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
