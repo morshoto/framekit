@@ -268,7 +268,7 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
         return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
       }
       if (script.includes("collectTimelineClipMatches")) {
-        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}`;
+        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
       }
       if (script.includes("00:00:02:00")) playhead = "2";
       if (script.includes("00:00:06:00")) playhead = "6";
@@ -284,7 +284,7 @@ test("native Final Cut adapter places PIP with transform readback and undo", asy
         return ["320", "-180", "35", "solid", "#FFFFFF", "8", "0.1", "0.05", "0.1", "0.05"].join(separator);
       }
       return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo")
+        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo", pipAdded ? "pip-occurrence" : "anchor-occurrence")
         : "";
     },
   });
@@ -360,7 +360,7 @@ test("native PIP rolls back when transform fails after connect", async () => {
         return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
       }
       if (script.includes("collectTimelineClipMatches")) {
-        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}`;
+        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
       }
       if (script.includes("00:00:02:00")) playhead = "2";
       if (script.includes("00:00:06:00")) playhead = "6";
@@ -377,7 +377,7 @@ test("native PIP rolls back when transform fails after connect", async () => {
         revision = 3;
       }
       return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo")
+        ? context(true, "Final Cut Pro", pipAdded ? "Guest" : "Anchor", 1, true, true, true, "timeline", 1, pipAdded ? "Undo Native Picture-in-Picture" : "Undo", pipAdded ? "pip-occurrence" : "anchor-occurrence")
         : "";
     },
   });
@@ -404,6 +404,70 @@ test("native PIP rolls back when transform fails after connect", async () => {
   assert.equal(pipAdded, false);
   assert.equal(undoCalls, 1);
   assert.equal(revision, 3);
+});
+
+test("native PIP rejects a same-name anchor with a different identity", async () => {
+  let playhead = "0";
+  let connected = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: connected ? "rev-2" : "rev-1", sequence: connected ? 2 : 1, timestamp: new Date(1).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      if (script.includes('set searchQuery to "Anchor"')) {
+        return `Anchor${separator}AXBrowserMedia${separator}browser-anchor${separator}media-anchor${String.fromCharCode(30)}`;
+      }
+      if (script.includes('set searchQuery to "Guest"')) {
+        return `Guest${separator}AXBrowserMedia${separator}browser-guest${separator}media-guest${String.fromCharCode(30)}`;
+      }
+      if (script.includes("collectTimelineClipMatches")) {
+        return `Anchor${separator}AXRow${separator}media-anchor${separator}800${separator}0/1${separator}10/1${separator}anchor-occurrence${String.fromCharCode(30)}`;
+      }
+      if (script.includes("00:00:02:00")) playhead = "2";
+      if (script.includes("00:00:06:00")) playhead = "6";
+      if (script.includes('keystroke "q"')) connected = true;
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Anchor", 1, true, true, true, "timeline", 1, "Undo", "different-anchor")
+        : "";
+    },
+  });
+
+  const [anchorMedia] = await adapter.searchMedia("Anchor");
+  const anchorOccurrences = await adapter.locateOccurrence(anchorMedia.handle);
+  const anchor = anchorOccurrences.occurrences[0];
+  assert.ok(anchor);
+  const [guestMedia] = await adapter.searchMedia("Guest");
+  await adapter.selectMedia(guestMedia.handle);
+  const preview = await adapter.previewPictureInPicture({
+    mediaHandle: guestMedia.handle,
+    anchorOccurrenceHandle: anchor.handle,
+    start: { value: "2", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+  });
+
+  await assert.rejects(
+    adapter.executePictureInPicture(preview.previewToken),
+    /selected timeline occurrence does not match the requested anchor/,
+  );
+  assert.equal(connected, false);
 });
 
 test("native title previews bind explicit selected ranges and reject incompatible or out-of-bounds assets", async () => {

@@ -55,6 +55,7 @@ export interface NativeFinalCutOccurrence {
   handle: string;
   mediaHandle: string;
   name: string;
+  identity?: string;
   start?: string;
   duration?: string;
   timelineOffset?: number;
@@ -1581,6 +1582,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         if (this.canDriveNativeMouse && anchorOccurrence.timelineOffset !== undefined) {
           await selectTimelineOccurrence(this.executor, anchorOccurrence.timelineOffset);
         }
+        await this.validateSelectedPictureInPictureAnchor(anchorOccurrence);
         await this.executor(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
         await this.executor(markRangeStartScript());
@@ -2188,6 +2190,29 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
+  private async validateSelectedPictureInPictureAnchor(anchor: NativeFinalCutOccurrence): Promise<void> {
+    if (!anchor.identity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: native PIP requires a stable anchor occurrence identity");
+    }
+    const context = await this.requireTimelineContext();
+    if (context.target.kind !== "selected-clip" || context.target.identity !== anchor.identity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence does not match the requested anchor");
+    }
+    const reread = await this.locateOccurrenceNative(anchor.mediaHandle, true);
+    if (reread.status !== "unique" || reread.occurrences[0]?.identity !== anchor.identity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: anchor occurrence identity became ambiguous or changed");
+    }
+    const observed = reread.occurrences[0]!;
+    if (anchor.start && observed.start && parseRationalString(anchor.start, "anchor start")
+      && compareRational(parseRationalString(anchor.start, "anchor start"), parseRationalString(observed.start, "observed anchor start")) !== 0) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: anchor occurrence start changed");
+    }
+    if (anchor.duration && observed.duration && parseRationalString(anchor.duration, "anchor duration")
+      && compareRational(parseRationalString(anchor.duration, "anchor duration"), parseRationalString(observed.duration, "observed anchor duration")) !== 0) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: anchor occurrence duration changed");
+    }
+  }
+
   private async ensureOccurrenceRange(occurrence: NativeFinalCutOccurrence): Promise<void> {
     if (occurrence.start && occurrence.duration) return;
     if (occurrence.timelineOffset === undefined) {
@@ -2463,6 +2488,9 @@ function validatePictureInPictureStyle(crop?: PictureInPictureCrop, frame?: Pict
 }
 
 function validatePictureInPictureAnchor(anchor: NativeFinalCutOccurrence, live: EditorLiveState): void {
+  if (!anchor.identity) {
+    throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: native PIP requires a stable anchor occurrence identity");
+  }
   if (anchor.sequenceId && live.sequence?.id !== anchor.sequenceId) {
     throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: active sequence changed");
   }
@@ -3901,7 +3929,12 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
             end repeat
             if candidateStart is not "" and candidateDuration is not "" then
               set candidateOffset to ((item 1 of candidatePosition) + 10) - (item 1 of mainOrigin)
-              set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & sourceIdentity & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 30)
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            if candidateIdentity is "" then error "FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: timeline clip has no AXIdentifier"
+            set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & sourceIdentity & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 31) & candidateIdentity & (ASCII character 30)
             end if
           else
             set shouldDescend to false
@@ -4847,7 +4880,7 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
     .filter(Boolean)
     .map((record, index) => {
       const fields = record.split(String.fromCharCode(31));
-      const [name = "", role = "", sourceIdentity = "", timelineOffsetOrDuration = "", legacyTimelineOffset, nativeDuration] = fields;
+      const [name = "", role = "", sourceIdentity = "", timelineOffsetOrDuration = "", legacyTimelineOffset, nativeDuration, identity] = fields;
       const nativeRange = nativeDuration !== undefined;
       const legacyRecord = legacyTimelineOffset !== undefined && !nativeRange;
       const identityOrStart = sourceIdentity;
@@ -4857,6 +4890,7 @@ function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOc
         handle: opaqueHandle("occurrence"),
         mediaHandle,
         name,
+        ...(identity ? { identity } : {}),
         ...(role ? { role } : {}),
         ...(sourceIdentity && !legacyRange ? { sourceIdentity } : {}),
         ...(nativeRange ? { start: legacyTimelineOffset, duration: nativeDuration } : {}),
