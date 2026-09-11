@@ -2,6 +2,7 @@ import type { EditorIdentity, RuntimeCapabilities } from "@framekit/runtime";
 
 export type EditingRouteOperation =
   | "timeline.edit"
+  | "timeline.mask.add"
   | "editor.native.edit"
   | "timeline.publish.new-project"
   | "timeline.export";
@@ -88,6 +89,14 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     },
     editorRequirement("readAfterWrite"),
     editorRequirement("rollback"),
+  ],
+  "timeline.mask.add": [
+    editorRequirement("projectRead"),
+    editorRequirement("timelineSnapshotRead"),
+    editorRequirement("timelineWrite"),
+    editorRequirement("readAfterWrite"),
+    editorRequirement("rollback"),
+    editorRequirement("masking"),
   ],
   "editor.native.edit": [
     nativeRequirement("selectionEdit"),

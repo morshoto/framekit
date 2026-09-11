@@ -83,6 +83,40 @@ const markerSchema = z.object({
     duration: z.number().nonnegative(),
     name: z.string().min(1),
 });
+const maskBoundsSchema = z.object({
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+  width: z.number().finite().positive().max(1),
+  height: z.number().finite().positive().max(1),
+}).strict().superRefine((bounds, context) => {
+  if (bounds.x + bounds.width > 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["width"], message: "x plus width must fit within the frame" });
+  }
+  if (bounds.y + bounds.height > 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["height"], message: "y plus height must fit within the frame" });
+  }
+});
+const maskSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("rectangle"),
+    bounds: maskBoundsSchema,
+    inverted: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    mode: z.literal("supplied-alpha"),
+    alphaMediaId: z.string().trim().min(1),
+    bounds: maskBoundsSchema.optional(),
+    inverted: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    mode: z.literal("person-cutout"),
+  }).strict(),
+]);
+const nativeMaskSchema = z.object({
+  mode: z.literal("rectangle"),
+  bounds: maskBoundsSchema,
+  inverted: z.boolean().optional(),
+}).strict();
 const renameClipSchema = z.object({ type: z.literal("rename-clip"), clipId: z.string().min(1), name: z.string().min(1), baseRevision: revisionSchema });
 const trimClipSchema = z.object({
     type: z.literal("trim-clip"),
@@ -388,6 +422,11 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     fadeIn: z.number().nonnegative().optional(),
     fadeOut: z.number().nonnegative().optional(),
   }),
+  z.object({
+    type: z.literal("timeline.mask.add"),
+    occurrenceId: z.string().min(1),
+    mask: maskSchema,
+  }),
 ]);
 const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRefine((operations, context) => {
   operations.forEach((operation, index) => {
@@ -513,6 +552,18 @@ const nativeTransitionPreviewSchema = {
   beforeOccurrenceHandle: z.string().min(1),
   afterOccurrenceHandle: z.string().min(1),
   duration: rationalTimeSchema,
+};
+const nativeMaskPreviewSchema = {
+  occurrenceHandle: z.string().trim().min(1),
+  mask: nativeMaskSchema,
+};
+const timelineMaskInputSchema = {
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  occurrenceId: z.string().trim().min(1),
+  mask: maskSchema,
+  verification: verificationPolicySchema.optional(),
 };
 const exportAssertionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -793,6 +844,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       operation: z.enum([
         "timeline.edit",
+        "timeline.mask.add",
         "editor.native.edit",
         "timeline.publish.new-project",
         "timeline.export",
@@ -914,6 +966,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
     return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken));
+  });
+
+  server.registerTool("editor.native.mask.preview", {
+    description: "Preview adding a bounded native Final Cut Draw Mask to one located occurrence without mutating the timeline.",
+    inputSchema: nativeMaskPreviewSchema,
+  }, async ({ occurrenceHandle, mask }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
+    return jsonResult(await options.nativeEditor.previewMask({ occurrenceHandle, mask }));
+  });
+
+  server.registerTool("editor.native.mask.execute", {
+    description: "Execute a previously previewed native Draw Mask and return readback verification and native Undo state.",
+    inputSchema: { previewToken: z.string().trim().min(1) },
+  }, async ({ previewToken }) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
+    return jsonResult(await options.nativeEditor.executeMask(previewToken));
   });
 
   server.registerTool("editor.native.undo", {
@@ -1320,6 +1388,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.previewEdit(request));
   });
 
+  server.registerTool("timeline.mask.add.preview", {
+    description: "Preview a bounded or supplied-alpha mask against an explicit project, sequence, revision, and occurrence without mutation.",
+    inputSchema: timelineMaskInputSchema,
+  }, async ({ projectId, sequenceId, baseRevision, occurrenceId, mask, verification }) => {
+    await requireEditingRoute(runtime, options, "timeline.mask.add");
+    return jsonResult(await runtime.previewTimelineEdit(
+      { projectId, sequenceId },
+      {
+        baseRevision,
+        operations: [{ type: "timeline.mask.add", occurrenceId, mask }],
+        ...(verification ? { verification } : {}),
+      },
+    ));
+  });
+
   server.registerTool("artifact.edit.preview", {
     description: "Validate and preview an ordered artifact edit against the identified FCPXML artifact without mutating it.",
     inputSchema: {
@@ -1362,6 +1445,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => {
     await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.executeEdit(previewToken));
+  });
+
+  server.registerTool("timeline.mask.add.execute", {
+    description: "Execute one short-lived mask preview token after capability and revision checks, then verify the mask state.",
+    inputSchema: { previewToken: z.string().trim().min(1) },
+  }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "timeline.mask.add");
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
@@ -1527,6 +1618,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       titlePlacement: Boolean(native?.titlePlacement),
       transitionDiscovery: Boolean(native?.transitionDiscovery),
       transitionPlacement: Boolean(native?.transitionPlacement),
+      masking: Boolean(native?.masking),
       timelineFocus: Boolean(native?.timelineFocus),
       projectCreation: false,
       clipInsertion: false,
