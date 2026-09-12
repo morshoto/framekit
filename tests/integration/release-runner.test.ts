@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findAvailableReleaseRunner } from "../../scripts/check-release-runner.mjs";
+import {
+  findAvailableReleaseRunner,
+  validateReleaseRunnerAvailability,
+} from "../../scripts/check-release-runner.mjs";
 
 const requiredLabels = ["self-hosted", "macOS", "framekit-release"];
 
@@ -36,4 +39,11 @@ test("release runner eligibility requires every release label", () => {
   ]);
 
   assert.equal(selected, undefined);
+});
+
+test("release runner availability explains how to recover", () => {
+  assert.throws(
+    () => validateReleaseRunnerAvailability([]),
+    /RELEASE_RUNNER_UNAVAILABLE:.*self-hosted, macOS, framekit-release.*Register or start the repository runner/i,
+  );
 });
