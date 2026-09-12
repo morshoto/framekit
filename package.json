@@ -29,6 +29,7 @@
     "test:golden": "tsx --test tests/golden/*.test.ts",
     "test:release-gate": "tsx --test tests/release-gate/*.test.ts",
     "release-gate": "tsx scripts/run-release-gate.ts",
+    "release-report": "tsx scripts/generate-release-report.ts",
     "verify-release-provenance": "tsx scripts/verify-release-provenance.ts",
     "test:codex-plugin": "node scripts/codex-plugin-smoke.mjs",
     "test:clean-mcp-clients": "node scripts/clean-mcp-client-smoke.mjs",
