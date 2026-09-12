@@ -28,19 +28,26 @@ export interface CapabilityPreflight {
 
 export function canonicalTimelineMode(capabilities: RuntimeCapabilities): CanonicalTimelineMode {
   const editor = capabilities.editor;
-  const hasExplicitTargeting = Boolean(editor.projectCatalogRead && editor.projectSelection);
+  const hasCanonicalProjectRead = canonicalProjectReadAvailable(editor);
   if (
-    editor.projectRead
-    && editor.timelineSnapshotRead
-    && hasExplicitTargeting
+    hasCanonicalProjectRead
     && editor.timelineWrite
     && editor.readAfterWrite
     && editor.rollback
   ) {
     return "canonical-write";
   }
-  if (editor.projectRead && editor.timelineSnapshotRead && hasExplicitTargeting) return "canonical-read";
+  if (hasCanonicalProjectRead) return "canonical-read";
   return "metadata-only";
+}
+
+function canonicalProjectReadAvailable(editor: RuntimeCapabilities["editor"]): boolean {
+  return Boolean(
+    editor.projectRead
+    && editor.timelineSnapshotRead
+    && editor.projectCatalogRead
+    && editor.projectSelection,
+  );
 }
 
 export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): RuntimeCapabilities {
@@ -48,6 +55,7 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     ...capabilities,
     editor: {
       ...capabilities.editor,
+      projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
     },
   };
@@ -136,6 +144,7 @@ export function withCapabilityFamilies(
     schemaVersion: CAPABILITY_SCHEMA_VERSION,
     editor: {
       ...capabilities.editor,
+      projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
     },
   };

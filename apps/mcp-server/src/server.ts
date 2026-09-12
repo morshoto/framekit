@@ -6,6 +6,7 @@ import {
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
+  withCanonicalTimelineMode,
   withCapabilityFamilies,
   type CapabilityProcessMode,
   type CapabilityDescriptor,
@@ -785,10 +786,10 @@ function normalizeConnectionStatus(value: unknown): unknown {
   const backend = typeof identity?.backend === "string" ? identity.backend : undefined;
   return {
     ...status,
-    capabilities: withCapabilityFamilies(status.capabilities, {
+    capabilities: withCanonicalTimelineMode(withCapabilityFamilies(status.capabilities, {
       ...(backend ? { backend, connectionBackend: backend } : {}),
       connection: status.state === "ready",
-    }),
+    })),
   };
 }
 
@@ -936,7 +937,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!capability.available) {
       return capabilityErrorResult("project.inspect", "canonicalDocument.read", capability);
     }
-    return jsonResult(await runtime.inspectProject());
+    try {
+      return jsonResult(await runtime.inspectProject());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
   });
 
   server.registerTool("artifact.inspect", {
