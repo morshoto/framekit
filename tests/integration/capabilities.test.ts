@@ -444,7 +444,7 @@ test("MCP connection status normalizes injected capability payloads", async () =
 
     assert.equal(payload.capabilities.schemaVersion, 1);
     assert.equal(payload.capabilities.families.connection.status.available, true);
-    assert.equal(payload.capabilities.families.canonicalDocument.write.available, false);
+    assert.equal(payload.capabilities.families.canonicalDocument.write.available, true);
   } finally {
     await client.close();
     await server.close();
