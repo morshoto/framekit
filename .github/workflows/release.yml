@@ -78,9 +78,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
 
-  native-release-assets:
+  release-runner-preflight:
     if: needs.tagpr.outputs.release-tag != ''
     needs: tagpr
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Verify required release runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
+            | node scripts/check-release-runner.mjs
+
+  native-release-assets:
+    if: needs.tagpr.outputs.release-tag != ''
+    needs:
+      - tagpr
+      - release-runner-preflight
     runs-on: [self-hosted, macOS, framekit-release]
     permissions:
       contents: write
