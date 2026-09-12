@@ -58,6 +58,6 @@ test("deterministic MCP evaluation covers editing workflows and reports actionab
   const rendered = renderEvaluationReport(report);
   assert.match(rendered, /MCP evaluation/);
   assert.match(rendered, /correctness_rate=100\.0%/);
-  assert.match(rendered, /capability_coverage=77\.8%/);
+  assert.match(rendered, /capability_coverage=83\.3%/);
   assert.match(rendered, /scenario_consistency_rate=100\.0%/);
 });

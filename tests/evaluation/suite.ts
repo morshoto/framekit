@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { FinalCutVideoExporter } from "@framekit/final-cut";
 import { AgentVideoRuntime, type MediaContext } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
@@ -8,7 +13,7 @@ import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 
-type EvaluationCategory = "project" | "media" | "editing" | "workflow-assets" | "publishing" | "failure-path";
+type EvaluationCategory = "project" | "media" | "editing" | "mvp-workflow" | "workflow-assets" | "publishing" | "failure-path";
 type EvaluationSupport = "supported" | "unavailable";
 
 interface EvaluationExpectation {
@@ -39,6 +44,7 @@ interface EvaluationScenario {
   intent: string;
   expectedTool: string;
   steps: EvaluationStep[];
+  operations?: string[];
 }
 
 const editorTimelineTarget = {
@@ -52,6 +58,8 @@ export interface EvaluationScenarioResult {
   category: EvaluationCategory;
   support: EvaluationSupport;
   intent: string;
+  tools: string[];
+  operations: string[];
   passed: boolean;
   message?: string;
 }
@@ -127,12 +135,82 @@ const scenarios: EvaluationScenario[] = [
     }],
   },
   {
-    id: "media-import-capability",
-    category: "media",
-    support: "unavailable",
-    intent: "Import a new source media item into the project",
-    expectedTool: "media.import",
-    steps: [{ tool: "media.import", expect: { toolAvailable: false } }],
+    id: "basic-editing-mvp-workflow",
+    category: "mvp-workflow",
+    support: "supported",
+    intent: "Execute and verify the deterministic Basic Editing MVP workflow",
+    expectedTool: "edit.undo",
+    operations: [
+      "media.import",
+      "timeline.media.add",
+      "trim-clip",
+      "media.import",
+      "timeline.media.add",
+      "timeline.title.add",
+    ],
+    steps: [
+      { tool: "connection.status", expect: { json: { path: "state", equals: "ready" } } },
+      { tool: "editor.inspect", expect: { json: { path: "capabilities.editor.compositeTransactions", equals: true } } },
+      { tool: "project.inspect", expect: { json: { path: "projectName", equals: "MCP Evaluation Fixture" } } },
+      { tool: "context.inspect", expect: { json: { path: "project.timeline.id", equals: "timeline-evaluation" } } },
+      {
+        tool: "editor.assets",
+        arguments: { kind: "title", query: "lower" },
+        expect: { json: { path: "0.id", equals: "asset-lower-third" } },
+      },
+      {
+        tool: "editor.timeline.edit.preview",
+        arguments: {
+          ...editorTimelineTarget,
+          operations: [
+            { type: "media.import", mediaId: "mvp-video", source: "fixture://evaluation/video.mov", mediaKind: "video", duration: 6, sourceDigest: "sha256:40f61de46d9ff839cbab97b4da386f428b53200f61337118dd28f51b41107e10" },
+            { type: "timeline.media.add", occurrenceId: "mvp-video-occurrence", mediaId: "mvp-video", role: "video", start: 0, duration: 5, targetLane: "primary" },
+            { type: "trim-clip", clipId: "mvp-video-occurrence", duration: 4 },
+            { type: "media.import", mediaId: "mvp-music", source: "fixture://evaluation/music.wav", mediaKind: "audio", duration: 8, sourceDigest: "sha256:fa57a0847530fb480f5fc4df72b925baa1ca2ca1879b7232909bfd90df840b79" },
+            { type: "timeline.media.add", occurrenceId: "mvp-music-occurrence", mediaId: "mvp-music", role: "music", start: 0, duration: 4, targetLane: 1 },
+            { type: "timeline.title.add", occurrenceId: "mvp-title-occurrence", assetId: "asset-lower-third", text: "Framekit MVP", start: 1, duration: 2, targetLane: 2 },
+          ],
+        },
+        expect: { json: { path: "previewToken", includes: "preview-" } },
+        capture: { name: "previewToken", path: "previewToken" },
+      },
+      {
+        tool: "editor.timeline.edit.execute",
+        arguments: { previewToken: "$previewToken" },
+        expect: { json: { path: "status", equals: "VERIFIED" } },
+        capture: { name: "transactionId", path: "id" },
+      },
+      {
+        tool: "media.inspect",
+        arguments: { mediaId: "mvp-video" },
+        expect: { json: { path: "source", equals: "fixture://evaluation/video.mov" } },
+      },
+      {
+        tool: "edit.diff",
+        arguments: { transactionId: "$transactionId" },
+        expect: { json: { path: "added.0.itemId", equals: "mvp-video-occurrence" } },
+      },
+      {
+        tool: "edit.verify",
+        arguments: { transactionId: "$transactionId" },
+        expect: { json: { path: "passed", equals: true } },
+      },
+      {
+        tool: "timeline.export",
+        arguments: {
+          outputPath: "$outputPath",
+          preset: "master",
+          transactionId: "$transactionId",
+          expected: { durationSeconds: 12, hasAudio: true },
+        },
+        expect: { json: { path: "verified", equals: true } },
+      },
+      {
+        tool: "edit.undo",
+        arguments: { transactionId: "$transactionId" },
+        expect: { json: { path: "media.2.mediaId", equals: "media-music" } },
+      },
+    ],
   },
   {
     id: "rename-clip-and-verify",
@@ -392,8 +470,24 @@ export function renderEvaluationReport(report: EvaluationReport): string {
 async function runScenario(scenario: EvaluationScenario): Promise<EvaluationScenarioResult> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "framekit-evaluation", version: "1.0.0" });
-  const server = createMcpServer(new AgentVideoRuntime(createEvaluationEditor()));
-  const captures: Record<string, JsonValue> = {};
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-evaluation-"));
+  const exporter = new FinalCutVideoExporter({
+    enabled: true,
+    executor: async (script) => {
+      const match = script.match(/set value of first text field of front window to "([^"]+)"/);
+      assert.ok(match?.[1]);
+      await writeFile(match[1], "deterministic MCP evaluation export");
+      return "started";
+    },
+    probe: async () => ({ durationSeconds: 12, width: 1920, height: 1080, frameRate: 30, hasAudio: true }),
+    sleep: async () => undefined,
+  });
+  const server = createMcpServer(new AgentVideoRuntime(createEvaluationEditor()), { videoExporter: exporter });
+  const captures: Record<string, JsonValue> = { outputPath: join(directory, "basic-mvp.mp4") };
+  const evidence = {
+    tools: scenario.steps.map((step) => step.tool),
+    operations: scenario.operations ?? [],
+  };
 
   try {
     await server.connect(serverTransport);
@@ -429,19 +523,21 @@ async function runScenario(scenario: EvaluationScenario): Promise<EvaluationScen
         captures[step.capture.name] = captureValue!;
       }
     }
-    return { id: scenario.id, category: scenario.category, support: scenario.support, intent: scenario.intent, passed: true };
+    return { id: scenario.id, category: scenario.category, support: scenario.support, intent: scenario.intent, ...evidence, passed: true };
   } catch (error) {
     return {
       id: scenario.id,
       category: scenario.category,
       support: scenario.support,
       intent: scenario.intent,
+      ...evidence,
       passed: false,
       message: error instanceof Error ? error.message : String(error),
     };
   } finally {
     await client.close().catch(() => undefined);
     await server.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
   }
 }
 
