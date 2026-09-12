@@ -39,7 +39,40 @@ test("CodeQL filters language jobs by changed paths", async () => {
   assert.match(workflow, /swift_pattern=/);
   assert.match(workflow, /needs: changes/);
   assert.match(workflow, /if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.javascript_typescript == 'true'\) \}\}/);
-  assert.match(workflow, /if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/);
+});
+
+test("Swift CodeQL keeps its required check successful when unchanged", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const swiftJob = workflow.match(
+    /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
+  )?.[0];
+
+  assert.ok(swiftJob, "Swift CodeQL job should be present");
+  assert.match(swiftJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
+  assert.match(
+    swiftJob,
+    /name: Skip Swift CodeQL analysis \(no Swift changes\)[\s\S]*?if: \$\{\{ needs\.changes\.result == 'success' && needs\.changes\.outputs\.swift != 'true' \}\}/,
+  );
+  assert.match(
+    swiftJob,
+    /name: Check out repository[\s\S]*?if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/,
+  );
+  assert.match(
+    swiftJob,
+    /name: Initialize CodeQL[\s\S]*?if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/,
+  );
+  assert.match(
+    swiftJob,
+    /name: Type-check Swift sources for CodeQL extraction[\s\S]*?if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/,
+  );
+  assert.match(
+    swiftJob,
+    /name: Analyze with CodeQL[\s\S]*?if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/,
+  );
+  assert.doesNotMatch(
+    swiftJob,
+    /needs: changes\n    if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/,
+  );
 });
 
 test("CodeQL concurrency policy is documented for operators", async () => {
@@ -82,7 +115,7 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /timeout-minutes: 25/);
   assert.match(
     workflow,
-    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 25\n        run: \|/,
+    /\n      - name: Type-check Swift sources for CodeQL extraction\n        if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}\n        timeout-minutes: 25\n        run: \|/,
   );
 });
 
