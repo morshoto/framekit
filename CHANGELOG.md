@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.1.7](https://github.com/morshoto/framekit/compare/v0.1.6...v0.1.7) - 2026-09-12
+
+- fix: build and upload native release assets by @morshoto in https://github.com/morshoto/framekit/pull/221
+- fix: fail closed on empty native title discovery by @morshoto in https://github.com/morshoto/framekit/pull/219
+- feat: import video directories via MCP by @morshoto in https://github.com/morshoto/framekit/pull/220
+- fix: preserve native Browser search failures in media targeting by @morshoto in https://github.com/morshoto/framekit/pull/225
+- fix: make native Browser search discovery reliable by @morshoto in https://github.com/morshoto/framekit/pull/222
+- fix: align generic transition discovery with native identities by @morshoto in https://github.com/morshoto/framekit/pull/218
+- feat: resolve native media import and append intents by @morshoto in https://github.com/morshoto/framekit/pull/224
+- feat: enable canonical timeline.edit in headed Final Cut by @morshoto in https://github.com/morshoto/framekit/pull/223
+- test: add headed rough-cut MCP acceptance gate (#217) by @morshoto in https://github.com/morshoto/framekit/pull/226
+- fix: reject false native timeline focus by @morshoto in https://github.com/morshoto/framekit/pull/228
+- fix: expand native media home paths by @morshoto in https://github.com/morshoto/framekit/pull/229
+- fix: make native media import diagnostics actionable by @morshoto in https://github.com/morshoto/framekit/pull/231
+- fix: guide directory media import errors by @morshoto in https://github.com/morshoto/framekit/pull/230
+
 ## [v0.1.6](https://github.com/morshoto/framekit/compare/v0.1.5...v0.1.6) - 2026-09-11
 
 - fix: make tagged release retries idempotent by @morshoto in https://github.com/morshoto/framekit/pull/163
