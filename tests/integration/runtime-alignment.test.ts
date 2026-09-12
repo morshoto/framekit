@@ -139,7 +139,7 @@ test("metadata-only project and media operations return structured capability fa
       operation: "project.inspect",
       capability: "canonicalDocument.read",
       available: false,
-      backend: "final-cut-session",
+      backend: "workflow-extension-ipc",
       guarantee: "none",
       unavailableReason: "canonical timeline reads are unavailable",
     });

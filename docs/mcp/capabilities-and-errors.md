@@ -60,6 +60,22 @@ The descriptor means:
 - `unavailableReason`: a stable explanation required for unavailable
   operations; unavailable operations must fail with `CAPABILITY_UNAVAILABLE`.
 
+When a capability-gated operation is rejected before its provider is called,
+the MCP error preserves the complete operation descriptor as structured fields:
+
+```json
+{
+  "code": "CAPABILITY_UNAVAILABLE",
+  "message": "project.inspect requires canonicalDocument.read",
+  "operation": "project.inspect",
+  "capability": "canonicalDocument.read",
+  "available": false,
+  "backend": "workflow-extension-ipc",
+  "guarantee": "none",
+  "unavailableReason": "canonical timeline reads are unavailable"
+}
+```
+
 `media.search` requires `capabilities.families.observation.media`. When that
 descriptor is unavailable, the MCP tool returns an error payload that preserves
 the capability's backend, guarantee, and unavailable reason instead of
@@ -134,7 +150,7 @@ FCPXML artifact results remain separate evidence tiers.
 {
   "editor": {
     "canonicalTimelineMode": "metadata-only",
-    "projectRead": true,
+    "projectRead": false,
     "timelineSnapshotRead": false,
     "timelineWrite": false,
     "timelineArtifactWrite": false,

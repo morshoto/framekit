@@ -1,10 +1,11 @@
 import { ContextEngine } from "../context/context-engine.js";
 import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact } from "../domain/ports.js";
 import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
+import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineFrameCapture, VisualAnalysis } from "../domain/media.js";
-import { withCapabilityFamilies } from "../capabilities.js";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "../capabilities.js";
 import { isWithinClip, parseRational, rationalDifferenceSeconds } from "../timeline/rational-time.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 
@@ -16,6 +17,14 @@ export class ProjectService {
   ) {}
 
   public async inspectProject(): Promise<ProjectSnapshot> {
+    const identity = await this.adapter.getIdentity();
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.adapter.getCapabilities(), {
+      backend: identity.backend,
+    }));
+    const projectRead = capabilities.families!.canonicalDocument.read;
+    if (!projectRead.available) {
+      throw new CapabilityUnavailableError("project.inspect", "canonicalDocument.read", projectRead);
+    }
     return this.context.inspectProject();
   }
 
