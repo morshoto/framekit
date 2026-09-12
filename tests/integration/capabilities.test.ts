@@ -498,47 +498,43 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /transitionPlacement: CapabilityDescriptor/);
 });
 
-test("Workflow Extension advertises its stable project catalog and active-target selection", async () => {
+test("Workflow Extension does not advertise unsupported project catalog operations", async () => {
   const swift = await readFile(join(
     process.cwd(),
     "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
   ), "utf8");
 
-  assert.match(swift, /projectCatalogRead: true, projectSelection: true/);
+  assert.match(swift, /projectCatalogRead: false, projectSelection: false/);
 });
 
-test("Workflow Extension catalogs project and sequence UIDs from the active library", async () => {
+test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
   const swift = await readFile(join(
     process.cwd(),
     "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
   ), "utf8");
 
-  assert.match(swift, /private func projectCatalog\(\) throws -> ProjectCatalog/);
-  assert.match(swift, /library\.events.*flatMap/);
-  assert.match(swift, /stableProjectID\(.*\.uid\)/);
-  assert.match(swift, /stableSequenceID\(.*\.uid\)/);
+  assert.doesNotMatch(swift, /library\.events.*flatMap/);
+  assert.doesNotMatch(swift, /stableSequenceID\(.*\.uid\)/);
 });
 
-test("CodeQL shim mirrors the native project catalog model", async () => {
+test("CodeQL shim exposes only documented project proxy properties", async () => {
   const shim = await readFile(join(
     process.cwd(),
     ".github/codeql/FinalCutWorkflowExtensionShim.swift",
   ), "utf8");
 
-  assert.match(shim, /class FCPXObject[\s\S]*var uid: String!/);
-  assert.match(shim, /class FCPXEvent[\s\S]*var projects: \[FCPXProject\]/);
-  assert.match(shim, /class FCPXLibrary[\s\S]*var events: \[FCPXEvent\]/);
-  assert.match(shim, /class FCPXProject[\s\S]*var sequence: FCPXSequence\?/);
+  assert.doesNotMatch(shim, /class FCPXObject[^{]*\{[^}]*var uid:/);
+  assert.doesNotMatch(shim, /class FCPXEvent/);
+  assert.doesNotMatch(shim, /class FCPXLibrary/);
+  assert.match(shim, /class FCPXProject[^{]*\{[^}]*var uid: String!/);
 });
 
-test("Workflow Extension project selection confirms only the exact active target", async () => {
+test("Workflow Extension rejects unsupported project catalog methods", async () => {
   const swift = await readFile(join(
     process.cwd(),
     "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
   ), "utf8");
 
-  assert.match(swift, /private func selectProject\(_ request: BridgeRequest\) throws -> ProjectCatalog/);
-  assert.match(swift, /AMBIGUOUS_PROJECT_TARGET/);
-  assert.match(swift, /TARGET_MISMATCH/);
-  assert.match(swift, /PROJECT_SELECTION_UNAVAILABLE/);
+  assert.match(swift, /case "projects", "select-project":[\s\S]*CAPABILITY_UNAVAILABLE/);
+  assert.doesNotMatch(swift, /private func selectProject\(/);
 });
