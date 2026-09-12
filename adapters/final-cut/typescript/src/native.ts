@@ -2729,11 +2729,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
     while (this.now() < deadline) {
       try {
-        const context = parseContext(await this.executeNativeScript(
+        const observedContext = parseContext(await this.executeNativeScript(
           timelinePreflightScript(),
           deadline,
           "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT",
         ));
+        const context = reconcileTimelineFocus(observedContext);
         lastContext = context;
         if (!context.timelineWindowAvailable) {
           lastCode = "FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW";
@@ -5579,6 +5580,40 @@ function parseContext(output: string): NativeFinalCutContext {
     undoAvailable: undoState === "true",
     ...(undoCommandState ? { undoCommand: undoCommandState } : {}),
   };
+}
+
+function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutContext {
+  if (!context.timelineFocused || context.focusTarget !== "timeline") return context;
+
+  const focusTarget = classifyNativeFocusTarget(
+    context.focusedRole,
+    context.focusedDescription,
+    context.focusedName,
+  );
+  const focusedWindowMismatch = Boolean(
+    context.frontWindow
+      && context.focusedWindowName
+      && context.frontWindow !== context.focusedWindowName,
+  );
+  if (focusTarget === "unknown" && !focusedWindowMismatch) return context;
+
+  return {
+    ...context,
+    timelineFocused: false,
+    focusTarget,
+  };
+}
+
+function classifyNativeFocusTarget(
+  focusedRole?: string,
+  focusedDescription?: string,
+  focusedName?: string,
+): NativeFinalCutContext["focusTarget"] {
+  if (focusedRole === "AXTextField" || focusedRole === "AXSearchField") return "text-field";
+  if (focusedRole === "AXSheet" || focusedRole === "AXDialog") return "modal";
+  const focusText = [focusedDescription, focusedName].filter(Boolean).join(" ").toLowerCase();
+  if (focusText.includes("browser") || focusText.includes("search")) return "browser";
+  return "unknown";
 }
 
 function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {
