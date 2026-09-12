@@ -44,6 +44,13 @@ const metadataIdentity = {
   backend: "workflow-extension-ipc",
 };
 
+const unavailableCanonicalRead = {
+  available: false,
+  backend: "workflow-extension-ipc",
+  guarantee: "none",
+  unavailableReason: "canonical timeline reads are unavailable",
+};
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
@@ -93,16 +100,22 @@ test("metadata-only project inspection has one capability contract across MCP su
     assert.equal(status.capabilities.editor.projectRead, false);
     assert.equal(editor.capabilities.editor.projectRead, false);
     assert.deepEqual(statusRead, editorRead);
-    assert.deepEqual(editorRead, {
-      available: false,
-      backend: "workflow-extension-ipc",
-      guarantee: "none",
-      unavailableReason: "canonical timeline reads are unavailable",
-    });
+    assert.deepEqual(editorRead, unavailableCanonicalRead);
 
     const project = await client.callTool({ name: "project.inspect", arguments: {} });
     assert.equal(project.isError, true);
-    assert.match(textFrom(project), /CAPABILITY_UNAVAILABLE: canonical timeline reads are unavailable/);
+    const projectError = JSON.parse(textFrom(project)) as {
+      code?: unknown;
+      message?: unknown;
+      operation?: unknown;
+      capability?: unknown;
+    };
+    assert.deepEqual(projectError, {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "CAPABILITY_UNAVAILABLE: canonical timeline reads are unavailable",
+      operation: "canonicalDocument.read",
+      capability: unavailableCanonicalRead,
+    });
     assert.equal(snapshotCalls, 0);
   } finally {
     await client.close();
@@ -126,10 +139,18 @@ test("project inspection rejects before invoking an unavailable snapshot provide
     return readProject();
   };
 
-  await assert.rejects(
-    new AgentVideoRuntime(adapter).inspectProject(),
-    /CAPABILITY_UNAVAILABLE: canonical timeline reads are unavailable/,
-  );
+  await assert.rejects(new AgentVideoRuntime(adapter).inspectProject(), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    const value = error as Error & {
+      code?: unknown;
+      operation?: unknown;
+      capability?: unknown;
+    };
+    assert.equal(value.code, "CAPABILITY_UNAVAILABLE");
+    assert.equal(value.operation, "canonicalDocument.read");
+    assert.deepEqual(value.capability, unavailableCanonicalRead);
+    return true;
+  });
   assert.equal(readCalls, 0);
 });
 
