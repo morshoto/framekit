@@ -1782,11 +1782,16 @@ async function effectiveConnectionStatus(
       capabilities: inspected.capabilities,
       preflight: inspected.preflight,
     };
-  } catch {
-    // A stale manager probe must not leak raw capabilities after the composed
-    // runtime can no longer confirm them.
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return normalizeConnectionStatus({
       ...status,
+      state: "unavailable",
+      lastError: {
+        code: "CAPABILITY_UNAVAILABLE",
+        message: `effective runtime capability inspection failed: ${message}`,
+      },
+      identity: undefined,
       capabilities: undefined,
       preflight: undefined,
     }) as McpConnectionStatus;
