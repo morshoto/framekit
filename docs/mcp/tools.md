@@ -191,12 +191,13 @@ FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut-sequence-id" \
 pnpm run test:final-cut-project-selection-headed
 ```
 
-It requires `projectCatalogRead` and `projectSelection`, enumerates the live
-catalog, selects the explicit project and sequence, and records only the
-allowlisted IDs, counts, capability payload, Final Cut version, and commit.
-With the bundled metadata-only Workflow Extension it fails closed with
-`CAPABILITY_UNAVAILABLE`; that failure is the expected current result until a
-bridge with real catalog and selection support is installed.
+It requires `projectCatalogRead` and `projectSelection`, enumerates the active
+Final Cut library, binds Framekit to the explicit active project and sequence,
+and records only the allowlisted IDs, counts, capability payload, Final Cut
+version, and commit. The bundled metadata-only Workflow Extension supports
+this non-mutating active-target binding. It does not navigate to an inactive
+project; callers must open that project in Final Cut first, and an inactive
+target fails closed with `PROJECT_SELECTION_UNAVAILABLE`.
 
 `media.search` remains canonical snapshot search. Live Browser import and search
 use the explicit `editor.native.media.*` tools because Browser media identity and

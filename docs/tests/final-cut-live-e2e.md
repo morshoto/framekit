@@ -55,6 +55,12 @@ The live MCP client should observe:
 - a valid sequence time range;
 - revisions for active sequence, sequence range, and playhead changes.
 
+It should also run `project.list`, verify UID-backed project and sequence IDs
+from the active library, and call `project.select` with those exact active IDs.
+This selection is a non-mutating safety binding. The bundled extension does not
+open an inactive project; it returns `PROJECT_SELECTION_UNAVAILABLE` until the
+user opens the requested project in Final Cut.
+
 The initial `editor.inspect` response should also include a preflight report with
 `processMode: "headless"` for the default live setup, the effective document
 mode, and operation-level backend, guarantee, and unavailable reasons. A bridge
