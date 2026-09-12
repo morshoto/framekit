@@ -25,6 +25,18 @@ test("coverage source accepts c8 JSON summary totals", () => {
   );
 });
 
+test("coverage source preserves c8 statement totals", () => {
+  const parsed = parseCoverageSummary({
+    total: {
+      lines: { total: 100, covered: 80, skipped: 0, pct: 80 },
+      statements: { total: 120, covered: 66, skipped: 0, pct: 55 },
+      functions: { total: 20, covered: 15, skipped: 0, pct: 75 },
+    },
+  }, "current");
+
+  assert.deepEqual(parsed.statements, { total: 120, covered: 66, skipped: 0, pct: 55 });
+});
+
 test("GitHub activity is restricted to the exact milestone tag window", () => {
   assert.deepEqual(
     normalizeGitHubActivity({
