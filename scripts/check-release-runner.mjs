@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-
 export const REQUIRED_RELEASE_RUNNER_LABELS = Object.freeze([
   "self-hosted",
   "macOS",
@@ -34,8 +32,16 @@ export function validateReleaseRunnerAvailability(runners) {
   return selected;
 }
 
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function validateRunnerApiResponse() {
-  const payload = JSON.parse(await readFile(0, "utf8"));
+  const payload = JSON.parse(await readStdin());
   const runners = Array.isArray(payload) ? payload : payload?.runners;
   const selected = validateReleaseRunnerAvailability(runners);
   process.stdout.write(`Release runner available: ${selected.name ?? selected.id}\n`);
