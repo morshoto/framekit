@@ -82,6 +82,56 @@ export interface CapabilityDescriptor {
   unavailableReason?: string;
 }
 
+export interface CapabilityUnavailableErrorPayload {
+  code: "CAPABILITY_UNAVAILABLE";
+  message: string;
+  operation: string;
+  capability: string;
+  available: false;
+  backend: string;
+  guarantee: "none";
+  unavailableReason: string;
+}
+
+export class CapabilityUnavailableError extends Error {
+  public readonly code = "CAPABILITY_UNAVAILABLE" as const;
+  public readonly available = false as const;
+  public readonly backend: string;
+  public readonly guarantee = "none" as const;
+  public readonly unavailableReason: string;
+
+  public constructor(
+    public readonly operation: string,
+    public readonly capability: string,
+    descriptor: CapabilityDescriptor,
+  ) {
+    const unavailableReason = descriptor.unavailableReason ?? `${capability} is unavailable`;
+    super(`CAPABILITY_UNAVAILABLE: ${operation} requires ${capability}: ${unavailableReason}`);
+    this.name = "CapabilityUnavailableError";
+    this.backend = descriptor.backend;
+    this.unavailableReason = unavailableReason;
+  }
+
+  public toJSON(): CapabilityUnavailableErrorPayload {
+    return {
+      code: this.code,
+      message: `${this.operation} requires ${this.capability}`,
+      operation: this.operation,
+      capability: this.capability,
+      available: this.available,
+      backend: this.backend,
+      guarantee: this.guarantee,
+      unavailableReason: this.unavailableReason,
+    };
+  }
+}
+
+export function serializeCapabilityUnavailableError(
+  error: unknown,
+): CapabilityUnavailableErrorPayload | undefined {
+  return error instanceof CapabilityUnavailableError ? error.toJSON() : undefined;
+}
+
 export type EditingCapabilityOperation =
   | "compositeTransactions"
   | "titlePlacement"

@@ -60,6 +60,27 @@ The descriptor means:
 - `unavailableReason`: a stable explanation required for unavailable
   operations; unavailable operations must fail with `CAPABILITY_UNAVAILABLE`.
 
+`media.search` requires `capabilities.families.observation.media`. When that
+descriptor is unavailable, the MCP tool returns an error payload that preserves
+the capability's backend, guarantee, and unavailable reason instead of
+attempting a canonical snapshot:
+
+```json
+{
+  "code": "CAPABILITY_UNAVAILABLE",
+  "message": "media.search requires observation.media",
+  "operation": "media.search",
+  "capability": "observation.media",
+  "available": false,
+  "backend": "workflow-extension-ipc",
+  "guarantee": "none",
+  "unavailableReason": "media observation is unavailable"
+}
+```
+
+This unavailable result is distinct from a successful search with no matching
+media, which remains the empty array `[]`.
+
 The families are:
 
 | Family | Operation examples | Meaning |

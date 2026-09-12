@@ -5,6 +5,7 @@ import {
   AgentVideoRuntime,
   createCapabilityPreflight,
   resolveEditingIntent,
+  serializeCapabilityUnavailableError,
   withCapabilityFamilies,
   type CapabilityProcessMode,
   type CapabilityDescriptor,
@@ -689,6 +690,7 @@ function capabilityErrorResult(operation: string, capabilityName: string, capabi
       type: "text" as const,
       text: JSON.stringify({
         code: "CAPABILITY_UNAVAILABLE",
+        message: `${operation} requires ${capabilityName}`,
         operation,
         capability: capabilityName,
         available: false,
@@ -719,6 +721,15 @@ function nativeMediaImportErrorResult(error: unknown) {
         guidance: error.guidance,
       }),
     }],
+  };
+}
+
+function capabilityUnavailableErrorResult(error: unknown) {
+  const serialized = serializeCapabilityUnavailableError(error);
+  if (!serialized) throw error;
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
   };
 }
 
@@ -1457,7 +1468,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!capability.available) {
       return capabilityErrorResult("media.search", "observation.media", capability);
     }
-    return jsonResult(await runtime.searchMedia(query));
+    try {
+      return jsonResult(await runtime.searchMedia(query));
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
   });
 
   server.registerTool("media.index", {

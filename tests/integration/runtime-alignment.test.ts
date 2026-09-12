@@ -135,6 +135,7 @@ test("metadata-only project and media operations return structured capability fa
     assert.equal(project.isError, true);
     assert.deepEqual(JSON.parse(textFrom(project)), {
       code: "CAPABILITY_UNAVAILABLE",
+      message: "project.inspect requires canonicalDocument.read",
       operation: "project.inspect",
       capability: "canonicalDocument.read",
       available: false,
@@ -147,6 +148,7 @@ test("metadata-only project and media operations return structured capability fa
     assert.equal(media.isError, true);
     assert.deepEqual(JSON.parse(textFrom(media)), {
       code: "CAPABILITY_UNAVAILABLE",
+      message: "media.search requires observation.media",
       operation: "media.search",
       capability: "observation.media",
       available: false,

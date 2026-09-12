@@ -25,6 +25,7 @@ import type { TimeRange } from "../domain/primitives.js";
 import { ContextEngine } from "../context/context-engine.js";
 import { ProjectService } from "./project-service.js";
 import type { RuntimeOptions } from "./runtime-options.js";
+import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
@@ -194,6 +195,11 @@ export class MediaAnalysisService {
   }
 
   public async searchMedia(query: string): Promise<MediaContext[]> {
+    const inspected = await this.project.inspectEditor();
+    const mediaObservation = inspected.capabilities.families?.observation.media;
+    if (mediaObservation && !mediaObservation.available) {
+      throw new CapabilityUnavailableError("media.search", "observation.media", mediaObservation);
+    }
     const project = await this.project.inspectProject();
     const normalized = query.trim().toLowerCase();
     return project.media.filter((media) =>
