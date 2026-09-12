@@ -267,3 +267,14 @@ test("release documentation provides the exact npm trust command", async () => {
   assert.match(documentation, /--allow-publish/);
   assert.match(documentation, /--yes/);
 });
+
+test("release documentation explains native runner preflight recovery", async () => {
+  const documentation = await readFile(resolve(repository, "docs/releasing.md"), "utf8");
+
+  assert.match(documentation, /preflight/i);
+  assert.match(documentation, /online and idle/i);
+  assert.match(documentation, /self-hosted.*macOS.*framekit-release/s);
+  assert.match(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
+  assert.match(documentation, /actions\/runners\?per_page=100/);
+  assert.match(documentation, /retry an exact existing tag/i);
+});
