@@ -200,13 +200,17 @@ Final Cut Browser with:
 }
 ```
 
-Call `editor.native.media.import` with the local file path. Framekit checks that
-the path is a readable file before opening Final Cut's import UI, waits for the
-basename to appear in Browser search, and returns `mediaHandle`, `sourcePath`,
-the immutable Browser `sourceIdentity`, `name`, an inferred `kind` (`video` or
-`audio`), and a `verification` record. The verification is positive only after
-one newly appearing Browser result has been matched to its immutable source
-identity. The returned media handle can be passed to
+Call `editor.native.media.import` with the local file path. Framekit trims
+surrounding whitespace, expands `~` and `~/...` against the user home, and
+resolves other relative paths against the process working directory before
+checking that the path is a readable file. Other leading-tilde forms fail with
+`INVALID_OPERATION` instead of being silently interpreted relative to the
+working directory. After validation, Framekit opens Final Cut's import UI,
+waits for the basename to appear in Browser search, and returns `mediaHandle`,
+`sourcePath`, the immutable Browser `sourceIdentity`, `name`, an inferred `kind`
+(`video` or `audio`), and a `verification` record. The verification is positive
+only after one newly appearing Browser result has been matched to its immutable
+source identity. The returned media handle can be passed to
 `editor.native.media.select` and `editor.native.timeline.locate`. The handle is
 stable for the current native session and does not itself insert the asset into
 the timeline.

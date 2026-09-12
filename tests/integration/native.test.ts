@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import test from "node:test";
 import { createNativeOperationLease, FinalCutNativeAutomationAdapter, NativeFinalCutMediaImportError } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
@@ -83,6 +83,40 @@ function contextWithOverlay(
   values[15] = options.framekitWindowMinimized === undefined ? "false" : String(options.framekitWindowMinimized);
   values[16] = options.focusedWindowName ?? windowName;
   values[17] = options.overlayBlocked === undefined ? "false" : String(options.overlayBlocked);
+  return values.join(separator);
+}
+
+function contextWithFocus(
+  frontmost: boolean,
+  windowName: string,
+  selectedName: string,
+  selectedCount: number,
+  undo: boolean,
+  options: {
+    timelineFocused?: boolean;
+    focusTarget?: string;
+    focusAttempts?: number;
+    focusedName?: string;
+    focusedRole?: string;
+    focusedDescription?: string;
+    focusedWindowName?: string;
+  } = {},
+): string {
+  const values = context(
+    frontmost,
+    windowName,
+    selectedName,
+    selectedCount,
+    undo,
+    true,
+    options.timelineFocused ?? true,
+    options.focusTarget ?? "timeline",
+    options.focusAttempts ?? 1,
+  ).split(separator);
+  values[7] = options.focusedName ?? "Timeline";
+  values[8] = options.focusedRole ?? "AXLayoutArea";
+  values[9] = options.focusedDescription ?? "Timeline";
+  values[16] = options.focusedWindowName ?? windowName;
   return values.join(separator);
 }
 
@@ -895,6 +929,85 @@ test("native Final Cut focus preserves the last focus diagnostic on failure", as
   assert.equal(focused.timelineFocused, false);
   assert.equal(focused.focusTarget, "browser");
   assert.equal(focused.focusAttempts, 3);
+});
+
+test("native Final Cut rejects a false timeline focus from the Effects search field", async () => {
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    nativePreflightTimeoutMs: 100,
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? contextWithFocus(true, "Final Cut Pro", "Interview", 1, true, {
+          focusedName: "Effect Library Search Field",
+          focusedRole: "AXTextField",
+          focusedDescription: "Effect Library Search Field",
+          focusedWindowName: "Final Cut Pro",
+        })
+      : "",
+  });
+
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.available, false);
+  assert.equal(focused.error?.code, "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED");
+  assert.equal(focused.timelineFocused, false);
+  assert.equal(focused.focusTarget, "text-field");
+  assert.equal(focused.focusedRole, "AXTextField");
+  assert.equal(focused.focusedDescription, "Effect Library Search Field");
+  assert.equal(focused.focusedWindowName, "Final Cut Pro");
+});
+
+test("native Final Cut retries stale focus metadata before accepting the timeline", async () => {
+  let clock = 0;
+  let preflightCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    nativePreflightTimeoutMs: 200,
+    executor: async (script) => {
+      if (!script.includes("timelineWindowAvailable")) return "";
+      preflightCalls += 1;
+      return preflightCalls === 1
+        ? contextWithFocus(true, "Final Cut Pro", "Interview", 1, true, {
+            focusedName: "Effect Library Search Field",
+            focusedRole: "AXTextField",
+            focusedDescription: "Effect Library Search Field",
+          })
+        : contextWithFocus(true, "Final Cut Pro", "Interview", 1, true);
+    },
+  });
+
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.available, true);
+  assert.equal(focused.timelineFocused, true);
+  assert.equal(focused.focusTarget, "timeline");
+  assert.equal(focused.focusedRole, "AXLayoutArea");
+  assert.equal(focused.focusedDescription, "Timeline");
+  assert.equal(preflightCalls, 2);
+});
+
+test("native Final Cut rejects timeline focus from another focused window", async () => {
+  let clock = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    nativePreflightTimeoutMs: 100,
+    executor: async (script) => script.includes("timelineWindowAvailable")
+      ? contextWithFocus(true, "Final Cut Pro", "Interview", 1, true, {
+          focusedWindowName: "Effects Library",
+        })
+      : "",
+  });
+
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.available, false);
+  assert.equal(focused.error?.code, "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED");
+  assert.equal(focused.timelineFocused, false);
+  assert.equal(focused.focusTarget, "unknown");
+  assert.equal(focused.focusedWindowName, "Effects Library");
 });
 
 test("native Final Cut preflight minimizes the Framekit overlay and raises the timeline", async () => {
@@ -2121,10 +2234,12 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
     stage: "post-import-browser-discovery",
     detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
   });
+  assert.equal(video.sourcePath, videoPath);
   assert.equal(audio.name, "music.wav");
   assert.equal(audio.kind, "audio");
   assert.equal(audio.sourceIdentity, "file:///imported/music.wav");
   assert.equal(audio.verification.verified, true);
+  assert.equal(audio.sourcePath, audioPath);
   assert.notEqual(video.mediaHandle, audio.mediaHandle);
   assert.equal(searchCalls.get("interview.mov"), 2);
   assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 2);
@@ -2145,6 +2260,79 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const selected = await adapter.selectMedia(video.mediaHandle);
   assert.equal(selected.target.kind, "browser-media");
   assert.equal(selected.target.name, "interview.mov");
+});
+
+test("native Final Cut expands a user-home path before validating and importing it", async () => {
+  const homeDirectory = await mkdtemp(join(os.homedir(), ".framekit-native-media-home-"));
+  const sourcePath = join(homeDirectory, "home-import.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let searchCalls = 0;
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        return searchCalls === 1
+          ? ""
+          : `home-import.mov${separator}AXBrowserMedia${separator}browser-home${separator}file:///imported/home-import.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  try {
+    const requestedPath = `~/${relative(os.homedir(), sourcePath)}`;
+    const imported = await adapter.importMedia(requestedPath);
+
+    assert.equal(imported.sourcePath, sourcePath);
+    assert.equal(imported.name, "home-import.mov");
+    const importScript = scripts.find((script) => script.includes("FRAMEKIT_IMPORT_MEDIA"));
+    assert.ok(importScript);
+    assert.match(importScript, new RegExp(dirname(sourcePath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal(importScript.includes(requestedPath), false);
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+test("native Final Cut resolves relative paths from the process cwd", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-relative-"));
+  const sourcePath = join(directory, "relative-import.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let searchCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        return searchCalls === 1
+          ? ""
+          : `relative-import.mov${separator}AXBrowserMedia${separator}browser-relative${separator}file:///imported/relative-import.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  try {
+    const imported = await adapter.importMedia(relative(process.cwd(), sourcePath));
+
+    assert.equal(imported.sourcePath, sourcePath);
+    assert.equal(imported.name, "relative-import.mov");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("native Final Cut previews top-level supported video files in deterministic order without native mutation", async () => {
@@ -2515,6 +2703,32 @@ test("native Final Cut rejects an unavailable local media path before opening im
   });
 
   await assert.rejects(adapter.importMedia("/tmp/framekit-media-does-not-exist.mov"), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
+  assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+});
+
+test("native Final Cut expands home paths and rejects ambiguous tilde paths", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return "";
+    },
+  });
+  const homePath = join(os.homedir(), "framekit-media-does-not-exist.mov");
+
+  await assert.rejects(
+    adapter.importMedia("~/framekit-media-does-not-exist.mov"),
+    (error: unknown) => {
+      assert.match(String(error), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
+      assert.match(String(error), new RegExp(homePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      return true;
+    },
+  );
+  await assert.rejects(
+    adapter.importMedia("~other/framekit-media-does-not-exist.mov"),
+    /INVALID_OPERATION: local media path must be absolute or start with ~\//,
+  );
   assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
 });
 
