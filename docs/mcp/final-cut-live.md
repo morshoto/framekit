@@ -256,8 +256,11 @@ confirmation:
 
 Files are imported in preview order. The result contains one entry per file with
 `status: "imported"` and a stable `media.mediaHandle`, or `status: "failed"`
-with an error code and message. `status: "partial"`, `importedCount`, and
-`failedCount` make partial completion explicit; one file failure does not hide
+with an error code, message, and—when native import reached a staged failure—
+the same `details` object described above. Direct
+`editor.native.media.import` failures expose that structured `{ code, message,
+details }` object in the MCP error content. `status: "partial"`,
+`importedCount`, and `failedCount` make partial completion explicit; one file failure does not hide
 the results of other files. The token expires after 30 seconds and is consumed
 by a confirmed execution. This workflow imports Browser media only; it does not
 append anything to the timeline.
