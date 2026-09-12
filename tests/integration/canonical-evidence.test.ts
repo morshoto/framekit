@@ -27,6 +27,8 @@ test("canonical headed runner rejects unsafe targets before mutation", async () 
   assert.match(runner, /TARGET_MISMATCH/);
   assert.match(runner, /canonicalDigest\(afterStaleProbe\).*beforeDigest/s);
   assert.match(runner, /canonicalDigest\(afterTargetProbe\).*beforeDigest/s);
+  assert.match(runner, /sameRevision\(afterStaleProbe\.revision,\s*before\.revision\)/);
+  assert.match(runner, /sameRevision\(afterTargetProbe\.revision,\s*before\.revision\)/);
 });
 
 test("canonical headed read runner publishes a read-only sanitized evidence contract", async () => {
