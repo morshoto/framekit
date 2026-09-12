@@ -53,6 +53,15 @@ const editorTimelineTarget = {
   baseRevision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
 };
 
+const basicEditingMvpOperations: JsonObject[] = [
+  { type: "media.import", mediaId: "mvp-video", source: "fixture://evaluation/video.mov", mediaKind: "video", duration: 6, sourceDigest: "sha256:40f61de46d9ff839cbab97b4da386f428b53200f61337118dd28f51b41107e10" },
+  { type: "timeline.media.add", occurrenceId: "mvp-video-occurrence", mediaId: "mvp-video", role: "video", start: 0, duration: 5, targetLane: "primary" },
+  { type: "trim-clip", clipId: "mvp-video-occurrence", duration: 4 },
+  { type: "media.import", mediaId: "mvp-music", source: "fixture://evaluation/music.wav", mediaKind: "audio", duration: 8, sourceDigest: "sha256:fa57a0847530fb480f5fc4df72b925baa1ca2ca1879b7232909bfd90df840b79" },
+  { type: "timeline.media.add", occurrenceId: "mvp-music-occurrence", mediaId: "mvp-music", role: "music", start: 0, duration: 4, targetLane: 1 },
+  { type: "timeline.title.add", occurrenceId: "mvp-title-occurrence", assetId: "asset-lower-third", text: "Framekit MVP", start: 1, duration: 2, targetLane: 2 },
+];
+
 export interface EvaluationScenarioResult {
   id: string;
   category: EvaluationCategory;
@@ -140,14 +149,7 @@ const scenarios: EvaluationScenario[] = [
     support: "supported",
     intent: "Execute and verify the deterministic Basic Editing MVP workflow",
     expectedTool: "edit.undo",
-    operations: [
-      "media.import",
-      "timeline.media.add",
-      "trim-clip",
-      "media.import",
-      "timeline.media.add",
-      "timeline.title.add",
-    ],
+    operations: basicEditingMvpOperations.map((operation) => String(operation.type)),
     steps: [
       { tool: "connection.status", expect: { json: { path: "state", equals: "ready" } } },
       { tool: "editor.inspect", expect: { json: { path: "capabilities.editor.compositeTransactions", equals: true } } },
@@ -162,14 +164,7 @@ const scenarios: EvaluationScenario[] = [
         tool: "editor.timeline.edit.preview",
         arguments: {
           ...editorTimelineTarget,
-          operations: [
-            { type: "media.import", mediaId: "mvp-video", source: "fixture://evaluation/video.mov", mediaKind: "video", duration: 6, sourceDigest: "sha256:40f61de46d9ff839cbab97b4da386f428b53200f61337118dd28f51b41107e10" },
-            { type: "timeline.media.add", occurrenceId: "mvp-video-occurrence", mediaId: "mvp-video", role: "video", start: 0, duration: 5, targetLane: "primary" },
-            { type: "trim-clip", clipId: "mvp-video-occurrence", duration: 4 },
-            { type: "media.import", mediaId: "mvp-music", source: "fixture://evaluation/music.wav", mediaKind: "audio", duration: 8, sourceDigest: "sha256:fa57a0847530fb480f5fc4df72b925baa1ca2ca1879b7232909bfd90df840b79" },
-            { type: "timeline.media.add", occurrenceId: "mvp-music-occurrence", mediaId: "mvp-music", role: "music", start: 0, duration: 4, targetLane: 1 },
-            { type: "timeline.title.add", occurrenceId: "mvp-title-occurrence", assetId: "asset-lower-third", text: "Framekit MVP", start: 1, duration: 2, targetLane: 2 },
-          ],
+          operations: basicEditingMvpOperations,
         },
         expect: { json: { path: "previewToken", includes: "preview-" } },
         capture: { name: "previewToken", path: "previewToken" },
