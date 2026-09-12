@@ -691,6 +691,7 @@ function capabilityErrorResult(operation: string, capabilityName: string, capabi
         code: "CAPABILITY_UNAVAILABLE",
         operation,
         capability: capabilityName,
+        available: false,
         backend: capability.backend,
         guarantee: capability.guarantee,
         unavailableReason: capability.unavailableReason,
