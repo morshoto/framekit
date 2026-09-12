@@ -112,7 +112,13 @@ function isGitEntry(path: string): boolean {
 }
 
 function readGitDirectory(gitEntry: string): string {
-  const content = readFileSync(gitEntry, "utf8").trim();
+  let content: string;
+  try {
+    content = readFileSync(gitEntry, "utf8").trim();
+  } catch (error) {
+    if (isDirectoryError(error)) return gitEntry;
+    throw error;
+  }
   if (!content.startsWith("gitdir: ")) return gitEntry;
   const configured = content.slice("gitdir: ".length).trim();
   return isAbsolute(configured) ? configured : resolve(dirname(gitEntry), configured);
@@ -127,4 +133,9 @@ function readCommonDirectory(gitDirectory: string): string | undefined {
     if (!isMissingFile(error)) throw error;
     return undefined;
   }
+}
+
+function isDirectoryError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "EISDIR";
 }

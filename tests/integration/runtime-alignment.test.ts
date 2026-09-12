@@ -6,6 +6,7 @@ import { FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { FRAMEKIT_BUILD_FINGERPRINT, FRAMEKIT_VERSION } from "../../apps/mcp-server/src/version.js";
 
 const bridgeCapabilities: RuntimeCapabilities = {
   editor: {
@@ -79,6 +80,11 @@ async function withClient(
     await server.close();
   }
 }
+
+test("the default build fingerprint identifies its package and source commit", () => {
+  assert.equal(FRAMEKIT_BUILD_FINGERPRINT.version, FRAMEKIT_VERSION);
+  assert.match(FRAMEKIT_BUILD_FINGERPRINT.commit, /^[0-9a-f]{40}$/i);
+});
 
 test("connection status and editor inspection share effective preflight", async () => {
   await withClient(metadataOnlyRuntime(), async (client) => {

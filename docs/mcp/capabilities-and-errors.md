@@ -33,9 +33,11 @@ Extension reports:
 ## Versioned operation-level capabilities
 
 `connection.status` and `editor.inspect` expose `capabilities.schemaVersion: 1`
-and `capabilities.families`. The legacy `editor` and `analyzers` boolean
-namespaces remain in the payload for compatibility. New clients should inspect
-the descriptor for the exact operation they intend to use:
+and `capabilities.families`. Once the connection is ready, both tools use the
+same composed runtime inspection, so their editor identity, capabilities, and
+`preflight` report agree. The legacy `editor` and `analyzers` boolean namespaces
+remain in the payload for compatibility. New clients should inspect the
+descriptor for the exact operation they intend to use:
 
 ```json
 {
@@ -96,6 +98,10 @@ instead of inventing an asset.
 `fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or
 `native-write`; `documentMode` preserves the underlying document mode when a
 headed native-write surface is active. `processMode` is `headed` or `headless`.
+The report includes `fingerprint.version` for the Framekit package and
+`fingerprint.commit` for the source build. The commit comes from
+`FRAMEKIT_BUILD_COMMIT` when supplied, otherwise from the checked-out Git
+repository; packaged builds without either source should report `unknown`.
 The report repeats the effective `capabilities` families so agents can see the
 backend, guarantee, and unavailable reason for connection, canonical reads and
 writes, composite editing, speech, audio, visual analysis, title placement, PIP,
@@ -196,8 +202,16 @@ The `connection.status` MCP tool is available while the live bridge is being
 installed or activated. It returns a state such as `launching`,
 `waiting-for-socket`, `ready`, `needs-user-action`, or `unavailable`, together
 with the detected editor, extension path, socket path, last error, and—when a
-bridge is ready—the versioned capability payload. A `ready` state only means
-that the bridge answered; inspect each operation family before editing.
+bridge is ready—the same effective versioned capability and `preflight` payload
+as `editor.inspect`. A `ready` state only means that the bridge answered;
+inspect each operation family before editing.
+
+`project.inspect` checks `canonicalDocument.read` before asking the runtime for
+a snapshot. `media.search` checks `observation.media` before searching. When
+either operation is unavailable, the MCP result is an error with
+`code: "CAPABILITY_UNAVAILABLE"`, the operation name, the descriptor backend,
+guarantee, and `unavailableReason`; an unavailable search is never represented
+as an empty successful result.
 
 The MCP process remains available while setup is in progress. Live editor tools
 remain fail-closed until the status becomes `ready`; the server never silently
