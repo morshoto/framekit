@@ -26,6 +26,17 @@ test("release workflow runs the report only for milestone releases", async () =>
   assert.match(workflow, /contributors\.svg/);
   assert.match(workflow, /name: Skip milestone report for patch release/);
 
+  const baselineSelectionStart = workflow.indexOf("mapfile -t milestone_tags");
+  const baselineSelectionEnd = workflow.indexOf("current_coverage", baselineSelectionStart);
+  const baselineSelection = workflow.slice(baselineSelectionStart, baselineSelectionEnd);
+  assert.match(baselineSelection, /--sort=v:refname/);
+  assert.match(
+    baselineSelection,
+    /if \[ "\$\{candidate\}" = "\$\{RELEASE_TAG\}" \]; then\n\s+break/,
+  );
+  assert.match(baselineSelection, /break[\s\S]*baseline_tag="\$\{candidate\}"/);
+  assert.doesNotMatch(baselineSelection, /candidate\}" != "\$\{RELEASE_TAG\}/);
+
   const publishJob = workflow.slice(workflow.indexOf("publish-npm:"));
   assert.match(publishJob, /- milestone-report/);
 });
