@@ -9,6 +9,7 @@ import {
   type FinalCutLiveRequest,
   type FinalCutLiveResponse,
 } from "@framekit/final-cut";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const metadataOnlyCapabilities: RuntimeCapabilities = {
@@ -81,6 +82,31 @@ test("media.search returns structured media observation unavailability", async (
       guarantee: "none",
       unavailableReason: "media observation is unavailable",
     });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("media.search preserves successful empty results", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Search Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [{ mediaId: "media-1", source: "interview.mov" }],
+  }));
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "media-search-empty-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const result = await client.callTool({ name: "media.search", arguments: { query: "missing" } });
+
+    assert.notEqual(result.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(result)), []);
   } finally {
     await client.close();
     await server.close();
