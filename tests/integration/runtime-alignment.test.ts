@@ -5,6 +5,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { FRAMEKIT_BUILD_FINGERPRINT, FRAMEKIT_VERSION } from "../../apps/mcp-server/src/version.js";
 
@@ -54,6 +55,12 @@ function metadataOnlyRuntime(): AgentVideoRuntime {
   return new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
 }
 
+class FailingInspectionAdapter extends InMemoryEditorAdapter {
+  public override async getIdentity(): Promise<never> {
+    throw new Error("CAPABILITY_UNAVAILABLE: runtime inspection unavailable");
+  }
+}
+
 async function withClient(
   runtime: AgentVideoRuntime,
   callback: (client: Client) => Promise<void>,
@@ -97,6 +104,28 @@ test("connection status and editor inspection share effective preflight", async 
     assert.equal(status.capabilities.editor.projectRead, false);
     assert.equal(status.preflight.fingerprint.version, "0.1.7");
     assert.equal(status.preflight.fingerprint.commit, "test-commit");
+  });
+});
+
+test("connection status becomes unavailable when inspection fails", async () => {
+  const runtime = new AgentVideoRuntime(new FailingInspectionAdapter({
+    projectId: "project-1",
+    projectName: "Inspection Failure Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+
+  await withClient(runtime, async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
+
+    assert.equal(status.state, "unavailable");
+    assert.deepEqual(status.lastError, {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "effective runtime capability inspection failed: CAPABILITY_UNAVAILABLE: runtime inspection unavailable",
+    });
+    assert.equal(status.capabilities, undefined);
+    assert.equal(status.preflight, undefined);
   });
 });
 
