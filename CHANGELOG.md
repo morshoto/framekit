@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.1.8](https://github.com/morshoto/framekit/compare/v0.1.7...v0.1.8) - 2026-09-12
+
+### ✨ Features
+- test: strengthen canonical headed safety evidence by @morshoto in https://github.com/morshoto/framekit/pull/244
+- test: guard unsupported native project APIs by @morshoto in https://github.com/morshoto/framekit/pull/246
+### 🐛 Fixes
+- fix: keep Swift CodeQL check present by @morshoto in https://github.com/morshoto/framekit/pull/232
+- fix: return media-specific search unavailability by @morshoto in https://github.com/morshoto/framekit/pull/239
+- test: complete Basic Editing MVP evaluation by @morshoto in https://github.com/morshoto/framekit/pull/245
+- fix: align live MCP runtime (#234) by @morshoto in https://github.com/morshoto/framekit/pull/241
+- fix: fail fast when release runner unavailable by @morshoto in https://github.com/morshoto/framekit/pull/243
+- fix: Align metadata-only project inspection capabilities by @morshoto in https://github.com/morshoto/framekit/pull/240
+### 🧰 Maintenance & Internal
+- chore: group generated release notes by change type by @morshoto in https://github.com/morshoto/framekit/pull/238
+- chore: generate milestone release reports by @morshoto in https://github.com/morshoto/framekit/pull/242
+- chore: collapse maintenance release notes by @morshoto in https://github.com/morshoto/framekit/pull/247
+
 ## [v0.1.7](https://github.com/morshoto/framekit/compare/v0.1.6...v0.1.7) - 2026-09-12
 
 - fix: build and upload native release assets by @morshoto in https://github.com/morshoto/framekit/pull/221
