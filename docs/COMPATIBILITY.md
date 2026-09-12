@@ -87,7 +87,9 @@ live-state port: it exposes active project metadata and a project-scoped
 sequence identity derived from the current sequence name, plus playhead,
 selected range, and observer-backed change events. The sequence identity is
 not an immutable host identifier; native handles fail closed when it changes.
-It reports
+The public host API does not expose library-wide project enumeration or project
+activation, so the bridge keeps `projectCatalogRead` and `projectSelection`
+disabled. It reports
 `timelineSnapshotRead: false` because the public Workflow Extension proxy does
 not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
