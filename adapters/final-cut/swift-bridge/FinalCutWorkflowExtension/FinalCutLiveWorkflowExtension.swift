@@ -63,31 +63,12 @@ private struct LiveChange: Codable {
     let state: LiveState
 }
 
-private struct ProjectCatalog: Codable {
-    struct Project: Codable {
-        struct Sequence: Codable {
-            let id: String
-            let name: String
-        }
-
-        let id: String
-        let name: String
-        let sequences: [Sequence]
-    }
-
-    let projects: [Project]
-    let activeProjectId: String
-    let activeSequenceId: String
-}
-
 private struct BridgeRequest: Codable {
     let version: Int
     let id: String
     let method: String
     let afterSequence: Int?
     let waitMs: Int?
-    let projectId: String?
-    let sequenceId: String?
 }
 
 private struct EditorCapabilities: Codable {
@@ -212,26 +193,6 @@ private struct BridgeResult: Codable {
     let capabilities: RuntimeCapabilities
     let state: LiveState?
     let changes: [LiveChange]?
-    let catalog: ProjectCatalog?
-
-    init(
-        identity: Identity,
-        capabilities: RuntimeCapabilities,
-        state: LiveState? = nil,
-        changes: [LiveChange]? = nil,
-        catalog: ProjectCatalog? = nil
-    ) {
-        self.identity = identity
-        self.capabilities = capabilities
-        self.state = state
-        self.changes = changes
-        self.catalog = catalog
-    }
-}
-
-private struct BridgeOperationFailure: Error {
-    let code: String
-    let message: String
 }
 
 private struct BridgeError: Codable {
@@ -509,7 +470,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: true, projectSelection: true),
+            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
             schemaVersion: 1,
             families: metadataOnlyCapabilityFamilies()
@@ -531,18 +492,8 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             }
             let result = stateLock.withLock { changes.filter { $0.revision.sequence > after } }
             return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: result), error: nil)
-        case "projects":
-            do {
-                return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, catalog: try projectCatalog()), error: nil)
-            } catch {
-                return operationFailure(request, error)
-            }
-        case "select-project":
-            do {
-                return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, catalog: try selectProject(request)), error: nil)
-            } catch {
-                return operationFailure(request, error)
-            }
+        case "projects", "select-project":
+            return failure(request, code: "CAPABILITY_UNAVAILABLE", message: "Final Cut Workflow Extension does not expose project catalog or selection")
         case "snapshot", "apply", "restore":
             return failure(request, code: "CAPABILITY_UNAVAILABLE", message: "Final Cut Workflow Extension is metadata-only and does not expose canonical timeline guarantees")
         default:
@@ -552,13 +503,6 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
 
     private func failure(_ request: BridgeRequest, code: String, message: String) -> BridgeResponse {
         BridgeResponse(version: protocolVersion, id: request.id, ok: false, result: nil, error: BridgeError(code: code, message: message))
-    }
-
-    private func operationFailure(_ request: BridgeRequest, _ error: Error) -> BridgeResponse {
-        if let failure = error as? BridgeOperationFailure {
-            return self.failure(request, code: failure.code, message: failure.message)
-        }
-        return failure(request, code: "PROJECT_CATALOG_UNAVAILABLE", message: String(describing: error))
     }
 
     private func record(kind: String) {
@@ -580,92 +524,18 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
               usable(timeline.playheadTime()), usable(timeline.sequenceTimeRange.start), usable(timeline.sequenceTimeRange.duration) else {
             throw NSError(domain: "Framekit", code: 2, userInfo: [NSLocalizedDescriptionKey: "live timeline times are not available yet"])
         }
-        guard let projectObject = sequence.container as? FCPXProject else {
-            throw BridgeOperationFailure(code: "PROJECT_IDENTITY_UNAVAILABLE", message: "active sequence has no project container")
+        let project = (sequence.container as? FCPXProject).map {
+            LiveState.Project(id: "final-cut:project:\($0.uid)", name: $0.name)
         }
-        let projectID = try stableProjectID(projectObject.uid)
-        let sequenceID = try stableSequenceID(sequence.uid)
-        let project = LiveState.Project(id: projectID, name: projectObject.name)
-        let liveSequence = LiveState.Sequence(id: sequenceID, name: sequence.name, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
+        let projectID = project?.id ?? "final-cut:project:unknown"
+        // The public host API exposes no immutable sequence identifier. This
+        // project-scoped name identity is intentionally treated as mutable;
+        // native handles fail closed when the identity changes.
+        let sequenceName = sequence.name ?? "active-sequence"
+        let liveSequence = LiveState.Sequence(id: "\(projectID):sequence:\(sequenceName)", name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
         let currentRevision = stateLock.withLock { revision }
         return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
-    }
-
-    private func projectCatalog() throws -> ProjectCatalog {
-        guard let host, let activeSequence = host.timeline?.activeSequence,
-              let activeProject = activeSequence.container as? FCPXProject else {
-            throw BridgeOperationFailure(code: "ACTIVE_SEQUENCE_UNAVAILABLE", message: "Final Cut has no active project and sequence")
-        }
-        guard let event = activeProject.container as? FCPXEvent,
-              let library = event.container as? FCPXLibrary else {
-            throw BridgeOperationFailure(code: "PROJECT_CATALOG_UNAVAILABLE", message: "active project has no accessible library catalog")
-        }
-
-        let activeProjectID = try stableProjectID(activeProject.uid)
-        let activeSequenceID = try stableSequenceID(activeSequence.uid)
-        var seenProjectIDs = Set<String>()
-        var projects: [ProjectCatalog.Project] = []
-        let discoveredProjects = library.events?.flatMap { $0.projects ?? [] } ?? []
-        for project in discoveredProjects {
-            guard let sequence = project.sequence else { continue }
-            let projectID = try stableProjectID(project.uid)
-            let sequenceID = try stableSequenceID(sequence.uid)
-            guard seenProjectIDs.insert(projectID).inserted else {
-                throw BridgeOperationFailure(code: "PROJECT_CATALOG_INVALID", message: "Final Cut returned duplicate project identity \(projectID)")
-            }
-            projects.append(ProjectCatalog.Project(
-                id: projectID,
-                name: project.name,
-                sequences: [ProjectCatalog.Project.Sequence(id: sequenceID, name: sequence.name)]
-            ))
-        }
-        projects.sort { $0.id < $1.id }
-        guard projects.contains(where: { $0.id == activeProjectID && $0.sequences.contains(where: { $0.id == activeSequenceID }) }) else {
-            throw BridgeOperationFailure(code: "PROJECT_CATALOG_INVALID", message: "active Final Cut target is absent from its library catalog")
-        }
-        return ProjectCatalog(projects: projects, activeProjectId: activeProjectID, activeSequenceId: activeSequenceID)
-    }
-
-    private func selectProject(_ request: BridgeRequest) throws -> ProjectCatalog {
-        let catalog = try projectCatalog()
-        guard let requestedProjectID = request.projectId, !requestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw BridgeOperationFailure(code: "INVALID_PROJECT_SELECTION", message: "projectId is required")
-        }
-        guard let project = catalog.projects.first(where: { $0.id == requestedProjectID }) else {
-            throw BridgeOperationFailure(code: "TARGET_MISMATCH", message: "project \(requestedProjectID) is absent from the active Final Cut library")
-        }
-        let requestedSequenceID: String
-        if let sequenceID = request.sequenceId, !sequenceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard project.sequences.contains(where: { $0.id == sequenceID }) else {
-                throw BridgeOperationFailure(code: "TARGET_MISMATCH", message: "sequence \(sequenceID) is absent from project \(requestedProjectID)")
-            }
-            requestedSequenceID = sequenceID
-        } else if project.sequences.count == 1, let sequenceID = project.sequences.first?.id {
-            requestedSequenceID = sequenceID
-        } else {
-            throw BridgeOperationFailure(code: "AMBIGUOUS_PROJECT_TARGET", message: "sequenceId is required for project \(requestedProjectID)")
-        }
-        guard requestedProjectID == catalog.activeProjectId, requestedSequenceID == catalog.activeSequenceId else {
-            throw BridgeOperationFailure(code: "PROJECT_SELECTION_UNAVAILABLE", message: "open the requested project in Final Cut before selecting it through Framekit")
-        }
-        return catalog
-    }
-
-    private func stableProjectID(_ uid: String) throws -> String {
-        try stableID(uid, prefix: "final-cut:project:", kind: "project")
-    }
-
-    private func stableSequenceID(_ uid: String) throws -> String {
-        try stableID(uid, prefix: "final-cut:sequence:", kind: "sequence")
-    }
-
-    private func stableID(_ uid: String, prefix: String, kind: String) throws -> String {
-        let normalized = uid.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            throw BridgeOperationFailure(code: "PROJECT_IDENTITY_UNAVAILABLE", message: "Final Cut \(kind) UID is unavailable")
-        }
-        return "\(prefix)\(normalized)"
     }
 
     private func usable(_ time: CMTime) -> Bool {
