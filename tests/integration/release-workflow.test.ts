@@ -183,6 +183,28 @@ test("release workflow gates publication on v0.1.6 evidence and native checksums
   );
 });
 
+test("release workflow preflights the required native runner", async () => {
+  const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
+  const preflight = workflow.indexOf("release-runner-preflight:");
+  const nativePackaging = workflow.indexOf("native-release-assets:");
+  const publication = workflow.indexOf("publish-npm:");
+
+  assert.notEqual(preflight, -1);
+  assert.ok(preflight < nativePackaging, "runner preflight must precede native packaging");
+  assert.ok(nativePackaging < publication, "native packaging must precede publication");
+
+  const preflightJob = workflow.slice(preflight, nativePackaging);
+  assert.match(preflightJob, /runs-on: ubuntu-latest/);
+  assert.match(preflightJob, /actions: read/);
+  assert.match(preflightJob, /actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)/);
+  assert.match(preflightJob, /actions\/runners\?per_page=100/);
+  assert.match(preflightJob, /gh api --paginate --slurp/);
+  assert.match(preflightJob, /node scripts\/check-release-runner\.mjs/);
+
+  const nativeJob = workflow.slice(nativePackaging, publication);
+  assert.match(nativeJob, /needs:\s*\n\s+- tagpr\s*\n\s+- release-runner-preflight/);
+});
+
 test("release workflow can retry an exact existing tag", async () => {
   const workflow = await readFile(resolve(repository, ".github/workflows/release.yml"), "utf8");
 
@@ -291,6 +313,17 @@ test("release documentation provides the exact npm trust command", async () => {
   assert.match(documentation, /--file\s+release\.yml/);
   assert.match(documentation, /--allow-publish/);
   assert.match(documentation, /--yes/);
+});
+
+test("release documentation explains native runner preflight recovery", async () => {
+  const documentation = await readFile(resolve(repository, "docs/releasing.md"), "utf8");
+
+  assert.match(documentation, /preflight/i);
+  assert.match(documentation, /online and idle/i);
+  assert.match(documentation, /self-hosted.*macOS.*framekit-release/s);
+  assert.match(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
+  assert.match(documentation, /actions\/runners\?per_page=100/);
+  assert.match(documentation, /retry the existing release tag/i);
 });
 
 test("release notes classify representative v0.1.7 changes by label", async () => {
