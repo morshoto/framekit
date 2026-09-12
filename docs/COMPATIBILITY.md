@@ -36,7 +36,7 @@ payload.
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | unavailable until configured | Motion-template registry |
-| Final Cut live (bundled Workflow Extension) | Workflow Extension live IPC | active-library catalog with stable project/sequence UIDs; active-target binding | no | no | no | no | no | no | no |
+| Final Cut live (bundled Workflow Extension) | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
 | Final Cut live (canonical-capable bridge) | guarded live IPC provider contract | complete snapshot with explicit targets | yes, when canonical-write is advertised | yes | yes | provider-specific | provider-specific | provider-specific | provider-specific |
 
 The canonical-capable live row describes an optional provider contract, not a
@@ -83,12 +83,13 @@ sequence identities. UID-less documents fail closed with
 Renaming a UID-backed project or sequence therefore does not change its ID.
 The session adapter composes independent snapshot, mutation, live-state,
 analyzer, and asset ports. The Workflow Extension backend is a separate
-live-state port: it exposes the active library's project catalog and stable
-project and sequence identities from Final Cut UIDs, plus playhead, selected
-range, and observer-backed change events. Selection confirms an exact target
-that is already active; the bundled bridge does not navigate Final Cut to an
-inactive project, and such requests fail closed with
-`PROJECT_SELECTION_UNAVAILABLE`. It reports
+live-state port: it exposes active project metadata and a project-scoped
+sequence identity derived from the current sequence name, plus playhead,
+selected range, and observer-backed change events. The sequence identity is
+not an immutable host identifier; native handles fail closed when it changes.
+The public host API does not expose library-wide project enumeration or project
+activation, so the bridge keeps `projectCatalogRead` and `projectSelection`
+disabled. It reports
 `timelineSnapshotRead: false` because the public Workflow Extension proxy does
 not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.

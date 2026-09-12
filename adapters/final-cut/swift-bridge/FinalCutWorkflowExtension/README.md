@@ -50,23 +50,24 @@ FRAMEKIT_EDITOR=final-cut-live pnpm run mcp
 
 Set `FRAMEKIT_FINAL_CUT_SOCKET` explicitly when using a non-default socket.
 
-Supported metadata requests are `capabilities`, `state`, `changes`, `projects`,
-and `select-project`. The
+Supported metadata requests are `capabilities`, `state`, and `changes`. The
 additive canonical requests `snapshot`, `apply`, and `restore` are recognized
 but fail with `CAPABILITY_UNAVAILABLE` because this bridge reports
 `canonicalTimelineMode: metadata-only`. The bridge
-reports active project metadata and stable project and sequence identities from
-Final Cut UIDs, plus rational playhead time, selected sequence range, and
-observer-backed change events. It deliberately reports
+reports active project metadata and a project-scoped sequence identity derived
+from the current sequence name, plus rational playhead time, selected sequence
+range, and observer-backed change events. The sequence identity is not an
+immutable host identifier; native handles fail closed when it changes. It
+deliberately reports
 `editor.timelineSnapshotRead: false`: the public Workflow Extension proxy does not promise a
 complete clip/media enumeration API, so Framekit fails closed instead of
 fabricating an empty canonical timeline.
 
-Project catalog requests enumerate the projects and sequences in the active
-Final Cut library. `select-project` is a non-mutating active-target binding: it
-confirms an exact project and sequence that are already active. Known inactive
-targets fail closed with `PROJECT_SELECTION_UNAVAILABLE`, so the user must open
-the requested project in Final Cut before binding Framekit to it.
+Project catalog and selection requests are not advertised by this bridge. The
+public host API exposes only the active sequence and its container chain; it
+does not expose an immutable sequence UID, library-wide enumeration, or project
+activation. Callers receive `CAPABILITY_UNAVAILABLE` rather than an inferred
+project browser.
 
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`
