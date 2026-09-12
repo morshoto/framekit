@@ -98,6 +98,21 @@ export interface NativeFinalCutMediaImportResult {
   };
 }
 
+export const NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE = "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT" as const;
+
+export class NativeFinalCutMediaImportDirectoryError extends Error {
+  public readonly code = NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE;
+  public readonly guidance = {
+    previewTool: "editor.native.media.directory.preview",
+    executeTool: "editor.native.media.directory.execute",
+  } as const;
+
+  public constructor(public readonly directoryPath: string) {
+    super(`${NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE}: ${directoryPath} is a directory; editor.native.media.import accepts one readable local media file. Use editor.native.media.directory.preview followed by editor.native.media.directory.execute with confirm=true to enumerate and batch import the directory`);
+    this.name = "NativeFinalCutMediaImportDirectoryError";
+  }
+}
+
 export const SUPPORTED_VIDEO_EXTENSIONS = Object.freeze([".m4v", ".mov", ".mp4"]);
 
 export interface NativeFinalCutMediaImportDirectoryFile {
@@ -951,8 +966,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       const details = await stat(normalizedPath);
       await access(normalizedPath, constants.R_OK);
+      if (details.isDirectory()) throw new NativeFinalCutMediaImportDirectoryError(normalizedPath);
       if (!details.isFile()) throw new Error("path is not a file");
     } catch (error) {
+      if (error instanceof NativeFinalCutMediaImportDirectoryError) throw error;
       throw new Error(`FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE: ${normalizedPath} is not a readable local media file (${String(error)})`);
     }
 

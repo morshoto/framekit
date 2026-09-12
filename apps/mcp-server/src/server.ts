@@ -11,6 +11,7 @@ import {
   type TimelineFrameCapture,
 } from "@framekit/runtime";
 import {
+  NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
   serializeNativeFinalCutMediaImportError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublisher,
@@ -676,11 +677,38 @@ function jsonResult(value: unknown) {
 
 function nativeMediaImportErrorResult(error: unknown) {
   const serialized = serializeNativeFinalCutMediaImportError(error);
-  if (!serialized) throw error;
+  if (serialized) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+    };
+  }
+  if (!isDirectoryMediaImportError(error)) throw error;
   return {
     isError: true,
-    content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code: error.code,
+        message: error.message,
+        guidance: error.guidance,
+      }),
+    }],
   };
+}
+
+function isDirectoryMediaImportError(error: unknown): error is Error & {
+  code: typeof NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE;
+  guidance: { previewTool: string; executeTool: string };
+} {
+  if (!error || typeof error !== "object") return false;
+  const value = error as Record<string, unknown>;
+  const guidance = value.guidance;
+  return value.code === NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE
+    && Boolean(guidance)
+    && typeof guidance === "object"
+    && typeof (guidance as Record<string, unknown>).previewTool === "string"
+    && typeof (guidance as Record<string, unknown>).executeTool === "string";
 }
 
 function skillErrorResult(error: unknown) {

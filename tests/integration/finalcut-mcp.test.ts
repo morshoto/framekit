@@ -8,7 +8,12 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CommandAudioAnalyzer, CommandMetadataAnalyzer, NativeFinalCutMediaImportError } from "@framekit/final-cut";
+import {
+  CommandAudioAnalyzer,
+  CommandMetadataAnalyzer,
+  NativeFinalCutMediaImportDirectoryError,
+  NativeFinalCutMediaImportError,
+} from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -960,6 +965,61 @@ test("Final Cut MCP preserves structured native media import errors", async () =
       code: importError.code,
       message: importError.message,
       details: importError.details,
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP returns structured guidance for directory media import", async () => {
+  const directory = "/tmp/framekit-media-directory-input";
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    importMedia: async () => {
+      throw new NativeFinalCutMediaImportDirectoryError(directory);
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Directory Input Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "directory-input-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "editor.native.media.import",
+      arguments: { path: directory },
+    });
+    assert.equal(response.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(response)), {
+      code: "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT",
+      message: "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT: /tmp/framekit-media-directory-input is a directory; editor.native.media.import accepts one readable local media file. Use editor.native.media.directory.preview followed by editor.native.media.directory.execute with confirm=true to enumerate and batch import the directory",
+      guidance: {
+        previewTool: "editor.native.media.directory.preview",
+        executeTool: "editor.native.media.directory.execute",
+      },
     });
   } finally {
     await client.close();

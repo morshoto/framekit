@@ -215,7 +215,12 @@ source identity. The returned media handle can be passed to
 stable for the current native session and does not itself insert the asset into
 the timeline.
 
-Invalid paths fail before any import UI command. Import failures include
+Invalid paths fail before any import UI command. A readable directory is not
+guessed as a file: the MCP response uses
+`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT` and includes structured guidance for
+`editor.native.media.directory.preview` followed by
+`editor.native.media.directory.execute` with `confirm: true`. Import failures
+include
 `stage`, `elapsedMs`, `stageElapsedMs`, and `partialImportPossible` details in
 their error. Browser discovery failures also include bounded Accessibility
 diagnostics when available, so a caller can distinguish pre-import Browser
