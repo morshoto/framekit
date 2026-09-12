@@ -14,7 +14,9 @@ pnpm run framekit -- doctor finalcut --json
 
 The MCP server exposes the same state through `connection.status`. It reports
 whether Final Cut was detected, whether the extension is installed, whether
-activation is in progress, and the last actionable error.
+activation is in progress, and the last actionable error. Once ready, its
+effective capabilities and build fingerprint match `editor.inspect`; use that
+shared preflight to distinguish a current build from a stale MCP process.
 
 ## No socket
 
