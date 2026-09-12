@@ -10,12 +10,13 @@ import {
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
-import type {
-  DisposableNativeEditWorkflow,
-  FinalCutProjectPublisher,
-  FinalCutVideoExporter,
-  NativeFinalCutEditor,
-  NativeFinalCutTransitionMatch,
+import {
+  serializeNativeFinalCutMediaImportError,
+  type DisposableNativeEditWorkflow,
+  type FinalCutProjectPublisher,
+  type FinalCutVideoExporter,
+  type NativeFinalCutEditor,
+  type NativeFinalCutTransitionMatch,
 } from "@framekit/final-cut";
 import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
@@ -673,6 +674,15 @@ function jsonResult(value: unknown) {
   };
 }
 
+function nativeMediaImportErrorResult(error: unknown) {
+  const serialized = serializeNativeFinalCutMediaImportError(error);
+  if (!serialized) throw error;
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+  };
+}
+
 function skillErrorResult(error: unknown) {
   const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
   const message = error instanceof Error ? error.message : String(error);
@@ -939,7 +949,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { path: z.string().min(1) },
   }, async ({ path }) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.importMedia(path));
+    try {
+      return jsonResult(await options.nativeEditor.importMedia(path));
+    } catch (error) {
+      return nativeMediaImportErrorResult(error);
+    }
   });
 
   server.registerTool("editor.native.media.directory.preview", {

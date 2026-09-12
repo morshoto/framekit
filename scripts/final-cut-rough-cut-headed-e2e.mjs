@@ -146,8 +146,16 @@ async function run() {
     const imported = await runStep("media.import", async () => {
       const result = await callJson("editor.native.media.import", { path: resolution.path });
       recordTool("editor.native.media.import");
-      if (result.kind !== "video" || !result.mediaHandle || !result.name || basename(result.sourcePath ?? "") !== basename(resolution.path)) {
-        throw new Error("FINAL_CUT_E2E_MEDIA_IMPORT_FAILED: import did not return a stable video handle and exact filename");
+      if (
+        result.kind !== "video"
+        || !result.mediaHandle
+        || !result.name
+        || !result.sourceIdentity
+        || result.verification?.verified !== true
+        || result.verification.stage !== "post-import-browser-discovery"
+        || basename(result.sourcePath ?? "") !== basename(resolution.path)
+      ) {
+        throw new Error("FINAL_CUT_E2E_MEDIA_IMPORT_FAILED: import did not return stable provenance and verification");
       }
       return result;
     });
