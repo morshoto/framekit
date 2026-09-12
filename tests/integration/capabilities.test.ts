@@ -446,7 +446,7 @@ test("MCP connection status normalizes injected capability payloads", async () =
 
     assert.equal(payload.capabilities.schemaVersion, 1);
     assert.equal(payload.capabilities.families.connection.status.available, true);
-    assert.equal(payload.capabilities.families.canonicalDocument.write.available, false);
+    assert.equal(payload.capabilities.families.canonicalDocument.write.available, true);
   } finally {
     await client.close();
     await server.close();
@@ -498,4 +498,45 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /projectSelection: Bool/);
   assert.match(swift, /transitionDiscovery: CapabilityDescriptor/);
   assert.match(swift, /transitionPlacement: CapabilityDescriptor/);
+});
+
+test("Workflow Extension does not advertise unsupported project catalog operations", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.match(swift, /projectCatalogRead: false, projectSelection: false/);
+});
+
+test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.doesNotMatch(swift, /library\.events.*flatMap/);
+  assert.doesNotMatch(swift, /stableSequenceID\(.*\.uid\)/);
+});
+
+test("CodeQL shim exposes only documented project proxy properties", async () => {
+  const shim = await readFile(join(
+    process.cwd(),
+    ".github/codeql/FinalCutWorkflowExtensionShim.swift",
+  ), "utf8");
+
+  assert.doesNotMatch(shim, /class FCPXObject[^{]*\{[^}]*var uid:/);
+  assert.doesNotMatch(shim, /class FCPXEvent/);
+  assert.doesNotMatch(shim, /class FCPXLibrary/);
+  assert.match(shim, /class FCPXProject[^{]*\{[^}]*var uid: String!/);
+});
+
+test("Workflow Extension rejects unsupported project catalog methods", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.match(swift, /case "projects", "select-project":[\s\S]*CAPABILITY_UNAVAILABLE/);
+  assert.doesNotMatch(swift, /private func selectProject\(/);
 });

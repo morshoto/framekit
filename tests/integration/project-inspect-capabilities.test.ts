@@ -112,9 +112,13 @@ test("metadata-only project inspection has one capability contract across MCP su
     };
     assert.deepEqual(projectError, {
       code: "CAPABILITY_UNAVAILABLE",
-      message: "CAPABILITY_UNAVAILABLE: canonical timeline reads are unavailable",
-      operation: "canonicalDocument.read",
-      capability: unavailableCanonicalRead,
+      message: "project.inspect requires canonicalDocument.read",
+      operation: "project.inspect",
+      capability: "canonicalDocument.read",
+      available: false,
+      backend: "workflow-extension-ipc",
+      guarantee: "none",
+      unavailableReason: "canonical timeline reads are unavailable",
     });
     assert.equal(snapshotCalls, 0);
   } finally {
@@ -146,10 +150,18 @@ test("project inspection rejects before invoking an unavailable snapshot provide
       code?: unknown;
       operation?: unknown;
       capability?: unknown;
+      available?: unknown;
+      backend?: unknown;
+      guarantee?: unknown;
+      unavailableReason?: unknown;
     };
     assert.equal(value.code, "CAPABILITY_UNAVAILABLE");
-    assert.equal(value.operation, "canonicalDocument.read");
-    assert.deepEqual(value.capability, unavailableCanonicalRead);
+    assert.equal(value.operation, "project.inspect");
+    assert.equal(value.capability, "canonicalDocument.read");
+    assert.equal(value.available, false);
+    assert.equal(value.backend, "workflow-extension-ipc");
+    assert.equal(value.guarantee, "none");
+    assert.equal(value.unavailableReason, "canonical timeline reads are unavailable");
     return true;
   });
   assert.equal(readCalls, 0);

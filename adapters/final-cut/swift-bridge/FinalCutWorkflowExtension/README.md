@@ -64,8 +64,10 @@ complete clip/media enumeration API, so Framekit fails closed instead of
 fabricating an empty canonical timeline.
 
 Project catalog and selection requests are not advertised by this bridge. The
-public host API exposes only the active sequence, so callers receive
-`CAPABILITY_UNAVAILABLE` rather than an inferred project browser.
+public host API exposes only the active sequence and its container chain; it
+does not expose an immutable sequence UID, library-wide enumeration, or project
+activation. Callers receive `CAPABILITY_UNAVAILABLE` rather than an inferred
+project browser.
 
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`

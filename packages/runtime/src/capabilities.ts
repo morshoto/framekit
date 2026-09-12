@@ -26,18 +26,6 @@ export interface CapabilityPreflight {
   capabilities: CapabilityFamilies;
 }
 
-export class CapabilityUnavailableError extends Error {
-  public readonly code = "CAPABILITY_UNAVAILABLE" as const;
-
-  public constructor(
-    public readonly operation: string,
-    public readonly capability: CapabilityDescriptor,
-  ) {
-    super(`CAPABILITY_UNAVAILABLE: ${capability.unavailableReason ?? `${operation} is unavailable`}`);
-    this.name = "CapabilityUnavailableError";
-  }
-}
-
 export function canonicalTimelineMode(capabilities: RuntimeCapabilities): CanonicalTimelineMode {
   const editor = capabilities.editor;
   const hasCanonicalProjectRead = canonicalProjectReadAvailable(editor);
