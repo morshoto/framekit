@@ -47,6 +47,8 @@ test("canonical headed evidence documentation describes the sanitized review bou
   assert.match(documentation, /tool results/);
   assert.match(documentation, /raw snapshots/);
   assert.match(documentation, /private media paths/);
+  assert.match(documentation, /stale-revision and wrong-project probes/);
+  assert.match(documentation, /unchanged digest and revision before mutation/);
 });
 
 test("canonical headed evidence keeps mutation proof while omitting private snapshot data", () => {
