@@ -497,3 +497,36 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /transitionDiscovery: CapabilityDescriptor/);
   assert.match(swift, /transitionPlacement: CapabilityDescriptor/);
 });
+
+test("Workflow Extension advertises its stable project catalog and active-target selection", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.match(swift, /projectCatalogRead: true, projectSelection: true/);
+});
+
+test("Workflow Extension catalogs project and sequence UIDs from the active library", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.match(swift, /private func projectCatalog\(\) throws -> ProjectCatalog/);
+  assert.match(swift, /library\.events\.flatMap\(\\\.projects\)/);
+  assert.match(swift, /stableProjectID\(.*\.uid\)/);
+  assert.match(swift, /stableSequenceID\(.*\.uid\)/);
+});
+
+test("Workflow Extension project selection confirms only the exact active target", async () => {
+  const swift = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
+  ), "utf8");
+
+  assert.match(swift, /private func selectProject\(_ request: BridgeRequest\) throws -> ProjectCatalog/);
+  assert.match(swift, /AMBIGUOUS_PROJECT_TARGET/);
+  assert.match(swift, /TARGET_MISMATCH/);
+  assert.match(swift, /PROJECT_SELECTION_UNAVAILABLE/);
+});
