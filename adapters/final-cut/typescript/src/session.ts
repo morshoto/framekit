@@ -105,7 +105,8 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       && canReadAfterWrite,
     );
     const operationFamilies = operationRuntimeCapabilities?.families;
-    const readFamilies = readCapabilities?.families;
+    const readFamilies = readCapabilities?.families
+      ?? (!this.options.snapshot && !this.options.mutation ? live?.families : undefined);
     return withCapabilityFamilies({
       editor: {
         ...operationCapabilities,

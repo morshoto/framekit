@@ -4,7 +4,7 @@ import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineFrameCapture, VisualAnalysis } from "../domain/media.js";
-import { withCapabilityFamilies } from "../capabilities.js";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "../capabilities.js";
 import { isWithinClip, parseRational, rationalDifferenceSeconds } from "../timeline/rational-time.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 
@@ -16,6 +16,11 @@ export class ProjectService {
   ) {}
 
   public async inspectProject(): Promise<ProjectSnapshot> {
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.adapter.getCapabilities()));
+    const projectRead = capabilities.families!.canonicalDocument.read;
+    if (!projectRead.available) {
+      throw new Error(`CAPABILITY_UNAVAILABLE: ${projectRead.unavailableReason ?? "canonical timeline reads are unavailable"}`);
+    }
     return this.context.inspectProject();
   }
 

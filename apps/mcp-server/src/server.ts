@@ -5,6 +5,7 @@ import {
   AgentVideoRuntime,
   createCapabilityPreflight,
   resolveEditingIntent,
+  withCanonicalTimelineMode,
   withCapabilityFamilies,
   type CapabilityProcessMode,
   type RuntimeCapabilities,
@@ -749,10 +750,10 @@ function normalizeConnectionStatus(value: unknown): unknown {
   const backend = typeof identity?.backend === "string" ? identity.backend : undefined;
   return {
     ...status,
-    capabilities: withCapabilityFamilies(status.capabilities, {
+    capabilities: withCanonicalTimelineMode(withCapabilityFamilies(status.capabilities, {
       ...(backend ? { backend, connectionBackend: backend } : {}),
       connection: status.state === "ready",
-    }),
+    })),
   };
 }
 

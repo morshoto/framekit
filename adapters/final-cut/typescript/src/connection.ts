@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { EditorIdentity, RuntimeCapabilities } from "@framekit/runtime";
-import { withCapabilityFamilies } from "@framekit/runtime";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
 import { createFinalCutLiveAdapter, DEFAULT_FINAL_CUT_LIVE_SOCKET } from "./live.js";
 
 const execFile = promisify(execFileCallback);
@@ -291,10 +291,10 @@ export class FinalCutConnectionManager {
   }
 
   private ready(result: { identity: EditorIdentity; capabilities: RuntimeCapabilities }): FinalCutConnectionStatus {
-    const capabilities = withCapabilityFamilies(result.capabilities, {
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(result.capabilities, {
       backend: result.identity.backend,
       connectionBackend: result.identity.backend,
-    });
+    }));
     if (this.canonicalProviderRequired && capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       return this.fail(
         "FINAL_CUT_CANONICAL_PROVIDER_REQUIRED",
