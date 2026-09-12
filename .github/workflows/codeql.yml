@@ -113,22 +113,29 @@ jobs:
   analyze-swift:
     name: Analyze (swift)
     needs: changes
-    # A detector failure must fail open to a full scan, not skip a required check.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.swift == 'true') }}
+    # Keep the required check present; skip its work inside the job when Swift is unchanged.
+    if: ${{ !cancelled() }}
     runs-on: macos-26
     timeout-minutes: 40
 
     steps:
+      - name: Skip Swift CodeQL analysis (no Swift changes)
+        if: ${{ needs.changes.result == 'success' && needs.changes.outputs.swift != 'true' }}
+        run: echo "No Swift-related files changed; skipping Swift CodeQL analysis."
+
       - name: Check out repository
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.swift == 'true' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Initialize CodeQL
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.swift == 'true' }}
         uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           languages: swift
           build-mode: manual
 
       - name: Type-check Swift sources for CodeQL extraction
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.swift == 'true' }}
         timeout-minutes: 25
         run: |
           xcrun --sdk macosx swiftc \
@@ -142,6 +149,7 @@ jobs:
             .github/codeql/FinalCutWorkflowExtensionShim.swift
 
       - name: Analyze with CodeQL
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.swift == 'true' }}
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           category: /language:swift
