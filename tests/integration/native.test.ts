@@ -2383,6 +2383,37 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   assert.notEqual(existing.handle, newlyImported.handle);
 });
 
+test("native Final Cut rejects synthetic Browser identities during import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-synthetic-identity-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let searchCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        if (searchCalls === 1) return "";
+        return `interview.mov${separator}AXBrowserMedia${separator}browser-interview${separator}fcp-ax://browser/events/1|AXBrowserMedia|interview.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+    assert.ok(error instanceof NativeFinalCutMediaImportError);
+    assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE");
+    assert.equal(error.details.stage, "post-import-browser-discovery");
+    assert.equal(error.details.partialImportPossible, true);
+    return true;
+  });
+});
+
 test("native Final Cut import reports staged Browser discovery timeout diagnostics", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-id-unavailable-"));
   const sourcePath = join(directory, "blue-steel-guitar.wav");
