@@ -34,16 +34,18 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 2. The `tagpr` job creates the version tag and a draft GitHub release with
    generated notes. If the merge already placed the release tag on `HEAD`,
    the workflow reuses that tag instead of trying to create it again.
-3. The `native-release-assets` job runs on the configured `framekit-release`
-   macOS runner, builds and signs the Final Cut Workflow Extension, and uploads
+3. A hosted preflight checks that a repository-scoped runner is online and idle
+   with the `self-hosted`, `macOS`, and `framekit-release` labels.
+4. The `native-release-assets` job runs on that macOS runner, builds and signs
+   the Final Cut Workflow Extension, and uploads
    `FramekitFinalCutWorkflow-<version>.zip` plus its checksum to the draft
    release.
-4. The `publish-npm` job installs npm 11.5.1, runs the v0.1.6 repository gate,
+5. The `publish-npm` job installs npm 11.5.1, runs the v0.1.6 repository gate,
    publishes the matching package, and verifies the version on the public
    registry. It waits for the native assets to be uploaded.
-5. The workflow verifies the native archive and checksum, then publishes the
+6. The workflow verifies the native archive and checksum, then publishes the
    GitHub release and its notes.
-6. A final provenance gate verifies package, MCP server, plugin, tag, workflow,
+7. A final provenance gate verifies package, MCP server, plugin, tag, workflow,
    GitHub release, npm, native archive, and checksum alignment before the
    workflow can succeed.
 
@@ -53,14 +55,33 @@ available to `codesign`. Configure the `FRAMEKIT_CODESIGN_IDENTITY` secret and
 the optional `FRAMEKIT_NOTARY_PROFILE` repository variable before merging a
 release PR. The runner must be registered with the `framekit-release` label.
 
+The hosted runner preflight fails with `RELEASE_RUNNER_UNAVAILABLE` when no
+online and idle runner has all three required labels. This keeps the release
+draft from waiting indefinitely for a native job that cannot be scheduled.
+
+### Recovering an unavailable release runner
+
+Restore or register the repository-scoped macOS runner, then verify that GitHub
+sees it online and idle with the required labels:
+
+```sh
+gh api 'repos/morshoto/framekit/actions/runners?per_page=100' \
+  --jq '.runners[] | select(.status == "online" and .busy == false) | [.name, (.labels | map(.name) | join(","))] | @tsv'
+```
+
+The output must include `self-hosted`, `macOS`, and `framekit-release` on the
+same runner. After the preflight succeeds, retry the existing release tag using
+the command below; the workflow will rebuild and upload the native assets
+before npm or GitHub publication.
+
 If npm publishing fails, the GitHub release remains a draft so the failure can
 be repaired without presenting an incomplete release as public.
 
 If a retry finds a draft release whose tag is shown as `untagged-*`, the
 workflow associates that draft with the release tag before publishing it.
 
-After repairing the npm Trusted Publisher relationship, retry an existing tag
-without creating a new commit or version:
+After repairing the runner and, if needed, the npm Trusted Publisher
+relationship, retry an existing tag without creating a new commit or version:
 
 ```sh
 gh workflow run release.yml \

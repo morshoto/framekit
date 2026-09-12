@@ -276,5 +276,5 @@ test("release documentation explains native runner preflight recovery", async ()
   assert.match(documentation, /self-hosted.*macOS.*framekit-release/s);
   assert.match(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
   assert.match(documentation, /actions\/runners\?per_page=100/);
-  assert.match(documentation, /retry an exact existing tag/i);
+  assert.match(documentation, /retry the existing release tag/i);
 });
