@@ -684,16 +684,14 @@ function nativeMediaImportErrorResult(error: unknown) {
     };
   }
   if (!isDirectoryMediaImportError(error)) throw error;
-  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
-  const message = error instanceof Error ? error.message : String(error);
   return {
     isError: true,
     content: [{
       type: "text" as const,
       text: JSON.stringify({
-        code: value.code,
-        message,
-        guidance: value.guidance,
+        code: error.code,
+        message: error.message,
+        guidance: error.guidance,
       }),
     }],
   };
