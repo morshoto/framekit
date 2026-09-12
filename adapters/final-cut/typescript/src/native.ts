@@ -70,6 +70,21 @@ export class NativeFinalCutMediaImportError extends Error {
   }
 }
 
+export interface NativeFinalCutMediaImportErrorPayload {
+  code: string;
+  message: string;
+  details: NativeFinalCutMediaImportFailureDetails;
+}
+
+export function serializeNativeFinalCutMediaImportError(error: unknown): NativeFinalCutMediaImportErrorPayload | undefined {
+  if (!(error instanceof NativeFinalCutMediaImportError)) return undefined;
+  return {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+  };
+}
+
 export interface NativeFinalCutMediaImportResult {
   mediaHandle: string;
   sourcePath: string;
@@ -119,7 +134,7 @@ export interface NativeFinalCutMediaImportDirectoryFileResult {
   name: string;
   status: "imported" | "failed";
   media?: NativeFinalCutMediaImportResult;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; details?: NativeFinalCutMediaImportFailureDetails };
 }
 
 export interface NativeFinalCutMediaImportDirectoryResult {
@@ -1058,11 +1073,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
           media,
         });
       } catch (error) {
+        const serializedError = serializeNativeFinalCutMediaImportError(error);
         results.push({
           sourcePath: file.sourcePath,
           name: file.name,
           status: "failed",
-          error: {
+          error: serializedError ?? {
             code: nativeErrorCode(error),
             message: String(error),
           },
