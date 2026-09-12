@@ -167,8 +167,11 @@ pnpm run test:final-cut-canonical-headed \
 
 The runner disables FCPXML composition, requires a canonical-write bridge to
 enumerate the live project catalog and explicitly select the active project and
-sequence, verifies the exact project and occurrence before mutation, renames
-that occurrence, and performs compensating undo. It emits a sanitized evidence document using an allowlisted summary
+sequence, and verifies the exact project and occurrence. Before the rename, it
+runs stale-revision and wrong-project probes. Each probe must return its expected
+failure code, and a fresh inspection must prove an unchanged digest and revision before mutation.
+The runner then renames that occurrence and performs compensating undo. It emits
+a sanitized evidence document using an allowlisted summary
 rather than the raw snapshots returned by the MCP tools. The document records
 the Framekit version, full Git commit, runtime environment, Final Cut
 identity/version, capability payload, required tool results, target IDs,
