@@ -7,6 +7,36 @@ import { validateReleaseContract } from "../../scripts/validate-release-contract
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
+type ReleaseCategory = {
+  title: string;
+  labels: string[];
+};
+
+function parseReleaseCategories(config: string): ReleaseCategory[] {
+  const categories: ReleaseCategory[] = [];
+  let currentCategory: ReleaseCategory | undefined;
+
+  for (const line of config.split(/\r?\n/)) {
+    const title = line.match(/^ {4}- title: ["'](.+)["']$/)?.[1];
+    if (title) {
+      currentCategory = { title, labels: [] };
+      categories.push(currentCategory);
+      continue;
+    }
+
+    const label = line.match(/^ {8}- ["'](.+)["']$/)?.[1];
+    if (label && currentCategory) currentCategory.labels.push(label);
+  }
+
+  return categories;
+}
+
+function categorizeRelease(labels: string[], categories: ReleaseCategory[]): string | undefined {
+  return categories.find((category) => (
+    category.labels.includes("*") || labels.some((label) => category.labels.includes(label))
+  ))?.title;
+}
+
 const canonicalManifest = {
   name: "@morshoto/framekit",
   version: "0.1.1",
@@ -245,4 +275,36 @@ test("release documentation provides the exact npm trust command", async () => {
   assert.match(documentation, /--file\s+release\.yml/);
   assert.match(documentation, /--allow-publish/);
   assert.match(documentation, /--yes/);
+});
+
+test("release notes classify representative v0.1.7 changes by label", async () => {
+  const config = await readFile(resolve(repository, ".github/release.yml"), "utf8");
+  const categories = parseReleaseCategories(config);
+
+  assert.deepEqual(categories, [
+    { title: "✨ Features", labels: ["Type: New Feature"] },
+    { title: "🐛 Fixes", labels: ["Problem: Bug"] },
+    { title: "🧰 Maintenance & Internal", labels: ["*"] },
+  ]);
+
+  const representativeChanges = [
+    { pullRequest: 220, labels: ["Type: New Feature"], category: "✨ Features" },
+    { pullRequest: 228, labels: ["Problem: Bug"], category: "🐛 Fixes" },
+    { pullRequest: 226, labels: ["Type: Document"], category: "🧰 Maintenance & Internal" },
+  ];
+
+  for (const change of representativeChanges) {
+    assert.equal(
+      categorizeRelease(change.labels, categories),
+      change.category,
+      `PR #${change.pullRequest} should use its label category`,
+    );
+  }
+});
+
+test("release notes continue excluding Tag PRs", async () => {
+  const config = await readFile(resolve(repository, ".github/release.yml"), "utf8");
+
+  assert.match(config, /exclude:\s+labels:\s+- tagpr/);
+  assert.doesNotMatch(config, /title: ["'].*tagpr/i);
 });
