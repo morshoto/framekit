@@ -6,6 +6,13 @@ import { fileURLToPath } from "node:url";
 import { validateReleaseContract } from "../../scripts/validate-release-contract.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const releaseConfigPath = resolve(repository, ".github/release.yml");
+
+const expectedReleaseCategories = [
+  { title: "✨ Features", labels: ["Type: New Feature"] },
+  { title: "🐛 Fixes", labels: ["Problem: Bug"] },
+  { title: "🧰 Maintenance & Internal", labels: ["*"] },
+];
 
 type ReleaseCategory = {
   title: string;
@@ -29,6 +36,15 @@ function parseReleaseCategories(config: string): ReleaseCategory[] {
   }
 
   return categories;
+}
+
+function parseExcludedLabels(config: string): string[] {
+  const categoriesStart = config.indexOf("  categories:");
+  const exclusions = categoriesStart === -1 ? config : config.slice(0, categoriesStart);
+
+  return exclusions.split(/\r?\n/)
+    .map((line) => line.match(/^ {6}- (.+)$/)?.[1])
+    .filter((label): label is string => label !== undefined);
 }
 
 function categorizeRelease(labels: string[], categories: ReleaseCategory[]): string | undefined {
@@ -278,14 +294,10 @@ test("release documentation provides the exact npm trust command", async () => {
 });
 
 test("release notes classify representative v0.1.7 changes by label", async () => {
-  const config = await readFile(resolve(repository, ".github/release.yml"), "utf8");
+  const config = await readFile(releaseConfigPath, "utf8");
   const categories = parseReleaseCategories(config);
 
-  assert.deepEqual(categories, [
-    { title: "✨ Features", labels: ["Type: New Feature"] },
-    { title: "🐛 Fixes", labels: ["Problem: Bug"] },
-    { title: "🧰 Maintenance & Internal", labels: ["*"] },
-  ]);
+  assert.deepEqual(categories, expectedReleaseCategories);
 
   const representativeChanges = [
     { pullRequest: 220, labels: ["Type: New Feature"], category: "✨ Features" },
@@ -303,8 +315,7 @@ test("release notes classify representative v0.1.7 changes by label", async () =
 });
 
 test("release notes continue excluding Tag PRs", async () => {
-  const config = await readFile(resolve(repository, ".github/release.yml"), "utf8");
+  const config = await readFile(releaseConfigPath, "utf8");
 
-  assert.match(config, /exclude:\s+labels:\s+- tagpr/);
-  assert.doesNotMatch(config, /title: ["'].*tagpr/i);
+  assert.deepEqual(parseExcludedLabels(config), ["tagpr"]);
 });
