@@ -8,6 +8,7 @@ import type { RoadmapSource } from "./report.js";
 interface CoverageSummaryJson {
   total?: {
     lines?: unknown;
+    statements?: unknown;
     functions?: unknown;
   };
 }
@@ -42,8 +43,11 @@ export interface GitHubActivitySnapshot {
 export function parseCoverageSummary(value: unknown, label: string): CoverageSummaryInput {
   const summary = value as CoverageSummaryJson | null;
   const lines = readCoverageMetric(summary?.total?.lines, label, "lines");
+  const statements = summary?.total?.statements === undefined
+    ? undefined
+    : readCoverageMetric(summary.total.statements, label, "statements");
   const functions = readCoverageMetric(summary?.total?.functions, label, "functions");
-  return { lines, functions };
+  return { lines, ...(statements ? { statements } : {}), functions };
 }
 
 export function normalizeGitHubActivity(snapshot: GitHubActivitySnapshot): ActivityInput {
