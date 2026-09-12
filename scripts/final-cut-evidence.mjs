@@ -36,6 +36,10 @@ const requiredToolResults = [
   ["project.list", "passed"],
   ["project.select", "passed"],
   ["project.inspect", "passed"],
+  ["editor.timeline.edit", "rejected-stale-context"],
+  ["project.inspect", "unchanged"],
+  ["editor.timeline.edit", "rejected-target-mismatch"],
+  ["project.inspect", "unchanged"],
   ["editor.timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
