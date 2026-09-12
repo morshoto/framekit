@@ -2637,17 +2637,21 @@ test("native Final Cut reports directory media import guidance before opening im
     },
   });
 
-  await assert.rejects(adapter.importMedia(directory), (error: unknown) => {
-    assert.ok(error instanceof NativeFinalCutMediaImportDirectoryError);
-    assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT");
-    assert.match(error.message, /editor\.native\.media\.import accepts one readable local media file/);
-    assert.deepEqual(error.guidance, {
-      previewTool: "editor.native.media.directory.preview",
-      executeTool: "editor.native.media.directory.execute",
+  try {
+    await assert.rejects(adapter.importMedia(directory), (error: unknown) => {
+      assert.ok(error instanceof NativeFinalCutMediaImportDirectoryError);
+      assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT");
+      assert.match(error.message, /editor\.native\.media\.import accepts one readable local media file/);
+      assert.deepEqual(error.guidance, {
+        previewTool: "editor.native.media.directory.preview",
+        executeTool: "editor.native.media.directory.execute",
+      });
+      return true;
     });
-    return true;
-  });
-  assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+    assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("native Final Cut preserves explicit command errors over embedded frontmost guards", async () => {
