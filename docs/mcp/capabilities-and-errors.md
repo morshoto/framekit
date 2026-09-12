@@ -58,6 +58,23 @@ The descriptor means:
 - `unavailableReason`: a stable explanation required for unavailable
   operations; unavailable operations must fail with `CAPABILITY_UNAVAILABLE`.
 
+When a capability-gated operation is rejected before its provider is called,
+the MCP error preserves the complete operation descriptor:
+
+```json
+{
+  "code": "CAPABILITY_UNAVAILABLE",
+  "message": "CAPABILITY_UNAVAILABLE: canonical timeline reads are unavailable",
+  "operation": "canonicalDocument.read",
+  "capability": {
+    "available": false,
+    "backend": "workflow-extension-ipc",
+    "guarantee": "none",
+    "unavailableReason": "canonical timeline reads are unavailable"
+  }
+}
+```
+
 The families are:
 
 | Family | Operation examples | Meaning |

@@ -138,6 +138,7 @@ test("project inspection rejects before invoking an unavailable snapshot provide
     readCalls += 1;
     return readProject();
   };
+  adapter.getIdentity = async () => metadataIdentity;
 
   await assert.rejects(new AgentVideoRuntime(adapter).inspectProject(), (error: unknown) => {
     assert.ok(error instanceof Error);

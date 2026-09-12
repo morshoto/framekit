@@ -3,6 +3,7 @@ import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   AgentVideoRuntime,
+  CapabilityUnavailableError,
   createCapabilityPreflight,
   resolveEditingIntent,
   withCanonicalTimelineMode,
@@ -698,6 +699,22 @@ function nativeMediaImportErrorResult(error: unknown) {
   };
 }
 
+function capabilityErrorResult(error: unknown) {
+  if (!(error instanceof CapabilityUnavailableError)) throw error;
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code: error.code,
+        message: error.message,
+        operation: error.operation,
+        capability: error.capability,
+      }),
+    }],
+  };
+}
+
 function isDirectoryMediaImportError(error: unknown): error is Error & {
   code: typeof NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE;
   guidance: { previewTool: string; executeTool: string };
@@ -888,7 +905,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
-  }, async () => jsonResult(await runtime.inspectProject()));
+  }, async () => {
+    try {
+      return jsonResult(await runtime.inspectProject());
+    } catch (error) {
+      return capabilityErrorResult(error);
+    }
+  });
 
   server.registerTool("artifact.inspect", {
     description: "Identify the managed FCPXML artifact used by artifact.edit and artifact.publish.",
