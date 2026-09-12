@@ -974,7 +974,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         try {
           matches = await this.searchMediaNative(name, discoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
         } catch (error) {
-          const code = nativeErrorCode(error);
+          const code = nativeMediaImportErrorCode(error);
           const diagnostics = code === "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT"
             ? await this.readBrowserMediaDiagnostics(name)
             : undefined;
@@ -1030,7 +1030,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT", `Final Cut imported ${name}, but Browser Accessibility did not expose a stable media identity before the ${this.mediaImportDiscoveryTimeoutMs}ms discovery deadline`, true, diagnostics);
     } catch (error) {
       if (error instanceof NativeFinalCutMediaImportError) throw error;
-      fail(nativeErrorCode(error), nativeErrorMessage(error), partialImportPossible);
+      fail(nativeMediaImportErrorCode(error), nativeErrorMessage(error), partialImportPossible);
     }
     return fail("FINAL_CUT_NATIVE_AUTOMATION_FAILED", "native media import ended without a result", partialImportPossible);
   }
@@ -5669,7 +5669,8 @@ function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {
 
 function browserMediaIdentity(match: NativeFinalCutMediaMatch): string | undefined {
   const identity = match.sourceIdentity?.trim();
-  return identity || undefined;
+  if (!identity || identity.startsWith("fcp-ax://browser/")) return undefined;
+  return identity;
 }
 
 function parseOccurrences(output: string, mediaHandle: string): NativeFinalCutOccurrence[] {
@@ -6023,6 +6024,13 @@ function nativeErrorCode(error: unknown): string {
   if (message.includes("-1719") || message.includes("window 1") || message.includes("Invalid index")) return "FINAL_CUT_NATIVE_NOT_FRONTMOST";
   if (message.includes("MODAL")) return "FINAL_CUT_NATIVE_MODAL_BLOCKED";
   return "FINAL_CUT_NATIVE_AUTOMATION_FAILED";
+}
+
+function nativeMediaImportErrorCode(error: unknown): string {
+  const code = nativeErrorCode(error);
+  return code === "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE"
+    ? "FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE"
+    : code;
 }
 
 function nativeErrorMessage(error: unknown): string {
