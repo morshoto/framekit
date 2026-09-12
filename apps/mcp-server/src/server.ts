@@ -8,6 +8,9 @@ import {
   serializeCapabilityUnavailableError,
   withCapabilityFamilies,
   type CapabilityProcessMode,
+  type CapabilityDescriptor,
+  type CapabilityPreflight,
+  type EditorIdentity,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
@@ -26,7 +29,11 @@ import {
   type EditorRoutingContext,
   type EditingRouteOperation,
 } from "./routing.js";
-import { FRAMEKIT_VERSION } from "./version.js";
+import {
+  FRAMEKIT_BUILD_FINGERPRINT,
+  FRAMEKIT_VERSION,
+  type FramekitBuildFingerprint,
+} from "./version.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -676,6 +683,25 @@ function jsonResult(value: unknown) {
   };
 }
 
+function capabilityErrorResult(operation: string, capabilityName: string, capability: CapabilityDescriptor) {
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code: "CAPABILITY_UNAVAILABLE",
+        message: `${operation} requires ${capabilityName}`,
+        operation,
+        capability: capabilityName,
+        available: false,
+        backend: capability.backend,
+        guarantee: capability.guarantee,
+        unavailableReason: capability.unavailableReason,
+      }),
+    }],
+  };
+}
+
 function nativeMediaImportErrorResult(error: unknown) {
   const serialized = serializeNativeFinalCutMediaImportError(error);
   if (serialized) {
@@ -809,7 +835,13 @@ export interface McpConnectionStatus {
   editorDetected?: boolean;
   extensionInstalled?: boolean;
   socketPath?: string | null;
+  identity?: EditorIdentity;
   capabilities?: unknown;
+  preflight?: McpCapabilityPreflight;
+}
+
+export interface McpCapabilityPreflight extends CapabilityPreflight {
+  fingerprint: FramekitBuildFingerprint;
 }
 
 export interface McpServerOptions {
@@ -819,6 +851,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   projectPublisher?: FinalCutProjectPublisher;
   videoExporter?: FinalCutVideoExporter;
+  buildFingerprint?: FramekitBuildFingerprint;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -832,7 +865,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
-  }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
+  }, async () => jsonResult(await effectiveConnectionStatus(runtime, options)));
 
   server.registerTool("skill.list", {
     description: "List registered versioned Framekit Skills with current capability availability.",
@@ -897,7 +930,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
-  }, async () => jsonResult(await runtime.inspectProject()));
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) {
+      return capabilityErrorResult("project.inspect", "canonicalDocument.read", capability);
+    }
+    return jsonResult(await runtime.inspectProject());
+  });
 
   server.registerTool("artifact.inspect", {
     description: "Identify the managed FCPXML artifact used by artifact.edit and artifact.publish.",
@@ -1423,6 +1463,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Search normalized media references by id or source path.",
     inputSchema: { query: z.string() },
   }, async ({ query }) => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.observation.media;
+    if (!capability.available) {
+      return capabilityErrorResult("media.search", "observation.media", capability);
+    }
     try {
       return jsonResult(await runtime.searchMedia(query));
     } catch (error) {
@@ -1735,6 +1780,40 @@ async function connectionStatus(options: McpServerOptions): Promise<McpConnectio
   };
 }
 
+async function effectiveConnectionStatus(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+): Promise<McpConnectionStatus> {
+  const status = await connectionStatus(options);
+  const hasConnectionCapabilities = isRuntimeCapabilities(status.capabilities);
+  if (status.state !== "ready" || (options.connectionStatus && !hasConnectionCapabilities)) {
+    return normalizeConnectionStatus(status) as McpConnectionStatus;
+  }
+
+  try {
+    const inspected = await inspectMcpEditor(runtime, options);
+    return {
+      ...status,
+      identity: inspected.identity,
+      capabilities: inspected.capabilities,
+      preflight: inspected.preflight,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return normalizeConnectionStatus({
+      ...status,
+      state: "unavailable",
+      lastError: {
+        code: "CAPABILITY_UNAVAILABLE",
+        message: `effective runtime capability inspection failed: ${message}`,
+      },
+      identity: undefined,
+      capabilities: undefined,
+      preflight: undefined,
+    }) as McpConnectionStatus;
+  }
+}
+
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
   const native = options.nativeEditor?.capabilities();
@@ -1785,10 +1864,13 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
   return {
     ...inspected,
     capabilities,
-    preflight: createCapabilityPreflight(inspected.identity, capabilities, {
-      processMode: options.processMode ?? (native ? "headed" : "headless"),
-      nativeWrite: Boolean(native?.selectionEdit),
-    }),
+    preflight: {
+      ...createCapabilityPreflight(inspected.identity, capabilities, {
+        processMode: options.processMode ?? (native ? "headed" : "headless"),
+        nativeWrite: Boolean(native?.selectionEdit),
+      }),
+      fingerprint: options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT,
+    } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
 }
@@ -1808,7 +1890,7 @@ async function editingRouteContext(
   runtime: AgentVideoRuntime,
   options: McpServerOptions,
 ): Promise<EditorRoutingContext> {
-  const connection = await connectionStatus(options);
+  const connection = await effectiveConnectionStatus(runtime, options);
   let editor: Awaited<ReturnType<typeof inspectMcpEditor>> | undefined;
   try {
     editor = await inspectMcpEditor(runtime, options);

@@ -52,11 +52,13 @@ extension, or socket must remain an actionable non-ready state;
 `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` and `CAPABILITY_UNAVAILABLE` are not
 successful connections. Live metadata access also does not imply canonical
 timeline snapshot or write capability: inspect the active backend's capability
-flags before using project, timeline, or edit tools.
+flags before using project, timeline, or edit tools. When ready, its effective
+capabilities and `preflight` fingerprint match `editor.inspect`.
 
 Call `editor.inspect` after connecting to read the actionable `preflight` report.
 It identifies the active `mode`, `documentMode`, headed/headless `processMode`,
-and the provider backend, guarantee, or unavailable reason for each operation.
+the package version/source commit fingerprint, and the provider backend,
+guarantee, or unavailable reason for each operation.
 An FCPXML artifact, metadata-only bridge, canonical-live bridge, and headed
 native-write session are distinct modes; one must not be used as evidence for
 another.

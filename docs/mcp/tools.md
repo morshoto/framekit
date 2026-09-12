@@ -195,8 +195,9 @@ It requires `projectCatalogRead` and `projectSelection`, enumerates the live
 catalog, selects the explicit project and sequence, and records only the
 allowlisted IDs, counts, capability payload, Final Cut version, and commit.
 With the bundled metadata-only Workflow Extension it fails closed with
-`CAPABILITY_UNAVAILABLE`; that failure is the expected current result until a
-bridge with real catalog and selection support is installed.
+`CAPABILITY_UNAVAILABLE`; the public host API exposes neither library-wide
+enumeration nor project activation, so that failure remains the expected result
+until a supported provider supplies both capabilities.
 
 `media.search` remains canonical snapshot search. Live Browser import and search
 use the explicit `editor.native.media.*` tools because Browser media identity and
