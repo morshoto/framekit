@@ -207,26 +207,36 @@ checking that the path is a readable file. Other leading-tilde forms fail with
 `INVALID_OPERATION` instead of being silently interpreted relative to the
 working directory. After validation, Framekit opens Final Cut's import UI,
 waits for the basename to appear in Browser search, and returns `mediaHandle`,
-`sourcePath`, `name`, and an inferred `kind` (`video` or `audio`). The returned
-media handle can be passed to `editor.native.media.select` and
-`editor.native.timeline.locate`. The handle is stable for the current native
-session and does not itself insert the asset into the timeline.
+`sourcePath`, the immutable Browser `sourceIdentity`, `name`, an inferred `kind`
+(`video` or `audio`), and a `verification` record. The verification is positive
+only after one newly appearing Browser result has been matched to its immutable
+source identity. The returned media handle can be passed to
+`editor.native.media.select` and `editor.native.timeline.locate`. The handle is
+stable for the current native session and does not itself insert the asset into
+the timeline.
 
 Invalid paths fail before any import UI command. A readable directory is not
 guessed as a file: the MCP response uses
 `FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT` and includes structured guidance for
 `editor.native.media.directory.preview` followed by
-`editor.native.media.directory.execute` with `confirm: true`. If Final Cut does not expose
-the imported asset before the bounded wait expires, Framekit returns
-`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`. If polling finds only pre-existing
-same-name results, it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if
-multiple newly appearing same-name results are found, it returns
+`editor.native.media.directory.execute` with `confirm: true`. Import failures
+include
+`stage`, `elapsedMs`, `stageElapsedMs`, and `partialImportPossible` details in
+their error. Browser discovery failures also include bounded Accessibility
+diagnostics when available, so a caller can distinguish pre-import Browser
+discovery, native import UI, and post-import Browser discovery. If Final Cut
+does not expose the imported asset before the bounded wait expires, Framekit
+returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT` and marks that a
+partial import may exist. If polling finds only pre-existing same-name results,
+it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if multiple newly
+appearing same-name results are found, it returns
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`. A single newly appearing result with
 an immutable source identity is accepted even when a same-name result existed
 before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 If Final Cut does not expose a ready Media Import window, folder sheet, or import
-button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
+button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`
+and marks that the import may have been partially accepted.
 
 To import all supported video files from one directory, first call
 `editor.native.media.directory.preview`:
@@ -255,8 +265,11 @@ confirmation:
 
 Files are imported in preview order. The result contains one entry per file with
 `status: "imported"` and a stable `media.mediaHandle`, or `status: "failed"`
-with an error code and message. `status: "partial"`, `importedCount`, and
-`failedCount` make partial completion explicit; one file failure does not hide
+with an error code, message, and—when native import reached a staged failure—
+the same `details` object described above. Direct
+`editor.native.media.import` failures expose that structured `{ code, message,
+details }` object in the MCP error content. `status: "partial"`,
+`importedCount`, and `failedCount` make partial completion explicit; one file failure does not hide
 the results of other files. The token expires after 30 seconds and is consumed
 by a confirmed execution. This workflow imports Browser media only; it does not
 append anything to the timeline.

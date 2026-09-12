@@ -31,6 +31,8 @@ test("rough-cut headed acceptance is wired as an opt-in MCP runner", async () =>
   assert.match(runner, /sanitizeRoughCutEvidence/);
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_MEDIA_PATH/);
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_MEDIA_DIRECTORY/);
+  assert.match(runner, /result\.sourceIdentity/);
+  assert.match(runner, /post-import-browser-discovery/);
   assert.match(runner, /status: "unrun"/);
   assert.match(runner, /"unavailable"/);
   assert.match(runner, /"failed"/);
@@ -43,5 +45,6 @@ test("rough-cut headed acceptance is wired as an opt-in MCP runner", async () =>
   assert.doesNotMatch(runner, /readdir|execFile|osascript|FCPXML|timeline\.export/);
   assert.match(documentation, /test:final-cut-rough-cut-headed/);
   assert.match(documentation, /headed-native-rough-cut-acceptance/);
+  assert.match(documentation, /sourceIdentity/);
   assert.match(documentation, /unavailable|unrun/i);
 });

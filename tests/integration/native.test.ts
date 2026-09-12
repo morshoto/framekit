@@ -7,6 +7,7 @@ import {
   createNativeOperationLease,
   FinalCutNativeAutomationAdapter,
   NativeFinalCutMediaImportDirectoryError,
+  NativeFinalCutMediaImportError,
 } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 
@@ -2232,9 +2233,17 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   const audio = await adapter.importMedia(audioPath);
   assert.equal(video.name, "interview.mov");
   assert.equal(video.kind, "video");
+  assert.equal(video.sourceIdentity, "file:///imported/interview.mov");
+  assert.deepEqual(video.verification, {
+    verified: true,
+    stage: "post-import-browser-discovery",
+    detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+  });
   assert.equal(video.sourcePath, videoPath);
   assert.equal(audio.name, "music.wav");
   assert.equal(audio.kind, "audio");
+  assert.equal(audio.sourceIdentity, "file:///imported/music.wav");
+  assert.equal(audio.verification.verified, true);
   assert.equal(audio.sourcePath, audioPath);
   assert.notEqual(video.mediaHandle, audio.mediaHandle);
   assert.equal(searchCalls.get("interview.mov"), 2);
@@ -2388,8 +2397,31 @@ test("native Final Cut directory import fails closed and reports partial complet
   const importedPaths: string[] = [];
   adapter.importMedia = async (sourcePath: string) => {
     importedPaths.push(sourcePath);
-    if (sourcePath === failedPath) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4");
-    return { mediaHandle: "media-imported", sourcePath, name: "imported.mov", kind: "video" };
+    if (sourcePath === failedPath) {
+      throw new NativeFinalCutMediaImportError(
+        "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
+        "Final Cut did not expose the imported Browser asset",
+        {
+          stage: "post-import-browser-discovery",
+          elapsedMs: 420,
+          stageElapsedMs: 300,
+          partialImportPossible: true,
+          diagnostics: "Browser > Events",
+        },
+      );
+    }
+    return {
+      mediaHandle: "media-imported",
+      sourcePath,
+      sourceIdentity: `file:///imported/${sourcePath.split("/").pop()}`,
+      name: "imported.mov",
+      kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    };
   };
 
   const preview = await adapter.previewImportMediaDirectory(directory);
@@ -2409,15 +2441,33 @@ test("native Final Cut directory import fails closed and reports partial complet
       name: "failed.mp4",
       status: "failed",
       error: {
-        code: "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE",
-        message: "Error: FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4",
+        code: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
+        message: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT: Final Cut did not expose the imported Browser asset; stage=post-import-browser-discovery; elapsedMs=420; stageElapsedMs=300; partialImportPossible=true; diagnostics=Browser > Events",
+        details: {
+          stage: "post-import-browser-discovery",
+          elapsedMs: 420,
+          stageElapsedMs: 300,
+          partialImportPossible: true,
+          diagnostics: "Browser > Events",
+        },
       },
     },
     {
       sourcePath: importedPath,
       name: "imported.mov",
       status: "imported",
-      media: { mediaHandle: "media-imported", sourcePath: importedPath, name: "imported.mov", kind: "video" },
+      media: {
+        mediaHandle: "media-imported",
+        sourcePath: importedPath,
+        sourceIdentity: `file:///imported/${importedPath.split("/").pop()}`,
+        name: "imported.mov",
+        kind: "video",
+        verification: {
+          verified: true,
+          stage: "post-import-browser-discovery",
+          detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+        },
+      },
     },
   ]);
 });
@@ -2433,7 +2483,18 @@ test("native Final Cut rejects directory imports when files change after preview
   let importCalls = 0;
   adapter.importMedia = async (sourcePath: string) => {
     importCalls += 1;
-    return { mediaHandle: "media-imported", sourcePath, name: sourcePath.split("/").pop()!, kind: "video" };
+    return {
+      mediaHandle: "media-imported",
+      sourcePath,
+      sourceIdentity: `file:///imported/${sourcePath.split("/").pop()}`,
+      name: sourcePath.split("/").pop()!,
+      kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    };
   };
 
   const replacementPreview = await adapter.previewImportMediaDirectory(directory);
@@ -2534,7 +2595,38 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   assert.notEqual(existing.handle, newlyImported.handle);
 });
 
-test("native Final Cut import reports Browser identity loss separately from import UI timeout", async () => {
+test("native Final Cut rejects synthetic Browser identities during import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-synthetic-identity-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "video fixture");
+
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let searchCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searchCalls += 1;
+        if (searchCalls === 1) return "";
+        return `interview.mov${separator}AXBrowserMedia${separator}browser-interview${separator}fcp-ax://browser/events/1|AXBrowserMedia|interview.mov${recordSeparator}`;
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+    assert.ok(error instanceof NativeFinalCutMediaImportError);
+    assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE");
+    assert.equal(error.details.stage, "post-import-browser-discovery");
+    assert.equal(error.details.partialImportPossible, true);
+    return true;
+  });
+});
+
+test("native Final Cut import reports staged Browser discovery timeout diagnostics", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-id-unavailable-"));
   const sourcePath = join(directory, "blue-steel-guitar.wav");
   await writeFile(sourcePath, "audio fixture");
@@ -2549,14 +2641,26 @@ test("native Final Cut import reports Browser identity loss separately from impo
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("collectBrowserMediaDiagnostics")) return `AXRow${separator}blue-steel-guitar.wav${separator}Media item${separator}false${separator}${separator}(100, 200), (300, 80)${separator}Browser > Events${String.fromCharCode(30)}`;
       return "";
     },
   });
 
-  await assert.rejects(
-    adapter.importMedia(sourcePath),
-    /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: Final Cut imported blue-steel-guitar\.wav/,
-  );
+  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+    assert.ok(error instanceof NativeFinalCutMediaImportError);
+    assert.equal(error.details.stage, "post-import-browser-discovery");
+    assert.equal(error.details.elapsedMs, 20);
+    assert.equal(error.details.stageElapsedMs, 20);
+    assert.equal(error.details.partialImportPossible, true);
+    assert.match(error.details.diagnostics ?? "", /^AXRow/);
+    const message = String(error);
+    assert.match(message, /FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT/);
+    assert.match(message, /stage=post-import-browser-discovery/);
+    assert.match(message, /partialImportPossible=true/);
+    assert.match(message, /elapsedMs=20/);
+    assert.match(message, /diagnostics=AXRow/);
+    return true;
+  });
 });
 
 test("native Final Cut import aborts a stalled native executor at its deadline", async () => {
@@ -2583,7 +2687,13 @@ test("native Final Cut import aborts a stalled native executor at its deadline",
     },
   });
 
-  await assert.rejects(adapter.importMedia(sourcePath), /FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT/);
+  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+    const message = String(error);
+    assert.match(message, /FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT/);
+    assert.match(message, /stage=native-import-ui/);
+    assert.match(message, /partialImportPossible=true/);
+    return true;
+  });
   assert.equal(aborted, true);
 });
 

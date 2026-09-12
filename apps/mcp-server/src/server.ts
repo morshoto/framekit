@@ -10,13 +10,14 @@ import {
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
-import { NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE } from "@framekit/final-cut";
-import type {
-  DisposableNativeEditWorkflow,
-  FinalCutProjectPublisher,
-  FinalCutVideoExporter,
-  NativeFinalCutEditor,
-  NativeFinalCutTransitionMatch,
+import {
+  NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
+  serializeNativeFinalCutMediaImportError,
+  type DisposableNativeEditWorkflow,
+  type FinalCutProjectPublisher,
+  type FinalCutVideoExporter,
+  type NativeFinalCutEditor,
+  type NativeFinalCutTransitionMatch,
 } from "@framekit/final-cut";
 import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
@@ -675,6 +676,14 @@ function jsonResult(value: unknown) {
 }
 
 function nativeMediaImportErrorResult(error: unknown) {
+  const serialized = serializeNativeFinalCutMediaImportError(error);
+  if (serialized) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+    };
+  }
+  if (!isDirectoryMediaImportError(error)) throw error;
   const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
   const message = error instanceof Error ? error.message : String(error);
   return {
@@ -973,8 +982,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     try {
       return jsonResult(await options.nativeEditor.importMedia(path));
     } catch (error) {
-      if (isDirectoryMediaImportError(error)) return nativeMediaImportErrorResult(error);
-      throw error;
+      return nativeMediaImportErrorResult(error);
     }
   });
 

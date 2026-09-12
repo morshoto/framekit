@@ -12,6 +12,7 @@ import {
   CommandAudioAnalyzer,
   CommandMetadataAnalyzer,
   NativeFinalCutMediaImportDirectoryError,
+  NativeFinalCutMediaImportError,
 } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
@@ -877,8 +878,14 @@ test("Final Cut MCP imports local media and returns a stable media handle", asyn
     importMedia: async (sourcePath: string) => ({
       mediaHandle: "media-import-stable-video",
       sourcePath,
+      sourceIdentity: "file:///tmp/interview.mov",
       name: "interview.mov",
       kind: "video" as const,
+      verification: {
+        verified: true as const,
+        stage: "post-import-browser-discovery" as const,
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
     }),
   } as unknown as NativeFinalCutEditor;
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
@@ -904,8 +911,60 @@ test("Final Cut MCP imports local media and returns a stable media handle", asyn
     assert.deepEqual(JSON.parse(textFrom(imported)), {
       mediaHandle: "media-import-stable-video",
       sourcePath: "/tmp/interview.mov",
+      sourceIdentity: "file:///tmp/interview.mov",
       name: "interview.mov",
       kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP preserves structured native media import errors", async () => {
+  const importError = new NativeFinalCutMediaImportError(
+    "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
+    "Final Cut did not expose the imported Browser asset",
+    {
+      stage: "post-import-browser-discovery",
+      elapsedMs: 420,
+      stageElapsedMs: 300,
+      partialImportPossible: true,
+      diagnostics: "Browser > Events",
+    },
+  );
+  const nativeEditor = {
+    importMedia: async () => { throw importError; },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Import Error Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "media-import-error-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "editor.native.media.import",
+      arguments: { path: "/tmp/interview.mov" },
+    });
+    assert.equal(response.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(response)), {
+      code: importError.code,
+      message: importError.message,
+      details: importError.details,
     });
   } finally {
     await client.close();

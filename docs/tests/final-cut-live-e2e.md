@@ -369,9 +369,12 @@ non-terminal playhead position. For local media import validation, enable
 native writes,
 call `editor.native.media.import` with one disposable `.mov` and one disposable
 audio file, then pass each returned `mediaHandle` to
-`editor.native.media.select`. Confirm that the returned `sourcePath`, `kind`,
-and stable handle are correct and that an invalid path fails before the import
-dialog opens. For directory import, create a disposable directory containing
+`editor.native.media.select`. Confirm that the returned `sourcePath`, immutable
+`sourceIdentity`, `kind`, and positive
+`verification.stage=post-import-browser-discovery` are correct, and that an
+invalid path fails before the import dialog opens. If discovery fails, preserve
+the staged error details and whether a partial import may exist. For directory
+import, create a disposable directory containing
 two supported video files and one unsupported file, preview it through
 `editor.native.media.directory.preview`, confirm that the list is exact and
 sorted, then execute with `confirm: true` and verify one stable handle per
