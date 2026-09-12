@@ -519,6 +519,18 @@ test("Workflow Extension catalogs project and sequence UIDs from the active libr
   assert.match(swift, /stableSequenceID\(.*\.uid\)/);
 });
 
+test("CodeQL shim mirrors the native project catalog model", async () => {
+  const shim = await readFile(join(
+    process.cwd(),
+    ".github/codeql/FinalCutWorkflowExtensionShim.swift",
+  ), "utf8");
+
+  assert.match(shim, /class FCPXObject[\s\S]*var uid: String!/);
+  assert.match(shim, /class FCPXEvent[\s\S]*var projects: \[FCPXProject\]/);
+  assert.match(shim, /class FCPXLibrary[\s\S]*var events: \[FCPXEvent\]/);
+  assert.match(shim, /class FCPXProject[\s\S]*var sequence: FCPXSequence\?/);
+});
+
 test("Workflow Extension project selection confirms only the exact active target", async () => {
   const swift = await readFile(join(
     process.cwd(),
