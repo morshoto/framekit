@@ -64,9 +64,9 @@ Cut, `editor.canonicalTimelineMode` is one of `metadata-only`,
 `canonical-read`, or `canonical-write`. The mode is derived from the guarantees
 below; a bridge cannot promote itself to `canonical-write` without complete
 snapshot read, canonical mutation, read-after-write, and rollback. The current
-Workflow Extension reports `metadata-only`: `editor.projectRead`,
-`editor.liveStateRead`, and `editor.incrementalChanges` are enabled, while
-complete snapshot and timeline writes remain disabled. An FCPXML document provider reports
+Workflow Extension reports `metadata-only`: `editor.projectRead` is disabled
+because `project.inspect` has no canonical snapshot provider, while
+`editor.liveStateRead` and `editor.incrementalChanges` remain enabled. An FCPXML document provider reports
 `editor.timelineSnapshotRead` and `editor.timelineArtifactWrite`, never
 `editor.timelineWrite`. Analyzer availability is negotiated independently.
 

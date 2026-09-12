@@ -107,7 +107,7 @@ FCPXML artifact results remain separate evidence tiers.
 {
   "editor": {
     "canonicalTimelineMode": "metadata-only",
-    "projectRead": true,
+    "projectRead": false,
     "timelineSnapshotRead": false,
     "timelineWrite": false,
     "timelineArtifactWrite": false,
