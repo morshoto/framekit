@@ -203,13 +203,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t milestone_tags < <(git tag --list 'v*.*.0' --sort=-v:refname)
+          mapfile -t milestone_tags < <(git tag --list 'v*.*.0' --sort=v:refname)
           baseline_tag=""
           for candidate in "${milestone_tags[@]}"; do
-            if [ "${candidate}" != "${RELEASE_TAG}" ]; then
-              baseline_tag="${candidate}"
+            if [ "${candidate}" = "${RELEASE_TAG}" ]; then
               break
             fi
+            baseline_tag="${candidate}"
           done
           if [ -z "${baseline_tag}" ]; then
             echo "No previous milestone tag found for ${RELEASE_TAG}" >&2
