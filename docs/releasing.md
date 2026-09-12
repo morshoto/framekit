@@ -82,6 +82,44 @@ The npm Trusted Publisher relationship is configured in npm account settings;
 repository permissions alone cannot create or repair that relationship. The
 workflow can only use the OIDC identity after the relationship exists.
 
+## Milestone status reports
+
+Patch releases keep the normal lightweight release flow. For a milestone tag
+such as `v0.2.0`, the workflow compares it with the previous patch-zero tag,
+runs the reproducible c8 test-coverage command for both revisions, reads the
+matching GitHub milestone and public activity, and uploads these assets to the
+draft release:
+
+```text
+artifacts/release-report/
+  report.json
+  report.md
+  charts/coverage.svg
+  charts/roadmap-progress.svg
+  charts/contributors.svg
+```
+
+The same report can be regenerated locally from explicit coverage summaries and
+an optional saved GitHub snapshot:
+
+```sh
+C8_REPORTS_DIR=artifacts/release-report/current-coverage pnpm run test:coverage
+pnpm run release-report -- \
+  --baseline-tag v0.1.0 \
+  --current-tag v0.2.0 \
+  --baseline-coverage artifacts/release-report/baseline-coverage/coverage-summary.json \
+  --current-coverage artifacts/release-report/current-coverage/coverage-summary.json \
+  --data-file github-release-data.json \
+  --output-dir artifacts/release-report
+```
+
+Without `--data-file`, the generator uses `gh api` for the public GitHub
+milestone, merged pull requests, and closed issues in the exact tag window.
+The roadmap percentage is based on the GitHub milestone's closed and open issue
+counts; contributor totals exclude accounts marked as bots or ending in
+`[bot]`. The report has no generated timestamp, so identical inputs produce
+identical JSON, Markdown, and SVG output.
+
 ## Local validation
 
 Run the standard checks before merging a release pull request:
