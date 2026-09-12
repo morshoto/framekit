@@ -32,6 +32,17 @@ export function validateReleaseRunnerAvailability(runners) {
   return selected;
 }
 
+function runnersFromApiPayload(payload) {
+  if (!Array.isArray(payload)) {
+    return payload?.runners;
+  }
+
+  const pages = payload.filter((page) => Array.isArray(page?.runners));
+  return pages.length > 0
+    ? pages.flatMap((page) => page.runners)
+    : payload;
+}
+
 async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) {
@@ -42,7 +53,7 @@ async function readStdin() {
 
 async function validateRunnerApiResponse() {
   const payload = JSON.parse(await readStdin());
-  const runners = Array.isArray(payload) ? payload : payload?.runners;
+  const runners = runnersFromApiPayload(payload);
   const selected = validateReleaseRunnerAvailability(runners);
   process.stdout.write(`Release runner available: ${selected.name ?? selected.id}\n`);
 }

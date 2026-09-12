@@ -152,6 +152,7 @@ test("release workflow preflights the required native runner", async () => {
   assert.match(preflightJob, /actions: read/);
   assert.match(preflightJob, /actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)/);
   assert.match(preflightJob, /actions\/runners\?per_page=100/);
+  assert.match(preflightJob, /gh api --paginate --slurp/);
   assert.match(preflightJob, /node scripts\/check-release-runner\.mjs/);
 
   const nativeJob = workflow.slice(nativePackaging, publication);

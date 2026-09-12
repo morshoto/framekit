@@ -74,6 +74,16 @@ test("release runner checker accepts the API response on stdin", async () => {
   assert.match(result.stdout, /Release runner available: framekit-release-mac/);
 });
 
+test("release runner checker accepts an eligible runner on a later API page", async () => {
+  const result = await runChecker([
+    { runners: [runner({ id: 1, status: "offline" })] },
+    { runners: [runner({ id: 236 })] },
+  ]);
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Release runner available: framekit-release-mac/);
+});
+
 test("release runner checker fails closed for an empty API response", async () => {
   const result = await runChecker({ runners: [] });
 

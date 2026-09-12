@@ -98,7 +98,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
             | node scripts/check-release-runner.mjs
 
   native-release-assets:
