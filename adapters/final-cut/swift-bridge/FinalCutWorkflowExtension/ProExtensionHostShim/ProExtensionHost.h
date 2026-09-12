@@ -3,6 +3,8 @@
 
 @class FCPXSequence;
 @class FCPXProject;
+@class FCPXEvent;
+@class FCPXLibrary;
 @class FCPXTimeline;
 
 @protocol FCPXTimelineObserver <NSObject>
@@ -15,6 +17,7 @@
 @interface FCPXObject : NSObject
 @property(nonatomic, readonly) FCPXObject * _Nullable container;
 @property(nonatomic, readonly) NSString *name;
+@property(nonatomic, readonly) NSString *uid;
 @end
 
 @interface FCPXSequence : FCPXObject
@@ -24,8 +27,15 @@
 @end
 
 @interface FCPXProject : FCPXObject
-@property(nonatomic, readonly) NSString *uid;
-@property(nonatomic, readonly) FCPXSequence *sequence;
+@property(nonatomic, readonly) FCPXSequence * _Nullable sequence;
+@end
+
+@interface FCPXEvent : FCPXObject
+@property(nonatomic, readonly) NSArray<FCPXProject *> *projects;
+@end
+
+@interface FCPXLibrary : FCPXObject
+@property(nonatomic, readonly) NSArray<FCPXEvent *> *events;
 @end
 
 @interface FCPXTimeline : NSObject

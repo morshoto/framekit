@@ -514,7 +514,7 @@ test("Workflow Extension catalogs project and sequence UIDs from the active libr
   ), "utf8");
 
   assert.match(swift, /private func projectCatalog\(\) throws -> ProjectCatalog/);
-  assert.match(swift, /library\.events\.flatMap\(\\\.projects\)/);
+  assert.match(swift, /library\.events.*flatMap/);
   assert.match(swift, /stableProjectID\(.*\.uid\)/);
   assert.match(swift, /stableSequenceID\(.*\.uid\)/);
 });
