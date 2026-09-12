@@ -61,6 +61,36 @@ try {
   if (!target) throw new Error(`FINAL_CUT_E2E_CLIP_MISMATCH: ${clipId} is not in the selected timeline`);
   const beforeDigest = canonicalDigest(before);
 
+  await expectToolError("editor.timeline.edit", {
+    projectId: before.projectId,
+    sequenceId: before.timeline.id,
+    type: "rename-clip",
+    clipId,
+    name: `${target.name} [Stale Probe]`,
+    baseRevision: { ...before.revision, id: `stale:${before.revision.id}` },
+  }, "STALE_CONTEXT");
+  toolResults.push({ name: "editor.timeline.edit", status: "rejected-stale-context" });
+  const afterStaleProbe = await callJson("project.inspect");
+  if (canonicalDigest(afterStaleProbe) !== beforeDigest || !sameRevision(afterStaleProbe.revision, before.revision)) {
+    throw new Error("FINAL_CUT_E2E_STALE_PROBE_MUTATED: stale revision rejection changed canonical state");
+  }
+  toolResults.push({ name: "project.inspect", status: "unchanged" });
+
+  await expectToolError("editor.timeline.edit", {
+    projectId: "framekit:e2e:wrong-project",
+    sequenceId: before.timeline.id,
+    type: "rename-clip",
+    clipId,
+    name: `${target.name} [Target Probe]`,
+    baseRevision: before.revision,
+  }, "TARGET_MISMATCH");
+  toolResults.push({ name: "editor.timeline.edit", status: "rejected-target-mismatch" });
+  const afterTargetProbe = await callJson("project.inspect");
+  if (canonicalDigest(afterTargetProbe) !== beforeDigest || !sameRevision(afterTargetProbe.revision, before.revision)) {
+    throw new Error("FINAL_CUT_E2E_TARGET_PROBE_MUTATED: target rejection changed canonical state");
+  }
+  toolResults.push({ name: "project.inspect", status: "unchanged" });
+
   const transaction = await callJson("editor.timeline.edit", {
     projectId: before.projectId,
     sequenceId: before.timeline.id,
@@ -124,6 +154,15 @@ async function callJson(name, arguments_ = {}) {
   }
 }
 
+async function expectToolError(name, arguments_, expectedCode) {
+  const result = await client.callTool({ name, arguments: arguments_ });
+  const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+  if (!result.isError) throw new Error(`${name} unexpectedly succeeded`);
+  if (!text.includes(expectedCode)) {
+    throw new Error(`${name} returned the wrong failure code; expected ${expectedCode}`);
+  }
+}
+
 function canonicalDigest(snapshot) {
   return createHash("sha256").update(stableJson({
     projectId: snapshot.projectId,
@@ -144,4 +183,10 @@ function stableJson(value) {
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function sameRevision(left, right) {
+  return left?.id === right?.id
+    && left?.sequence === right?.sequence
+    && left?.timestamp === right?.timestamp;
 }

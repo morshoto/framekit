@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release-tag: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+      milestone-release: ${{ steps.classify.outputs.milestone }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -77,6 +78,19 @@ jobs:
         uses: Songmu/tagpr@7ebae2dcc300132baa7cc9dd108c8923b07fc366 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
+
+      - id: classify
+        name: Classify milestone release
+        env:
+          RELEASE_TAG: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.0$ ]]; then
+            echo "milestone=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "milestone=false" >> "$GITHUB_OUTPUT"
+          fi
 
   native-release-assets:
     if: needs.tagpr.outputs.release-tag != ''
@@ -144,12 +158,98 @@ jobs:
           upload_asset "${archive_name}" "application/zip" "${FRAMEKIT_RELEASE_DIR}/${archive_name}"
           upload_asset "${checksum_name}" "text/plain" "${FRAMEKIT_RELEASE_DIR}/${checksum_name}"
 
+  milestone-report:
+    if: needs.tagpr.outputs.release-tag != ''
+    needs: tagpr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Skip milestone report for patch release
+        if: needs.tagpr.outputs.milestone-release != 'true'
+        run: echo "Patch release; skipping milestone report generation."
+
+      - name: Check out release tag
+        if: needs.tagpr.outputs.milestone-release == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.tagpr.outputs.release-tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        if: needs.tagpr.outputs.milestone-release == 'true'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Set up Node.js
+        if: needs.tagpr.outputs.milestone-release == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+
+      - name: Install dependencies
+        if: needs.tagpr.outputs.milestone-release == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate and attach milestone report
+        if: needs.tagpr.outputs.milestone-release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t milestone_tags < <(git tag --list 'v*.*.0' --sort=v:refname)
+          baseline_tag=""
+          for candidate in "${milestone_tags[@]}"; do
+            if [ "${candidate}" = "${RELEASE_TAG}" ]; then
+              break
+            fi
+            baseline_tag="${candidate}"
+          done
+          if [ -z "${baseline_tag}" ]; then
+            echo "No previous milestone tag found for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          current_coverage="${RUNNER_TEMP}/framekit-current-coverage"
+          baseline_coverage="${RUNNER_TEMP}/framekit-baseline-coverage"
+          baseline_worktree="${RUNNER_TEMP}/framekit-baseline-worktree"
+          C8_REPORTS_DIR="${current_coverage}" pnpm run test:coverage
+          git worktree add --detach "${baseline_worktree}" "${baseline_tag}"
+          trap 'git worktree remove --force "${baseline_worktree}"' EXIT
+          pnpm --dir "${baseline_worktree}" install --frozen-lockfile
+          pnpm exec c8 \
+            --reporter=json-summary \
+            --reporter=text \
+            --reports-dir "${baseline_coverage}" \
+            pnpm --dir "${baseline_worktree}" test
+          pnpm run release-report -- \
+            --baseline-tag "${baseline_tag}" \
+            --current-tag "${RELEASE_TAG}" \
+            --baseline-coverage "${baseline_coverage}/coverage-summary.json" \
+            --current-coverage "${current_coverage}/coverage-summary.json" \
+            --output-dir artifacts/release-report
+          gh release upload "${RELEASE_TAG}" \
+            artifacts/release-report/report.json \
+            artifacts/release-report/report.md \
+            artifacts/release-report/charts/coverage.svg \
+            artifacts/release-report/charts/roadmap-progress.svg \
+            artifacts/release-report/charts/contributors.svg \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+
   publish-npm:
     if: needs.tagpr.outputs.release-tag != ''
     needs:
       - tagpr
       - validate-codex-plugin
       - native-release-assets
+      - milestone-report
     runs-on: ubuntu-latest
     permissions:
       contents: write

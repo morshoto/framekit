@@ -7,14 +7,15 @@ test("deterministic MCP evaluation covers editing workflows and reports actionab
 
   assert.equal(report.correctness.failed, 0);
   assert.equal(report.correctness.rate, 1);
-  assert.equal(report.capability.supported, 14);
-  assert.equal(report.capability.unavailable, 4);
-  assert.equal(report.capability.coverageRate, 14 / 18);
+  assert.equal(report.capability.supported, 15);
+  assert.equal(report.capability.unavailable, 3);
+  assert.equal(report.capability.coverageRate, 15 / 18);
   assert.equal(report.scenarioConsistency.rate, 1);
   assert.deepEqual(Object.keys(report.byCategory).sort(), [
     "editing",
     "failure-path",
     "media",
+    "mvp-workflow",
     "project",
     "publishing",
     "workflow-assets",
@@ -23,14 +24,40 @@ test("deterministic MCP evaluation covers editing workflows and reports actionab
   assert.ok(report.byCategory["failure-path"].total >= 2);
   assert.equal(report.byCategory["workflow-assets"].supported, 3);
   assert.equal(report.byCategory["workflow-assets"].unavailable, 2);
+  assert.equal(report.byCategory["mvp-workflow"].correctnessRate, 1);
   assert.ok(report.scenarios.some((scenario) => scenario.id === "artifact-publish-capability"
     && scenario.intent === "Publish the verified FCPXML artifact as a new project"));
-  assert.equal(report.scenarios.some((scenario) => scenario.id === "export-capability"), false);
+  const mvpWorkflow = report.scenarios.find((scenario) => scenario.id === "basic-editing-mvp-workflow") as
+    | (typeof report.scenarios[number] & { tools?: string[]; operations?: string[] })
+    | undefined;
+  assert.ok(mvpWorkflow?.passed);
+  assert.deepEqual(mvpWorkflow.tools, [
+    "connection.status",
+    "editor.inspect",
+    "project.inspect",
+    "context.inspect",
+    "editor.assets",
+    "editor.timeline.edit.preview",
+    "editor.timeline.edit.execute",
+    "media.inspect",
+    "edit.diff",
+    "edit.verify",
+    "timeline.export",
+    "edit.undo",
+  ]);
+  assert.deepEqual(mvpWorkflow.operations, [
+    "media.import",
+    "timeline.media.add",
+    "trim-clip",
+    "media.import",
+    "timeline.media.add",
+    "timeline.title.add",
+  ]);
   assert.ok(report.scenarios.some((scenario) => scenario.id === "undo-verified" && scenario.passed && scenario.support === "supported"));
 
   const rendered = renderEvaluationReport(report);
   assert.match(rendered, /MCP evaluation/);
   assert.match(rendered, /correctness_rate=100\.0%/);
-  assert.match(rendered, /capability_coverage=77\.8%/);
+  assert.match(rendered, /capability_coverage=83\.3%/);
   assert.match(rendered, /scenario_consistency_rate=100\.0%/);
 });

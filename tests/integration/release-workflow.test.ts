@@ -6,6 +6,52 @@ import { fileURLToPath } from "node:url";
 import { validateReleaseContract } from "../../scripts/validate-release-contract.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const releaseConfigPath = resolve(repository, ".github/release.yml");
+
+const expectedReleaseCategories = [
+  { title: "✨ Features", labels: ["Type: New Feature"] },
+  { title: "🐛 Fixes", labels: ["Problem: Bug"] },
+  { title: "🧰 Maintenance & Internal", labels: ["*"] },
+];
+
+type ReleaseCategory = {
+  title: string;
+  labels: string[];
+};
+
+function parseReleaseCategories(config: string): ReleaseCategory[] {
+  const categories: ReleaseCategory[] = [];
+  let currentCategory: ReleaseCategory | undefined;
+
+  for (const line of config.split(/\r?\n/)) {
+    const title = line.match(/^ {4}- title: ["'](.+)["']$/)?.[1];
+    if (title) {
+      currentCategory = { title, labels: [] };
+      categories.push(currentCategory);
+      continue;
+    }
+
+    const label = line.match(/^ {8}- ["'](.+)["']$/)?.[1];
+    if (label && currentCategory) currentCategory.labels.push(label);
+  }
+
+  return categories;
+}
+
+function parseExcludedLabels(config: string): string[] {
+  const categoriesStart = config.indexOf("  categories:");
+  const exclusions = categoriesStart === -1 ? config : config.slice(0, categoriesStart);
+
+  return exclusions.split(/\r?\n/)
+    .map((line) => line.match(/^ {6}- (.+)$/)?.[1])
+    .filter((label): label is string => label !== undefined);
+}
+
+function categorizeRelease(labels: string[], categories: ReleaseCategory[]): string | undefined {
+  return categories.find((category) => (
+    category.labels.includes("*") || labels.some((label) => category.labels.includes(label))
+  ))?.title;
+}
 
 const canonicalManifest = {
   name: "@morshoto/framekit",
@@ -245,4 +291,31 @@ test("release documentation provides the exact npm trust command", async () => {
   assert.match(documentation, /--file\s+release\.yml/);
   assert.match(documentation, /--allow-publish/);
   assert.match(documentation, /--yes/);
+});
+
+test("release notes classify representative v0.1.7 changes by label", async () => {
+  const config = await readFile(releaseConfigPath, "utf8");
+  const categories = parseReleaseCategories(config);
+
+  assert.deepEqual(categories, expectedReleaseCategories);
+
+  const representativeChanges = [
+    { pullRequest: 220, labels: ["Type: New Feature"], category: "✨ Features" },
+    { pullRequest: 228, labels: ["Problem: Bug"], category: "🐛 Fixes" },
+    { pullRequest: 226, labels: ["Type: Document"], category: "🧰 Maintenance & Internal" },
+  ];
+
+  for (const change of representativeChanges) {
+    assert.equal(
+      categorizeRelease(change.labels, categories),
+      change.category,
+      `PR #${change.pullRequest} should use its label category`,
+    );
+  }
+});
+
+test("release notes continue excluding Tag PRs", async () => {
+  const config = await readFile(releaseConfigPath, "utf8");
+
+  assert.deepEqual(parseExcludedLabels(config), ["tagpr"]);
 });
