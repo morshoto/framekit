@@ -2204,7 +2204,19 @@ test("native Final Cut directory import fails closed and reports partial complet
   const importedPaths: string[] = [];
   adapter.importMedia = async (sourcePath: string) => {
     importedPaths.push(sourcePath);
-    if (sourcePath === failedPath) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4");
+    if (sourcePath === failedPath) {
+      throw new NativeFinalCutMediaImportError(
+        "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
+        "Final Cut did not expose the imported Browser asset",
+        {
+          stage: "post-import-browser-discovery",
+          elapsedMs: 420,
+          stageElapsedMs: 300,
+          partialImportPossible: true,
+          diagnostics: "Browser > Events",
+        },
+      );
+    }
     return {
       mediaHandle: "media-imported",
       sourcePath,
@@ -2236,8 +2248,15 @@ test("native Final Cut directory import fails closed and reports partial complet
       name: "failed.mp4",
       status: "failed",
       error: {
-        code: "FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE",
-        message: "Error: FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: failed.mp4",
+        code: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
+        message: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT: Final Cut did not expose the imported Browser asset; stage=post-import-browser-discovery; elapsedMs=420; stageElapsedMs=300; partialImportPossible=true; diagnostics=Browser > Events",
+        details: {
+          stage: "post-import-browser-discovery",
+          elapsedMs: 420,
+          stageElapsedMs: 300,
+          partialImportPossible: true,
+          diagnostics: "Browser > Events",
+        },
       },
     },
     {
