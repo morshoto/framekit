@@ -2317,10 +2317,14 @@ test("native Final Cut resolves relative paths from the process cwd", async () =
     },
   });
 
-  const imported = await adapter.importMedia(relative(process.cwd(), sourcePath));
+  try {
+    const imported = await adapter.importMedia(relative(process.cwd(), sourcePath));
 
-  assert.equal(imported.sourcePath, sourcePath);
-  assert.equal(imported.name, "relative-import.mov");
+    assert.equal(imported.sourcePath, sourcePath);
+    assert.equal(imported.name, "relative-import.mov");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("native Final Cut previews top-level supported video files in deterministic order without native mutation", async () => {
