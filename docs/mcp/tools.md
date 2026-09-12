@@ -89,7 +89,7 @@ this routing tool.
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
 | `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
-| `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
+| `media.search` | Search media references | Requires `observation.media`; unavailable sessions return structured `CAPABILITY_UNAVAILABLE`; capable sessions may return `[]` |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |

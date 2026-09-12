@@ -5,6 +5,7 @@ import {
   AgentVideoRuntime,
   createCapabilityPreflight,
   resolveEditingIntent,
+  serializeCapabilityUnavailableError,
   withCapabilityFamilies,
   type CapabilityProcessMode,
   type RuntimeCapabilities,
@@ -694,6 +695,15 @@ function nativeMediaImportErrorResult(error: unknown) {
         guidance: error.guidance,
       }),
     }],
+  };
+}
+
+function capabilityUnavailableErrorResult(error: unknown) {
+  const serialized = serializeCapabilityUnavailableError(error);
+  if (!serialized) throw error;
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
   };
 }
 
@@ -1412,7 +1422,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("media.search", {
     description: "Search normalized media references by id or source path.",
     inputSchema: { query: z.string() },
-  }, async ({ query }) => jsonResult(await runtime.searchMedia(query)));
+  }, async ({ query }) => {
+    try {
+      return jsonResult(await runtime.searchMedia(query));
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("media.index", {
     description: "Query analyzed media by semantic properties, source identity, capabilities, and usable ranges.",
