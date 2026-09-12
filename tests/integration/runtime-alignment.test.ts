@@ -113,7 +113,7 @@ test("metadata-only project and media operations return structured capability fa
       code: "CAPABILITY_UNAVAILABLE",
       operation: "media.search",
       capability: "observation.media",
-      backend: "final-cut-session",
+      backend: "workflow-extension-ipc",
       guarantee: "none",
       unavailableReason: "media observation is unavailable",
     });
