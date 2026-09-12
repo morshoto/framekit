@@ -2,3 +2,13 @@ changelog:
   exclude:
     labels:
       - tagpr
+  categories:
+    - title: "✨ Features"
+      labels:
+        - "Type: New Feature"
+    - title: "🐛 Fixes"
+      labels:
+        - "Problem: Bug"
+    - title: "🧰 Maintenance & Internal"
+      labels:
+        - "*"
