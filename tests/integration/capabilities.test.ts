@@ -535,6 +535,15 @@ test("Workflow Extension does not advertise unsupported project catalog operatio
   assert.match(swift, /projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable"/);
 });
 
+test("canonical native provider declares unavailable project selection mode", async () => {
+  const canonical = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/typescript/src/canonical.ts",
+  ), "utf8");
+
+  assert.match(canonical, /projectCatalogRead: true,\s*projectSelection: false,\s*projectSelectionMode: "unavailable"/);
+});
+
 test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
   const swift = await readFile(join(
     process.cwd(),
