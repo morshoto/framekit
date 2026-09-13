@@ -128,6 +128,24 @@ test("Final Cut asset discovery uses native Browser only when explicitly request
   assert.equal(nativeCalls, 1);
 });
 
+test("Final Cut native title discovery fails closed without a provider", async () => {
+  const registry = new FinalCutAssetRegistry({ roots: [] });
+
+  await assert.rejects(
+    registry.listAssets({ kind: "title", discovery: "native" }),
+    /CAPABILITY_UNAVAILABLE: native title discovery is not configured/,
+  );
+});
+
+test("Final Cut native transition discovery fails closed without a provider", async () => {
+  const registry = new FinalCutAssetRegistry({ roots: [] });
+
+  await assert.rejects(
+    registry.listAssets({ kind: "transition", discovery: "native" }),
+    /CAPABILITY_UNAVAILABLE: native transition discovery is not configured/,
+  );
+});
+
 test("Final Cut asset discovery detects changed template metadata", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-template-cache-"));
   const bundle = join(root, "Titles.localized", "Lower Third.moti");
