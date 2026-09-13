@@ -242,6 +242,35 @@ test("capability normalization invalidates stale background media descriptors", 
   });
 });
 
+test("capability normalization preserves an explicit background library descriptor", () => {
+  const background = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      backgroundLibraryInspection: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, {
+    backend: "final-cut-session",
+    observation: {
+      library: {
+        available: true,
+        backend: "final-cut-background-library",
+        guarantee: "observed",
+      },
+    },
+  });
+  const legacyEditor = { ...background.editor };
+  Reflect.deleteProperty(legacyEditor, "backgroundLibraryInspection");
+
+  const normalized = withCanonicalTimelineMode({ ...background, editor: legacyEditor });
+
+  assert.deepEqual(normalized.families?.observation.library, {
+    available: true,
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
+});
+
 test("unavailable capability operations explain their fail-closed reason", () => {
   const capabilities = withCapabilityFamilies(metadataOnlyCapabilities, { backend: "workflow-extension-ipc" });
 
