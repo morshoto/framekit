@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import type { MediaContext, MediaSearchQuery } from "@framekit/runtime";
 
@@ -71,9 +72,11 @@ export class FinalCutMediaRegistry {
     const files = await discoverFiles(this.roots);
     const signature = files.map((file) => `${file.path}:${file.sizeBytes}:${file.modifiedAt}`).join("\n");
     if (!this.cached || this.cached.signature !== signature) {
+      const media: MediaContext[] = [];
+      for (const file of files) media.push(await mediaFromFile(file));
       this.cached = {
         signature,
-        media: await Promise.all(files.map((file) => mediaFromFile(file))),
+        media,
       };
     }
     return filterMedia(this.cached.media, query);
@@ -120,12 +123,11 @@ async function walk(path: string, files: DiscoveredFile[]): Promise<void> {
 
 async function mediaFromFile(file: DiscoveredFile): Promise<MediaContext> {
   const extension = extname(file.path).toLowerCase();
-  const contents = await readFile(file.path);
   return {
     mediaId: `filesystem:media:${file.path}`,
     source: file.path,
     mediaKind: MEDIA_KIND_BY_EXTENSION[extension],
-    sourceDigest: createHash("sha256").update(contents).digest("hex"),
+    sourceDigest: await digestFile(file.path),
     sourceMetadata: {
       fileName: basename(file.path),
       extension,
@@ -139,6 +141,12 @@ async function mediaFromFile(file: DiscoveredFile): Promise<MediaContext> {
       source: "filesystem",
     },
   };
+}
+
+async function digestFile(path: string): Promise<string> {
+  const digest = createHash("sha256");
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return digest.digest("hex");
 }
 
 function filterMedia(media: MediaContext[], query?: MediaSearchQuery): MediaContext[] {
