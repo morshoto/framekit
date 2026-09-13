@@ -136,7 +136,7 @@ test("MCP exposes guarded music preview, execute, verification, and undo", async
     const undone = JSON.parse(textFrom(await client.callTool({
       name: "edit.undo",
       arguments: { transactionId: transaction.id },
-    }))); 
+    })));
     assert.deepEqual(undone.timeline.clips, before.timeline.clips);
     assert.deepEqual(undone.media, before.media);
     assert.equal(undone.provenance.surface, "live-timeline");
