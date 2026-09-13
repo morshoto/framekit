@@ -895,6 +895,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const gain = firstChild(node, "adjust-volume");
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
+    const role = kind === "audio" ? audioRoleFromXml(node) : undefined;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
@@ -907,7 +908,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       duration: rationalSeconds(durationTime),
       ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
-      ...(kind === "audio" ? { role: "audio" as const } : {}),
+      ...(role !== undefined ? { role } : {}),
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       startTime,
       durationTime,
@@ -1092,6 +1093,13 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
     ...(fadeIn ? { fadeIn: parseSeconds(attribute(fadeIn, "duration") ?? "0s") } : {}),
     ...(fadeOut ? { fadeOut: parseSeconds(attribute(fadeOut, "duration") ?? "0s") } : {}),
   };
+}
+
+function audioRoleFromXml(node: XmlNode): "audio" | "music" {
+  const role = attribute(node, "role");
+  if (role === undefined || role === "audio") return "audio";
+  if (role === "music") return "music";
+  throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);
 }
 
 function textChildValue(node: XmlNode, kind: string): string | undefined {
