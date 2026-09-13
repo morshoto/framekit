@@ -52,10 +52,11 @@ test("background and native safety requirements are explicit", async () => {
 
 test("provider boundary documentation is linked from architecture and Final Cut indexes", async () => {
   const documentation = await readBoundaryDocument();
-  const [architectureIndex, finalCutIndex, capabilityModel] = await Promise.all([
+  const [architectureIndex, finalCutIndex, capabilityModel, mcpCapabilities] = await Promise.all([
     readFile(join(repositoryRoot, "docs/architecture/README.md"), "utf8"),
     readFile(join(repositoryRoot, "docs/final-cut/README.md"), "utf8"),
     readFile(join(repositoryRoot, "docs/architecture/capability-model.md"), "utf8"),
+    readFile(join(repositoryRoot, "docs/mcp/capabilities-and-errors.md"), "utf8"),
   ]);
 
   assert.match(documentation, /non-ui-timeline-snapshot-investigation\.md/);
@@ -63,4 +64,5 @@ test("provider boundary documentation is linked from architecture and Final Cut 
   assert.match(architectureIndex, /final-cut-provider-boundaries\.md/);
   assert.match(finalCutIndex, /final-cut-provider-boundaries\.md/);
   assert.match(capabilityModel, /final-cut-provider-boundaries\.md/);
+  assert.match(mcpCapabilities, /\.\.\/architecture\/final-cut-provider-boundaries\.md/);
 });
