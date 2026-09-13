@@ -100,6 +100,7 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
         ? previous.observation.media
         : false,
       assets: normalized.editor.assetDiscovery ? previous.observation.assets : false,
+      library: normalized.editor.backgroundLibraryInspection ? previous.observation.library : false,
     },
     canonicalDocument: {
       read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
@@ -161,6 +162,11 @@ export function withCapabilityFamilies(
 ): VersionedRuntimeCapabilities {
   const previous = capabilities.families;
   const backend = options.backend ?? previous?.connection.status.backend ?? "unknown";
+  const configuredLibrary = options.observation?.library;
+  const backgroundLibraryInspection = capabilities.editor.backgroundLibraryInspection
+    ?? (typeof configuredLibrary === "boolean" ? configuredLibrary : configuredLibrary?.available)
+    ?? previous?.observation.library.available
+    ?? false;
   const normalized = {
     ...capabilities,
     schemaVersion: CAPABILITY_SCHEMA_VERSION,
@@ -169,6 +175,7 @@ export function withCapabilityFamilies(
       projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
       projectSelectionMode: projectSelectionMode(capabilities.editor),
+      backgroundLibraryInspection,
     },
   };
   const editor = normalized.editor;
@@ -222,6 +229,12 @@ export function withCapabilityFamilies(
         backend,
         "observed",
         "asset discovery is unavailable",
+      ),
+      library: descriptorFrom(
+        options.observation?.library ?? backgroundLibraryInspection,
+        backend,
+        "observed",
+        "background library inspection is unavailable",
       ),
     },
     canonicalDocument: {
