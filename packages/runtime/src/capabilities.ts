@@ -84,7 +84,13 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
       visualTrack: previous.analyzers.visualTrack.backend,
     },
     connection: previous.connection.status,
-    observation: previous.observation,
+    observation: {
+      media: normalized.editor.timelineSnapshotRead && normalized.editor.projectRead
+        || normalized.editor.backgroundMediaDiscovery
+        ? previous.observation.media
+        : false,
+      assets: normalized.editor.assetDiscovery ? previous.observation.assets : false,
+    },
     canonicalDocument: {
       read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
       write: refreshDescriptor(canonicalWrite, previous.canonicalDocument.write, "canonical-write", "canonical timeline writes are unavailable"),
