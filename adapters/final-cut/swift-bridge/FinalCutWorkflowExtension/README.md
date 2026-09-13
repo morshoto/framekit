@@ -69,6 +69,9 @@ does not expose an immutable sequence UID, library-wide enumeration, or project
 activation. Callers receive `CAPABILITY_UNAVAILABLE` rather than an inferred
 project browser.
 
+The current-version native write and Undo investigation is recorded in
+[Native write and Undo investigation](../../../../docs/final-cut/native-write-undo-investigation.md).
+
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`
 installs the containing app into the user's Applications directory and
