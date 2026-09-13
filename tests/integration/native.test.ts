@@ -10,6 +10,7 @@ import {
   NativeFinalCutMediaImportError,
 } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
+import { finalCutBrowserSearchAccessibilityFixture } from "../fixtures/final-cut-browser-search-accessibility.js";
 
 const separator = String.fromCharCode(31);
 
@@ -1699,7 +1700,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /set candidateItems to UI elements of containerItem/);
   assert.match(searchScript, /set candidatePath to browserPath & "\/" & \(candidateIndex as text\)/);
   assert.match(searchScript, /if depth > 12 then return ""/);
-  assert.equal(searchScript.includes('value of attribute "AXFocusedUIElement"'), false);
+  const toggleFocusGuardIndex = searchScript.indexOf("if searchButtonIsToggle then");
+  const focusedCandidateIndex = searchScript.indexOf('set focusedCandidate to value of attribute "AXFocusedUIElement"');
+  assert.ok(toggleFocusGuardIndex >= 0);
+  assert.ok(focusedCandidateIndex > toggleFocusGuardIndex);
   assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 1);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
@@ -1827,6 +1831,113 @@ test("native Final Cut Browser search stays scoped to Accessibility relationship
   assert.equal(searchFieldSection.includes("searchOffset"), false);
   assert.equal(searchFieldSection.includes("click at"), false);
   assert.equal(searchFieldSection.includes("coordinate fallback"), false);
+});
+
+test("native Final Cut current Browser layout reveals its custom search field", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("set value of searchField to searchQuery")) return serializeBrowserFixture();
+      if (script.includes("set frontWindow to window \"Final Cut Pro\"") || script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", "", 0, false);
+      }
+      return "";
+    },
+  });
+
+  const matches = await adapter.searchMedia("Blue Steel Guitar");
+  assert.equal(matches.length, 2);
+
+  const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
+  assert.ok(searchScript);
+  assert.match(searchScript, /on browserSearchToggle\(candidate\)/);
+  assert.match(searchScript, /on browserSearchRootForToggle\(browserContainer\)/);
+  assert.match(searchScript, /on findBrowserMediaRoot\(containerItem, depth\)/);
+  assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
+  assert.match(searchScript, /candidateText contains "toggle search bar"/);
+  assert.match(searchScript, /set searchControlResult to my findBrowserSearchToggle\(mainWindow, 0, false, missing value\)/);
+  assert.match(searchScript, /if searchControlResult is missing value then\n        if my revealBrowser\(mainWindow, 0\)/);
+  assert.match(searchScript, /set browserRootContext to searchButtonIsToggle/);
+  assert.match(searchScript, /collectBrowserMedia\(browserRoot, 0, searchQuery, origin, browserRootContext/);
+  assert.match(searchScript, /set maxDepth to 12[\s\S]*if inheritedContext then set maxDepth to 6/);
+  assert.match(searchScript, /on mediaContainer\(containerItem, inheritedContext\)[\s\S]*if inheritedContext then return true/);
+  assert.match(searchScript, /if candidateName contains searchQuery then/);
+  assert.match(searchScript, /candidateRole is "AXTextField" then return mediaContext/);
+  const toggleIndex = searchScript.indexOf('perform action "AXPress" of searchButton');
+  assert.ok(toggleIndex >= 0);
+  const postToggleScript = searchScript.slice(toggleIndex);
+  assert.match(postToggleScript, /set focusedCandidate to value of attribute "AXFocusedUIElement"/);
+  assert.match(postToggleScript, /set searchField to focusedCandidate/);
+  assert.equal(searchScript.includes("entire contents"), false);
+});
+
+test("native Final Cut search ignores unrelated search toggles", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("set value of searchField to searchQuery")) return serializeBrowserFixture();
+      if (script.includes('set frontWindow to window "Final Cut Pro"') || script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", "", 0, false);
+      }
+      return "";
+    },
+  });
+
+  const matches = await adapter.searchMedia("Blue Steel Guitar");
+  assert.equal(matches.length, 2);
+
+  const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
+  assert.ok(searchScript);
+  const unrelated = finalCutBrowserSearchAccessibilityFixture.unrelatedToggle;
+  const browser = finalCutBrowserSearchAccessibilityFixture.browser;
+  const currentLayout = finalCutBrowserSearchAccessibilityFixture.currentLayout;
+  assert.equal(unrelated.label, "Effects");
+  assert.equal(unrelated.children?.[0]?.children?.[0]?.label, "Toggle Search Bar");
+  assert.equal(browser.label, "Browser");
+  assert.equal(browser.children?.[0]?.children?.[0]?.label, "Toggle Search Bar");
+  assert.equal(currentLayout.label, "group");
+  assert.equal(currentLayout.children?.[0]?.label, "Toggle Search Bar");
+  assert.equal(currentLayout.children?.[1]?.children?.[0]?.children?.[0]?.label, "Event media sidebar");
+  assert.equal(currentLayout.children?.[1]?.children?.[1]?.label, "Organizer filmlist scroll view");
+  assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
+  assert.match(searchScript, /set candidateBrowserContext to browserContext/);
+  assert.match(searchScript, /if candidateBrowserContext and candidateIsToggle then/);
+  assert.match(searchScript, /on browserSearchHasMediaMarker\(containerItem, depth\)/);
+  assert.match(searchScript, /set candidateIsToggle to my browserSearchToggle\(candidate\)/);
+  assert.match(searchScript, /if candidateIsToggle and my browserSearchHasMediaMarker\(containerItem, 0\) then/);
+  assert.equal(searchScript.includes("if my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(containerItem)}"), false);
+});
+
+test("native Final Cut nested Browser toolbar keeps the media root", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("set value of searchField to searchQuery")) return serializeBrowserFixture();
+      if (script.includes('set frontWindow to window "Final Cut Pro"') || script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", "", 0, false);
+      }
+      return "";
+    },
+  });
+
+  const matches = await adapter.searchMedia("Blue Steel Guitar");
+  assert.equal(matches.length, 2);
+
+  const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
+  assert.ok(searchScript);
+  const browser = finalCutBrowserSearchAccessibilityFixture.browser;
+  assert.equal(browser.children?.[0]?.role, "AXToolbar");
+  assert.equal(browser.children?.[1]?.children?.[0]?.label, "Browser media list");
+  assert.match(searchScript, /on browserSearchRootForToggle\(browserContainer\)/);
+  assert.match(searchScript, /set mediaRoot to my findBrowserMediaRoot\(browserContainer, 0\)/);
+  assert.match(searchScript, /return \{candidate, my browserSearchRootForToggle\(candidateBrowserRoot\)\}/);
+  assert.match(searchScript, /collectBrowserMedia\(browserRoot, 0, searchQuery, origin, browserRootContext/);
 });
 
 test("native Final Cut selected-media traversal returns the stable generic Browser identity", async () => {
