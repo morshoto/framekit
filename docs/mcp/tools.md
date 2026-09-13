@@ -32,8 +32,8 @@ this routing tool.
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
 | `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
 | `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
-| `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
-| `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
+| `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
+| `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
@@ -181,6 +181,13 @@ non-empty `uid` attributes; otherwise project inspection and catalog operations
 fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
 `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
+
+On successful `project.select`, the response retains the catalog's active ID
+fields and adds `requestedTarget`, `observedActiveTarget`, and
+`observedRevision`. The observed target and revision are read back after the
+provider request; an acknowledgement alone is not a successful selection.
+`editor.projectSelectionMode` identifies whether the provider is
+`background-capable`, `headed-only`, or `unavailable`.
 
 The headed project-selection acceptance gate is opt-in and never uses project
 names as IDs:

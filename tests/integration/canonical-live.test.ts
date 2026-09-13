@@ -337,6 +337,81 @@ test("live project selection fails closed on ambiguous or mismatched targets", a
   );
 });
 
+test("live project selection returns target and revision readback", async () => {
+  const requests: FinalCutLiveRequest[] = [];
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      requests.push(request);
+      return {
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+          capabilities: canonicalReadCapabilities,
+          catalog: {
+            projects: [{
+              id: canonicalSnapshot.projectId,
+              name: canonicalSnapshot.projectName,
+              sequences: [{ id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name }],
+            }],
+            activeProjectId: canonicalSnapshot.projectId,
+            activeSequenceId: canonicalSnapshot.timeline.id,
+          },
+          revision: canonicalSnapshot.revision,
+        },
+      };
+    },
+  });
+
+  const selected = await adapter.selectProject({
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  });
+  assert.deepEqual(selected.requestedTarget, {
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  });
+  assert.deepEqual(selected.observedActiveTarget, {
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  });
+  assert.deepEqual(selected.observedRevision, canonicalSnapshot.revision);
+  assert.deepEqual(requests.map(({ method, projectId, sequenceId }) => ({ method, projectId, sequenceId })), [{
+    method: "select-project",
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  }]);
+});
+
+test("live project selection rejects missing revision readback", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [{
+            id: canonicalSnapshot.projectId,
+            name: canonicalSnapshot.projectName,
+            sequences: [{ id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name }],
+          }],
+          activeProjectId: canonicalSnapshot.projectId,
+          activeSequenceId: canonicalSnapshot.timeline.id,
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.selectProject({ projectId: canonicalSnapshot.projectId, sequenceId: canonicalSnapshot.timeline.id }),
+    /FINAL_CUT_LIVE_PROTOCOL: project selection response revision was empty/,
+  );
+});
+
 test("live project catalogs fail closed on duplicate project identities", async () => {
   const adapter = new FinalCutLiveAdapter({
     request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({

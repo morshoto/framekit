@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, readdir, stat } from "node:fs/promises";
@@ -183,6 +184,32 @@ export interface NativeFinalCutOccurrence {
 export interface NativeFinalCutOccurrenceSearchResult {
   status: "none" | "unique" | "ambiguous";
   occurrences: NativeFinalCutOccurrence[];
+}
+
+export type NativeFinalCutReadinessState = "ready" | "unavailable" | "timeout" | "cancelled" | "stale";
+export type NativeFinalCutReadinessAction = "none" | "retry" | "queue" | "unavailable";
+export type NativeFinalCutReadinessRequirement =
+  | "frontmost"
+  | "timeline-window"
+  | "timeline-focus"
+  | "overlay"
+  | "permission"
+  | "target"
+  | "undo"
+  | "readback";
+
+export interface NativeFinalCutReadiness {
+  state: NativeFinalCutReadinessState;
+  nextAction: NativeFinalCutReadinessAction;
+  retryable: boolean;
+  firstMissing?: NativeFinalCutReadinessRequirement;
+  frontmost: boolean;
+  timelineFocus: boolean;
+  selectedTarget: boolean;
+  overlay: "clear" | "blocked" | "unknown";
+  permission: "granted" | "required" | "unknown";
+  undo: "available" | "unavailable" | "unknown";
+  guidance: string;
 }
 
 export interface NativeFinalCutTargetResult {
@@ -514,7 +541,13 @@ export interface NativeFinalCutContext {
   bladeAvailable: boolean;
   undoAvailable: boolean;
   undoCommand?: string;
-  error?: { code: string; message: string };
+  readiness: NativeFinalCutReadiness;
+  error?: {
+    code: string;
+    message: string;
+    state?: NativeFinalCutReadinessState;
+    retryable?: boolean;
+  };
 }
 
 export interface NativeFinalCutCapabilities {
@@ -594,6 +627,10 @@ export interface NativeFinalCutAutomationOptions {
   mediaImportPollMs?: number;
 }
 
+export interface NativeFinalCutRequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface NativeFinalCutExecutorOptions {
   signal?: AbortSignal;
 }
@@ -605,39 +642,39 @@ export type NativeFinalCutExecutor = (
 
 export interface NativeFinalCutEditor {
   capabilities(): NativeFinalCutCapabilities;
-  inspect(): Promise<NativeFinalCutContext>;
-  focusTimeline(): Promise<NativeFinalCutContext>;
-  edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult>;
-  undo(operationId: string): Promise<NativeFinalCutUndoResult>;
-  importMedia(sourcePath: string): Promise<NativeFinalCutMediaImportResult>;
-  previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview>;
-  executeImportMediaDirectory(previewToken: string, confirm: boolean): Promise<NativeFinalCutMediaImportDirectoryResult>;
-  searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]>;
-  selectMedia(handle: string): Promise<NativeFinalCutContext>;
-  locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult>;
-  targetMedia(query: string): Promise<NativeFinalCutTargetResult>;
-  previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview>;
-  executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult>;
-  previewMask(request: NativeFinalCutMaskRequest): Promise<NativeFinalCutMaskPreview>;
-  executeMask(previewToken: string): Promise<NativeFinalCutMaskResult>;
-  previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview>;
-  executeDeleteRange(previewToken: string): Promise<NativeFinalCutRangeResult>;
-  previewTrimToDuration(duration: RationalTime): Promise<NativeFinalCutRangePreview>;
-  executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult>;
-  previewAppendMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
-  executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
-  previewAppendSelectedMedia(): Promise<NativeFinalCutMediaInsertionPreview>;
-  executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
-  previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview>;
-  executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult>;
-  previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview>;
-  executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult>;
-  searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]>;
-  previewPictureInPicture(request: NativeFinalCutPictureInPictureRequest): Promise<NativeFinalCutPictureInPicturePreview>;
-  executePictureInPicture(previewToken: string): Promise<NativeFinalCutPictureInPictureResult>;
-  searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]>;
-  previewTransitionAdd(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview>;
-  executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult>;
+  inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
+  focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
+  edit(operation: NativeFinalCutEdit, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutEditResult>;
+  undo(operationId: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutUndoResult>;
+  importMedia(sourcePath: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportResult>;
+  previewImportMediaDirectory(directoryPath: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportDirectoryPreview>;
+  executeImportMediaDirectory(previewToken: string, confirm: boolean, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportDirectoryResult>;
+  searchMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaMatch[]>;
+  selectMedia(handle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
+  locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
+  targetMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTargetResult>;
+  previewBlade(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutBladePreview>;
+  executeBlade(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutBladeResult>;
+  previewMask(request: NativeFinalCutMaskRequest, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMaskPreview>;
+  executeMask(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMaskResult>;
+  previewDeleteRange(range: NativeFinalCutRange, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutRangePreview>;
+  executeDeleteRange(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutRangeResult>;
+  previewTrimToDuration(duration: RationalTime, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutRangePreview>;
+  executeTrimToDuration(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutRangeResult>;
+  previewAppendMedia(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeAppendMedia(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaInsertionResult>;
+  previewAppendSelectedMedia(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeAppendSelectedMedia(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaInsertionResult>;
+  previewInsertMedia(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaInsertionPreview>;
+  executeInsertMedia(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaInsertionResult>;
+  previewTitleAdd(request: NativeFinalCutTitleRequest, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTitlePreview>;
+  executeTitleAdd(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTitleResult>;
+  searchTitles(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTitleMatch[]>;
+  previewPictureInPicture(request: NativeFinalCutPictureInPictureRequest, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutPictureInPicturePreview>;
+  executePictureInPicture(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutPictureInPictureResult>;
+  searchTransitions(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTransitionMatch[]>;
+  previewTransitionAdd(request: NativeFinalCutTransitionRequest, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTransitionPreview>;
+  executeTransitionAdd(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTransitionResult>;
 }
 
 export interface NativeFinalCutTransitionRequest {
@@ -662,6 +699,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaImportTimeoutMs: number;
   private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
+  private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
@@ -777,12 +815,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  public async inspect(): Promise<NativeFinalCutContext> {
-    return this.withNativeUi(() => this.inspectNative());
+  public async inspect(options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
+    return this.requestContext.run(options, () => this.inspectNative());
   }
 
-  public async focusTimeline(): Promise<NativeFinalCutContext> {
-    return this.withNativeUi(() => this.focusTimelineNative());
+  public async focusTimeline(options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.focusTimelineNative(), options.signal);
   }
 
   private async inspectNative(): Promise<NativeFinalCutContext> {
@@ -790,7 +828,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      return await this.attachLiveState(await this.ensureTimelineReady());
+      return await this.attachLiveState(await this.inspectRawNative(undefined, passiveTimelinePreflightScript()));
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
@@ -807,9 +845,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  private async inspectRawNative(deadline?: number): Promise<NativeFinalCutContext> {
+  private async inspectRawNative(
+    deadline = this.now() + this.nativePreflightTimeoutMs,
+    script = inspectScript(),
+  ): Promise<NativeFinalCutContext> {
     try {
-      return await this.attachLiveState(parseContext(await this.executeNativeScript(inspectScript(), deadline)));
+      return await this.attachLiveState(parseContext(await this.executeNativeScript(
+        script,
+        deadline,
+        "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT",
+      )));
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error));
     }
@@ -844,8 +889,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.latestOperationId = operationId;
   }
 
-  public async edit(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
-    return this.withNativeUi(() => this.editNative(operation));
+  public async edit(operation: NativeFinalCutEdit, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutEditResult> {
+    return this.withNativeUi(() => this.editNative(operation), options.signal);
   }
 
   private async editNative(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
@@ -870,8 +915,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return { operationId, operation, command, before, after, verification, undoAvailable: after.undoAvailable, ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}) };
   }
 
-  public async undo(operationId: string): Promise<NativeFinalCutUndoResult> {
-    return this.withNativeUi(() => this.undoNative(operationId));
+  public async undo(operationId: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutUndoResult> {
+    return this.withNativeUi(() => this.undoNative(operationId), options.signal);
   }
 
   private async undoNative(operationId: string): Promise<NativeFinalCutUndoResult> {
@@ -907,11 +952,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return { operationId, undone: true, context: after, verification };
   }
 
-  public async importMedia(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
-    return this.withNativeUi(() => this.importMediaNative(sourcePath));
+  public async importMedia(sourcePath: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaImportResult> {
+    return this.withNativeUi(() => this.importMediaNative(sourcePath), options.signal);
   }
 
-  public async previewImportMediaDirectory(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview> {
+  public async previewImportMediaDirectory(directoryPath: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaImportDirectoryPreview> {
+    return this.requestContext.run(options, () => this.previewImportMediaDirectoryNative(directoryPath));
+  }
+
+  private async previewImportMediaDirectoryNative(directoryPath: string): Promise<NativeFinalCutMediaImportDirectoryPreview> {
     this.assertEnabled();
     const trimmedPath = directoryPath.trim();
     if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
@@ -937,8 +986,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   public async executeImportMediaDirectory(
     previewToken: string,
     confirm: boolean,
+    options: NativeFinalCutRequestOptions = {},
   ): Promise<NativeFinalCutMediaImportDirectoryResult> {
-    return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm));
+    return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm), options.signal);
   }
 
   private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
@@ -1116,8 +1166,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  public async searchMedia(query: string): Promise<NativeFinalCutMediaMatch[]> {
-    return this.withNativeUi(() => this.searchMediaNative(query));
+  public async searchMedia(query: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaMatch[]> {
+    return this.withNativeUi(() => this.searchMediaNative(query), options.signal);
   }
 
   private async searchMediaNative(query: string, deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT"): Promise<NativeFinalCutMediaMatch[]> {
@@ -1175,8 +1225,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  public async previewAppendSelectedMedia(): Promise<NativeFinalCutMediaInsertionPreview> {
-    return this.withNativeUi(() => this.previewSelectedMediaInsertionNative());
+  public async previewAppendSelectedMedia(options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewSelectedMediaInsertionNative(), options.signal);
   }
 
   private async previewSelectedMediaInsertionNative(): Promise<NativeFinalCutMediaInsertionPreview> {
@@ -1194,7 +1244,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.ensureBrowserReady();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const matches = parseMediaMatches(await this.executor(selectedBrowserMediaScript()));
+      const matches = parseMediaMatches(await this.executeNativeScript(selectedBrowserMediaScript()));
       if (matches.length === 0) throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_UNAVAILABLE: no selected Browser media was exposed by Accessibility");
       if (matches.length > 1) throw new Error("FINAL_CUT_NATIVE_AMBIGUOUS_TARGET: multiple selected Browser media items were exposed");
       const media = matches[0]!;
@@ -1208,8 +1258,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  public async selectMedia(handle: string): Promise<NativeFinalCutContext> {
-    return this.withNativeUi(() => this.selectMediaNative(handle));
+  public async selectMedia(handle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.selectMediaNative(handle), options.signal);
   }
 
   private async selectMediaNative(handle: string): Promise<NativeFinalCutContext> {
@@ -1219,7 +1269,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const before = await this.ensureBrowserReady();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      await this.executor(selectMediaScript(match));
+      await this.executeNativeScript(selectMediaScript(match));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -1231,12 +1281,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  public async locateOccurrence(mediaHandle: string): Promise<NativeFinalCutOccurrenceSearchResult> {
-    return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle));
+  public async locateOccurrence(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutOccurrenceSearchResult> {
+    return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle), options.signal);
   }
 
-  public async targetMedia(query: string): Promise<NativeFinalCutTargetResult> {
-    return this.withNativeUi(() => this.targetMediaNative(query));
+  public async targetMedia(query: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTargetResult> {
+    return this.withNativeUi(() => this.targetMediaNative(query), options.signal);
   }
 
   private async targetMediaNative(query: string): Promise<NativeFinalCutTargetResult> {
@@ -1284,7 +1334,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       let occurrenceOutput = "";
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          occurrenceOutput = await this.executor(locateOccurrenceScript(match, scanAll));
+          occurrenceOutput = await this.executeNativeScript(locateOccurrenceScript(match, scanAll));
           break;
         } catch (error) {
           if (attempt > 0) throw error;
@@ -1298,7 +1348,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         if (timelineOffset === undefined) {
           throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: unique timeline occurrence has no selectable position");
         }
-        await selectTimelineOccurrence(this.executor, timelineOffset);
+        await this.selectTimelineOccurrence(timelineOffset);
         await this.ensureOccurrenceRange(occurrences[0]!);
         const selectedContext = await this.inspectRawNative();
         if (selectedContext.target.kind !== "selected-clip" || !selectedContext.target.identity) {
@@ -1328,8 +1378,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  public async previewBlade(occurrenceHandle: string): Promise<NativeFinalCutBladePreview> {
-    return this.withNativeUi(() => this.previewBladeNative(occurrenceHandle));
+  public async previewBlade(occurrenceHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutBladePreview> {
+    return this.withNativeUi(() => this.previewBladeNative(occurrenceHandle), options.signal);
   }
 
   private async previewBladeNative(occurrenceHandle: string): Promise<NativeFinalCutBladePreview> {
@@ -1359,16 +1409,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  public async executeBlade(previewToken: string): Promise<NativeFinalCutBladeResult> {
-    return this.withNativeUi(() => this.executeBladeNative(previewToken));
+  public async executeBlade(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutBladeResult> {
+    return this.withNativeUi(() => this.executeBladeNative(previewToken), options.signal);
   }
 
-  public async previewMask(request: NativeFinalCutMaskRequest): Promise<NativeFinalCutMaskPreview> {
-    return this.withNativeUi(() => this.previewMaskNative(request));
+  public async previewMask(request: NativeFinalCutMaskRequest, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMaskPreview> {
+    return this.withNativeUi(() => this.previewMaskNative(request), options.signal);
   }
 
-  public async executeMask(previewToken: string): Promise<NativeFinalCutMaskResult> {
-    return this.withNativeUi(() => this.executeMaskNative(previewToken));
+  public async executeMask(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMaskResult> {
+    return this.withNativeUi(() => this.executeMaskNative(previewToken), options.signal);
   }
 
   private async previewMaskNative(request: NativeFinalCutMaskRequest): Promise<NativeFinalCutMaskPreview> {
@@ -1412,7 +1462,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.maskPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native mask preview has expired");
 
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
@@ -1423,7 +1473,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     let observedAfter: NativeFinalCutContext | undefined;
     let observedLive: EditorLiveState | undefined;
     try {
-      const observedMask = parseNativeMaskReadback(await this.executor(applyMaskScript(preview.mask)));
+      const observedMask = parseNativeMaskReadback(await this.executeNativeScript(applyMaskScript(preview.mask)));
       observedAfter = await this.requireTimelineContext();
       observedLive = await this.waitForRevision(beforeLive.revision.id);
       const verification = verifyNativeMask(preview, observedAfter, beforeLive, observedLive, observedMask);
@@ -1512,7 +1562,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!preview) throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: unknown Blade preview ${previewToken}`);
     this.bladePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade preview has expired");
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
     if (before.target.name && before.target.name !== preview.occurrence.name) {
@@ -1533,7 +1583,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
     const afterLive = await this.readLiveState();
     const resultingSegments = parseOccurrences(
-      await this.executor(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
+      await this.executeNativeScript(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
       preview.occurrence.mediaHandle,
     );
     normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
@@ -1555,15 +1605,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  public async previewDeleteRange(range: NativeFinalCutRange): Promise<NativeFinalCutRangePreview> {
-    return this.withNativeUi(() => this.previewRangeNative("delete-range", range));
+  public async previewDeleteRange(range: NativeFinalCutRange, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutRangePreview> {
+    return this.withNativeUi(() => this.previewRangeNative("delete-range", range), options.signal);
   }
 
-  public async executeDeleteRange(previewToken: string): Promise<NativeFinalCutRangeResult> {
-    return this.withNativeUi(() => this.executeRangeNative(previewToken));
+  public async executeDeleteRange(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutRangeResult> {
+    return this.withNativeUi(() => this.executeRangeNative(previewToken), options.signal);
   }
 
-  public async previewTrimToDuration(duration: RationalTime): Promise<NativeFinalCutRangePreview> {
+  public async previewTrimToDuration(duration: RationalTime, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutRangePreview> {
     return this.withNativeUi(async () => {
       this.assertEnabled();
       const live = await this.requireLiveState();
@@ -1579,63 +1629,63 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
       const range = { start: addRational(sequenceStart, duration), end: addRational(sequenceStart, currentDuration) };
       return this.createRangePreview("trim-to-duration", range, currentDuration, duration, live, duration);
-    });
+    }, options.signal);
   }
 
-  public async executeTrimToDuration(previewToken: string): Promise<NativeFinalCutRangeResult> {
-    return this.withNativeUi(() => this.executeRangeNative(previewToken, "trim-to-duration"));
+  public async executeTrimToDuration(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutRangeResult> {
+    return this.withNativeUi(() => this.executeRangeNative(previewToken, "trim-to-duration"), options.signal);
   }
 
-  public async previewAppendMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview> {
-    return this.withNativeUi(() => this.previewMediaInsertionNative("append", mediaHandle));
+  public async previewAppendMedia(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewMediaInsertionNative("append", mediaHandle), options.signal);
   }
 
-  public async executeAppendMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
-    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "handle"));
+  public async executeAppendMedia(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "handle"), options.signal);
   }
 
-  public async executeAppendSelectedMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
-    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "selected"));
+  public async executeAppendSelectedMedia(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "append", "selected"), options.signal);
   }
 
-  public async previewInsertMedia(mediaHandle: string): Promise<NativeFinalCutMediaInsertionPreview> {
-    return this.withNativeUi(() => this.previewMediaInsertionNative("insert", mediaHandle));
+  public async previewInsertMedia(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaInsertionPreview> {
+    return this.withNativeUi(() => this.previewMediaInsertionNative("insert", mediaHandle), options.signal);
   }
 
-  public async executeInsertMedia(previewToken: string): Promise<NativeFinalCutMediaInsertionResult> {
-    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "insert"));
+  public async executeInsertMedia(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaInsertionResult> {
+    return this.withNativeUi(() => this.executeMediaInsertionNative(previewToken, "insert"), options.signal);
   }
 
-  public async previewTitleAdd(request: NativeFinalCutTitleRequest): Promise<NativeFinalCutTitlePreview> {
-    return this.withNativeUi(() => this.previewTitleAddNative(request));
+  public async previewTitleAdd(request: NativeFinalCutTitleRequest, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTitlePreview> {
+    return this.withNativeUi(() => this.previewTitleAddNative(request), options.signal);
   }
 
-  public async executeTitleAdd(previewToken: string): Promise<NativeFinalCutTitleResult> {
-    return this.withNativeUi(() => this.executeTitleAddNative(previewToken));
+  public async executeTitleAdd(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTitleResult> {
+    return this.withNativeUi(() => this.executeTitleAddNative(previewToken), options.signal);
   }
 
-  public async searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]> {
-    return this.withNativeUi(() => this.searchTitlesNative(query));
+  public async searchTitles(query: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTitleMatch[]> {
+    return this.withNativeUi(() => this.searchTitlesNative(query), options.signal);
   }
 
-  public async previewPictureInPicture(request: NativeFinalCutPictureInPictureRequest): Promise<NativeFinalCutPictureInPicturePreview> {
-    return this.withNativeUi(() => this.previewPictureInPictureNative(request));
+  public async previewPictureInPicture(request: NativeFinalCutPictureInPictureRequest, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutPictureInPicturePreview> {
+    return this.withNativeUi(() => this.previewPictureInPictureNative(request), options.signal);
   }
 
-  public async executePictureInPicture(previewToken: string): Promise<NativeFinalCutPictureInPictureResult> {
-    return this.withNativeUi(() => this.executePictureInPictureNative(previewToken));
+  public async executePictureInPicture(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutPictureInPictureResult> {
+    return this.withNativeUi(() => this.executePictureInPictureNative(previewToken), options.signal);
   }
 
-  public async searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]> {
-    return this.withNativeUi(() => this.searchTransitionsNative(query));
+  public async searchTransitions(query: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTransitionMatch[]> {
+    return this.withNativeUi(() => this.searchTransitionsNative(query), options.signal);
   }
 
-  public async previewTransitionAdd(request: NativeFinalCutTransitionRequest): Promise<NativeFinalCutTransitionPreview> {
-    return this.withNativeUi(() => this.previewTransitionAddNative(request));
+  public async previewTransitionAdd(request: NativeFinalCutTransitionRequest, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTransitionPreview> {
+    return this.withNativeUi(() => this.previewTransitionAddNative(request), options.signal);
   }
 
-  public async executeTransitionAdd(previewToken: string): Promise<NativeFinalCutTransitionResult> {
-    return this.withNativeUi(() => this.executeTransitionAddNative(previewToken));
+  public async executeTransitionAdd(previewToken: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTransitionResult> {
+    return this.withNativeUi(() => this.executeTransitionAddNative(previewToken), options.signal);
   }
 
   private async searchTitlesNative(query: string): Promise<NativeFinalCutTitleMatch[]> {
@@ -1741,7 +1791,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.transitionPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native transition preview has expired");
 
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     validateTransitionPreviewBinding(preview, beforeLive);
     const frameDuration = beforeLive.sequence?.frameDuration;
@@ -1772,7 +1822,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       // Command-T may mutate before duration editing fails. Never retry this
       // script: the outer recovery path observes and rolls back that mutation.
       observedDuration = parseObservedTransitionDuration(
-        await this.executor(applyTransitionScript(preview.duration, frameDuration)),
+        await this.executeNativeScript(applyTransitionScript(preview.duration, frameDuration)),
         frameDuration,
       );
       if (compareRational(observedDuration, preview.duration) !== 0) {
@@ -1917,22 +1967,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.titlePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native title preview has expired");
 
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     this.validateTitleBinding(preview, beforeLive);
     const startTimecode = this.toTimecode(preview.start, beforeLive);
     const endTimecode = this.toTimecode(preview.end, beforeLive);
     try {
       await this.executeNativeSequence(async () => {
-        await this.executor(titleAssetSelectionScript(preview.asset.name, nativeTitleIdentity(preview.asset)));
+        await this.executeNativeScript(titleAssetSelectionScript(preview.asset.name, nativeTitleIdentity(preview.asset)));
         await this.focusTimelineForMediaInsertion();
-        await this.executor(setPlayheadScript(startTimecode));
+        await this.executeNativeScript(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
-        await this.executor(markRangeStartScript());
-        await this.executor(setPlayheadScript(endTimecode));
+        await this.executeNativeScript(markRangeStartScript());
+        await this.executeNativeScript(setPlayheadScript(endTimecode));
         await this.waitForPlayhead(preview.end, beforeLive.sequence?.id);
-        await this.executor(markRangeEndAndConnectTitleScript());
-        await this.executor(titleTextEditScript(preview.text));
+        await this.executeNativeScript(markRangeEndAndConnectTitleScript());
+        await this.executeNativeScript(titleTextEditScript(preview.text));
       }, async (recovered) => {
         const targetChanged = before.target.kind !== recovered.target.kind
           || before.target.name !== recovered.target.name
@@ -2063,7 +2113,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (this.selectedMediaHandle !== preview.mediaHandle) {
       throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before picture-in-picture placement");
     }
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     validatePictureInPicturePreviewBinding(preview, beforeLive);
     const anchorOccurrence = this.occurrenceHandles.get(preview.anchorOccurrence.handle) ?? preview.anchorOccurrence;
@@ -2077,16 +2127,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         await this.selectMediaNative(preview.mediaHandle);
         await this.focusTimelineForMediaInsertion();
         if (this.canDriveNativeMouse && anchorOccurrence.timelineOffset !== undefined) {
-          await selectTimelineOccurrence(this.executor, anchorOccurrence.timelineOffset);
+          await this.selectTimelineOccurrence(anchorOccurrence.timelineOffset);
         }
         await this.validateSelectedPictureInPictureAnchor(anchorOccurrence);
-        await this.executor(setPlayheadScript(startTimecode));
+        await this.executeNativeScript(setPlayheadScript(startTimecode));
         await this.waitForPlayhead(preview.start, beforeLive.sequence?.id);
-        await this.executor(markRangeStartScript());
-        await this.executor(setPlayheadScript(endTimecode));
+        await this.executeNativeScript(markRangeStartScript());
+        await this.executeNativeScript(setPlayheadScript(endTimecode));
         await this.waitForPlayhead(preview.end, beforeLive.sequence?.id);
-        await this.executor(markRangeEndAndConnectPictureInPictureScript());
-        await this.executor(pictureInPictureTransformScript(preview));
+        await this.executeNativeScript(markRangeEndAndConnectPictureInPictureScript());
+        await this.executeNativeScript(pictureInPictureTransformScript(preview));
       }, async (recovered) => {
         this.assertRetryContext(before, recovered, true);
         validatePictureInPicturePreviewBinding(preview, await this.requireLiveState());
@@ -2121,7 +2171,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       after = await this.requireTimelineContext();
       afterLive = await this.waitForRevision(beforeLive.revision.id);
       const occurrence = await this.readPictureInPictureOccurrence(preview, anchorOccurrence);
-      const observed = parsePictureInPictureReadback(await this.executor(pictureInPictureInspectorReadbackScript()));
+      const observed = parsePictureInPictureReadback(await this.executeNativeScript(pictureInPictureInspectorReadbackScript()));
       const verification = verifyNativePictureInPicture({ ...preview, media }, after, beforeLive, afterLive, observed, occurrence);
       const operation = {
         kind: "picture-in-picture" as const,
@@ -2252,7 +2302,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (preview.selectionMode === "handle" && this.selectedMediaHandle !== preview.mediaHandle) {
       throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before insertion");
     }
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     this.validateMediaInsertionBinding(preview, beforeLive);
     if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
@@ -2345,7 +2395,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async focusTimelineForMediaInsertion(): Promise<void> {
     if (!this.canDriveNativeMouse) return;
-    const coordinates = (await this.executor(timelineInsertionCoordinatesScript())).split("|").map(Number);
+    const coordinates = (await this.executeNativeScript(timelineInsertionCoordinatesScript())).split("|").map(Number);
     const [originX, originY, width, height] = coordinates;
     if (![originX, originY, width, height].every(Number.isFinite)) {
       throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut timeline coordinates");
@@ -2353,8 +2403,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const x = Math.round(originX + width * 0.5);
     const y = Math.round(originY + height * 0.82);
     try {
-      await execFile("swift", ["-e", nativeMouseFocusSource(x, y)]);
+      await this.executeNativeMouseScript(nativeMouseFocusSource(x, y));
     } catch (error) {
+      if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_CANCELLED" || nativeErrorCode(error) === "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") throw error;
       throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline focus failed: ${String(error)}`);
     }
   }
@@ -2422,7 +2473,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.rangePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: range preview has expired");
     if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     this.validateRangeBinding(preview, beforeLive);
     const rangeDuration = subtractRational(preview.range.end, preview.range.start);
@@ -2579,23 +2630,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const startTimecode = this.toTimecode(range.start, beforeLive);
     const endTimecode = this.toTimecode(range.end, beforeLive);
     const executeRange = async (): Promise<void> => {
-      await this.executor(setPlayheadScript(startTimecode));
+      await this.executeNativeScript(setPlayheadScript(startTimecode));
       await this.waitForPlayhead(range.start, beforeLive.sequence?.id);
-      await this.executor(markRangeStartScript());
-      await this.executor(setPlayheadScript(endTimecode));
+      await this.executeNativeScript(markRangeStartScript());
+      await this.executeNativeScript(setPlayheadScript(endTimecode));
       await this.waitForPlayhead(range.end, beforeLive.sequence?.id);
-      await this.executor(markRangeEndAndDeleteScript());
+      await this.executeNativeScript(markRangeEndAndDeleteScript());
     };
     await this.executeNativeSequence(executeRange, validateRetry);
   }
 
   private async executeNativeCommand(script: string, validateRetry?: NativeRetryValidator): Promise<void> {
     try {
-      await this.executor(script);
+      await this.executeNativeScript(script);
     } catch (error) {
       if (!isRecoverableNativeFocusRace(error)) throw error;
       await validateRetry?.(await this.prepareNativeRetry());
-      await this.executor(script);
+      await this.executeNativeScript(script);
     }
   }
 
@@ -2651,7 +2702,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
   }
 
-  private async withNativeUi<T>(operation: () => Promise<T>): Promise<T> {
+  private async withNativeUi<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const request = { signal: signal ?? this.requestContext.getStore()?.signal };
+    return this.requestContext.run(request, async () => {
     const outermost = this.nativeUiDepth === 0;
     if (outermost && this.enabled) {
       if (this.nativeOperationLease) this.nativeOperationLease.acquire();
@@ -2667,6 +2720,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         else this.resumeLiveConnection?.();
       }
     }
+    });
   }
 
   private async validateOccurrenceBinding(occurrence: NativeFinalCutOccurrence): Promise<void> {
@@ -2752,13 +2806,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     let startLive: EditorLiveState | undefined;
     let endLive: EditorLiveState | undefined;
     try {
-      await this.executor(occurrenceRangeEndpointScript(occurrence.timelineOffset, "start"));
+      await this.executeNativeScript(occurrenceRangeEndpointScript(occurrence.timelineOffset, "start"));
       startLive = await this.waitForLivePlayheadChangeOrCurrent(originalLive, "start");
-      await this.executor(occurrenceRangeEndpointScript(occurrence.timelineOffset, "end"));
+      await this.executeNativeScript(occurrenceRangeEndpointScript(occurrence.timelineOffset, "end"));
       endLive = await this.waitForLivePlayheadChangeOrCurrent(startLive, "end");
     } finally {
       try {
-        await this.executor(setPlayheadScript(this.toTimecode(originalLive.playheadTime, originalLive)));
+        await this.executeNativeScript(setPlayheadScript(this.toTimecode(originalLive.playheadTime, originalLive)));
         await this.waitForPlayhead(originalLive.playheadTime, originalLive.sequence?.id);
       } catch {
         // Preserve the original discovery error; the next native operation will
@@ -2804,10 +2858,26 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (requiresClip(operation) && context.target.kind !== "selected-clip") {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one clip in Final Cut Pro");
     }
-    if (!requiresClip(operation) && context.target.kind === "none") {
+    if (!requiresClip(operation) && (context.target.kind === "none" || context.target.kind === "unknown")) {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead in Final Cut Pro");
     }
+    this.assertNativeWriteContext(context);
     return context;
+  }
+
+  private async requireNativeWriteContext(): Promise<NativeFinalCutContext> {
+    const context = await this.requireTimelineContext();
+    this.assertNativeWriteContext(context);
+    return context;
+  }
+
+  private assertNativeWriteContext(context: NativeFinalCutContext): void {
+    if (!context.readiness.selectedTarget) {
+      throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead or select a timeline target in Final Cut Pro");
+    }
+    if (!context.undoAvailable) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command; native writes require an available Undo command");
+    }
   }
 
   private async requireTimelineContext(): Promise<NativeFinalCutContext> {
@@ -2855,6 +2925,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       } catch (error) {
         const code = nativeErrorCode(error);
         if (code === "FINAL_CUT_NATIVE_PERMISSION_REQUIRED") throw new NativeFinalCutPreflightError(code, nativeErrorMessage(error), lastContext);
+        if (code === "FINAL_CUT_NATIVE_CANCELLED") throw new NativeFinalCutPreflightError(code, nativeErrorMessage(error), lastContext);
         lastCode = code;
         lastMessage = nativeErrorMessage(error);
       }
@@ -2881,6 +2952,64 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return context;
   }
 
+  private async selectTimelineOccurrence(timelineOffset: number): Promise<void> {
+    const coordinates = (await this.executeNativeScript(timelineSelectionCoordinatesScript())).split("|").map(Number);
+    const [originX, originY, windowWidth, windowHeight] = coordinates;
+    if (![originX, originY, windowWidth, windowHeight].every(Number.isFinite)) {
+      throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
+    }
+    const x = Math.round(originX + timelineOffset);
+    const y = Math.round(originY + (windowHeight * 0.77));
+    try {
+      await this.executeNativeMouseScript(nativeMouseSelectionSource(x, y));
+    } catch (error) {
+      if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_CANCELLED" || nativeErrorCode(error) === "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") throw error;
+      throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline selection failed: ${String(error)}`);
+    }
+  }
+
+  private async executeNativeMouseScript(source: string): Promise<void> {
+    const requestSignal = this.requestContext.getStore()?.signal;
+    const effectiveDeadline = this.now() + this.nativePreflightTimeoutMs;
+    if (requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+    const remaining = effectiveDeadline - this.now();
+    if (remaining <= 0) throw new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired");
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelListener: (() => void) | undefined;
+    let timedOut = false;
+    let cancelled = false;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired"));
+      }, remaining);
+    });
+    const cancellation = requestSignal
+      ? new Promise<never>((_, reject) => {
+        cancelListener = () => {
+          cancelled = true;
+          controller.abort();
+          reject(new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled"));
+        };
+        requestSignal.addEventListener("abort", cancelListener, { once: true });
+      })
+      : undefined;
+    const execution = execFile("swift", ["-e", source], { signal: controller.signal });
+    try {
+      await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
+    } catch (error) {
+      if (timedOut) throw new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired");
+      if (cancelled || requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (requestSignal && cancelListener) requestSignal.removeEventListener("abort", cancelListener);
+      void execution.catch(() => {});
+    }
+  }
+
   private stableMediaHandle(identity: string): string {
     return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
   }
@@ -2890,21 +3019,44 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     deadline?: number,
     timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT",
   ): Promise<string> {
-    if (deadline === undefined) return this.executor(script);
-    const remaining = deadline - this.now();
+    const requestSignal = this.requestContext.getStore()?.signal;
+    const effectiveDeadline = deadline ?? this.now() + this.nativePreflightTimeoutMs;
+    if (requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+    const remaining = effectiveDeadline - this.now();
     if (remaining <= 0) throw new Error(`${timeoutCode}: native automation deadline expired`);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelListener: (() => void) | undefined;
+    let timedOut = false;
+    let cancelled = false;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
+        timedOut = true;
         controller.abort();
         reject(new Error(`${timeoutCode}: native automation deadline expired`));
       }, remaining);
     });
+    const cancellation = requestSignal
+      ? new Promise<never>((_, reject) => {
+        cancelListener = () => {
+          cancelled = true;
+          controller.abort();
+          reject(new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled"));
+        };
+        requestSignal.addEventListener("abort", cancelListener, { once: true });
+      })
+      : undefined;
+    const execution = this.executor(script, { signal: controller.signal });
     try {
-      return await Promise.race([this.executor(script, { signal: controller.signal }), timeout]);
+      return await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
+    } catch (error) {
+      if (timedOut) throw new Error(`${timeoutCode}: native automation deadline expired`);
+      if (cancelled || requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+      throw error;
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      if (requestSignal && cancelListener) requestSignal.removeEventListener("abort", cancelListener);
+      void execution.catch(() => {});
     }
   }
 }
@@ -3471,6 +3623,172 @@ function activateFinalCutWindowAppleScript(): string {
 function requireFrontmostAppleScript(): string {
   return `
     if not frontmost then error number -1719`;
+}
+
+function passiveTimelinePreflightScript(): string {
+  return `
+-- FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT
+using terms from application "System Events"
+  on splitText(valueText, delimiter)
+    set oldDelimiters to AppleScript's text item delimiters
+    set AppleScript's text item delimiters to delimiter
+    set parts to text items of valueText
+    set AppleScript's text item delimiters to oldDelimiters
+    return parts
+  end splitText
+
+  on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
+    if depth > 6 then return ""
+    set output to ""
+    repeat with candidateRef in UI elements of containerItem
+      try
+        set candidate to contents of candidateRef
+        set candidatePosition to position of candidate
+        set candidateSize to size of candidate
+        set candidateX to item 1 of candidatePosition
+        set candidateY to item 2 of candidatePosition
+        set candidateWidth to item 1 of candidateSize
+        set candidateHeight to item 2 of candidateSize
+        set timelineTop to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.62)
+        set timelineLeft to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.20)
+        if (candidateX + candidateWidth) is greater than timelineLeft and (candidateY + candidateHeight) is greater than timelineTop then
+          set candidateSelected to false
+          try
+            set candidateSelected to (selected of candidate) is true
+          end try
+          if candidateSelected then
+            set candidateRole to role of candidate as text
+            set candidateName to ""
+            try
+              set candidateName to description of candidate as text
+            end try
+            if candidateName is "" then
+              try
+                set candidateName to value of candidate as text
+              end try
+            end if
+            if candidateName is "missing value" then set candidateName to ""
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+          end if
+          set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
+          if output is not "" then return output
+        end if
+      on error
+        -- Ignore inaccessible descendants and continue the bounded scan.
+      end try
+    end repeat
+    return ""
+  end selectedTimelineItem
+end using terms from
+
+on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)
+  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked & (ASCII character 31) & undoCommand & (ASCII character 31) & selectedIdentity
+end preflightResult
+
+on focusTargetFor(roleName, descriptionText, elementName)
+  if roleName is "AXTextField" or roleName is "AXSearchField" then return "text-field"
+  if roleName is "AXSheet" or roleName is "AXDialog" then return "modal"
+  set focusText to descriptionText & " " & elementName
+  if focusText contains "Browser" or focusText contains "browser" or focusText contains "search" or focusText contains "Search" then return "browser"
+  if roleName is "AXGroup" or roleName is "AXScrollArea" or roleName is "AXLayoutArea" or roleName is "AXCanvas" then return "timeline"
+  if descriptionText contains "timeline" or descriptionText contains "Timeline" or elementName contains "timeline" or elementName contains "Timeline" then return "timeline"
+  return "unknown"
+end focusTargetFor
+
+tell application "System Events"
+  tell process "Final Cut Pro"
+    set processFrontmost to frontmost as text
+    set frontWindowName to ""
+    set timelineWindowAvailable to false
+    set mainOrigin to {0, 0}
+    set mainSize to {0, 0}
+    try
+      if (count of windows) > 0 then
+        set frontWindow to front window
+        set frontWindowName to name of frontWindow as text
+        set timelineWindowAvailable to true
+        set mainOrigin to position of frontWindow
+        set mainSize to size of frontWindow
+      end if
+    end try
+    set selectedCount to -1
+    set selectedName to ""
+    set selectedRole to ""
+    set selectedIdentity to ""
+    set selectionLookupAvailable to false
+    try
+      set timelineArea to UI element 1 of UI element 8 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
+      set selectionLookupAvailable to true
+      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      if selectedRecord is not "" then
+        set selectedFields to my splitText(selectedRecord, ASCII character 31)
+        set selectedName to item 1 of selectedFields
+        set selectedRole to item 2 of selectedFields
+        set selectedIdentity to item 3 of selectedFields
+        set selectedCount to 1
+      end if
+    end try
+    if not selectionLookupAvailable then set selectedCount to -1
+    set undoEnabled to false
+    set undoCommand to ""
+    try
+      repeat with candidate in menu items of menu "Edit" of menu bar 1
+        try
+          set candidateName to name of candidate as text
+          if candidateName starts with "Undo" and (enabled of candidate) is true then
+            set undoEnabled to true
+            set undoCommand to candidateName
+            exit repeat
+          end if
+        end try
+      end repeat
+    end try
+    set bladeEnabled to false
+    try
+      set bladeEnabled to enabled of menu item "Blade" of menu "Trim" of menu bar 1
+    end try
+    set framekitWindowAvailable to false
+    set framekitWindowMinimized to false
+    set overlayBlocked to false
+    try
+      repeat with candidateWindow in windows
+        try
+          set candidateWindowName to name of candidateWindow as text
+          if candidateWindowName contains "Framekit" then
+            set framekitWindowAvailable to true
+            set framekitWindow to contents of candidateWindow
+            try
+              set framekitWindowMinimized to (value of attribute "AXMinimized" of framekitWindow) as boolean
+            end try
+            if not framekitWindowMinimized then set overlayBlocked to true
+            exit repeat
+          end if
+        end try
+      end repeat
+    end try
+    set focusedWindowName to ""
+    set focusedName to ""
+    set focusedRole to ""
+    set focusedDescription to ""
+    try
+      set focusedWindow to value of attribute "AXFocusedWindow"
+      set focusedWindowName to name of focusedWindow as text
+    end try
+    try
+      set focusedElement to value of attribute "AXFocusedUIElement"
+      set focusedName to name of focusedElement as text
+      set focusedRole to role of focusedElement as text
+      set focusedDescription to description of focusedElement as text
+    end try
+    set focusTarget to my focusTargetFor(focusedRole, focusedDescription, focusedName)
+    set timelineFocused to processFrontmost is "true" and focusTarget is "timeline"
+    return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, 0, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)
+  end tell
+end tell`;
 }
 
 function timelinePreflightScript(): string {
@@ -4627,21 +4945,6 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
 end tell`;
 }
 
-async function selectTimelineOccurrence(executor: (script: string) => Promise<string>, timelineOffset: number): Promise<void> {
-  const coordinates = (await executor(timelineSelectionCoordinatesScript())).split("|").map(Number);
-  const [originX, originY, windowWidth, windowHeight] = coordinates;
-  if (!Number.isFinite(originX) || !Number.isFinite(originY) || !Number.isFinite(windowWidth) || !Number.isFinite(windowHeight)) {
-    throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
-  }
-  const x = Math.round(originX + timelineOffset);
-  const y = Math.round(originY + (windowHeight * 0.77));
-  try {
-    await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
-  } catch (error) {
-    throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline selection failed: ${String(error)}`);
-  }
-}
-
 function timelineSelectionCoordinatesScript(): string {
   return `
 tell application "System Events"
@@ -5663,7 +5966,7 @@ function parseContext(output: string): NativeFinalCutContext {
           || focusedRole === "AXTextArea" && focusedDescription === "text entry area") && focusedName
           ? { kind: "selected-clip" as const, name: focusedName, role: focusedRole }
         : { kind: "playhead" as const };
-  return {
+  const context: Omit<NativeFinalCutContext, "readiness"> = {
     available: true,
     application: "Final Cut Pro",
     frontmost: frontState === "true",
@@ -5684,6 +5987,7 @@ function parseContext(output: string): NativeFinalCutContext {
     undoAvailable: undoState === "true",
     ...(undoCommandState ? { undoCommand: undoCommandState } : {}),
   };
+  return { ...context, readiness: readinessForContext(context) };
 }
 
 function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutContext {
@@ -5701,11 +6005,12 @@ function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutC
   );
   if (focusTarget === "unknown" && !focusedWindowMismatch) return context;
 
-  return {
+  const reconciled = {
     ...context,
     timelineFocused: false,
     focusTarget,
   };
+  return { ...reconciled, readiness: readinessForContext(reconciled) };
 }
 
 function classifyNativeFocusTarget(
@@ -6036,9 +6341,100 @@ function mediaInsertionMutationObserved(before: EditorLiveState, after: EditorLi
   return Boolean(beforeDuration && afterDuration && compareRational(afterDuration, beforeDuration) > 0);
 }
 
-function unavailableContext(code: string, message: string, observed?: NativeFinalCutContext): NativeFinalCutContext {
+function readinessForContext(context: {
+  available: boolean;
+  frontmost: boolean;
+  timelineWindowAvailable: boolean;
+  timelineFocused: boolean;
+  target: NativeFinalCutContext["target"];
+  undoAvailable: boolean;
+  framekitWindowAvailable?: boolean;
+  framekitWindowMinimized?: boolean;
+  overlayBlocked?: boolean;
+  error?: NativeFinalCutContext["error"];
+}): NativeFinalCutReadiness {
+  const selectedTarget = context.target.kind !== "none" && context.target.kind !== "unknown";
+  const state = context.error?.state
+    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget && context.undoAvailable
+      ? "ready"
+      : "unavailable");
+  const overlay = context.overlayBlocked
+    ? "blocked"
+    : context.framekitWindowAvailable === undefined || context.framekitWindowAvailable === false
+      ? "unknown"
+      : context.framekitWindowMinimized === false
+        ? "blocked"
+        : "clear";
+  const firstMissing = state === "timeout" || state === "cancelled" || state === "stale"
+    ? undefined
+    : context.error?.code.includes("PERMISSION")
+      ? "permission"
+      : !context.timelineWindowAvailable
+        ? "timeline-window"
+        : context.overlayBlocked
+          ? "overlay"
+          : !context.frontmost
+            ? "frontmost"
+            : !context.timelineFocused
+              ? "timeline-focus"
+              : !selectedTarget
+                ? "target"
+                : !context.undoAvailable
+                  ? "undo"
+                  : undefined;
+  const retryable = context.error?.retryable ?? state !== "ready";
+  const nextAction = state === "ready"
+    ? "none"
+    : retryable
+      ? "retry"
+      : "unavailable";
+  const guidance = context.error?.message
+    ?? (firstMissing === "timeline-window"
+      ? "Open a Final Cut Pro project timeline and retry"
+      : firstMissing === "overlay"
+        ? "Close or minimize the Framekit overlay and retry"
+        : firstMissing === "frontmost"
+          ? "Bring Final Cut Pro to the front and retry"
+          : firstMissing === "timeline-focus"
+            ? "Focus the Final Cut Pro timeline and retry"
+            : firstMissing === "target"
+              ? "Select a single timeline target and retry"
+              : firstMissing === "undo"
+                ? "Enable an Undo command in Final Cut Pro and retry"
+                : state === "timeout"
+                  ? "Final Cut did not respond before the native deadline; retry"
+                  : state === "cancelled"
+                    ? "The native request was cancelled; retry when ready"
+                    : state === "stale"
+                      ? "The native target is stale; inspect and preview again"
+                      : "Native Final Cut readiness is unavailable; inspect and retry");
   return {
-    ...(observed ?? {
+    state,
+    nextAction,
+    retryable,
+    ...(firstMissing ? { firstMissing } : {}),
+    frontmost: context.frontmost,
+    timelineFocus: context.timelineFocused,
+    selectedTarget,
+    overlay,
+    permission: context.error?.code.includes("PERMISSION") ? "required" : context.available ? "granted" : "unknown",
+    undo: context.available ? context.undoAvailable ? "available" : "unavailable" : "unknown",
+    guidance,
+  };
+}
+
+function readinessStateForError(code: string): NativeFinalCutReadinessState {
+  if (code === "FINAL_CUT_NATIVE_CANCELLED") return "cancelled";
+  if (code.includes("TIMEOUT") || code === "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") return "timeout";
+  if (code.includes("STALE")) return "stale";
+  return "unavailable";
+}
+
+function unavailableContext(code: string, message: string, observed?: NativeFinalCutContext): NativeFinalCutContext {
+  const state = readinessStateForError(code);
+  const error = { code, message, state, retryable: state !== "unavailable" || code !== "CAPABILITY_UNAVAILABLE" };
+  const base: Omit<NativeFinalCutContext, "readiness" | "error"> = observed ?? {
+      available: false,
       application: "Final Cut Pro" as const,
       frontmost: false,
       timelineWindowAvailable: false,
@@ -6047,10 +6443,13 @@ function unavailableContext(code: string, message: string, observed?: NativeFina
       target: { kind: "none" as const },
       undoAvailable: false,
       bladeAvailable: false,
-    }),
+    };
+  const context = {
+    ...base,
     available: false,
-    error: { code, message },
+    error,
   };
+  return { ...context, readiness: readinessForContext(context) };
 }
 
 function preflightContext(error: unknown): NativeFinalCutContext | undefined {
@@ -6087,6 +6486,7 @@ function appleScriptString(value: string): string {
 
 function nativeErrorCode(error: unknown): string {
   const message = String(error);
+  if (message.includes("FINAL_CUT_NATIVE_CANCELLED") || message.includes("AbortError") || message.includes("aborted")) return "FINAL_CUT_NATIVE_CANCELLED";
   if (message.includes("-1712") || /AppleEvent.*timed out/i.test(message)) return "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT";
   const explicitCodes = [...message.matchAll(/FINAL_CUT_NATIVE_[A-Z_]+/g)].map((match) => match[0]);
   if (explicitCodes.length > 0) return explicitCodes[explicitCodes.length - 1];
@@ -6108,6 +6508,7 @@ function nativeMediaImportErrorCode(error: unknown): string {
 function nativeErrorMessage(error: unknown): string {
   const message = String(error);
   if (message.includes("FINAL_CUT_NATIVE_OVERLAY_BLOCKED")) return "The Framekit window could not be minimized; close or minimize the overlay and retry";
+  if (message.includes("FINAL_CUT_NATIVE_CANCELLED") || message.includes("AbortError") || message.includes("aborted")) return "The native request was cancelled; retry when ready";
   if (message.includes("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") || message.includes("-1712") || /AppleEvent.*timed out/i.test(message)) return "Final Cut did not respond to an AppleEvent; reopen or bring Final Cut Pro to the front and retry";
   if (message.includes("FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW")) return "Final Cut has no accessible timeline window; open a project timeline and retry";
   if (message.includes("FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED")) return "Final Cut's timeline pane could not be focused; click the timeline and retry";

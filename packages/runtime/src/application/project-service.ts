@@ -1,7 +1,7 @@
 import { ContextEngine } from "../context/context-engine.js";
 import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact, MediaSearchQuery } from "../domain/ports.js";
 import type { MediaContext } from "../domain/media.js";
-import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
+import type { ProjectCatalog, ProjectSelection, ProjectSelectionResult } from "../domain/context.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
@@ -98,15 +98,27 @@ export class ProjectService {
   public async listProjects(): Promise<ProjectCatalog> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.projectCatalogRead || !this.adapter.listProjects) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project catalog");
+      const identity = await this.adapter.getIdentity();
+      throw new CapabilityUnavailableError("project.list", "editor.projectCatalogRead", {
+        available: false,
+        backend: identity.backend,
+        guarantee: "none",
+        unavailableReason: "project catalog is unavailable",
+      });
     }
     return this.adapter.listProjects();
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project selection");
+      const identity = await this.adapter.getIdentity();
+      throw new CapabilityUnavailableError("project.select", "editor.projectSelection", {
+        available: false,
+        backend: identity.backend,
+        guarantee: "none",
+        unavailableReason: "project selection is unavailable",
+      });
     }
     if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
     if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {

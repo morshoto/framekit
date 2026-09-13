@@ -61,6 +61,9 @@ bundled Workflow Extension remains metadata-only and is never upgraded by this
 flag. `FRAMEKIT_FCPXML_PATH` must be omitted; setting it with the flag returns
 `FINAL_CUT_CANONICAL_FALLBACK_CONFLICT`.
 
+The current-version investigation behind this boundary is documented in the
+[non-UI timeline snapshot investigation](../architecture/non-ui-timeline-snapshot-investigation.md).
+
 The provider must speak protocol v1 and support stable project/sequence
 catalog IDs, explicit selection, complete snapshots, apply, restore, and
 revision-bearing responses. `editor.inspect` is the first check; then use
@@ -148,6 +151,9 @@ sequence range, and incremental change events. Add `FRAMEKIT_FCPXML_PATH` to
 compose canonical project/timeline reads, artifact edits, read-after-write,
 diffs, verification, and undo. These edits update the FCPXML artifact rather
 than the open Final Cut timeline.
+The artifact operation boundary is documented in the [FCPXML operation
+matrix](../final-cut/fcpxml-operation-matrix.md); those deterministic artifact
+results do not prove a live Final Cut timeline change.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
@@ -174,20 +180,29 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 Grant Accessibility and Automation permission to the terminal or host running
-the MCP process. Framekit activates Final Cut and focuses the timeline before
-timeline-native operations. The user must open the intended project timeline
-and select the target clip before calling `editor.native.edit`; Framekit does
-not choose projects automatically. Native writes fail closed when permission,
-window, focus, selection, or menu verification is unavailable.
+the MCP process. Call `editor.native.inspect` first when checking readiness. It
+uses a bounded, passive Accessibility probe: it does not activate Final Cut,
+raise a window, minimize the Framekit overlay, click, or change selection. Its
+`readiness` object reports the state, first missing requirement, retryability,
+frontmost/timeline-focus/target status, permission and overlay diagnostics, and
+actionable guidance. A background Final Cut session therefore returns a
+structured unavailable result without blocking the MCP session.
+
+The user must open the intended project timeline and select the target clip
+before calling `editor.native.edit`; Framekit does not choose projects
+automatically. Native writes fail closed when permission, window, focus,
+selection, or menu verification is unavailable. Timeline-native previews and
+execution may activate Final Cut as part of their explicit write workflow.
 
 If focus recovery needs to be retried explicitly, call `editor.native.focus`. It
 performs a bounded Accessibility-only focus attempt and returns the same UI
 diagnostics as `editor.native.inspect`; it never selects a project, moves the
-playhead, or changes timeline content. When the visible Framekit extension
-window overlaps Final Cut, preflight detects it, minimizes it through
-Accessibility, raises the timeline window, and verifies the focused window
-after every attempt. It never clicks the Framekit close button. An overlay that
-cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
+playhead, or changes timeline content. Unlike passive inspect, this explicit
+recovery request may activate Final Cut and recover focus. When the visible
+Framekit extension window overlaps Final Cut, preflight detects it, minimizes
+it through Accessibility, raises the timeline window, and verifies the focused
+window after every attempt. It never clicks the Framekit close button. An
+overlay that cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
 
 ## Importing local media
 

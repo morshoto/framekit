@@ -375,17 +375,44 @@ and batch import additionally use `FINAL_CUT_NATIVE_MEDIA_DIRECTORY_UNAVAILABLE`
 `FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED`, and
 `FINAL_CUT_NATIVE_PREVIEW_STALE`.
 
-Timeline-native operations run a UI preflight that activates Final Cut Pro,
-waits briefly for an accessible timeline window, and verifies timeline-pane
-focus. The preflight fails closed with `FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`
-when no project timeline is accessible, `FINAL_CUT_NATIVE_NOT_FRONTMOST` when
-Final Cut remains background, and `FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED`
-when the timeline pane cannot be focused. If the Framekit extension overlay is
-visible, preflight minimizes it through Accessibility with `AXMinimize`, raises
-Final Cut's timeline window, and re-checks the focused window after every focus
-attempt. If it cannot be minimized or remains focused, the operation fails
-closed with `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`. `editor.native.inspect` and
-`editor.native.focus` include `timelineWindowAvailable`, `timelineFocused`,
+`editor.native.inspect` runs a bounded, passive UI preflight. It reads the
+frontmost application, accessible timeline window, current focus, target, and
+Framekit overlay state without activating Final Cut, raising or minimizing
+windows, clicking, or changing selection. Its `readiness` object is structured
+for callers that need to decide whether to retry or request an explicit native
+write:
+
+```json
+{
+  "state": "unavailable",
+  "nextAction": "retry",
+  "retryable": true,
+  "firstMissing": "frontmost",
+  "frontmost": false,
+  "timelineFocus": false,
+  "selectedTarget": true,
+  "overlay": "unknown",
+  "permission": "granted",
+  "undo": "available",
+  "guidance": "Bring Final Cut Pro to the front and retry"
+}
+```
+
+`state` distinguishes `ready`, `unavailable`, `timeout`, `cancelled`, and
+`stale`; `nextAction` is `none`, `retry`, `queue`, or `unavailable`. Native
+errors retain stable codes and include the same state and retryability where a
+context is returned, so timeout, cancellation, unavailable capability, and
+stale preview/handle failures remain distinguishable in the MCP contract.
+
+Explicit `editor.native.focus` and timeline-native preview/execute operations
+use the active UI preflight: they may activate Final Cut, minimize an
+overlapping Framekit overlay with `AXMinimize`, raise Final Cut's timeline
+window, and re-check focus after every attempt. If the overlay cannot be
+minimized or remains focused, the operation fails closed with
+`FINAL_CUT_NATIVE_OVERLAY_BLOCKED`. Native writes also fail closed with
+`FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW`, `FINAL_CUT_NATIVE_NOT_FRONTMOST`, or
+`FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED` when their required UI state is
+missing. Both tools include `timelineWindowAvailable`, `timelineFocused`,
 `focusTarget`, `focusedWindowName`, `framekitWindowAvailable`,
 `framekitWindowMinimized`, `overlayBlocked`, and focus-attempt diagnostics. The
 focus tool changes application focus only; it does not select a project or

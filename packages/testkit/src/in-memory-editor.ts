@@ -15,12 +15,13 @@ import type {
   ProjectSnapshot,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSelectionResult,
   RationalTime,
   RuntimeCapabilities,
   CapturedFrameSource,
   WorkflowOperation,
 } from "@framekit/runtime";
-import { diffSnapshots, withCapabilityFamilies } from "@framekit/runtime";
+import { createProjectSelectionResult, diffSnapshots, withCapabilityFamilies } from "@framekit/runtime";
 
 export interface InMemoryProjectFixture {
   projectId: string;
@@ -195,7 +196,7 @@ export class InMemoryEditorAdapter implements EditorPort {
     };
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const project = this.projects.find((candidate) => candidate.id === selection.projectId);
     if (!project) throw new Error(`PROJECT_NOT_FOUND: ${selection.projectId}`);
     const sequenceId = selection.sequenceId
@@ -211,7 +212,9 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (target.timeline.id !== sequenceId) {
       throw new Error(`UNSUPPORTED_PROJECT_SELECTION: no canonical snapshot for sequence ${sequenceId}`);
     }
-    if (this.activeProjectId === project.id && this.activeSequenceId === sequenceId) return this.listProjects();
+    if (this.activeProjectId === project.id && this.activeSequenceId === sequenceId) {
+      return createProjectSelectionResult(await this.listProjects(), selection, this.snapshot.revision);
+    }
     this.selectionRevision += 1;
     this.snapshot = {
       ...structuredClone(target),
@@ -225,7 +228,7 @@ export class InMemoryEditorAdapter implements EditorPort {
     this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
     this.activeProjectId = project.id;
     this.activeSequenceId = sequenceId;
-    return this.listProjects();
+    return createProjectSelectionResult(await this.listProjects(), selection, this.snapshot.revision);
   }
 
   public async readChanges(since: ContextRevision): Promise<ContextChangeSet> {

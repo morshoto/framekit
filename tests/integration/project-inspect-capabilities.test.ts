@@ -121,6 +121,35 @@ test("metadata-only project inspection has one capability contract across MCP su
       unavailableReason: "canonical timeline reads are unavailable",
     });
     assert.equal(snapshotCalls, 0);
+
+    const catalog = await client.callTool({ name: "project.list", arguments: {} });
+    assert.equal(catalog.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(catalog)), {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "project.list requires editor.projectCatalogRead",
+      operation: "project.list",
+      capability: "editor.projectCatalogRead",
+      available: false,
+      backend: "workflow-extension-ipc",
+      guarantee: "none",
+      unavailableReason: "project catalog is unavailable",
+    });
+
+    const selection = await client.callTool({
+      name: "project.select",
+      arguments: { projectId: "project-1", sequenceId: "sequence-1" },
+    });
+    assert.equal(selection.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(selection)), {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "project.select requires editor.projectSelection",
+      operation: "project.select",
+      capability: "editor.projectSelection",
+      available: false,
+      backend: "workflow-extension-ipc",
+      guarantee: "none",
+      unavailableReason: "project selection is unavailable",
+    });
   } finally {
     await client.close();
     await server.close();
