@@ -192,7 +192,9 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 The FCPXML file is the managed artifact. Framekit does not automatically
-import edits into the open Final Cut timeline.
+import edits into the open Final Cut timeline. See the [FCPXML operation
+matrix](./fcpxml-operation-matrix.md) for the supported artifact operations and
+their evidence boundary.
 
 Optional local JSON analyzer commands can be configured with
 `FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, and

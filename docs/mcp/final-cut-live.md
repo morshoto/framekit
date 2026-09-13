@@ -151,6 +151,9 @@ sequence range, and incremental change events. Add `FRAMEKIT_FCPXML_PATH` to
 compose canonical project/timeline reads, artifact edits, read-after-write,
 diffs, verification, and undo. These edits update the FCPXML artifact rather
 than the open Final Cut timeline.
+The artifact operation boundary is documented in the [FCPXML operation
+matrix](../final-cut/fcpxml-operation-matrix.md); those deterministic artifact
+results do not prove a live Final Cut timeline change.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
