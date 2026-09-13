@@ -179,6 +179,44 @@ test("canonical project listing requires a background catalog", async () => {
   assert.equal(snapshotReads, 0);
 });
 
+test("canonical capabilities fail closed when Export XML snapshot is unavailable", async () => {
+  const provider = providerFor([
+    new Error("FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear"),
+  ], [], undefined, liveState(), {
+    listProjects: async () => ({
+      projects: [{
+        id: "final-cut:project:project-1",
+        name: "Canonical E2E",
+        sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }],
+      }],
+      activeProjectId: "final-cut:project:project-1",
+      activeSequenceId: "final-cut:sequence:sequence-1",
+    }),
+  });
+
+  const capabilities = await provider.getCapabilities();
+
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.editor.projectRead, false);
+  assert.equal(capabilities.editor.timelineSnapshotRead, false);
+  assert.equal(capabilities.editor.timelineWrite, false);
+  assert.equal(capabilities.editor.readAfterWrite, false);
+  assert.equal(capabilities.editor.rollback, false);
+  assert.equal(capabilities.editor.projectCatalogRead, true);
+  assert.deepEqual(capabilities.families?.canonicalDocument.read, {
+    available: false,
+    backend: "final-cut-native-canonical",
+    guarantee: "none",
+    unavailableReason: "canonical snapshot provider unavailable: FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear",
+  });
+  assert.deepEqual(capabilities.families?.canonicalDocument.write, {
+    available: false,
+    backend: "final-cut-native-canonical",
+    guarantee: "none",
+    unavailableReason: "canonical snapshot provider unavailable: FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear",
+  });
+});
+
 test("MCP project.list explains the headed fallback is unavailable", async () => {
   let snapshotReads = 0;
   const provider = new FinalCutCanonicalNativeProvider({
