@@ -2,7 +2,7 @@
 
 ## Editor-first routing
 
-For an editing request, follow this order:
+For a canonical editing request, follow this order:
 
 1. Call `connection.status` to establish whether the expected editor is
    connected.
@@ -22,6 +22,15 @@ connected editor cannot satisfy the requested operation. It selects an
 `EXTERNAL_FALLBACK_SELECTED` and a structured cause. A connected editor is
 never silently bypassed, and Framekit does not execute external rendering from
 this routing tool.
+
+Background metadata has a separate route. After `connection.status` and
+`editor.inspect`, call `editing.route` for `project.list`; when
+`observation.library` is available, the route selects the background provider
+with its `backend` and `guarantee`. This path reports observed catalog metadata
+only and never upgrades a metadata-only session to canonical timeline evidence
+or native UI access. Use `editor.live.inspect` for observed live state and
+`project.inspect` or `timeline.inspect` only when canonical snapshot support is
+advertised.
 
 ## Background FCPXML artifact workflow
 
@@ -96,7 +105,7 @@ is a separate, confirmed `artifact.publish` step.
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
-| `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider |
+| `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider advertised as `observation.library` |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
 | `artifact.inspect` | Identify the managed FCPXML artifact and its source digest | FCPXML-backed session; unsupported backends fail closed |
 | `artifact.edit` | Edit the identified managed FCPXML artifact in the background | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
@@ -236,6 +245,12 @@ name-only matches and changing revisions remain unresolved or stale and clear
 the active IDs. Background catalog discovery never upgrades metadata-only data
 to canonical timeline evidence, and project selection remains unavailable until
 a provider can prove a supported non-UI selection transition.
+
+The canonical native provider does not synthesize `project.list` from its
+headed canonical snapshot. If no background catalog provider is available,
+`project.list` fails with structured `CAPABILITY_UNAVAILABLE` metadata naming
+canonical `File > Export XML` as the first headed requirement; use
+`project.inspect` when a complete canonical snapshot is intended.
 
 On successful `project.select`, the response retains the catalog's active ID
 fields and adds `requestedTarget`, `observedActiveTarget`, and

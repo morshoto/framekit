@@ -13,6 +13,7 @@ Framekit uses two distinct Final Cut backends:
   project, and sequence catalog metadata.
 
 - [Workflow Extension](./workflow-extension.md)
+- [Final Cut provider boundaries](../architecture/final-cut-provider-boundaries.md)
 - [Basic editing MVP](./basic-editing-mvp.md)
 - [IPC](./ipc.md)
 - [Installation](./installation.md)

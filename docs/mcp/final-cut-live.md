@@ -110,12 +110,18 @@ grant Accessibility and Automation permission to the MCP host. The bundled
 Workflow Extension exposes only the active project/sequence metadata and does
 not infer a project from an arbitrary artifact. The Node live adapter also uses
 the read-only background library provider to return a catalog while Final Cut
-is not frontmost. Framekit reconciles that catalog with two live socket reads;
+is not frontmost. Its capability contract is
+`editor.backgroundLibraryInspection: true` plus
+`families.observation.library` with backend
+`final-cut-background-library` and guarantee `observed`. Framekit reconciles
+that catalog with two live socket reads;
 stable IDs are required for active IDs, while name-only matches, revision drift,
 and target changes remain unresolved or stale. The response preserves catalog
 source, observed live revision/timing provenance, and the reason that project
 selection is unavailable. This metadata-only path never invokes canonical
-`File > Export XML` and never claims a complete timeline snapshot. See the
+`File > Export XML` and never claims a complete timeline snapshot or native UI
+access. Missing background API support, canonical snapshot support, and native
+UI access remain distinct unavailable route categories. See the
 [background library inspection contract](../final-cut/background-library-inspection.md).
 
 ## Headless mode

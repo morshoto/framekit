@@ -1,13 +1,19 @@
 # Capabilities and Errors
 
+The Final Cut provider split and routing boundary are summarized in the
+[Final Cut provider boundaries](../architecture/final-cut-provider-boundaries.md)
+contract.
+
 ## Editor-first routing
 
-Before selecting an editing path, call `connection.status`, `editor.inspect`,
+For canonical editing requests, call `connection.status`, `editor.inspect`,
 and `project.inspect` in that order, then call `editing.route` with the
-intended operation. The route checks the operation's required capabilities
-against the selected backend. A connected editor that cannot satisfy the
-operation returns `CAPABILITY_UNAVAILABLE`; it is not silently replaced by an
-external renderer.
+intended operation. Background metadata requests may route after
+`editor.inspect`: `project.list` can use a background library descriptor and
+`editor.live.inspect` can use observed timeline metadata without a canonical
+snapshot. The route checks the operation's required capabilities against the
+selected backend. A connected editor that cannot satisfy the operation returns
+`CAPABILITY_UNAVAILABLE`; it is not silently replaced by an external renderer.
 
 The route result is structured for deterministic handling:
 
@@ -26,6 +32,27 @@ The route result is structured for deterministic handling:
 `external-renderer` is returned only when the caller explicitly selects
 `fallback: "external-renderer"` or authorizes that fallback. The MCP server
 reports why it was selected but does not invoke an external rendering pipeline.
+
+Background metadata routing is explicit and preserves provider provenance:
+
+```json
+{
+  "operation": "project.list",
+  "status": "editor-selected",
+  "selectedPath": "background",
+  "provider": {
+    "backend": "final-cut-background-library",
+    "guarantee": "observed"
+  },
+  "missingCapabilities": []
+}
+```
+
+An unavailable route includes `reason.unavailable.category`. The categories
+name the missing evidence tier: `background-api` means background API support
+is missing, `canonical-snapshot` means canonical snapshot support is missing,
+and `native-ui` means native UI access is missing. The response also includes
+the exact capability, provider backend, guarantee, and unavailable message.
 
 Capabilities are machine-readable and backend-specific. A live-only Workflow
 Extension reports:
@@ -111,7 +138,7 @@ The families are:
 | Family | Operation examples | Meaning |
 | --- | --- | --- |
 | `connection` | `status` | Bridge connection availability only |
-| `observation` | `timeline`, `media`, `assets` | Live metadata, background discovery, or canonical observation |
+| `observation` | `library`, `timeline`, `media`, `assets` | Background library metadata, live metadata, background discovery, or canonical observation |
 | `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
 | `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking`, `personCutout` | Routed editing operations and explicit unsupported boundaries |
 | `native` | `selectionWrite`, `titleDiscovery`, `titlePlacement`, `projectCreation`, `clipInsertion`, `clipMovement`, `pictureInPicture`, `masking` | Individual Final Cut Accessibility operations |
@@ -174,6 +201,7 @@ FCPXML artifact results remain separate evidence tiers.
     "readAfterWrite": false,
     "incrementalChanges": true,
     "rollback": false,
+    "backgroundLibraryInspection": false,
     "assetDiscovery": false,
     "backgroundMediaDiscovery": false,
     "backgroundTemplateDiscovery": false,
@@ -217,6 +245,14 @@ When a Motion-template registry is available, it reports
 `backgroundTemplateDiscovery` and `observation.assets` for filesystem
 discovery. Both are observed metadata capabilities; neither activates Final
 Cut or upgrades filesystem results to canonical-live or headed-native evidence.
+
+When a background Final Cut library provider is available, the session reports
+`backgroundLibraryInspection` and `observation.library` with backend
+`final-cut-background-library` and guarantee `observed`. This provider may serve
+`project.list` while Final Cut is not frontmost, but it does not provide
+canonical timeline evidence, canonical snapshot support, project selection, or
+native UI access. A missing provider returns an unavailable descriptor rather
+than an empty or invented catalog.
 
 `artifactPublish` is true only when the MCP server has a configured headed
 project publisher with native writes enabled. `artifactPublishMode` reports
@@ -273,9 +309,9 @@ bridge is ready—the same effective versioned capability and `preflight` payloa
 as `editor.inspect`. A `ready` state only means that the bridge answered;
 inspect each operation family before editing.
 
-`project.inspect` checks `canonicalDocument.read` before asking the runtime for
-a snapshot. `media.search` checks `observation.media` before searching. When
-either operation is unavailable, the MCP result is an error with
+`project.inspect` and `timeline.inspect` check `canonicalDocument.read` before
+asking the runtime for a snapshot. `media.search` checks `observation.media`
+before searching. When either operation is unavailable, the MCP result is an error with
 `code: "CAPABILITY_UNAVAILABLE"`, the operation name, the descriptor backend,
 guarantee, and `unavailableReason`; an unavailable search is never represented
 as an empty successful result.

@@ -67,6 +67,8 @@ export interface EditorCapabilities {
   backgroundMediaDiscovery?: boolean;
   /** The backend can discover installed templates without Final Cut UI access. */
   backgroundTemplateDiscovery?: boolean;
+  /** The backend can inspect the Final Cut library without Final Cut UI access. */
+  backgroundLibraryInspection?: boolean;
 }
 
 export interface AnalyzerCapabilities {
@@ -189,6 +191,7 @@ export interface CapabilityFamilies {
     timeline: CapabilityDescriptor;
     media: CapabilityDescriptor;
     assets: CapabilityDescriptor;
+    library: CapabilityDescriptor;
   };
   canonicalDocument: {
     read: CapabilityDescriptor;

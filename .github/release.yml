@@ -1,14 +1,14 @@
 changelog:
-  exclude:
-    labels:
-      - tagpr
-  categories:
-    - title: "✨ Features"
-      labels:
-        - "Type: New Feature"
-    - title: "🐛 Fixes"
-      labels:
-        - "Problem: Bug"
-    - title: "🧰 Maintenance & Internal"
-      labels:
-        - "*"
+    exclude:
+        labels:
+            - tagpr
+    categories:
+        - title: 'Feature changes'
+          labels:
+              - 'Type: New Feature'
+        - title: 'Patch changes'
+          labels:
+              - 'Problem: Bug'
+        - title: 'Maintenance and internal'
+          labels:
+              - '*'
