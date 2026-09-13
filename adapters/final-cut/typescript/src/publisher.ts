@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -41,6 +41,50 @@ export interface FinalCutProjectPublishRequest {
   confirm: boolean;
 }
 
+export interface FinalCutProjectPublishPreparationRequest {
+  sourceTransactionId: string;
+  artifactPath: string;
+  artifactDigest: string;
+}
+
+export type FinalCutProjectPublishJobState =
+  | "awaiting-confirmation"
+  | "awaiting-final-cut"
+  | "verification-pending"
+  | "verified"
+  | "failed";
+
+export type FinalCutProjectPublishJobAction = "confirm" | "retry" | "status" | "none";
+
+export interface FinalCutProjectPublishJob {
+  jobId: string;
+  state: FinalCutProjectPublishJobState;
+  nextAction: FinalCutProjectPublishJobAction;
+  retryable: boolean;
+  executionMode: "headed-only" | "background-capable";
+  sourceTransactionId: string;
+  sourcePath: string;
+  sourceTarget: {
+    kind: "artifact";
+    artifactPath: string;
+  };
+  artifactDigest: string;
+  projectName: string;
+  sequenceName: string;
+  confirmationRequired: boolean;
+  handoff: {
+    mode: "headed-only";
+    backgroundSupported: false;
+    reason: string;
+  };
+  createdTarget?: FinalCutProjectPublishResult["createdTarget"];
+  result?: FinalCutProjectPublishResult;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
 export interface FinalCutProjectPublisherOptions {
   enabled?: boolean;
   sourcePath: string;
@@ -60,6 +104,7 @@ export class FinalCutProjectPublisher {
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly verificationTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly publishJobs = new Map<string, FinalCutProjectPublishJob>();
 
   public constructor(options: FinalCutProjectPublisherOptions) {
     this.enabled = options.enabled ?? false;
@@ -72,6 +117,51 @@ export class FinalCutProjectPublisher {
 
   public isAvailable(): boolean {
     return this.enabled;
+  }
+
+  public async preparePublish(
+    request: FinalCutProjectPublishPreparationRequest,
+  ): Promise<FinalCutProjectPublishJob> {
+    if (!request.sourceTransactionId.trim()) throw new Error("INVALID_PUBLISH_REQUEST: sourceTransactionId is required");
+    if (!request.artifactDigest.trim()) throw new Error("INVALID_PUBLISH_REQUEST: artifactDigest is required");
+    if (request.artifactPath !== this.sourcePath) {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: requested artifact ${request.artifactPath} is not managed by this publisher`);
+    }
+    const source = await readFile(this.sourcePath, "utf8");
+    if (hash(source) !== request.artifactDigest) {
+      throw new Error("PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed after transaction verification");
+    }
+    if (!source.includes("<fcpxml") || !source.includes("<project")) {
+      throw new Error("FINAL_CUT_PUBLISH_VALIDATION_FAILED: source is not a valid FCPXML project artifact");
+    }
+    const identity = projectIdentityFromXml(source);
+    const job: FinalCutProjectPublishJob = {
+      jobId: `publish-job-${randomUUID()}`,
+      state: "awaiting-confirmation",
+      nextAction: "confirm",
+      retryable: false,
+      executionMode: "headed-only",
+      sourceTransactionId: request.sourceTransactionId,
+      sourcePath: this.sourcePath,
+      sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
+      artifactDigest: request.artifactDigest,
+      projectName: identity.projectName,
+      sequenceName: identity.sequenceName,
+      confirmationRequired: true,
+      handoff: {
+        mode: "headed-only",
+        backgroundSupported: false,
+        reason: "Final Cut has no supported non-UI project publishing contract; use the explicit headed handoff and verify the created target.",
+      },
+    };
+    this.publishJobs.set(job.jobId, job);
+    return clonePublishJob(job);
+  }
+
+  public getPublishJob(jobId: string): FinalCutProjectPublishJob {
+    const job = this.publishJobs.get(jobId);
+    if (!job) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    return clonePublishJob(job);
   }
 
   public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
@@ -377,4 +467,8 @@ function delay(milliseconds: number): Promise<void> {
 
 function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {
+  return structuredClone(job);
 }
