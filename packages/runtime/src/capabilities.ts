@@ -12,10 +12,6 @@ import type {
 
 export type CanonicalTimelineMode = "metadata-only" | "canonical-read" | "canonical-write";
 export type CapabilityProcessMode = "headless" | "headed";
-export interface CapabilityInspectionOptions {
-  /** Skip provider probes that require an editor-specific canonical read. */
-  probeCanonicalSnapshot?: boolean;
-}
 export type CapabilityPreflightMode =
   | "fixture"
   | "fcpxml-artifact"
@@ -133,6 +129,7 @@ function refreshDescriptor(
   unavailableReason: string,
 ): CapabilityDescriptor {
   if (available && previous.available) return previous;
+  if (!available && !previous.available) return previous;
   return descriptorFrom(available, previous.backend, guarantee, unavailableReason);
 }
 

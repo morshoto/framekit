@@ -106,7 +106,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       : liveMutation
         ? this.options.live
         : this.options.snapshot;
-    const readCapabilities = snapshot ?? (liveSnapshot ? live : undefined);
+    const readCapabilities = snapshot ?? (useLiveCanonical ? live : undefined);
     const readAdapter = this.options.snapshot ?? (liveSnapshot ? this.options.live : undefined);
     const hasTransactionMethods = Boolean(
       operationAdapter
@@ -191,7 +191,9 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       },
       canonicalDocument: {
         read: readFamilies?.canonicalDocument.read ?? Boolean(readCapabilities?.editor.timelineSnapshotRead),
-        write: operationFamilies?.canonicalDocument.write ?? Boolean(operationCapabilities?.timelineWrite),
+        write: operationFamilies?.canonicalDocument.write
+          ?? readFamilies?.canonicalDocument.write
+          ?? Boolean(operationCapabilities?.timelineWrite),
         artifactWrite: operationFamilies?.canonicalDocument.artifactWrite ?? Boolean(operationCapabilities?.timelineArtifactWrite),
       },
       editing: {
