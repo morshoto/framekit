@@ -67,7 +67,7 @@ try {
   const toolResults = [{ name: "editor.inspect", status: "passed" }];
   const catalog = await callJson("project.list");
   toolResults.push({ name: "project.list", status: "passed" });
-  if (catalog.activeProjectId !== "background-regression-project") {
+  if (catalog.activeProjectId !== "fcpxml:project:background-regression-project") {
     throw new Error("NON_FRONTMOST_CATALOG_INVALID: disposable project was not listed");
   }
 
