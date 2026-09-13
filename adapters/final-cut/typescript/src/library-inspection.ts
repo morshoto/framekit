@@ -147,11 +147,15 @@ export function buildFinalCutLibraryInspectionScript(applicationIdentifier = "co
   return `
 function safeCall(target, property) {
   try {
-    var member = target[property];
-    var value = typeof member === "function" ? member.call(target) : member;
+    var value = target[property]();
     return value === undefined ? null : value;
   } catch (_) {
-    return null;
+    try {
+      var fallback = target[property];
+      return fallback === undefined ? null : fallback;
+    } catch (_) {
+      return null;
+    }
   }
 }
 

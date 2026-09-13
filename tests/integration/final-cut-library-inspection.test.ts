@@ -164,7 +164,7 @@ test("builds a direct read-only Final Cut Apple Event script", () => {
   const script = buildFinalCutLibraryInspectionScript();
 
   assert.match(script, /Application\("com\.apple\.FinalCut"\)/);
-  assert.match(script, /typeof member === "function"/);
+  assert.match(script, /function safeCall\(target, property\) \{\s*try \{\s*var value = target\[property\]\(\);/);
   assert.match(script, /function collectionCall\(target, property\)/);
   assert.match(script, /var value = target\[property\]\(\)/);
   assert.match(script, /collectionCall\(finalCut, "libraries"\)/);
