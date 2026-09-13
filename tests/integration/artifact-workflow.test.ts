@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -28,6 +29,10 @@ function textFrom(result: unknown): string {
   const first = content[0] as { text?: unknown } | undefined;
   assert.equal(typeof first?.text, "string");
   return first?.text as string;
+}
+
+function digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 test("MCP exposes the explicit background artifact workflow", async () => {
@@ -76,9 +81,97 @@ test("MCP exposes the explicit background artifact workflow", async () => {
     assert.equal(route.selectedPath, "artifact");
     assert.deepEqual(route.workflow, BACKGROUND_ARTIFACT_WORKFLOW);
     assert.match(route.reason.message, /background|artifact/i);
+
+    const inspectedArtifact = JSON.parse(textFrom(await client.callTool({ name: "artifact.inspect", arguments: {} })));
+    assert.equal(inspectedArtifact.path, artifactPath);
+    assert.equal(inspectedArtifact.digest, digest(FCPXML));
+
+    const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+    const preview = JSON.parse(textFrom(await client.callTool({
+      name: "artifact.edit.preview",
+      arguments: {
+        artifactPath,
+        baseRevision: before.revision,
+        operations: [{
+          type: "rename-clip",
+          clipId: "artifact-workflow-clip",
+          name: "Background rename",
+        }],
+      },
+    })));
+    assert.equal(preview.artifact.mode, "background-artifact");
+    assert.equal(preview.artifact.revisionScope, "artifact");
+    assert.equal(preview.artifact.digest, digest(FCPXML));
+    assert.equal(preview.artifact.mutatesOpenTimeline, false);
+
+    const executed = JSON.parse(textFrom(await client.callTool({
+      name: "artifact.edit.execute",
+      arguments: { previewToken: preview.previewToken },
+    })));
+    assert.equal(executed.status, "VERIFIED");
+    assert.equal(executed.artifact.mode, "background-artifact");
+    assert.equal(executed.artifact.revisionScope, "artifact");
+    assert.equal(executed.artifact.digest, executed.artifactDigest);
+    assert.equal(executed.artifact.mutatesOpenTimeline, false);
+
+    const diff = JSON.parse(textFrom(await client.callTool({
+      name: "artifact.edit.diff",
+      arguments: { artifactPath, transactionId: executed.id },
+    })));
+    assert.equal(diff.provenance.surface, "artifact");
+    assert.equal(diff.provenance.revisionScope, "artifact");
+    assert.equal(diff.provenance.digest, executed.artifactDigest);
+    assert.equal(diff.provenance.mutatesOpenTimeline, false);
+
+    const verification = JSON.parse(textFrom(await client.callTool({
+      name: "artifact.edit.verify",
+      arguments: { artifactPath, transactionId: executed.id },
+    })));
+    assert.equal(verification.provenance.surface, "artifact");
+    assert.equal(verification.provenance.revisionScope, "artifact");
+    assert.equal(verification.provenance.digest, executed.artifactDigest);
+
+    const undone = JSON.parse(textFrom(await client.callTool({
+      name: "artifact.edit.undo",
+      arguments: { artifactPath, transactionId: executed.id },
+    })));
+    assert.equal(undone.provenance.surface, "artifact");
+    assert.equal(undone.provenance.revisionScope, "artifact");
+    assert.equal(undone.provenance.digest, digest(FCPXML));
+    assert.equal(undone.provenance.mutatesOpenTimeline, false);
+
+    const wrongPath = await client.callTool({
+      name: "artifact.edit.diff",
+      arguments: { artifactPath: `${artifactPath}.other`, transactionId: executed.id },
+    });
+    assert.equal(wrongPath.isError, true);
+    assert.match(textFrom(wrongPath), /TARGET_MISMATCH/);
   } finally {
     await client.close();
     await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("artifact preview rejects a changed source digest before execution", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-artifact-source-"));
+  const artifactPath = join(directory, "project.fcpxml");
+  await writeFile(artifactPath, FCPXML);
+  const adapter = new FcpxmlDocumentAdapter(artifactPath);
+  const runtime = new AgentVideoRuntime(adapter);
+
+  try {
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewArtifactEdit(artifactPath, {
+      baseRevision: before.revision,
+      operations: [{ type: "rename-clip", clipId: "artifact-workflow-clip", name: "Not applied" }],
+    });
+    const changed = FCPXML.replace("Original", "External change");
+    await writeFile(artifactPath, changed);
+
+    await assert.rejects(runtime.executeEdit(preview.previewToken), /ARTIFACT_SOURCE_CHANGED/);
+    assert.equal(await readFile(artifactPath, "utf8"), changed);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
