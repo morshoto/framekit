@@ -184,6 +184,32 @@ export class FinalCutProjectPublisher {
       return clonePublishJob(job);
     }
 
+    if (!this.liveState) {
+      job.state = "awaiting-final-cut";
+      job.nextAction = "retry";
+      job.retryable = true;
+      job.error = {
+        code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+        message: "Final Cut project state verification is unavailable; retry this job when the live provider is ready",
+      };
+      return clonePublishJob(job);
+    }
+
+    job.state = "verification-pending";
+    job.nextAction = "status";
+    job.retryable = false;
+    const result = await this.publishNewProject({
+      sourceTransactionId: job.sourceTransactionId,
+      artifactPath: job.sourcePath,
+      artifactDigest: job.artifactDigest,
+      confirm: true,
+    });
+    job.state = "verified";
+    job.nextAction = "none";
+    job.retryable = false;
+    job.createdTarget = structuredClone(result.createdTarget);
+    job.result = structuredClone(result);
+    delete job.error;
     return clonePublishJob(job);
   }
 
