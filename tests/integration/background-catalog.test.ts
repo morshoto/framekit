@@ -238,3 +238,42 @@ test("normal live sessions reconcile project catalogs before returning them", as
     guarantee: "observed",
   });
 });
+
+test.skip("sessions expose an explicitly injected background catalog beside metadata-only live state", async () => {
+  const session = new FinalCutSessionAdapter({
+    live: {
+      ...live,
+      getCapabilities: async () => ({
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          projectRead: false,
+          timelineSnapshotRead: false,
+          timelineWrite: false,
+          timelineArtifactWrite: false,
+          readAfterWrite: false,
+          rollback: false,
+          projectCatalogRead: false,
+          projectSelection: false,
+        },
+      }),
+    },
+    // @ts-expect-error review regression: the session must accept this provider.
+    backgroundCatalog: {
+      backend: "final-cut-background-library",
+      listProjects: async () => catalog(),
+    },
+  });
+
+  const listed = await session.listProjects();
+  const sessionCapabilities = await session.getCapabilities();
+
+  assert.equal(sessionCapabilities.editor.backgroundLibraryInspection, true);
+  assert.equal(sessionCapabilities.editor.projectCatalogRead, true);
+  assert.deepEqual(sessionCapabilities.families?.observation.library, {
+    available: true,
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
+  assert.equal(listed.provenance?.catalog.source, "background-library");
+});

@@ -166,6 +166,54 @@ test("routing selects the background library for metadata-only project listing",
   });
 });
 
+test.skip("routing does not treat canonical artifact observation as live state", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      timelineWrite: false,
+      timelineArtifactWrite: true,
+      projectCatalogRead: true,
+      liveStateRead: false,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, { backend: "fcpxml-document" });
+
+  const route = resolveEditingRoute({ operation: "editor.live.inspect" }, context({
+    editor: {
+      identity: { name: "FCPXML Document", version: "FCPXML", backend: "fcpxml-document" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.deepEqual(route.missingCapabilities, ["observation.timeline"]);
+  assert.equal(route.reason.unavailable?.category, "background-api");
+  assert.equal(route.reason.unavailable?.capability, "observation.timeline");
+});
+
+test.skip("routing does not use canonical snapshots as a background library", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      projectCatalogRead: true,
+      backgroundLibraryInspection: false,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, { backend: "final-cut-native-canonical" });
+
+  const route = resolveEditingRoute({ operation: "project.list" }, context({
+    editor: {
+      identity: { name: "Final Cut Pro", version: "test", backend: "final-cut-native-canonical" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.deepEqual(route.missingCapabilities, ["observation.library"]);
+  assert.equal(route.reason.unavailable?.category, "background-api");
+  assert.equal(route.reason.unavailable?.capability, "observation.library");
+});
+
 test("routing explains missing canonical snapshot support", () => {
   const capabilities = withCapabilityFamilies({
     editor: {
