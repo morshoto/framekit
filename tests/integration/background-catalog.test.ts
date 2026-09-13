@@ -187,6 +187,19 @@ test("MCP project.list preserves background reconciliation provenance", async ()
     assert.equal(result.provenance?.live?.state.revision.id, "live-1");
     assert.equal(result.provenance?.reconciliation.status, "matched");
     assert.equal(result.provenance?.selection.unavailableReason, "project selection is not exposed by the background provider");
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "project.list" },
+    }))) as {
+      selectedPath?: string;
+      provider?: { backend?: string; guarantee?: string };
+    };
+    assert.equal(route.selectedPath, "background");
+    assert.deepEqual(route.provider, {
+      backend: "final-cut-background-library",
+      guarantee: "observed",
+    });
   } finally {
     await client.close();
     await server.close();
@@ -212,9 +225,16 @@ test("normal live sessions reconcile project catalogs before returning them", as
   });
 
   const listed = await session.listProjects();
+  const sessionCapabilities = await session.getCapabilities();
 
   assert.equal(listed.activeProjectId, "background-project");
   assert.equal(listed.activeSequenceId, "background-sequence");
   assert.equal(listed.provenance?.reconciliation.status, "matched");
   assert.equal(listed.provenance?.live?.state.revision.id, "live-1");
+  assert.equal(sessionCapabilities.editor.backgroundLibraryInspection, true);
+  assert.deepEqual(sessionCapabilities.families?.observation.library, {
+    available: true,
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
 });

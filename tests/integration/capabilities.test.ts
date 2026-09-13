@@ -117,6 +117,47 @@ test("background family does not infer native evidence from editor flags", () =>
   assert.equal(capabilities.families.export.background.evidenceTier, undefined);
 });
 
+test("background library capability reports observed provider provenance", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      projectCatalogRead: true,
+      backgroundLibraryInspection: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, {
+    backend: "final-cut-session",
+    observation: {
+      library: {
+        available: true,
+        backend: "final-cut-background-library",
+        guarantee: "observed",
+      },
+    },
+  });
+
+  assert.deepEqual(capabilities.families.observation.library, {
+    available: true,
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.families.canonicalDocument.read.available, false);
+});
+
+test("background library capability is unavailable without explicit provider support", () => {
+  const capabilities = withCapabilityFamilies(metadataOnlyCapabilities, {
+    backend: "workflow-extension-ipc",
+  });
+
+  assert.deepEqual(capabilities.families.observation.library, {
+    available: false,
+    backend: "workflow-extension-ipc",
+    guarantee: "none",
+    unavailableReason: "background library inspection is unavailable",
+  });
+});
+
 test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
   const canonicalWrite = withCapabilityFamilies({
     editor: {
@@ -198,6 +239,35 @@ test("capability normalization invalidates stale background media descriptors", 
     backend: "filesystem-media",
     guarantee: "none",
     unavailableReason: "media observation is unavailable",
+  });
+});
+
+test("capability normalization preserves an explicit background library descriptor", () => {
+  const background = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      backgroundLibraryInspection: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, {
+    backend: "final-cut-session",
+    observation: {
+      library: {
+        available: true,
+        backend: "final-cut-background-library",
+        guarantee: "observed",
+      },
+    },
+  });
+  const legacyEditor = { ...background.editor };
+  Reflect.deleteProperty(legacyEditor, "backgroundLibraryInspection");
+
+  const normalized = withCanonicalTimelineMode({ ...background, editor: legacyEditor });
+
+  assert.deepEqual(normalized.families?.observation.library, {
+    available: true,
+    backend: "final-cut-background-library",
+    guarantee: "observed",
   });
 });
 
@@ -484,6 +554,11 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /clipMovement/);
   assert.match(documentation, /backgroundMediaDiscovery/);
   assert.match(documentation, /backgroundTemplateDiscovery/);
+  assert.match(documentation, /backgroundLibraryInspection/);
+  assert.match(documentation, /observation\.library/);
+  assert.match(documentation, /final-cut-background-library/);
+  assert.match(documentation, /metadata-only/);
+  assert.match(documentation, /canonical timeline evidence/);
   assert.match(mcp, /FRAMEKIT_FINAL_CUT_MEDIA_ROOTS/);
   assert.match(mcp, /discovery: \"native\"/);
   assert.match(architecture, /`editor\.projectRead` is disabled/);

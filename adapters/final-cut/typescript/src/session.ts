@@ -124,6 +124,22 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const readFamilies = readCapabilities?.families
       ?? (!this.options.snapshot && !this.options.mutation ? live?.families : undefined);
     const backgroundMediaDiscovery = Boolean(this.options.media?.listMedia);
+    const backgroundLibraryInspection = Boolean(
+      operationCapabilities?.backgroundLibraryInspection
+      || (!this.options.snapshot
+        && this.options.live?.listProjects
+        && live?.editor.projectCatalogRead
+        && live.editor.canonicalTimelineMode === "metadata-only"),
+    );
+    const backgroundLibrary = backgroundLibraryInspection
+      ? readFamilies?.observation.library.available
+        ? readFamilies.observation.library
+        : {
+            available: true,
+            backend: "final-cut-background-library",
+            guarantee: "observed" as const,
+          }
+      : false;
     return withCapabilityFamilies({
       editor: {
         ...operationCapabilities,
@@ -137,6 +153,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
         backgroundMediaDiscovery,
         backgroundTemplateDiscovery: Boolean(this.options.assets),
+        backgroundLibraryInspection,
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
         frameCapture: false,
@@ -154,6 +171,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     }, {
       backend: "final-cut-session",
       observation: {
+        library: backgroundLibrary,
         ...(backgroundMediaDiscovery ? {
           media: { available: true, backend: "filesystem-media", guarantee: "observed" as const },
         } : {}),
