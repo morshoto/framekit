@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
@@ -70,7 +70,7 @@ async function runPreflight(lockProbe: string): Promise<PreflightResult> {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-headed-preflight-"));
   const bin = join(directory, "bin");
   await writeFile(join(directory, "ioreg-output"), `${lockProbe}\n`);
-  await import("node:fs/promises").then(({ mkdir }) => mkdir(bin));
+  await mkdir(bin);
   await writeExecutable(join(bin, "ioreg"), `#!/usr/bin/env bash\ncat ${shellQuote(join(directory, "ioreg-output"))}\n`);
   await writeExecutable(join(bin, "uname"), "#!/usr/bin/env bash\nprintf '%s\\n' Darwin\n");
   await writeExecutable(join(bin, "pgrep"), "#!/usr/bin/env bash\nexit 0\n");
