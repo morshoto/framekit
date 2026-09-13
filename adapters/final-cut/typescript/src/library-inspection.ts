@@ -143,7 +143,8 @@ export function buildFinalCutLibraryInspectionScript(applicationIdentifier = "co
   return `
 function safeCall(target, property) {
   try {
-    var value = target[property]();
+    var member = target[property];
+    var value = typeof member === "function" ? member.call(target) : member;
     return value === undefined ? null : value;
   } catch (_) {
     return null;
@@ -276,12 +277,9 @@ export function parseFinalCutLibraryInspectionResponse(input: string | unknown):
 /** Flatten safely discoverable project identities for the existing project.list contract. */
 export function toFinalCutProjectCatalog(catalog: FinalCutLibraryInspectionCatalog): ProjectCatalog {
   const projects: ProjectDescriptor[] = [];
-  const projectIds = new Set<string>();
   for (const library of catalog.libraries) {
     for (const event of library.events) {
       for (const project of event.projects) {
-        if (projectIds.has(project.id)) continue;
-        projectIds.add(project.id);
         const sequences: ProjectSequence[] = project.sequences.map(({ id, name }) => ({ id, name }));
         projects.push({ id: project.id, name: project.name, sequences });
       }
@@ -325,7 +323,10 @@ function parseProject(value: unknown, path: string, issues: FinalCutLibraryInspe
   const id = requiredText(record.id, `${path}.id`, "project id", issues);
   const name = requiredText(record.name, `${path}.name`, "project name", issues);
   const sequences = record.sequence === null || record.sequence === undefined
-    ? []
+    ? (() => {
+      issues.push(fieldUnavailableIssue(`${path}.sequence`, "project sequence is unavailable"));
+      return [];
+    })()
     : [parseSequence(record.sequence, `${path}.sequence`, issues)].filter((sequence): sequence is FinalCutLibraryInspectionSequence => Boolean(sequence));
   if (!id || !name) return undefined;
   return { id, name, sequences };
