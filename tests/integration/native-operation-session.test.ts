@@ -505,6 +505,7 @@ test("native operation session documentation names the contract and safety bound
   const tools = await readFile(join(here, "../../docs/mcp/tools.md"), "utf8");
   const live = await readFile(join(here, "../../docs/mcp/final-cut-live.md"), "utf8");
   const adr = await readFile(join(here, "../../docs/adr/0010-resumable-native-operation-session.md"), "utf8");
+  const adrIndex = await readFile(join(here, "../../docs/project/adr/README.md"), "utf8");
 
   for (const tool of [
     "editor.native.operation.submit",
@@ -519,6 +520,7 @@ test("native operation session documentation names the contract and safety bound
   assert.match(live, /`completed`, `rolled_back`, `failed`, or\s+`cancelled`/);
   assert.match(adr, /five minutes after\s+their\s+`expiresAt`/);
   assert.match(adr, /\+--> cancelled/);
+  assert.match(adrIndex, /ADR 0009: Non-UI project selection/);
 });
 
 interface DisposableState {
