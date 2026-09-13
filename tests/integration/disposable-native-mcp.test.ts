@@ -105,3 +105,140 @@ test("MCP keeps disposable native edits fail closed when not configured", async 
     await server.close();
   }
 });
+
+test("MCP exposes resumable native operation submit, status, retry, and cancel tools", async () => {
+  const calls: string[] = [];
+  const job = {
+    jobId: "native-job-1",
+    operation: "disposable.rename-clip",
+    previewToken: "preview-1",
+    projectId: "project-1",
+    sequenceId: "sequence-1",
+    targetIdentity: "clip-1",
+    baseRevision: { id: "revision-1", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z" },
+    idempotencyKey: "request-1",
+    state: "waiting_for_final_cut",
+    accepted: true,
+    completed: false,
+    verified: false,
+    restored: false,
+    cancelRequested: false,
+    submittedAt: "2026-09-13T00:00:00.000Z",
+    updatedAt: "2026-09-13T00:00:00.000Z",
+    expiresAt: "2026-09-13T00:01:00.000Z",
+    readiness: {
+      state: "unavailable",
+      nextAction: "retry",
+      retryable: true,
+      firstMissing: "frontmost",
+      frontmost: false,
+      timelineFocus: false,
+      selectedTarget: true,
+      overlay: "clear",
+      permission: "granted",
+      undo: "unknown",
+      guidance: "Bring Final Cut Pro to the front and retry",
+    },
+    error: { code: "FINAL_CUT_NATIVE_NOT_FRONTMOST", message: "Final Cut is not frontmost", retryable: true },
+  };
+  const nativeOperationSession = {
+    submit: async (request: unknown) => {
+      calls.push(`submit:${JSON.stringify(request)}`);
+      return job;
+    },
+    status: (jobId: string) => {
+      calls.push(`status:${jobId}`);
+      return job;
+    },
+    retry: async (jobId: string) => {
+      calls.push(`retry:${jobId}`);
+      return { ...job, state: "completed", completed: true, verified: true };
+    },
+    cancel: async (jobId: string) => {
+      calls.push(`cancel:${jobId}`);
+      return { ...job, state: "cancelled" };
+    },
+  };
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Disposable MCP",
+    timelineId: "sequence-1",
+    timelineName: "Main",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeOperationSession: nativeOperationSession as never });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "native-operation-session-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    const submitTool = tools.tools.find((tool) => tool.name === "editor.native.operation.submit");
+    assert.deepEqual(submitTool?.inputSchema.required?.slice().sort(), [
+      "baseRevision",
+      "idempotencyKey",
+      "operation",
+      "previewToken",
+      "projectId",
+      "sequenceId",
+      "targetIdentity",
+    ]);
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.operation.status"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.operation.retry"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.operation.cancel"));
+
+    const binding = {
+      operation: "disposable.rename-clip",
+      previewToken: "preview-1",
+      projectId: "project-1",
+      sequenceId: "sequence-1",
+      targetIdentity: "clip-1",
+      baseRevision: { id: "revision-1", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z" },
+      idempotencyKey: "request-1",
+    };
+    const submitted = JSON.parse(textFrom(await client.callTool({ name: "editor.native.operation.submit", arguments: binding })));
+    const status = JSON.parse(textFrom(await client.callTool({ name: "editor.native.operation.status", arguments: { jobId: submitted.jobId } })));
+    const retried = JSON.parse(textFrom(await client.callTool({ name: "editor.native.operation.retry", arguments: { jobId: status.jobId } })));
+    const cancelled = JSON.parse(textFrom(await client.callTool({ name: "editor.native.operation.cancel", arguments: { jobId: retried.jobId } })));
+
+    assert.equal(status.state, "waiting_for_final_cut");
+    assert.equal(retried.completed, true);
+    assert.equal(cancelled.state, "cancelled");
+    assert.deepEqual(calls, [
+      `submit:${JSON.stringify(binding)}`,
+      "status:native-job-1",
+      "retry:native-job-1",
+      "cancel:native-job-1",
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP keeps resumable native operations fail closed when not configured", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Disposable MCP",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "native-operation-session-unavailable-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: "editor.native.operation.status", arguments: { jobId: "missing" } });
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /CAPABILITY_UNAVAILABLE: native operation session is not configured/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
