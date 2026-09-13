@@ -933,6 +933,21 @@ test("native inspect reports timeline focus as the first missing requirement", a
   assert.equal(inspected.readiness.overlay, "unknown");
 });
 
+test("native inspect does not pause live supervision", async () => {
+  const events: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    suspendLiveConnection: () => events.push("suspend"),
+    resumeLiveConnection: () => events.push("resume"),
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 0, true, true, false, "timeline")
+      : "",
+  });
+
+  await adapter.inspect();
+  assert.deepEqual(events, []);
+});
+
 test("native inspect classifies a bounded preflight timeout", async () => {
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
