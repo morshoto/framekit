@@ -62,9 +62,9 @@ function snapshot(name: string): ProjectSnapshot {
 
 function liveState(): EditorLiveState {
   return {
-    project: { id: "active-project", name: "Canonical E2E" },
+    project: { id: "final-cut:project:project-1", name: "Canonical E2E" },
     sequence: {
-      id: "active-sequence",
+      id: "final-cut:sequence:sequence-1",
       name: "Canonical E2E",
       startTime: { value: "0", timescale: "24" },
       duration: { value: "96", timescale: "24" },
@@ -78,6 +78,7 @@ function providerFor(
   snapshots: Array<ProjectSnapshot | Error>,
   calls: string[],
   resolveTarget: CanonicalNativeTargetResolver = async () => {},
+  activeState: EditorLiveState = liveState(),
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -91,7 +92,7 @@ function providerFor(
   };
   const live = {
     getIdentity: async () => identity,
-    readLiveState: async () => liveState(),
+    readLiveState: async () => structuredClone(activeState),
     liveChangesSince: async (_revision: ContextRevision, _waitMs?: number): Promise<EditorChange[]> => [],
   };
   return new FinalCutCanonicalNativeProvider({
@@ -245,6 +246,24 @@ test("canonical native provider rejects ambiguous occurrence bindings before edi
     /AMBIGUOUS_PROJECT_TARGET/,
   );
   assert.deepEqual(calls, []);
+});
+
+test("canonical native provider rejects same-name targets with different live IDs", async () => {
+  for (const kind of ["project", "sequence"] as const) {
+    const active = liveState();
+    if (kind === "project") {
+      active.project = { ...active.project!, id: "final-cut:project:other" };
+    } else {
+      active.sequence = { ...active.sequence!, id: "final-cut:sequence:other" };
+    }
+    const provider = providerFor([snapshot("Original")], [], undefined, active);
+
+    await assert.rejects(
+      provider.readProject(),
+      new RegExp(`TARGET_MISMATCH: active ${kind} identity`),
+      kind,
+    );
+  }
 });
 
 test("canonical Final Cut export is driven by the active timeline UI", () => {

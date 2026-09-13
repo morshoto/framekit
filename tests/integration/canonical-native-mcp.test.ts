@@ -63,9 +63,9 @@ function snapshot(clipName: string): ProjectSnapshot {
 
 function liveState(): EditorLiveState {
   return {
-    project: { id: "active-project", name: "Canonical MCP" },
+    project: { id: "final-cut:project:canonical-mcp", name: "Canonical MCP" },
     sequence: {
-      id: "active-sequence",
+      id: "final-cut:sequence:canonical-mcp",
       name: "Main Edit",
       startTime: { value: "0", timescale: "24" },
       duration: { value: "96", timescale: "24" },
