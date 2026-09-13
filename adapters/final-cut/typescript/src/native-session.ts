@@ -271,6 +271,9 @@ export class NativeOperationSession {
       const execution = await this.options.executor.execute(job.request, context);
       this.setState(job, "verifying");
       job.evidence = structuredClone(execution.evidence);
+      if (execution.outcome === "completed" && !hasVerifiedCompletionEvidence(execution.evidence)) {
+        throw new Error("NATIVE_OPERATION_UNVERIFIED_RESULT: native executor returned without verified readback");
+      }
       this.setState(job, execution.outcome);
     } catch (error) {
       this.handleFailure(job, error);
@@ -292,6 +295,11 @@ export class NativeOperationSession {
         job.error = failure;
         this.setState(job, "cancelled");
       }
+      return;
+    }
+    if (failure.code === "NATIVE_OPERATION_UNVERIFIED_RESULT" && job.mutationStarted) {
+      job.error = { ...failure, recovery: "required" };
+      this.setState(job, "failed");
       return;
     }
     if (!job.mutationStarted && failure.retryable) {
@@ -473,6 +481,10 @@ function disposableEvidence(result: NativeFinalCutDisposableResult): NativeOpera
 
 function isTerminal(state: NativeOperationSessionState): boolean {
   return state === "completed" || state === "rolled_back" || state === "failed" || state === "cancelled";
+}
+
+function hasVerifiedCompletionEvidence(evidence: NativeOperationSessionEvidence | undefined): boolean {
+  return evidence?.readback?.status === "verified" && evidence.verification?.status === "verified";
 }
 
 function sessionError(error: unknown): NativeOperationSessionError {
