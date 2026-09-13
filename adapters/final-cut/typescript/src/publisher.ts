@@ -164,6 +164,29 @@ export class FinalCutProjectPublisher {
     return clonePublishJob(job);
   }
 
+  public async executePublishJob(
+    jobId: string,
+    confirm: boolean,
+  ): Promise<FinalCutProjectPublishJob> {
+    const job = this.publishJobs.get(jobId);
+    if (!job) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    if (job.state === "verified") return clonePublishJob(job);
+    if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+
+    if (!this.enabled) {
+      job.state = "awaiting-final-cut";
+      job.nextAction = "retry";
+      job.retryable = true;
+      job.error = {
+        code: "CAPABILITY_UNAVAILABLE",
+        message: "Final Cut project publishing is unavailable; bring Final Cut Pro to the front and retry this job",
+      };
+      return clonePublishJob(job);
+    }
+
+    return clonePublishJob(job);
+  }
+
   public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; configure FRAMEKIT_EDITOR=final-cut-live and FRAMEKIT_FCPXML_PATH, and ensure Final Cut is reachable through FRAMEKIT_FINAL_CUT_SOCKET");
     if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
