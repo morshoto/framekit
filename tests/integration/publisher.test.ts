@@ -365,3 +365,59 @@ test("FCPXML publish jobs remain resumable while Final Cut is unavailable", asyn
   assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
   assert.equal(executorCalled, false);
 });
+
+test("FCPXML publish jobs report success only after live target verification", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-verified-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-verified" name="Verified Publish"><sequence uid="sequence-verified" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalls = 0;
+  let liveStateCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => {
+      executorCalls += 1;
+      return "imported";
+    },
+    liveState: async () => {
+      liveStateCalls += 1;
+      const imported = liveStateCalls > 1;
+      return {
+        project: { id: imported ? "project-created" : "project-before", name: imported ? "Verified Publish" : "Existing" },
+        sequence: {
+          id: imported ? "sequence-created" : "sequence-before",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "10", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-verified",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const verified = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(verified.state, "verified");
+  assert.equal(verified.nextAction, "none");
+  assert.equal(verified.retryable, false);
+  assert.equal(verified.result?.verified, true);
+  assert.deepEqual(verified.createdTarget, {
+    kind: "editor.project",
+    projectId: "project-created",
+    sequenceId: "sequence-created",
+    projectName: "Verified Publish",
+    sequenceName: "Main",
+  });
+  assert.deepEqual(verified.result?.sourceTarget, { kind: "artifact", artifactPath: sourcePath });
+  assert.equal(executorCalls, 1);
+  assert.equal(liveStateCalls, 2);
+});
