@@ -122,6 +122,29 @@ test("FCPXML media operations preview, execute, verify, diff, and undo", async (
   assert.deepEqual(undone.timeline.clips, before.timeline.clips);
 });
 
+test("FCPXML media additions preserve music roles through read-after-write", async () => {
+  const { path, adapter } = await artifact();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: [{
+      type: "timeline.media.add",
+      occurrenceId: "music-1",
+      mediaId: "audio-a",
+      role: "music",
+      start: 8,
+      duration: 2,
+      targetLane: 1,
+    }],
+  });
+
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+  assert.equal(transaction.after.timeline.clips.find((clip) => clip.id === "music-1")?.role, "music");
+  assert.match(await readFile(path, "utf8"), /id="music-1"[^>]+role="music"/);
+});
+
 test("FCPXML titles, transitions, and audio parameters round-trip through one transaction", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);
