@@ -1,5 +1,5 @@
 export interface FinalCutBrowserSearchAccessibilityNode {
-  role: "AXButton" | "AXGroup" | "AXOutline" | "AXScrollArea" | "AXToolbar";
+  role: "AXButton" | "AXGroup" | "AXOutline" | "AXScrollArea" | "AXSplitGroup" | "AXToolbar";
   label?: string;
   children?: FinalCutBrowserSearchAccessibilityNode[];
 }

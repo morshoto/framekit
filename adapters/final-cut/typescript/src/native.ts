@@ -4416,6 +4416,35 @@ function browserSearchControlFinderScript(): string {
       end try
     end browserSearchContainer
 
+    on browserSearchHasMediaMarker(containerItem, depth)
+      if depth > 8 then return false
+      set candidateRole to ""
+      set candidateText to ""
+      try
+        set candidateRole to role of containerItem as text
+        set candidateText to description of containerItem as text
+      end try
+      if candidateText is "" then
+        try
+          set candidateText to name of containerItem as text
+        end try
+      end if
+      if candidateText is "" then
+        try
+          set candidateText to value of containerItem as text
+        end try
+      end if
+      if candidateRole is "AXGroup" or candidateRole is "AXScrollArea" or candidateRole is "AXSplitGroup" or candidateRole is "AXLayoutArea" or candidateRole is "AXToolbar" or candidateRole is "AXList" or candidateRole is "AXOutline" or candidateRole is "AXCollection" or candidateRole is "AXRadioGroup" then
+        if candidateText contains "Browser" or candidateText contains "browser" or candidateText contains "Events" or candidateText contains "events" or candidateText contains "Event" or candidateText contains "event" or candidateText contains "Organizer" or candidateText contains "organizer" or candidateText contains "film" or candidateText contains "Film" then return true
+        try
+          repeat with candidateRef in UI elements of containerItem
+            if my browserSearchHasMediaMarker(contents of candidateRef, depth + 1) then return true
+          end repeat
+        end try
+      end if
+      return false
+    end browserSearchHasMediaMarker
+
     on browserSearchToggle(candidate)
       try
         set candidateRole to role of candidate as text
@@ -4486,9 +4515,10 @@ function browserSearchControlFinderScript(): string {
         set browserRoot to containerItem
       end if
       set candidateItems to UI elements of containerItem
-      repeat with candidateIndex in my orderedChildIndices(containerItem)
+      set candidateCount to count of candidateItems
+      repeat with candidateIndex from 1 to candidateCount
         try
-          set candidate to item (contents of candidateIndex) of candidateItems
+          set candidate to contents of item candidateIndex of candidateItems
           set candidateRole to role of candidate as text
           set candidateBrowserContext to browserContext
           set candidateBrowserRoot to browserRoot
@@ -4496,7 +4526,9 @@ function browserSearchControlFinderScript(): string {
             set candidateBrowserContext to true
             set candidateBrowserRoot to candidate
           end if
-          if candidateBrowserContext and my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(candidateBrowserRoot)}
+          set candidateIsToggle to my browserSearchToggle(candidate)
+          if candidateBrowserContext and candidateIsToggle then return {candidate, my browserSearchRootForToggle(candidateBrowserRoot)}
+          if candidateIsToggle and my browserSearchHasMediaMarker(containerItem, 0) then return {candidate, my browserSearchRootForToggle(containerItem)}
           if candidateRole is "AXGroup" or candidateRole is "AXSplitGroup" or candidateRole is "AXLayoutArea" or candidateRole is "AXToolbar" or candidateRole is "AXScrollArea" or candidateRole is "AXList" or candidateRole is "AXOutline" or candidateRole is "AXCollection" or candidateRole is "AXRadioGroup" then
             set nestedCandidate to my findBrowserSearchToggle(candidate, depth + 1, candidateBrowserContext, candidateBrowserRoot)
             if nestedCandidate is not missing value then return nestedCandidate
@@ -4525,7 +4557,9 @@ function browserSearchControlFinderScript(): string {
             set candidateBrowserContext to true
             set candidateBrowserRoot to candidate
           end if
-          if candidateBrowserContext and my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(candidateBrowserRoot)}
+          set candidateIsToggle to my browserSearchToggle(candidate)
+          if candidateBrowserContext and candidateIsToggle then return {candidate, my browserSearchRootForToggle(candidateBrowserRoot)}
+          if candidateIsToggle and my browserSearchHasMediaMarker(containerItem, 0) then return {candidate, my browserSearchRootForToggle(containerItem)}
           set candidateRole to role of candidate as text
           if candidateBrowserContext and candidateRole is "AXSearchField" then
             return {candidate, candidateBrowserRoot}

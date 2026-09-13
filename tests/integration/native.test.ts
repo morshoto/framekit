@@ -1905,9 +1905,10 @@ test("native Final Cut search ignores unrelated search toggles", async () => {
   assert.equal(currentLayout.children?.[1]?.children?.[1]?.label, "Organizer filmlist scroll view");
   assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
   assert.match(searchScript, /set candidateBrowserContext to browserContext/);
-  assert.match(searchScript, /if candidateBrowserContext and my browserSearchToggle\(candidate\) then/);
+  assert.match(searchScript, /if candidateBrowserContext and candidateIsToggle then/);
   assert.match(searchScript, /on browserSearchHasMediaMarker\(containerItem, depth\)/);
-  assert.match(searchScript, /if my browserSearchHasMediaMarker\(candidate, 0\) then return true/);
+  assert.match(searchScript, /set candidateIsToggle to my browserSearchToggle\(candidate\)/);
+  assert.match(searchScript, /if candidateIsToggle and my browserSearchHasMediaMarker\(containerItem, 0\) then/);
   assert.equal(searchScript.includes("if my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(containerItem)}"), false);
 });
 
