@@ -38,25 +38,53 @@ repository_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   printf '%s\n' 'error: run from a linked Framekit worktree' >&2
   exit 1
 }
+source "$repository_root/.agents/skills/verify-final-cut-native/scripts/console-lock-state.sh"
 [[ $(uname -s) == Darwin ]] || { printf '%s\n' 'error: headed Final Cut verification requires macOS' >&2; exit 1; }
 command -v osascript >/dev/null 2>&1 || { printf '%s\n' 'error: osascript is required' >&2; exit 1; }
 pgrep -x 'Final Cut Pro' >/dev/null 2>&1 || { printf '%s\n' 'error: Final Cut Pro is not running' >&2; exit 1; }
 
-lock_probe=$(/usr/sbin/ioreg -n Root -d1 2>/dev/null) || {
-  printf '%s\n' 'error: unable to determine the macOS console lock state' >&2
-  exit 1
-}
-lock_state=$(printf '%s\n' "$lock_probe" | sed -n \
-  's/.*"CGSSessionScreenIsLocked"[[:space:]]*=[[:space:]]*\([^,}[:space:]]*\).*/\1/p')
+if ! command -v ioreg >/dev/null 2>&1; then
+  printf '%s\n' \
+    'code=FINAL_CUT_NATIVE_CONSOLE_LOCK_STATE_UNKNOWN' \
+    'state=unknown' \
+    'source=probe' \
+    'retryable=true' \
+    'guidance=Retry when ioreg is available.' >&2
+  exit 75
+fi
+if ! lock_probe=$(ioreg -n Root -d1 2>/dev/null); then
+  printf '%s\n' \
+    'code=FINAL_CUT_NATIVE_CONSOLE_LOCK_STATE_UNKNOWN' \
+    'state=unknown' \
+    'source=probe' \
+    'retryable=true' \
+    'guidance=Retry when ioreg can read the console state.' >&2
+  exit 75
+fi
+lock_result=$(console_lock_state_result "$lock_probe")
+lock_state=$(printf '%s\n' "$lock_result" | sed -n 's/^state=//p')
+lock_source=$(printf '%s\n' "$lock_result" | sed -n 's/^source=//p')
 case "$lock_state" in
-  No) ;;
-  Yes)
-    printf '%s\n' 'error: CGSSessionScreenIsLocked=true; unlock the console before native verification' >&2
+  unlocked)
+    printf 'console_lock_state=unlocked\nconsole_lock_source=%s\n' "$lock_source"
+    ;;
+  locked)
+    printf '%s\n' \
+      'code=FINAL_CUT_NATIVE_CONSOLE_LOCKED' \
+      'state=locked' \
+      "source=$lock_source" \
+      'retryable=false' \
+      'guidance=Unlock the console before native verification.' >&2
     exit 1
     ;;
   *)
-    printf 'error: unknown macOS console lock state: %s\n' "${lock_state:-missing}" >&2
-    exit 1
+    printf '%s\n' \
+      'code=FINAL_CUT_NATIVE_CONSOLE_LOCK_STATE_UNKNOWN' \
+      'state=unknown' \
+      "source=$lock_source" \
+      'retryable=true' \
+      'guidance=Retry when macOS exposes one consistent supported lock-state signal.' >&2
+    exit 75
     ;;
 esac
 
