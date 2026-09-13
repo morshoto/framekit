@@ -723,6 +723,70 @@ test("Final Cut MCP preserves overlay-blocked focus diagnostics", async () => {
   }
 });
 
+test("Final Cut MCP forwards request cancellation to native probes and commands", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "selected-clip" as const, name: "Interview" },
+    bladeAvailable: false,
+    undoAvailable: true,
+  };
+  let inspectSignal: AbortSignal | undefined;
+  let editSignal: AbortSignal | undefined;
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async (options?: { signal?: AbortSignal }) => {
+      inspectSignal = options?.signal;
+      return nativeContext;
+    },
+    focusTimeline: async () => nativeContext,
+    edit: async (_operation: unknown, options?: { signal?: AbortSignal }) => {
+      editSignal = options?.signal;
+      return { operationId: "native-1", operation: _operation, command: "test", before: nativeContext, after: nativeContext, verification: { verified: true, level: "native-command-accepted", detail: "test" }, undoAvailable: true };
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Cancellation Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "cancellation-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    await client.callTool({ name: "editor.native.inspect", arguments: {} });
+    await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+    assert.ok(inspectSignal);
+    assert.ok(editSignal);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("Final Cut MCP exposes deterministic append and insert media workflows", async () => {
   const nativeContext = {
     available: true,
