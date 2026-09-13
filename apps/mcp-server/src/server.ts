@@ -1504,11 +1504,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (request) => jsonResult(await runtime.planRoughCut(request)));
 
   server.registerTool("editor.assets", {
-    description: "Search editor-native transitions, effects, titles, generators, and templates.",
+    description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
     inputSchema: {
       query: z.string().optional(),
       kind: z.enum(["transition", "effect", "title", "generator", "audio-effect", "template"]).optional(),
       vendor: z.string().optional(),
+      discovery: z.enum(["background", "native", "all"]).optional().default("background"),
     },
   }, async (query) => jsonResult(await runtime.listAssets(query)));
 

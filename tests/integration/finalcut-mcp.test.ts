@@ -123,6 +123,11 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
           backend: "filesystem-motion-template",
           guarantee: "observed",
         },
+        installation: {
+          path: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+          root: join(directory, "Motion Templates.localized"),
+          relativePath: "Titles.localized/Lower Third.moti",
+        },
         placement: {
           backend: "final-cut-accessibility",
           guarantee: "native-verified",
