@@ -174,20 +174,29 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 Grant Accessibility and Automation permission to the terminal or host running
-the MCP process. Framekit activates Final Cut and focuses the timeline before
-timeline-native operations. The user must open the intended project timeline
-and select the target clip before calling `editor.native.edit`; Framekit does
-not choose projects automatically. Native writes fail closed when permission,
-window, focus, selection, or menu verification is unavailable.
+the MCP process. Call `editor.native.inspect` first when checking readiness. It
+uses a bounded, passive Accessibility probe: it does not activate Final Cut,
+raise a window, minimize the Framekit overlay, click, or change selection. Its
+`readiness` object reports the state, first missing requirement, retryability,
+frontmost/timeline-focus/target status, permission and overlay diagnostics, and
+actionable guidance. A background Final Cut session therefore returns a
+structured unavailable result without blocking the MCP session.
+
+The user must open the intended project timeline and select the target clip
+before calling `editor.native.edit`; Framekit does not choose projects
+automatically. Native writes fail closed when permission, window, focus,
+selection, or menu verification is unavailable. Timeline-native previews and
+execution may activate Final Cut as part of their explicit write workflow.
 
 If focus recovery needs to be retried explicitly, call `editor.native.focus`. It
 performs a bounded Accessibility-only focus attempt and returns the same UI
 diagnostics as `editor.native.inspect`; it never selects a project, moves the
-playhead, or changes timeline content. When the visible Framekit extension
-window overlaps Final Cut, preflight detects it, minimizes it through
-Accessibility, raises the timeline window, and verifies the focused window
-after every attempt. It never clicks the Framekit close button. An overlay that
-cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
+playhead, or changes timeline content. Unlike passive inspect, this explicit
+recovery request may activate Final Cut and recover focus. When the visible
+Framekit extension window overlaps Final Cut, preflight detects it, minimizes
+it through Accessibility, raises the timeline window, and verifies the focused
+window after every attempt. It never clicks the Framekit close button. An
+overlay that cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
 
 ## Importing local media
 
