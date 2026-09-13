@@ -255,6 +255,7 @@ test("native session reports recovery-required cancellation after mutation start
         await new Promise<never>((_resolve, reject) => {
           context.signal.addEventListener("abort", () => reject(new Error("FINAL_CUT_NATIVE_CANCELLED: request was cancelled")), { once: true });
         });
+        throw new Error("unreachable");
       },
     }),
   });
