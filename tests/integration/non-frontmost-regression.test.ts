@@ -366,7 +366,7 @@ test("non-frontmost regression gate is documented and separately runnable", asyn
     "timeline",
     "CAPABILITY_UNAVAILABLE",
   ]) assert.match(runner, new RegExp(term.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")), term);
-  assert.match(runner, /const restoredArtifact = await callJson\("artifact\.inspect"\);/);
-  assert.match(runner, /restoredArtifact\.digest === artifact\.digest/);
+  assert.match(runner, /const restoredProject = await callJson\("project\.inspect"\);/);
+  assert.match(runner, /canonicalProjectState\(restoredProject\) === canonicalProjectState\(before\)/);
   assert.doesNotMatch(runner, /fcpbundle|SQLite/i);
 });

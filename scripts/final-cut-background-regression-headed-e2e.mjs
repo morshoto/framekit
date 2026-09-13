@@ -92,11 +92,17 @@ try {
   toolResults.push({ name: "artifact.edit.verify", status: "passed" });
   const undone = await callJson("artifact.edit.undo", { artifactPath, transactionId: executed.id });
   toolResults.push({ name: "artifact.edit.undo", status: "passed" });
+  const restoredProject = await callJson("project.inspect");
+  toolResults.push({ name: "project.inspect.after-undo", status: "passed" });
   if (diff.provenance?.surface !== "artifact" || verification.provenance?.revisionScope !== "artifact") {
     throw new Error("NON_FRONTMOST_PROVENANCE_INVALID: artifact readback lost source provenance");
   }
   if (undone.provenance?.mutatesOpenTimeline !== false) {
     throw new Error("NON_FRONTMOST_UNDO_INVALID: artifact undo must not change the open timeline");
+  }
+  const restored = canonicalProjectState(restoredProject) === canonicalProjectState(before);
+  if (!restored) {
+    throw new Error("NON_FRONTMOST_ARTIFACT_RESTORE_FAILED: post-undo artifact digest differs from the pre-edit digest");
   }
 
   const nativeBlocker = await callJson("editor.native.inspect");
@@ -135,7 +141,7 @@ try {
     artifact: {
       format: artifact.format,
       mutationStatus: executed.status,
-      restored: undone.provenance?.mutatesOpenTimeline === false,
+      restored,
     },
   }, null, 2)}\n`);
 } finally {
@@ -153,6 +159,11 @@ async function callJson(name, arguments_ = {}) {
   } catch {
     throw new Error(`${name} returned invalid JSON: ${output}`);
   }
+}
+
+function canonicalProjectState(snapshot) {
+  const { revision: _revision, ...state } = snapshot;
+  return JSON.stringify(state);
 }
 
 async function frontmostState() {
