@@ -249,7 +249,7 @@ idempotency entry are then pruned together; later status calls return not-found
 and a reused key starts a new job.
 
 The lifecycle is `planned` -> `waiting_for_final_cut` -> `executing` ->
-`verifying` -> `completed`, `rolled_back`, or `failed`. A pending job can be
+`verifying` -> `completed`, `rolled_back`, `failed`, or `cancelled`. A pending job can be
 cancelled with `editor.native.operation.cancel`; cancellation after native
 mutation starts reports a recovery-required failure rather than claiming that
 an unverified change was safely cancelled. Terminal status keeps `accepted`,

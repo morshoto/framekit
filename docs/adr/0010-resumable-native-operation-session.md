@@ -42,8 +42,8 @@ The lifecycle is:
 
 ```text
 planned -> waiting_for_final_cut -> executing -> verifying
-                                      |             |
-                                      +--> failed  +--> completed
+  |                 |                |             |
+  +--> cancelled    +--> cancelled   +--> failed   +--> completed
                                                     +--> rolled_back
 ```
 
