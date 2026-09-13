@@ -18,6 +18,7 @@ Framekit uses two distinct Final Cut backends:
 - [Native media insertion breakthrough](./native-media-insertion-breakthrough.md)
 - [Native picture-in-picture](./picture-in-picture.md)
 - [FCPXML operation matrix](./fcpxml-operation-matrix.md)
+- [Background library inspection](./background-library-inspection.md)
 - [Native write and Undo investigation](./native-write-undo-investigation.md)
 - [Stable timeline targets](../adr/0010-stable-timeline-targets.md)
 - [Background render and export investigation](./background-render-export-investigation.md)
