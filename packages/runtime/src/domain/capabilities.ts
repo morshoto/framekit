@@ -59,6 +59,10 @@ export interface EditorCapabilities {
   personCutout?: boolean;
   /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
   semanticOperations?: Partial<Record<SkillOperation, boolean>>;
+  /** The backend can discover local media without Final Cut UI access. */
+  backgroundMediaDiscovery?: boolean;
+  /** The backend can discover installed templates without Final Cut UI access. */
+  backgroundTemplateDiscovery?: boolean;
 }
 
 export interface AnalyzerCapabilities {
@@ -177,6 +181,7 @@ export interface CapabilityFamilies {
   observation: {
     timeline: CapabilityDescriptor;
     media: CapabilityDescriptor;
+    assets: CapabilityDescriptor;
   };
   canonicalDocument: {
     read: CapabilityDescriptor;

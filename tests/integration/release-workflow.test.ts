@@ -195,8 +195,10 @@ test("release workflow preflights the required native runner", async () => {
 
   const preflightJob = workflow.slice(preflight, nativePackaging);
   assert.match(preflightJob, /runs-on: ubuntu-latest/);
-  assert.match(preflightJob, /actions: read/);
+  assert.match(preflightJob, /contents: read/);
   assert.match(preflightJob, /actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)/);
+  assert.match(preflightJob, /GH_TOKEN: \$\{\{ secrets\.TAGPR_TOKEN \}\}/);
+  assert.doesNotMatch(preflightJob, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.match(preflightJob, /actions\/runners\?per_page=100/);
   assert.match(preflightJob, /gh api --paginate --slurp/);
   assert.match(preflightJob, /node scripts\/check-release-runner\.mjs/);

@@ -5,6 +5,7 @@ export * from "./canonical.js";
 export * from "./session.js";
 export * from "./analyzers.js";
 export * from "./assets.js";
+export * from "./media.js";
 export * from "./native.js";
 export * from "./disposable-native.js";
 export * from "./publisher.js";
