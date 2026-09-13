@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -16,6 +18,7 @@ import type { ContextRevision, EditorChange, EditorIdentity, EditorLiveState, Ru
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const execFile = promisify(execFileCallback);
 
 const validResponse = JSON.stringify({
   version: 1,
@@ -286,3 +289,24 @@ test("documents the background library inspection safety boundary", async () => 
   assert.match(documentation, /Final Cut Pro 10\.7\.1/);
   assert.match(finalCutGuide, /background-library-inspection\.md/);
 });
+
+const headedLibraryInspectionTest = process.env.FRAMEKIT_FINAL_CUT_LIBRARY_HEADED === "1" ? test : test.skip;
+
+headedLibraryInspectionTest("read-only library inspection preserves frontmost application", async () => {
+  const before = await frontmostBundleIdentifier();
+  const result = await new FinalCutLibraryInspectionProvider().inspect();
+  const after = await frontmostBundleIdentifier();
+
+  assert.notEqual(result.status, "unavailable");
+  assert.notEqual(result.status, "error");
+  assert.equal(after, before);
+});
+
+async function frontmostBundleIdentifier(): Promise<string> {
+  const source = [
+    "import AppKit",
+    "print(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? \"\")",
+  ].join(";");
+  const result = await execFile("swift", ["-e", source], { maxBuffer: 10_000 });
+  return result.stdout.trim();
+}
