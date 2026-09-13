@@ -78,10 +78,10 @@ test("FCPXML operation coverage has a documented evidence boundary", async () =>
     "ripple-delete",
     "timeline.mask.add",
   ]) {
-    assert.match(matrix, new RegExp(operation.replaceAll(".", "\\\\.")));
+    assert.match(matrix, new RegExp(operation.replaceAll(".", "\\.")));
   }
   assert.match(matrix, /CAPABILITY_UNAVAILABLE/);
-  assert.match(matrix, /does not prove a live Final Cut timeline change/i);
+  assert.match(matrix, /does not prove a live\s+Final Cut timeline change/i);
 });
 
 test("FCPXML media operations preview, execute, verify, diff, and undo", async () => {
