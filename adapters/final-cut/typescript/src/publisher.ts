@@ -166,6 +166,7 @@ export class FinalCutProjectPublisher {
     const job = this.publishJobs.get(jobId);
     if (!job) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
     if (job.state === "verified") return clonePublishJob(job);
+    if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
     if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
 
     if (!this.enabled) {
