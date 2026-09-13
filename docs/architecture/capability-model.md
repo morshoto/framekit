@@ -70,6 +70,14 @@ because `project.inspect` has no canonical snapshot provider, while
 `editor.timelineSnapshotRead` and `editor.timelineArtifactWrite`, never
 `editor.timelineWrite`. Analyzer availability is negotiated independently.
 
+Project targeting is also explicit. `editor.projectSelectionMode` is
+`background-capable`, `headed-only`, or `unavailable`; the legacy
+`editor.projectSelection` boolean remains for compatibility. A successful
+`project.select` response includes the requested stable target, the observed
+active target, and the observed context revision. The bundled Workflow
+Extension reports `unavailable` because its public host surface exposes only
+the active timeline sequence and no project catalog or activation command.
+
 Every disabled operation must fail with an explicit capability error. This is
 preferable to returning partial state or reporting an unverified edit as
 successful.
