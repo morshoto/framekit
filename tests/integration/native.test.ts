@@ -962,6 +962,7 @@ test("native inspect classifies a bounded preflight timeout", async () => {
   assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
   assert.equal(inspected.error?.state, "timeout");
   assert.equal(inspected.readiness.state, "timeout");
+  assert.equal(inspected.readiness.firstMissing, undefined);
   assert.equal(inspected.readiness.retryable, true);
   assert.equal(inspected.readiness.nextAction, "retry");
 });
@@ -989,6 +990,7 @@ test("native inspect propagates caller cancellation to the native executor", asy
   assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_CANCELLED");
   assert.equal(inspected.error?.state, "cancelled");
   assert.equal(inspected.readiness.state, "cancelled");
+  assert.equal(inspected.readiness.firstMissing, undefined);
 });
 
 test("native Final Cut focus uses semantic candidates and returns diagnostics without editing", async () => {
