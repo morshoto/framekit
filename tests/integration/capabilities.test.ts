@@ -135,6 +135,36 @@ test("capability normalization invalidates stale descriptors after a downgrade",
   assert.equal(downgraded.families?.editing.compositeTransactions.backend, "canonical-live-ipc");
 });
 
+test("capability normalization invalidates stale background media descriptors", () => {
+  const background = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      backgroundMediaDiscovery: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, {
+    backend: "filesystem-media",
+    observation: {
+      media: { available: true, backend: "filesystem-media", guarantee: "observed" },
+    },
+  });
+
+  const downgraded = withCanonicalTimelineMode({
+    ...background,
+    editor: {
+      ...background.editor,
+      backgroundMediaDiscovery: false,
+    },
+  });
+
+  assert.deepEqual(downgraded.families?.observation.media, {
+    available: false,
+    backend: "filesystem-media",
+    guarantee: "none",
+    unavailableReason: "media observation is unavailable",
+  });
+});
+
 test("unavailable capability operations explain their fail-closed reason", () => {
   const capabilities = withCapabilityFamilies(metadataOnlyCapabilities, { backend: "workflow-extension-ipc" });
 
