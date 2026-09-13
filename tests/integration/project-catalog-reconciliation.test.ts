@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reconcileProjectCatalog } from "@framekit/runtime";
+import { reconcileProjectCatalog, type ProjectCatalogReconciliationOptions } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditorLiveState,
   ProjectCatalog,
-  ProjectCatalogProvenance,
 } from "@framekit/runtime";
 
 const catalog: ProjectCatalog = {
@@ -18,7 +17,7 @@ const catalog: ProjectCatalog = {
   ],
 };
 
-const provenance: ProjectCatalogProvenance = {
+const provenance: ProjectCatalogReconciliationOptions["provenance"] = {
   catalog: {
     source: "background-library",
     backend: "final-cut-background-library",
