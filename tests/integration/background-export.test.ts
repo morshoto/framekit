@@ -103,6 +103,7 @@ test("background renderer cancellation removes staged output and never commits",
     enabled: true,
     renderer: async ({ stagingPath, signal }) => {
       await writeFile(stagingPath, "partial output");
+      if (signal.aborted) return;
       await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     },
     probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
@@ -137,6 +138,58 @@ test("background renderer cancellation removes staged output and never commits",
   await assert.rejects(readFile(outputPath), /ENOENT/);
   assert.deepEqual(await readdir(directory), ["timeline.fcpxml"]);
   assert.ok(states.includes("cancelled"));
+});
+
+test("background renderer waits for shutdown before cleaning staged output", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-shutdown-"));
+  const outputPath = join(directory, "final.mp4");
+  const artifactPath = join(directory, "timeline.fcpxml");
+  await writeFile(artifactPath, "source artifact");
+  let rendererDone = false;
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath, signal }) => {
+      await writeFile(stagingPath, "partial output");
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) {
+          resolve();
+          return;
+        }
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await writeFile(stagingPath, "renderer finished late");
+      rendererDone = true;
+    },
+    probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath,
+      target: {
+        projectId: "project-1",
+        sequenceId: "sequence-1",
+        revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+      },
+    },
+    outputPath,
+    preset: "master",
+  });
+  await new Promise<void>((resolve) => {
+    const unsubscribe = job.onProgress((event) => {
+      if (event.state === "rendering") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  await job.cancel();
+
+  assert.equal(rendererDone, true);
+  await assert.rejects(job.result(), /BACKGROUND_RENDER_CANCELLED/);
+  assert.deepEqual(await readdir(directory), ["timeline.fcpxml"]);
 });
 
 test("background renderer timeout fails closed before verification or commit", async () => {

@@ -253,6 +253,7 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
   }
 
   private async runRenderer(stagingPath: string): Promise<void> {
+    throwIfAborted(this.controller.signal);
     const renderPromise = this.renderer({
       request: this.request,
       stagingPath,
@@ -269,7 +270,12 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
       }
       this.controller.signal.addEventListener("abort", () => reject(this.controller.signal.reason), { once: true });
     });
-    await Promise.race([renderPromise, abortPromise]);
+    try {
+      await Promise.race([renderPromise, abortPromise]);
+    } catch (error) {
+      if (this.controller.signal.aborted) await renderPromise.catch(() => undefined);
+      throw error;
+    }
   }
 
   private update(
