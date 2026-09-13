@@ -152,7 +152,7 @@ test("MCP does not advertise video export when metadata probing is unavailable",
   }
 });
 
-test("MCP reports external background rendering separately from headed native export", async () => {
+test("MCP reports artifact rendering separately from headed native export", async () => {
   const backgroundRenderer = new BackgroundRenderExportProvider({
     enabled: true,
     renderer: async () => undefined,
@@ -175,11 +175,12 @@ test("MCP reports external background rendering separately from headed native ex
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.capabilities.editor.videoExport, false);
     assert.equal(editor.capabilities.editor.backgroundRender, true);
-    assert.equal(editor.capabilities.editor.externalRender, true);
+    assert.equal(editor.capabilities.editor.externalRender, false);
     assert.equal(editor.capabilities.families.export.timeline.available, false);
     assert.equal(editor.capabilities.families.export.background.available, true);
     assert.equal(editor.capabilities.families.export.background.backend, "external-renderer");
-    assert.equal(editor.capabilities.families.export.external.available, true);
+    assert.equal(editor.capabilities.families.export.background.evidenceTier, "artifact-rendered");
+    assert.equal(editor.capabilities.families.export.external.available, false);
     assert.equal(editor.capabilities.families.export.external.backend, "external-renderer");
   } finally {
     await client.close();

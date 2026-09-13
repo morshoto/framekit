@@ -443,6 +443,7 @@ Background and external rendering are reported separately as
 `families.export.background` / `families.export.external` descriptors. The
 current background provider is an injected external renderer over an explicit
 artifact source; it reports `backend: "external-renderer"` and
-`evidenceTier: "external-rendered"`. It does not invoke Final Cut UI, does not
-claim native semantic equivalence, and does not change the headed
-`timeline.export` capability.
+`evidenceTier: "artifact-rendered"`. The separate external-rendered capability
+remains unavailable until a supported source can provide that evidence. It does
+not invoke Final Cut UI, does not claim native semantic equivalence, and does
+not change the headed `timeline.export` capability.

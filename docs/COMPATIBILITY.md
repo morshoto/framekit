@@ -131,11 +131,12 @@ capability requires `ffprobe`; it verifies file completion and media metadata
 and does not make the FCPXML artifact or live timeline canonically writable.
 
 Background rendering is a separate provider contract. When an external renderer
-is explicitly configured, capabilities expose `backgroundRender` and
-`externalRender` with `backend: "external-renderer"` and an
-`external-rendered` evidence tier. The provider binds an explicit FCPXML source,
-stages and verifies output, and preserves the headed-native boundary; it does
-not claim to reproduce Final Cut semantics.
+is explicitly configured, `backgroundRender` exposes an `artifact-rendered`
+evidence tier with `backend: "external-renderer"`. `externalRender` remains
+unavailable until a provider can return `external-rendered` evidence. The
+provider binds an explicit FCPXML source, stages and verifies output, and
+preserves the headed-native boundary; it does not claim to reproduce Final Cut
+semantics.
 
 ## Phase 2 local runtime
 

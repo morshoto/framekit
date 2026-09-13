@@ -1851,7 +1851,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
       backgroundRender: backgroundExportAvailable,
-      externalRender: backgroundExportAvailable,
+      externalRender: false,
     },
   }, {
     backend: inspected.identity.backend,
@@ -1888,14 +1888,14 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       available: backgroundExportAvailable,
       backend: "external-renderer",
       guarantee: backgroundExportAvailable ? "verified" : "none",
-      ...(backgroundExportAvailable ? { evidenceTier: "external-rendered" as const } : { unavailableReason: "background rendering is unavailable" }),
+      ...(backgroundExportAvailable ? { evidenceTier: "artifact-rendered" as const } : { unavailableReason: "background rendering is unavailable" }),
     },
     backgroundExportBackend: "external-renderer",
     externalExport: {
-      available: backgroundExportAvailable,
+      available: false,
       backend: "external-renderer",
-      guarantee: backgroundExportAvailable ? "verified" : "none",
-      ...(backgroundExportAvailable ? { evidenceTier: "external-rendered" as const } : { unavailableReason: "external rendering is unavailable" }),
+      guarantee: "none",
+      unavailableReason: "external rendering is unavailable",
     },
     externalExportBackend: "external-renderer",
   });

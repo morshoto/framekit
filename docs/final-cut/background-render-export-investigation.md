@@ -93,9 +93,10 @@ guards. Its capability is `families.export.timeline` with the
 `headed-native` evidence tier.
 
 The new `families.export.background` and `families.export.external` descriptors
-are additive. A configured external provider reports backend
-`external-renderer` and `evidenceTier: "external-rendered"`; it does not alter
-the headed `timeline.export` route.
+are additive. The current artifact-backed provider reports backend
+`external-renderer` and `evidenceTier: "artifact-rendered"`; the separate
+external-rendered capability remains unavailable until a supported source can
+provide that evidence. It does not alter the headed `timeline.export` route.
 
 ## Reopening the decision
 
