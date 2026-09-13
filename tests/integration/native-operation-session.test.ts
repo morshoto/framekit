@@ -516,7 +516,9 @@ test("native operation session documentation names the contract and safety bound
   assert.match(live, /idempotencyKey/);
   assert.match(live, /five minutes after\s+their\s+`expiresAt`/);
   assert.match(live, /do not survive MCP process restart/);
+  assert.match(live, /`completed`, `rolled_back`, `failed`, or\s+`cancelled`/);
   assert.match(adr, /five minutes after\s+their\s+`expiresAt`/);
+  assert.match(adr, /\+--> cancelled/);
 });
 
 interface DisposableState {
