@@ -37,6 +37,10 @@ interface FinalCutSessionOptions {
   };
   assets?: Pick<EditorPort, "listAssets">;
   media?: Pick<EditorPort, "listMedia">;
+  backgroundCatalog?: {
+    listProjects(): Promise<ProjectCatalog>;
+    backend?: string;
+  };
 }
 
 /** Composes the independent Final Cut live, snapshot, and mutation surfaces. */
@@ -141,7 +145,11 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         playheadWrite: Boolean(live?.editor.playheadWrite),
         frameCapture: false,
         playbackControl: Boolean(live?.editor.playbackControl),
-        projectCatalogRead: Boolean(snapshot?.editor.projectCatalogRead || (!this.options.snapshot && live?.editor.projectCatalogRead)),
+        projectCatalogRead: Boolean(
+          snapshot?.editor.projectCatalogRead
+          || (!this.options.snapshot && live?.editor.projectCatalogRead)
+          || this.options.backgroundCatalog,
+        ),
         projectSelection: Boolean(snapshot?.editor.projectSelection || (!this.options.snapshot && live?.editor.projectSelection)),
         compositeTransactions,
       },
@@ -281,6 +289,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
 
   public async listProjects(): Promise<ProjectCatalog> {
     if (this.options.snapshot?.listProjects) return this.options.snapshot.listProjects();
+    if (this.options.backgroundCatalog) return this.readBackgroundCatalog(this.options.backgroundCatalog);
     const live = this.options.live;
     const capabilities = await optionalCapabilities(live);
     if (!this.options.snapshot && live?.listProjects && capabilities?.editor.projectCatalogRead) {
@@ -322,6 +331,36 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       });
     }
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project catalog");
+  }
+
+  private async readBackgroundCatalog(provider: NonNullable<FinalCutSessionOptions["backgroundCatalog"]>): Promise<ProjectCatalog> {
+    const before = await optionalLiveState(this.options.live);
+    const catalog = await provider.listProjects();
+    validateProjectCatalog(catalog);
+    const after = await optionalLiveState(this.options.live);
+    const identity = before && after ? await optionalIdentity(this.options.live) : undefined;
+    return reconcileProjectCatalog(catalog, {
+      ...(before && after ? { before, after } : {}),
+      provenance: {
+        catalog: {
+          source: "background-library",
+          backend: provider.backend ?? "final-cut-background-library",
+          guarantee: "observed",
+        },
+        ...(identity ? {
+          live: {
+            source: "live-socket",
+            backend: identity.backend,
+            guarantee: "observed" as const,
+          },
+        } : {}),
+        selection: {
+          available: false,
+          mode: "unavailable",
+          unavailableReason: "project selection is not exposed by the background provider",
+        },
+      },
+    });
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
