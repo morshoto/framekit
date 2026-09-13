@@ -32,6 +32,21 @@ Cut project. The machine and application evidence was:
 | ProExtensionHost bridge surface | `ProExtensionHostShim/ProExtensionHost.h` and the bridge expose project UID/sequence, sequence timing, active sequence, selected sequence range, playhead time, and three observer callbacks | Framekit uses only the supported metadata subset and does not invent a canonical snapshot |
 | Current bridge behavior | `FinalCutLiveWorkflowExtension.swift` reports `canonicalTimelineMode: metadata-only`, `timelineSnapshotRead: false`, and rejects `snapshot`, `apply`, and `restore` with `CAPABILITY_UNAVAILABLE` | Existing routing already fails closed |
 
+The evidence can be reproduced without launching or focusing Final Cut Pro:
+
+```sh
+FRAMEKIT_FINAL_CUT_APP="/Applications/Final Cut Pro.app"
+FRAMEKIT_FINAL_CUT_PLIST="$FRAMEKIT_FINAL_CUT_APP/Contents/Info.plist"
+FRAMEKIT_FINAL_CUT_HOST="$FRAMEKIT_FINAL_CUT_APP/Contents/Frameworks/ProExtensionHost.framework/ProExtensionHost"
+
+/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FRAMEKIT_FINAL_CUT_PLIST"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$FRAMEKIT_FINAL_CUT_PLIST"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$FRAMEKIT_FINAL_CUT_PLIST"
+sdef "$FRAMEKIT_FINAL_CUT_APP" | rg 'access-group|<command|<class '
+strings "$FRAMEKIT_FINAL_CUT_HOST" | rg 'ProExtension-|FCPX(Library|Event|Project|Sequence|Timeline)'
+otool -ov "$FRAMEKIT_FINAL_CUT_HOST" | rg 'FCPX(Library|Event|Project|Sequence|Timeline)|sendGetElementsEvent'
+```
+
 The Apple Event inventory was taken from the installed app, not from a legacy
 Final Cut Pro 7 dictionary. The older Apple Events/XML material is not evidence
 that Final Cut Pro 10.7.1 implements a direct current-version XML command.
