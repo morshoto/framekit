@@ -1,5 +1,9 @@
 # Capabilities and Errors
 
+The Final Cut provider split and routing boundary are summarized in the
+[Final Cut provider boundaries](../architecture/final-cut-provider-boundaries.md)
+contract.
+
 ## Editor-first routing
 
 Before selecting an editing path, call `connection.status`, `editor.inspect`,
