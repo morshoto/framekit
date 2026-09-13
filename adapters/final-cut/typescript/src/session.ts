@@ -1,4 +1,10 @@
-import { withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
+import {
+  projectSelectionMode,
+  reconcileProjectCatalog,
+  validateProjectCatalog,
+  withCanonicalTimelineMode,
+  withCapabilityFamilies,
+} from "@framekit/runtime";
 import type {
   ContextRevision,
   EditOperation,
@@ -241,8 +247,45 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
 
   public async listProjects(): Promise<ProjectCatalog> {
     if (this.options.snapshot?.listProjects) return this.options.snapshot.listProjects();
-    if (!this.options.snapshot && this.options.live?.listProjects && (await optionalProjectCatalogCapability(this.options.live))) {
-      return this.options.live.listProjects();
+    const live = this.options.live;
+    const capabilities = await optionalCapabilities(live);
+    if (!this.options.snapshot && live?.listProjects && capabilities?.editor.projectCatalogRead) {
+      const before = await optionalLiveState(live);
+      const catalog = await live.listProjects();
+      validateProjectCatalog(catalog);
+      if (catalog.provenance || capabilities.editor.canonicalTimelineMode !== "metadata-only") return catalog;
+      const after = await optionalLiveState(live);
+      const identity = await optionalIdentity(live);
+      const selectionMode = projectSelectionMode(capabilities.editor);
+      const selectionAvailable = Boolean(
+        live.selectProject
+        && capabilities.editor.projectSelection
+        && selectionMode !== "unavailable",
+      );
+      return reconcileProjectCatalog(catalog, {
+        ...(before && after ? { before, after } : {}),
+        provenance: {
+          catalog: {
+            source: "live-socket-catalog",
+            backend: identity?.backend ?? "final-cut-live",
+            guarantee: "observed",
+          },
+          ...(before && after ? {
+            live: {
+              source: "live-socket",
+              backend: identity?.backend ?? "final-cut-live",
+              guarantee: "observed" as const,
+            },
+          } : {}),
+          selection: {
+            available: selectionAvailable,
+            mode: selectionAvailable ? selectionMode : "unavailable",
+            ...(!selectionAvailable ? {
+              unavailableReason: "project selection is not exposed by the live provider",
+            } : {}),
+          },
+        },
+      });
     }
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project catalog");
   }
@@ -289,13 +332,23 @@ async function optionalCapabilities(
   }
 }
 
-async function optionalProjectCatalogCapability(
+async function optionalLiveState(
   live: FinalCutSessionOptions["live"],
-): Promise<boolean> {
+): Promise<EditorLiveState | undefined> {
   try {
-    return Boolean((await live?.getCapabilities())?.editor.projectCatalogRead);
+    return live ? await live.readLiveState() : undefined;
   } catch {
-    return false;
+    return undefined;
+  }
+}
+
+async function optionalIdentity(
+  live: FinalCutSessionOptions["live"],
+): Promise<EditorIdentity | undefined> {
+  try {
+    return live ? await live.getIdentity() : undefined;
+  } catch {
+    return undefined;
   }
 }
 

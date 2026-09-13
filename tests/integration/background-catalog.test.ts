@@ -197,6 +197,16 @@ test("normal live sessions reconcile project catalogs before returning them", as
   const session = new FinalCutSessionAdapter({
     live: {
       ...live,
+      getCapabilities: async () => ({
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          timelineSnapshotRead: false,
+          timelineWrite: false,
+          readAfterWrite: false,
+          rollback: false,
+        },
+      }),
       listProjects: async () => catalog(),
     },
   });
