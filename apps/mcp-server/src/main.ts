@@ -10,6 +10,7 @@ import {
   assertCanonicalProviderConfiguration,
   FinalCutCanonicalNativeProvider,
   FinalCutCanonicalSnapshotSource,
+  FinalCutLibraryInspectionProvider,
   FinalCutNativeAutomationAdapter,
   createFinalCutNativeTargetResolver,
   DisposableNativeEditWorkflow,
@@ -89,6 +90,7 @@ const connection = liveMode
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();
 const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
+const backgroundLibraryProvider = liveMode ? new FinalCutLibraryInspectionProvider() : undefined;
 const nativeOperationLease = autoConnect
   ? createNativeOperationLease(
       () => connection?.stopAutoConnect(),
@@ -124,6 +126,7 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
       },
       readSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
       resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
+      backgroundCatalog: backgroundLibraryProvider,
     })
   : undefined;
 
@@ -133,6 +136,9 @@ const configuredMediaRoots = parseRoots(process.env.FRAMEKIT_FINAL_CUT_MEDIA_ROO
 const editor = liveMode
   ? new FinalCutSessionAdapter({
       live: canonicalNativeProvider ?? liveAdapter!,
+      ...(!canonicalNativeProvider && backgroundLibraryProvider
+        ? { backgroundCatalog: backgroundLibraryProvider }
+        : {}),
       ...(fcpxmlPath && !canonicalNativeProviderEnabled
         ? (() => {
             const document = new FcpxmlDocumentAdapter(fcpxmlPath);
