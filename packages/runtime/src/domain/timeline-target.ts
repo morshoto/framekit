@@ -131,24 +131,17 @@ export function assertTimelineTargetReadAfterWrite(
     throw new Error("TARGET_MISMATCH: read-after-write snapshot changed the addressed timeline");
   }
 
-  if (target.mediaId !== undefined && target.occurrence) {
-    const occurrence = findOccurrences(after, target.occurrence.id);
-    if (occurrence.length === 0 && options.allowOccurrenceRemoval) return;
-    if (occurrence.length === 0) {
-      throw new Error(`TARGET_MISMATCH: read-after-write lost occurrence ${target.occurrence.id}`);
-    }
-    if (occurrence.length > 1) {
-      throw new Error(`AMBIGUOUS_TIMELINE_TARGET: read-after-write duplicated occurrence ${target.occurrence.id}`);
-    }
-    if (occurrence[0]!.mediaId !== target.mediaId) {
-      throw new Error(`TARGET_MISMATCH: read-after-write changed media for occurrence ${target.occurrence.id}`);
-    }
-  } else if (target.occurrence) {
-    const occurrence = findOccurrences(after, target.occurrence.id);
-    if (occurrence.length === 0 && options.allowOccurrenceRemoval) return;
-    if (occurrence.length !== 1) {
-      throw new Error(`TARGET_MISMATCH: read-after-write did not preserve occurrence ${target.occurrence.id}`);
-    }
+  if (!target.occurrence) return;
+  const matches = findOccurrences(after, target.occurrence.id);
+  if (matches.length === 0 && options.allowOccurrenceRemoval) return;
+  if (matches.length === 0) {
+    throw new Error(`TARGET_MISMATCH: read-after-write lost occurrence ${target.occurrence.id}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(`AMBIGUOUS_TIMELINE_TARGET: read-after-write duplicated occurrence ${target.occurrence.id}`);
+  }
+  if (target.mediaId !== undefined && matches[0]!.mediaId !== target.mediaId) {
+    throw new Error(`TARGET_MISMATCH: read-after-write changed media for occurrence ${target.occurrence.id}`);
   }
 }
 

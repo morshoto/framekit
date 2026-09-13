@@ -106,18 +106,18 @@ test("stable target resolution rejects duplicate occurrence identities", () => {
   });
   const target = targetFor(snapshot());
 
-  awaitRejects(() => resolveTimelineTarget(project, target), /AMBIGUOUS_TIMELINE_TARGET/);
+  assertRejects(() => resolveTimelineTarget(project, target), /AMBIGUOUS_TIMELINE_TARGET/);
 });
 
 test("stable target resolution rejects stale scope and revision", () => {
   const project = snapshot();
   const target = targetFor(project);
 
-  awaitRejects(
+  assertRejects(
     () => resolveTimelineTarget({ ...project, revision: revision(1) }, target),
     /STALE_CONTEXT/,
   );
-  awaitRejects(
+  assertRejects(
     () => resolveTimelineTarget(project, { ...target, projectId: "other-project" }),
     /TARGET_MISMATCH/,
   );
@@ -126,7 +126,7 @@ test("stable target resolution rejects stale scope and revision", () => {
 test("stable target construction rejects ranges that are not frame aligned", () => {
   const project = snapshot();
 
-  awaitRejects(
+  assertRejects(
     () => createTimelineTarget(project, {
       range: {
         start: { value: "1", timescale: "48" },
@@ -151,7 +151,7 @@ test("read-after-write accepts coordinate changes but rejects identity drift", (
   };
 
   assertTimelineTargetReadAfterWrite(target, before, after);
-  awaitRejects(
+  assertRejects(
     () => assertTimelineTargetReadAfterWrite(target, before, {
       ...after,
       timeline: { ...after.timeline, clips: [{ ...moved, mediaId: "media-other" }] },
@@ -173,6 +173,6 @@ function projectClip(id: string, start: number) {
   };
 }
 
-function awaitRejects(action: () => unknown, pattern: RegExp): void {
+function assertRejects(action: () => unknown, pattern: RegExp): void {
   assert.throws(action, pattern);
 }
