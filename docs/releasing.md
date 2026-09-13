@@ -54,6 +54,9 @@ installed, Xcode command-line tools, and a Developer ID signing identity
 available to `codesign`. Configure the `FRAMEKIT_CODESIGN_IDENTITY` secret and
 the optional `FRAMEKIT_NOTARY_PROFILE` repository variable before merging a
 release PR. The runner must be registered with the `framekit-release` label.
+The repository self-hosted-runner API requires repository Administration read
+access, so the preflight authenticates with the existing `TAGPR_TOKEN` secret;
+that token must be able to read the repository's runners.
 
 The hosted runner preflight fails with `RELEASE_RUNNER_UNAVAILABLE` when no
 online and idle runner has all three required labels. This keeps the release
