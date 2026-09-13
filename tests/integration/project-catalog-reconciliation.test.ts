@@ -165,6 +165,39 @@ test("target changes return a stale catalog even when names remain similar", () 
   assert.match(reconciled.provenance?.reconciliation.reason ?? "", /target changed/);
 });
 
+test("background active target disagreement returns a stale catalog", () => {
+  const mismatchedCatalog: ProjectCatalog = {
+    ...catalog,
+    projects: [
+      ...catalog.projects,
+      {
+        id: "other-project",
+        name: "Other Project",
+        sequences: [{ id: "other-sequence", name: "Other" }],
+      },
+    ],
+    activeProjectId: "other-project",
+    activeSequenceId: "other-sequence",
+  };
+  const state = liveState(
+    "library-project",
+    "Edit Project",
+    "library-sequence",
+    "Main",
+    revision(4),
+  );
+
+  const reconciled = reconcileProjectCatalog(mismatchedCatalog, {
+    before: state,
+    after: state,
+    provenance,
+  });
+
+  assert.equal(reconciled.activeProjectId, undefined);
+  assert.equal(reconciled.provenance?.reconciliation.status, "stale");
+  assert.match(reconciled.provenance?.reconciliation.reason ?? "", /background active target differs/);
+});
+
 test("invalid live timing and regressed revisions fail closed", () => {
   const invalidTiming = liveState(
     "library-project",
