@@ -1348,7 +1348,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         if (timelineOffset === undefined) {
           throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: unique timeline occurrence has no selectable position");
         }
-        await selectTimelineOccurrence(this.executor, timelineOffset);
+        await this.selectTimelineOccurrence(timelineOffset);
         await this.ensureOccurrenceRange(occurrences[0]!);
         const selectedContext = await this.inspectRawNative();
         if (selectedContext.target.kind !== "selected-clip" || !selectedContext.target.identity) {
@@ -2127,7 +2127,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         await this.selectMediaNative(preview.mediaHandle);
         await this.focusTimelineForMediaInsertion();
         if (this.canDriveNativeMouse && anchorOccurrence.timelineOffset !== undefined) {
-          await selectTimelineOccurrence(this.executor, anchorOccurrence.timelineOffset);
+          await this.selectTimelineOccurrence(anchorOccurrence.timelineOffset);
         }
         await this.validateSelectedPictureInPictureAnchor(anchorOccurrence);
         await this.executeNativeScript(setPlayheadScript(startTimecode));
@@ -2403,8 +2403,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const x = Math.round(originX + width * 0.5);
     const y = Math.round(originY + height * 0.82);
     try {
-      await execFile("swift", ["-e", nativeMouseFocusSource(x, y)]);
+      await this.executeNativeMouseScript(nativeMouseFocusSource(x, y));
     } catch (error) {
+      if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_CANCELLED" || nativeErrorCode(error) === "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") throw error;
       throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline focus failed: ${String(error)}`);
     }
   }
@@ -2933,6 +2934,64 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireAvailableContext(deadline);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut could not be brought to the front for Browser automation");
     return context;
+  }
+
+  private async selectTimelineOccurrence(timelineOffset: number): Promise<void> {
+    const coordinates = (await this.executeNativeScript(timelineSelectionCoordinatesScript())).split("|").map(Number);
+    const [originX, originY, windowWidth, windowHeight] = coordinates;
+    if (![originX, originY, windowWidth, windowHeight].every(Number.isFinite)) {
+      throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
+    }
+    const x = Math.round(originX + timelineOffset);
+    const y = Math.round(originY + (windowHeight * 0.77));
+    try {
+      await this.executeNativeMouseScript(nativeMouseSelectionSource(x, y));
+    } catch (error) {
+      if (nativeErrorCode(error) === "FINAL_CUT_NATIVE_CANCELLED" || nativeErrorCode(error) === "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT") throw error;
+      throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline selection failed: ${String(error)}`);
+    }
+  }
+
+  private async executeNativeMouseScript(source: string): Promise<void> {
+    const requestSignal = this.requestContext.getStore()?.signal;
+    const effectiveDeadline = this.now() + this.nativePreflightTimeoutMs;
+    if (requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+    const remaining = effectiveDeadline - this.now();
+    if (remaining <= 0) throw new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired");
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelListener: (() => void) | undefined;
+    let timedOut = false;
+    let cancelled = false;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired"));
+      }, remaining);
+    });
+    const cancellation = requestSignal
+      ? new Promise<never>((_, reject) => {
+        cancelListener = () => {
+          cancelled = true;
+          controller.abort();
+          reject(new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled"));
+        };
+        requestSignal.addEventListener("abort", cancelListener, { once: true });
+      })
+      : undefined;
+    const execution = execFile("swift", ["-e", source], { signal: controller.signal });
+    try {
+      await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
+    } catch (error) {
+      if (timedOut) throw new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired");
+      if (cancelled || requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (requestSignal && cancelListener) requestSignal.removeEventListener("abort", cancelListener);
+      void execution.catch(() => {});
+    }
   }
 
   private stableMediaHandle(identity: string): string {
@@ -4748,21 +4807,6 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
     return my collectTimelineClipMatches(mainWindow, 0, targetName, sourceIdentity, origin, windowSize)
   end tell
 end tell`;
-}
-
-async function selectTimelineOccurrence(executor: (script: string) => Promise<string>, timelineOffset: number): Promise<void> {
-  const coordinates = (await executor(timelineSelectionCoordinatesScript())).split("|").map(Number);
-  const [originX, originY, windowWidth, windowHeight] = coordinates;
-  if (!Number.isFinite(originX) || !Number.isFinite(originY) || !Number.isFinite(windowWidth) || !Number.isFinite(windowHeight)) {
-    throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: could not resolve Final Cut window coordinates");
-  }
-  const x = Math.round(originX + timelineOffset);
-  const y = Math.round(originY + (windowHeight * 0.77));
-  try {
-    await execFile("swift", ["-e", nativeMouseSelectionSource(x, y)]);
-  } catch (error) {
-    throw new Error(`FINAL_CUT_NATIVE_AUTOMATION_FAILED: native timeline selection failed: ${String(error)}`);
-  }
 }
 
 function timelineSelectionCoordinatesScript(): string {
