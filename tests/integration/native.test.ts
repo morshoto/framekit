@@ -891,6 +891,91 @@ test("native Final Cut adapter is disabled by default", async () => {
   );
 });
 
+test("native inspect is passive and reports partial readiness", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+        ? context(false, "Final Cut Pro", "Interview", 1, true, true, false, "browser")
+        : "";
+    },
+  });
+
+  const inspected = await adapter.inspect();
+  assert.equal(inspected.available, true);
+  assert.equal(inspected.frontmost, false);
+  assert.equal(inspected.readiness.state, "unavailable");
+  assert.equal(inspected.readiness.firstMissing, "frontmost");
+  assert.equal(inspected.readiness.retryable, true);
+  assert.equal(inspected.readiness.nextAction, "retry");
+  assert.equal(inspected.readiness.selectedTarget, true);
+  assert.equal(scripts.length, 1);
+  assert.match(scripts[0]!, /FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT/);
+  assert.doesNotMatch(scripts[0]!, /set frontmost to true|AXRaise|AXMinimize|click at/);
+});
+
+test("native inspect reports timeline focus as the first missing requirement", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 1, true, true, false, "browser")
+      : "",
+  });
+
+  const inspected = await adapter.inspect();
+  assert.equal(inspected.readiness.state, "unavailable");
+  assert.equal(inspected.readiness.frontmost, true);
+  assert.equal(inspected.readiness.timelineFocus, false);
+  assert.equal(inspected.readiness.firstMissing, "timeline-focus");
+  assert.equal(inspected.readiness.selectedTarget, true);
+  assert.equal(inspected.readiness.overlay, "unknown");
+});
+
+test("native inspect classifies a bounded preflight timeout", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativePreflightTimeoutMs: 20,
+    executor: async (_script, options) => await new Promise<string>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new Error("native executor aborted")), { once: true });
+    }),
+  });
+
+  const inspected = await adapter.inspect();
+  assert.equal(inspected.available, false);
+  assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
+  assert.equal(inspected.error?.state, "timeout");
+  assert.equal(inspected.readiness.state, "timeout");
+  assert.equal(inspected.readiness.retryable, true);
+  assert.equal(inspected.readiness.nextAction, "retry");
+});
+
+test("native inspect propagates caller cancellation to the native executor", async () => {
+  const controller = new AbortController();
+  let executorSignal: AbortSignal | undefined;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativePreflightTimeoutMs: 1_000,
+    executor: async (_script, options) => {
+      executorSignal = options?.signal;
+      return await new Promise<string>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("native executor aborted")), { once: true });
+      });
+    },
+  });
+
+  const pending = adapter.inspect({ signal: controller.signal });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  controller.abort();
+  const inspected = await pending;
+  assert.equal(executorSignal?.aborted, true);
+  assert.equal(inspected.available, false);
+  assert.equal(inspected.error?.code, "FINAL_CUT_NATIVE_CANCELLED");
+  assert.equal(inspected.error?.state, "cancelled");
+  assert.equal(inspected.readiness.state, "cancelled");
+});
+
 test("native Final Cut focus uses semantic candidates and returns diagnostics without editing", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
