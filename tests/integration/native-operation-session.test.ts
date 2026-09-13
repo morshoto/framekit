@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   createDisposableNativeOperationSession,
@@ -319,6 +322,22 @@ test("disposable native session rejects a changed preview binding before native 
   await eventually(() => session.status(accepted.jobId).state === "failed", "changed binding did not fail");
   assert.equal(session.status(accepted.jobId).error?.code, "TARGET_MISMATCH");
   assert.equal(state.nativeEditCalls, 0);
+});
+
+test("native operation session documentation names the contract and safety boundary", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const tools = await readFile(join(here, "../../docs/mcp/tools.md"), "utf8");
+  const live = await readFile(join(here, "../../docs/mcp/final-cut-live.md"), "utf8");
+
+  for (const tool of [
+    "editor.native.operation.submit",
+    "editor.native.operation.status",
+    "editor.native.operation.retry",
+    "editor.native.operation.cancel",
+  ]) assert.match(tools, new RegExp("\\\\| `" + tool + "` \\\\|"));
+  assert.match(live, /waiting_for_final_cut/);
+  assert.match(live, /idempotencyKey/);
+  assert.match(live, /does not survive MCP process restart/);
 });
 
 interface DisposableState {
