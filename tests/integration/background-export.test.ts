@@ -176,6 +176,49 @@ test("background renderer timeout fails closed before verification or commit", a
   await assert.rejects(readFile(outputPath), /ENOENT/);
 });
 
+test("background renderer cancellation during probing never commits output", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-probe-cancel-"));
+  const outputPath = join(directory, "final.mp4");
+  const artifactPath = join(directory, "timeline.fcpxml");
+  await writeFile(artifactPath, "source artifact");
+  let releaseProbe!: () => void;
+  let probeStarted!: () => void;
+  const probeReady = new Promise<void>((resolve) => { probeStarted = resolve; });
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath }) => {
+      await writeFile(stagingPath, "rendered output");
+    },
+    probe: async () => {
+      probeStarted();
+      await new Promise<void>((resolve) => { releaseProbe = resolve; });
+      return { durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false };
+    },
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath,
+      target: {
+        projectId: "project-1",
+        sequenceId: "sequence-1",
+        revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+      },
+    },
+    outputPath,
+    preset: "master",
+  });
+
+  await probeReady;
+  const cancellation = job.cancel();
+  releaseProbe();
+  await cancellation;
+
+  await assert.rejects(job.result(), /BACKGROUND_RENDER_CANCELLED/);
+  assert.equal(job.status().state, "cancelled");
+  await assert.rejects(readFile(outputPath), /ENOENT/);
+});
+
 test("background renderer rejects a changed artifact before invoking the renderer", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-source-"));
   const artifactPath = join(directory, "timeline.fcpxml");

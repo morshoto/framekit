@@ -205,22 +205,26 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
       await assertOutputCanBeReplaced(outputPath, this.request.overwrite ?? false);
       this.update("rendering", 0, "background renderer started");
       await this.runRenderer(stagingPath);
-      if (this.controller.signal.aborted) throw this.controller.signal.reason;
+      throwIfAborted(this.controller.signal);
       this.update("verifying", 0.9, "verifying staged output");
       const details = await stat(stagingPath);
+      throwIfAborted(this.controller.signal);
       if (!details.isFile() || details.size <= 0) {
         throw backgroundRenderError("BACKGROUND_RENDER_VERIFICATION_FAILED", "renderer produced no non-empty staged output");
       }
       const probed = await this.probe(stagingPath);
+      throwIfAborted(this.controller.signal);
       validateProbe(probed);
+      const outputDigest = await sha256File(stagingPath, this.controller.signal);
+      throwIfAborted(this.controller.signal);
       const metadata: BackgroundRenderMetadata = {
         outputPath,
         sizeBytes: details.size,
         format: outputFormat(outputPath),
-        outputDigest: await sha256File(stagingPath),
+        outputDigest,
         ...probed,
       };
-      await commitOutput(stagingPath, outputPath, this.request.overwrite ?? false);
+      await commitOutput(stagingPath, outputPath, this.request.overwrite ?? false, this.controller.signal);
       this.committed = true;
       const result: BackgroundRenderResult = {
         jobId: this.id,
@@ -374,7 +378,12 @@ async function assertOutputCanBeReplaced(outputPath: string, overwrite: boolean)
   }
 }
 
-async function commitOutput(stagingPath: string, outputPath: string, overwrite: boolean): Promise<void> {
+async function commitOutput(
+  stagingPath: string,
+  outputPath: string,
+  overwrite: boolean,
+  signal: AbortSignal,
+): Promise<void> {
   if (!overwrite) {
     try {
       await stat(outputPath);
@@ -383,10 +392,17 @@ async function commitOutput(stagingPath: string, outputPath: string, overwrite: 
       if (!(isNodeError(error) && error.code === "ENOENT")) throw error;
     }
   }
+  throwIfAborted(signal);
   try {
     await rename(stagingPath, outputPath);
   } catch (error) {
     throw backgroundRenderError("BACKGROUND_RENDER_COMMIT_FAILED", `could not commit ${outputPath} (${String(error)})`);
+  }
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw signal.reason ?? backgroundRenderError("BACKGROUND_RENDER_CANCELLED", "background render cancelled");
   }
 }
 
