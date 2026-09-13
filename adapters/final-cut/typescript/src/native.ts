@@ -5,6 +5,7 @@ import { access, constants, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { assertValidTimelineTarget } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditorAsset,
@@ -13,6 +14,7 @@ import type {
   PictureInPictureFrame,
   PictureInPicturePosition,
   RationalTime,
+  TimelineTarget,
 } from "@framekit/runtime";
 import type { NativeOperationLease } from "./native-operation.js";
 
@@ -217,6 +219,7 @@ export interface NativeFinalCutTargetResult {
   status: "unique";
   media: NativeFinalCutMediaMatch;
   occurrence: NativeFinalCutOccurrence;
+  target: TimelineTarget;
   selected: boolean;
   playheadTime?: string;
 }
@@ -1312,11 +1315,38 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!live?.playheadTime) {
       throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_UNAVAILABLE: deterministic targeting requires live playhead state");
     }
+    const occurrence = located.occurrences[0]!;
+    const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
+    if (!occurrenceIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_IDENTITY_UNAVAILABLE: timeline occurrence has no stable identity");
+    }
+    if (!occurrence.start || !occurrence.duration) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: timeline occurrence has no rational coordinates");
+    }
+    if (!live.project?.id || !live.sequence?.id) {
+      throw new Error("FINAL_CUT_NATIVE_STABLE_TARGET_UNAVAILABLE: live project and sequence identities are required");
+    }
+    const target: TimelineTarget = {
+      projectId: live.project.id,
+      sequenceId: live.sequence.id,
+      revision: structuredClone(live.revision),
+      timelineStartTime: structuredClone(live.sequence.startTime),
+      frameDuration: structuredClone(live.sequence.frameDuration),
+      mediaId: occurrence.sourceIdentity ?? media.sourceIdentity,
+      occurrence: {
+        id: occurrenceIdentity,
+        mediaId: occurrence.sourceIdentity ?? media.sourceIdentity,
+        startTime: parseRationalString(occurrence.start, "occurrence start"),
+        durationTime: parseRationalString(occurrence.duration, "occurrence duration"),
+      },
+    };
+    assertValidTimelineTarget(target);
     return {
       query,
       status: "unique",
       media,
-      occurrence: located.occurrences[0]!,
+      occurrence,
+      target,
       selected: true,
       playheadTime: `${live.playheadTime.value}/${live.playheadTime.timescale}`,
     };

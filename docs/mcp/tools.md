@@ -60,6 +60,10 @@ is a separate, confirmed `artifact.publish` step.
 | `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
 | `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
+| `editor.native.operation.submit` | Accept a previewed native Final Cut operation as a resumable job without waiting for headed readiness | First implementation supports `disposable.rename-clip`; requires the preview token, project, sequence, target, base revision, and idempotency key |
+| `editor.native.operation.status` | Poll a resumable native operation for readiness, completion, verification, and restoration evidence | Returns structured `waiting_for_final_cut`, terminal state, and sanitized evidence |
+| `editor.native.operation.retry` | Retry a waiting native operation after Final Cut becomes ready | Requires a retryable readiness state and an unexpired preview |
+| `editor.native.operation.cancel` | Cancel pending native work or report recovery when mutation has started | Never claims safe cancellation of an unverified mutation |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
 | `editor.native.picture-in-picture.preview` | Preview connecting selected Browser video to a stable timeline occurrence | Requires native PIP capability, selected media and occurrence handles, frame-aligned timing, and explicit transform properties |
@@ -82,7 +86,7 @@ is a separate, confirmed `artifact.publish` step.
 | `editor.native.media.insert.preview` | Preview inserting selected Browser media at the playhead | Requires selected media, live playhead, and timeline focus |
 | `editor.native.media.insert.execute` | Insert a previously previewed Browser media result at the playhead | Requires unchanged sequence revision/duration/playhead; verifies duration and revision |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
-| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Fails closed for missing/ambiguous media or occurrences; requires live playhead state |
+| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Returns legacy handles/playhead fields plus a stable `TimelineTarget` with explicit projectId, sequenceId, revision, and occurrence; fails closed for missing/ambiguous identity or coordinates |
 | `editor.native.blade.preview` | Prepare a Blade-at-playhead preview token | Token expires and is bound to the occurrence |
 | `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost, timeline-focused Final Cut and post-command verification |
 | `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute and timeline focus |
@@ -280,7 +284,11 @@ Live Browser import and search continue to use the explicit
 `editor.native.media.*` tools because Browser media identity and timeline
 occurrence identity are different. Imported media handles are stable for the
 current native session; timeline occurrence handles remain short-lived and
-bound to the active sequence/playhead state.
+bound to the active sequence/playhead state. `editor.native.media.target`
+also returns the stable `TimelineTarget` contract: project and sequence IDs,
+revision, media identity, occurrence identity, and rational coordinates. Native
+selection/playhead compatibility operations remain headed compatibility and do
+not replace that target with a UI index or coordinate-only match.
 
 ## Semantic media understanding
 
