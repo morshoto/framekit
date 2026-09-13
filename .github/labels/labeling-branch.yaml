@@ -1,6 +1,7 @@
 'Problem: Bug':
     - head-branch: ['^hotfix']
     - head-branch: ['^fix']
+    - head-branch: ['^bug']
 'Type: New Feature':
     - head-branch: ['^feat']
 'Type: Improvement':
