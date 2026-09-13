@@ -704,7 +704,6 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaImportPollMs: number;
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
   private nativeUiDepth = 0;
-  private pendingFocusRecoveryContext?: NativeFinalCutContext;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
   private readonly mediaHandles = new Map<string, NativeFinalCutMediaMatch>();
@@ -832,27 +831,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      const context = await this.inspectRawNative(undefined, passiveTimelinePreflightScript());
-      return reconcileFocusRecoveryInspection(context, this.pendingFocusRecoveryContext);
+      const deadline = this.now() + this.nativePreflightTimeoutMs;
+      const context = await this.inspectRawNative(deadline, passiveTimelinePreflightScript());
+      if (shouldRetryPassiveInspection(context) && this.now() < deadline) {
+        return await this.inspectRawNative(deadline, passiveTimelinePreflightScript());
+      }
+      return context;
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
-    } finally {
-      this.pendingFocusRecoveryContext = undefined;
     }
   }
 
   private async focusTimelineNative(): Promise<NativeFinalCutContext> {
     if (!this.enabled) {
-      this.pendingFocusRecoveryContext = undefined;
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
-    this.pendingFocusRecoveryContext = undefined;
     try {
-      const context = await this.attachLiveState(await this.ensureTimelineReady());
-      if (context.readiness.state === "ready") {
-        this.pendingFocusRecoveryContext = structuredClone(context);
-      }
-      return context;
+      return await this.attachLiveState(await this.ensureTimelineReady());
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
@@ -6030,22 +6025,13 @@ function parseContext(output: string): NativeFinalCutContext {
   return { ...context, readiness: readinessForContext(context) };
 }
 
-function reconcileFocusRecoveryInspection(
-  context: NativeFinalCutContext,
-  baseline?: NativeFinalCutContext,
-): NativeFinalCutContext {
-  if (!baseline || !baseline.frontmost || !context.frontmost) return context;
-  if (!context.timelineFocused || context.focusTarget !== "timeline") return context;
-  if (context.frontWindow && context.frontWindow !== baseline.frontWindow) return context;
-  if (context.target.kind !== "unknown") return context;
-
-  const reconciled = {
-    ...context,
-    frontWindow: context.frontWindow || baseline.frontWindow,
-    timelineWindowAvailable: context.timelineWindowAvailable || baseline.timelineWindowAvailable,
-    target: baseline.target,
-  };
-  return { ...reconciled, readiness: readinessForContext(reconciled) };
+function shouldRetryPassiveInspection(context: NativeFinalCutContext): boolean {
+  return context.available
+    && context.frontmost
+    && context.timelineWindowAvailable
+    && context.timelineFocused
+    && context.focusTarget === "timeline"
+    && context.target.kind === "unknown";
 }
 
 function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutContext {
