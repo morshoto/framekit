@@ -129,6 +129,8 @@ end using terms from
 
 tell application "System Events"
   tell process "Final Cut Pro"
+    set frontmost to true
+    delay 0.1
     if not frontmost then error "FINAL_CUT_CANONICAL_NOT_FRONTMOST: Final Cut Pro must be frontmost"
     set finalCut to it
     set fileMenu to menu "File" of menu bar 1

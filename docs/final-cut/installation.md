@@ -140,9 +140,10 @@ the sanitized headed evidence.
 
 The repository also provides an explicit headed provider that composes the
 metadata socket with Final Cut's own UI. It exports the active timeline through
-`File > Export XML` into a private temporary file, parses that export as the
-canonical snapshot, and removes the file after each read. It does not read or
-write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
+`File > Export XML` into a private temporary file. Before opening the export
+flow, it requests Final Cut Pro to become frontmost and verifies that state.
+It parses that export as the canonical snapshot and removes the file after each
+read. It does not read or write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
 Browser media match and a unique timeline occurrence with matching rational
 coordinates; native Accessibility Undo and a second export verify rollback. Its
 canonical transaction port currently supports one `rename-clip` operation through
