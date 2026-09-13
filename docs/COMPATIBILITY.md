@@ -130,6 +130,13 @@ rendering the active Final Cut timeline to a local video file. This separate
 capability requires `ffprobe`; it verifies file completion and media metadata
 and does not make the FCPXML artifact or live timeline canonically writable.
 
+Background rendering is a separate provider contract. When an external renderer
+is explicitly configured, capabilities expose `backgroundRender` and
+`externalRender` with `backend: "external-renderer"` and an
+`external-rendered` evidence tier. The provider binds an explicit FCPXML source,
+stages and verifies output, and preserves the headed-native boundary; it does
+not claim to reproduce Final Cut semantics.
+
 ## Phase 2 local runtime
 
 The deterministic fixture provides the Phase 2 context engine, including

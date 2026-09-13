@@ -62,5 +62,5 @@ test("background render investigation is linked from Final Cut and architecture 
   const architectureReadme = await readFile(join(repositoryRoot, "docs/architecture/README.md"), "utf8");
 
   assert.match(finalCutReadme, /\[Background render and export investigation\]\(\.\/background-render-export-investigation\.md\)/);
-  assert.match(architectureReadme, /\[Background render and export investigation\]\(\.\/background-render-export-investigation\.md\)/);
+  assert.match(architectureReadme, /\[Background render and export investigation\]\(\.\.\/final-cut\/background-render-export-investigation\.md\)/);
 });
