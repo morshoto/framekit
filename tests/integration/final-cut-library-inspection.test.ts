@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   buildFinalCutLibraryInspectionScript,
   FinalCutLibraryInspectionProvider,
   FinalCutSessionAdapter,
   parseFinalCutLibraryInspectionResponse,
 } from "@framekit/final-cut";
+import { AgentVideoRuntime } from "@framekit/runtime";
 import type { ContextRevision, EditorChange, EditorIdentity, EditorLiveState, RuntimeCapabilities } from "@framekit/runtime";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const validResponse = JSON.stringify({
   version: 1,
@@ -201,4 +205,33 @@ test("routes live project listing through background inspection", async () => {
   assert.equal(catalog.provenance?.catalog.source, "background-library");
   assert.equal(sessionCapabilities.editor.projectCatalogRead, true);
   assert.equal(sessionCapabilities.editor.projectSelection, false);
+});
+
+test("MCP project.list returns structured background inspection failures", async () => {
+  const session = new FinalCutSessionAdapter({
+    backgroundCatalog: new FinalCutLibraryInspectionProvider({
+      executor: async () => {
+        throw new Error("Final Cut library Apple Events are unavailable: app is not running");
+      },
+    }),
+  });
+  const server = createMcpServer(new AgentVideoRuntime(session));
+  const client = new Client({ name: "library-inspection-mcp-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const result = await client.callTool({ name: "project.list", arguments: {} });
+    assert.equal(result.isError, true);
+    const content = result.content[0];
+    assert.equal(content?.type, "text");
+    if (content?.type !== "text") return;
+    const payload = JSON.parse(content.text) as { code?: string; message?: string; retryable?: boolean };
+    assert.equal(payload.code, "FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE");
+    assert.match(payload.message ?? "", /Apple Events are unavailable/);
+    assert.equal(payload.retryable, true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
