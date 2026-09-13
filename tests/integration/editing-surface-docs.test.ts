@@ -46,7 +46,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(roughCutConstruction, /Final Cut makes the imported\s+project active/);
   assert.match(roughCutConstruction, /It never modifies the previously\s+open project/);
   assert.match(artifactPublishing, /Final Cut Pro 10\.7\.1/);
-  assert.match(artifactPublishing, /no supported non-UI project publishing/);
+  assert.match(artifactPublishing, /no supported non-UI\s+project-publishing/);
   assert.match(artifactPublishing, /awaiting-confirmation/);
   assert.match(artifactPublishing, /verification-pending/);
   assert.match(artifactPublishing, /artifact\.publish\.(preview|execute|status)/);
