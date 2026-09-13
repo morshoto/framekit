@@ -1,5 +1,35 @@
 # Changelog
 
+## [v0.1.9](https://github.com/morshoto/framekit/compare/v0.1.8...v0.1.9) - 2026-09-13
+
+### Feature changes
+- docs: investigate non-UI Final Cut native writes by @morshoto in https://github.com/morshoto/framekit/pull/268
+- docs: record non-UI snapshot investigation by @morshoto in https://github.com/morshoto/framekit/pull/267
+- feat: expand FCPXML artifact operation coverage by @morshoto in https://github.com/morshoto/framekit/pull/269
+- design: investigate non-UI project selection by @morshoto in https://github.com/morshoto/framekit/pull/270
+- fix: make native preflight fail fast by @morshoto in https://github.com/morshoto/framekit/pull/271
+- feat: add background-first discovery by @morshoto in https://github.com/morshoto/framekit/pull/273
+- docs: Define a non-UI artifact publishing path into Final Cut by @morshoto in https://github.com/morshoto/framekit/pull/276
+- feat: define background render export provider by @morshoto in https://github.com/morshoto/framekit/pull/275
+- feat: route and reconcile background project catalogs by @morshoto in https://github.com/morshoto/framekit/pull/278
+- feat: stabilize native timeline targets by @morshoto in https://github.com/morshoto/framekit/pull/277
+- feat: add resumable native operation sessions (#259) by @morshoto in https://github.com/morshoto/framekit/pull/280
+- feat: improve background FCPXML artifact workflow by @morshoto in https://github.com/morshoto/framekit/pull/279
+- feat: Expose separate background metadata capability contracts by @morshoto in https://github.com/morshoto/framekit/pull/286
+- feat: add non-UI Final Cut library inspection by @morshoto in https://github.com/morshoto/framekit/pull/285
+### Patch changes
+- fix: authenticate release runner preflight by @morshoto in https://github.com/morshoto/framekit/pull/272
+- fix: foreground Final Cut before canonical export by @morshoto in https://github.com/morshoto/framekit/pull/266
+- fix: apply #286 review follow-ups by @morshoto in https://github.com/morshoto/framekit/pull/287
+- fix: invoke Final Cut library collections explicitly by @morshoto in https://github.com/morshoto/framekit/pull/288
+- fix: run checkout MCP sources before stale package output by @morshoto in https://github.com/morshoto/framekit/pull/289
+- fix: invoke Final Cut library metadata accessors by @morshoto in https://github.com/morshoto/framekit/pull/290
+### Maintenance and internal
+- chore: rename generated release note categories by @morshoto in https://github.com/morshoto/framekit/pull/281
+- docs: document Final Cut provider boundaries by @morshoto in https://github.com/morshoto/framekit/pull/282
+- fix: remove headed project catalog fallback by @morshoto in https://github.com/morshoto/framekit/pull/283
+- chore: add non-frontmost MCP regression suite by @morshoto in https://github.com/morshoto/framekit/pull/284
+
 ## [v0.1.8](https://github.com/morshoto/framekit/compare/v0.1.7...v0.1.8) - 2026-09-12
 
 ### ✨ Features
