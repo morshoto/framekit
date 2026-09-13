@@ -18,11 +18,12 @@ import type {
   ProjectSnapshot,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSelectionResult,
   RationalTime,
   RuntimeCapabilities,
   StoryElement,
 } from "@framekit/runtime";
-import { withCapabilityFamilies } from "@framekit/runtime";
+import { createProjectSelectionResult, withCapabilityFamilies } from "@framekit/runtime";
 
 type XmlNode = Record<string, any>;
 type OrderedXml = XmlNode[];
@@ -173,7 +174,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     };
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const catalog = await this.listProjects();
     const project = catalog.projects.find((candidate) => candidate.id === selection.projectId);
     if (!project) throw new Error(`PROJECT_NOT_FOUND: ${selection.projectId}`);
@@ -182,7 +183,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
       throw new Error(`SEQUENCE_NOT_FOUND: ${sequenceId}`);
     }
-    return { ...catalog, activeProjectId: project.id, activeSequenceId: sequenceId };
+    return createProjectSelectionResult(
+      { ...catalog, activeProjectId: project.id, activeSequenceId: sequenceId },
+      selection,
+      this.revision(),
+    );
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {

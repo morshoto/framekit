@@ -24,6 +24,7 @@ import type {
   MusicAddRequest,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSelectionResult,
   ProjectSnapshot,
   RoughCutConstructionPlan,
   RoughCutConstructionPlanRequest,
@@ -128,7 +129,7 @@ export class AgentVideoRuntime {
     return this.projects.listProjects();
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     return this.projects.selectProject(selection);
   }
 

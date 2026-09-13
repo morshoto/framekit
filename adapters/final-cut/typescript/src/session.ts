@@ -12,6 +12,7 @@ import type {
   ProjectSnapshot,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSelectionResult,
   RuntimeCapabilities,
   ManagedArtifact,
   WorkflowOperation,
@@ -24,7 +25,7 @@ interface FinalCutSessionOptions {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
-    selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
+    selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   };
   assets?: Pick<EditorPort, "listAssets">;
 }
@@ -246,7 +247,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project catalog");
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     if (this.options.snapshot?.selectProject) return this.options.snapshot.selectProject(selection);
     if (!this.options.snapshot && this.options.live?.selectProject && (await optionalProjectSelectionCapability(this.options.live))) {
       return this.options.live.selectProject(selection);

@@ -2,7 +2,7 @@ import { createConnection, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
+import { createProjectSelectionResult, withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
 import type {
   ContextRevision,
   EditOperation,
@@ -14,6 +14,7 @@ import type {
   ProjectCatalog,
   ProjectSnapshot,
   ProjectSelection,
+  ProjectSelectionResult,
   RationalTime,
 } from "@framekit/runtime";
 
@@ -207,7 +208,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return response.catalog;
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     requireNonEmpty(selection.projectId, "selected project id");
     if (selection.sequenceId !== undefined) {
       requireNonEmpty(selection.sequenceId, "selected sequence id");
@@ -220,7 +221,9 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response was empty");
     validateProjectCatalog(response.catalog);
     validateProjectSelection(response.catalog, selection);
-    return response.catalog;
+    if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response revision was empty");
+    validateRevision(response.revision, "project selection response revision");
+    return createProjectSelectionResult(response.catalog, selection, response.revision);
   }
 
   private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "operation" | "expectedRevision" | "snapshot">) {

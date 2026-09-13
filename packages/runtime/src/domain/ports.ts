@@ -2,7 +2,14 @@ import type { ContextRevision, RationalTime } from "./primitives.js";
 
 import type { ProjectSnapshot } from "./project.js";
 
-import type { EditorLiveState, EditorChange, ContextChangeSet, ProjectCatalog, ProjectSelection } from "./context.js";
+import type {
+  EditorLiveState,
+  EditorChange,
+  ContextChangeSet,
+  ProjectCatalog,
+  ProjectSelection,
+  ProjectSelectionResult,
+} from "./context.js";
 
 import type { CapturedFrameSource } from "./media.js";
 
@@ -27,7 +34,7 @@ export interface EditorPort extends EditorAdapter {
   /** Optional native change feed; absence falls back to a snapshot diff. */
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
   listProjects?(): Promise<ProjectCatalog>;
-  selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
+  selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   /** Capture only if the active editor target still matches the inspected revision. */
   captureFrame?(position: RationalTime, expectedRevision: ContextRevision): Promise<CapturedFrameSource>;
   previewTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<ProjectSnapshot>;

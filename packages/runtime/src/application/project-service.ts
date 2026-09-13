@@ -1,6 +1,6 @@
 import { ContextEngine } from "../context/context-engine.js";
 import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact } from "../domain/ports.js";
-import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
+import type { ProjectCatalog, ProjectSelection, ProjectSelectionResult } from "../domain/context.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
@@ -108,7 +108,7 @@ export class ProjectService {
     return this.adapter.listProjects();
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
       const identity = await this.adapter.getIdentity();
