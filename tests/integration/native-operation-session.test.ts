@@ -208,6 +208,26 @@ test("native session retries a waiting job explicitly", async () => {
   assert.equal(executeCalls, 1);
 });
 
+test("native session retries a transient native failure after execution begins", async () => {
+  let executeCalls = 0;
+  const session = new NativeOperationSession({
+    executor: executor({
+      execute: async (...args) => {
+        executeCalls += 1;
+        if (executeCalls === 1) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut lost focus");
+        return executor().execute(...args);
+      },
+    }),
+  });
+  const accepted = await session.submit(request());
+
+  await eventually(() => session.status(accepted.jobId).state === "waiting_for_final_cut", "transient failure did not become retryable");
+  await session.retry(accepted.jobId);
+  await eventually(() => session.status(accepted.jobId).state === "completed", "transient retry did not complete");
+  assert.equal(session.status(accepted.jobId).error, undefined);
+  assert.equal(executeCalls, 2);
+});
+
 test("native session expires a waiting job before retry", async () => {
   let now = 1_000;
   let executeCalls = 0;
