@@ -57,7 +57,7 @@ this routing tool.
 | `editor.native.media.insert.preview` | Preview inserting selected Browser media at the playhead | Requires selected media, live playhead, and timeline focus |
 | `editor.native.media.insert.execute` | Insert a previously previewed Browser media result at the playhead | Requires unchanged sequence revision/duration/playhead; verifies duration and revision |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
-| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Fails closed for missing/ambiguous media or occurrences; requires live playhead state |
+| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Returns legacy handles/playhead fields plus a stable `TimelineTarget` with explicit projectId, sequenceId, revision, and occurrence; fails closed for missing/ambiguous identity or coordinates |
 | `editor.native.blade.preview` | Prepare a Blade-at-playhead preview token | Token expires and is bound to the occurrence |
 | `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost, timeline-focused Final Cut and post-command verification |
 | `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute and timeline focus |
@@ -210,7 +210,11 @@ until a supported provider supplies both capabilities.
 use the explicit `editor.native.media.*` tools because Browser media identity and
 timeline occurrence identity are different. Imported media handles are stable
 for the current native session; timeline occurrence handles remain short-lived
-and bound to the active sequence/playhead state.
+and bound to the active sequence/playhead state. `editor.native.media.target`
+also returns the stable `TimelineTarget` contract: project and sequence IDs,
+revision, media identity, occurrence identity, and rational coordinates. Native
+selection/playhead compatibility operations remain headed compatibility and do not replace
+that target with a UI index or coordinate-only match.
 
 ## Semantic media understanding
 
