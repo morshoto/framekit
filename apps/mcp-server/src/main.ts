@@ -168,9 +168,9 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
       readCanonicalCapabilities: async () => (await runtime.inspectEditor()).capabilities,
     })
   : undefined;
-const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
-      enabled: true,
+      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
       liveState: () => liveAdapter!.readLiveState(),
     })

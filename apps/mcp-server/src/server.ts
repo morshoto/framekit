@@ -1887,6 +1887,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     editor: {
       ...inspected.capabilities.editor,
       artifactPublish: publishingAvailable,
+      artifactPublishMode: publishingAvailable ? "headed-only" : "unavailable",
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
     },
