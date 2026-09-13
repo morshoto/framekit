@@ -148,7 +148,7 @@ Framekit should keep the current split:
 - keep unsupported native operations unavailable rather than approximating
   them.
 
-No undocumented `.fcpbundle` SQLite read or write dependency must not be introduced.
+No undocumented `.fcpbundle` SQLite read or write dependency is permitted; it must not be introduced.
 The internal bundle is not a supported interchange or transaction contract and
 cannot satisfy target identity, atomic mutation, readback, or restoration.
 
