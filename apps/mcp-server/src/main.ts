@@ -5,6 +5,7 @@ import {
   createFinalCutLiveAdapter,
   FcpxmlDocumentAdapter,
   FinalCutAssetRegistry,
+  FinalCutMediaRegistry,
   FinalCutConnectionManager,
   assertCanonicalProviderConfiguration,
   FinalCutCanonicalNativeProvider,
@@ -126,6 +127,9 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
     })
   : undefined;
 
+const configuredAssetRoots = parseRoots(process.env.FRAMEKIT_FINAL_CUT_ASSET_ROOTS) ?? [];
+const configuredMediaRoots = parseRoots(process.env.FRAMEKIT_FINAL_CUT_MEDIA_ROOTS) ?? [];
+
 const editor = liveMode
   ? new FinalCutSessionAdapter({
       live: canonicalNativeProvider ?? liveAdapter!,
@@ -136,13 +140,13 @@ const editor = liveMode
           })()
         : {}),
       assets: new FinalCutAssetRegistry({
-        roots: process.env.FRAMEKIT_FINAL_CUT_ASSET_ROOTS
-          ?.split(process.platform === "win32" ? ";" : ":")
-          .map((root) => root.trim())
-          .filter(Boolean),
+        roots: configuredAssetRoots.length > 0 ? configuredAssetRoots : undefined,
         nativeTitleProvider: nativeEditor?.capabilities().titleDiscovery ? nativeEditor : undefined,
         nativeTransitionProvider: nativeEditor?.capabilities().transitionDiscovery ? nativeEditor : undefined,
       }),
+      ...(configuredMediaRoots.length > 0
+        ? { media: new FinalCutMediaRegistry({ roots: configuredMediaRoots }) }
+        : {}),
     })
   : fixture;
 
@@ -172,9 +176,9 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
 const nativeOperationSession = disposableNative && nativeEditor
   ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor })
   : undefined;
-const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
-      enabled: true,
+      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
       liveState: () => liveAdapter!.readLiveState(),
     })
@@ -222,4 +226,12 @@ function parseTimeout(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const timeout = Number(value);
   return Number.isFinite(timeout) && timeout > 0 ? timeout : undefined;
+}
+
+function parseRoots(value: string | undefined): string[] | undefined {
+  const roots = value
+    ?.split(process.platform === "win32" ? ";" : ":")
+    .map((root) => root.trim())
+    .filter(Boolean);
+  return roots && roots.length > 0 ? roots : undefined;
 }

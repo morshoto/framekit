@@ -14,6 +14,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   const finalCutLive = await readFile(join(repositoryRoot, "docs/mcp/final-cut-live.md"), "utf8");
   const liveE2e = await readFile(join(repositoryRoot, "docs/tests/final-cut-live-e2e.md"), "utf8");
   const roughCutConstruction = await readFile(join(repositoryRoot, "docs/architecture/rough-cut-construction.md"), "utf8");
+  const artifactPublishing = await readFile(join(repositoryRoot, "docs/architecture/artifact-publishing.md"), "utf8");
 
   assert.match(compatibility, /## Editing surface semantics/);
   assert.match(compatibility, /Target[\s\S]*Revision[\s\S]*Read-after-write[\s\S]*Undo[\s\S]*Resulting project state/);
@@ -44,4 +45,13 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(liveE2e, /prepared disposable fixture[\s\S]*project/);
   assert.match(roughCutConstruction, /Final Cut makes the imported\s+project active/);
   assert.match(roughCutConstruction, /It never modifies the previously\s+open project/);
+  assert.match(artifactPublishing, /Final Cut Pro 10\.7\.1/);
+  assert.match(artifactPublishing, /no supported non-UI\s+project-publishing/);
+  assert.match(artifactPublishing, /awaiting-confirmation/);
+  assert.match(artifactPublishing, /verification-pending/);
+  assert.match(artifactPublishing, /artifact\.publish\.(preview|execute|status)/);
+  assert.match(artifactPublishing, /createdTarget/);
+  assert.match(artifactPublishing, /artifactDigest/);
+  assert.match(artifactPublishing, /target-binding proof/);
+  assert.match(artifactPublishing, /no import was attempted/);
 });

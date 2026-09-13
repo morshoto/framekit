@@ -19,6 +19,7 @@ Framekit uses two distinct Final Cut backends:
 - [Native picture-in-picture](./picture-in-picture.md)
 - [FCPXML operation matrix](./fcpxml-operation-matrix.md)
 - [Native write and Undo investigation](./native-write-undo-investigation.md)
+- [Background render and export investigation](./background-render-export-investigation.md)
 
 The live bridge is deliberately narrower than the FCPXML adapter. It provides
 live state and change events; canonical reads, artifact edits, verification,

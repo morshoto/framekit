@@ -6,7 +6,7 @@ import type { MediaContext } from "./media.js";
 
 import type { TimelineDiff, AssetChange } from "./diff.js";
 
-import type { RuntimeCapabilities } from "./capabilities.js";
+import type { ProjectSelectionMode, RuntimeCapabilities } from "./capabilities.js";
 
 /**
  * State that Final Cut can expose live through its Workflow Extension host.
@@ -29,6 +29,48 @@ export interface EditorLiveState {
   revision: ContextRevision;
 }
 
+export interface ProjectCatalogSource {
+  source: string;
+  backend: string;
+  guarantee: "observed" | "canonical-read";
+}
+
+export interface ProjectCatalogLiveSource {
+  source: string;
+  backend: string;
+  guarantee: "observed";
+}
+
+export type ProjectCatalogIdentityMatchMethod = "stable-id" | "name-only" | "unresolved";
+
+export interface ProjectCatalogIdentityMatch {
+  method: ProjectCatalogIdentityMatchMethod;
+  catalogId?: string;
+  liveId?: string;
+}
+
+export interface ProjectCatalogReconciliation {
+  status: "matched" | "unresolved" | "stale";
+  project: ProjectCatalogIdentityMatch;
+  sequence: ProjectCatalogIdentityMatch;
+  beforeRevision?: ContextRevision;
+  afterRevision?: ContextRevision;
+  reason?: string;
+}
+
+export interface ProjectCatalogSelectionCapability {
+  available: boolean;
+  mode: ProjectSelectionMode;
+  unavailableReason?: string;
+}
+
+export interface ProjectCatalogProvenance {
+  catalog: ProjectCatalogSource;
+  live?: ProjectCatalogLiveSource & { state: EditorLiveState };
+  reconciliation: ProjectCatalogReconciliation;
+  selection: ProjectCatalogSelectionCapability;
+}
+
 /** Stable project and sequence identities exposed by an editor backend. */
 export interface ProjectSequence {
   id: string;
@@ -45,6 +87,7 @@ export interface ProjectCatalog {
   projects: ProjectDescriptor[];
   activeProjectId?: string;
   activeSequenceId?: string;
+  provenance?: ProjectCatalogProvenance;
 }
 
 export interface ProjectSelection {

@@ -61,6 +61,25 @@ export interface MediaSourceIdentity {
   duration?: number;
 }
 
+export interface MediaDiscoveryProvenance {
+  backend: string;
+  guarantee: "observed" | "native-verified";
+  source: "filesystem" | "final-cut";
+  native?: {
+    backend: string;
+    guarantee: "none" | "native-verified";
+    unavailableReason?: string;
+  };
+}
+
+export interface MediaSourceMetadata {
+  fileName: string;
+  extension: string;
+  sizeBytes: number;
+  mimeType?: string;
+  modifiedAt?: string;
+}
+
 export function sameMediaSourceIdentity(left: MediaSourceIdentity, right: MediaSourceIdentity): boolean {
   return left.mediaId === right.mediaId
     && left.source === right.source
@@ -285,6 +304,8 @@ export interface MediaContext {
   mediaKind?: "video" | "audio";
   duration?: number;
   sourceDigest?: string;
+  sourceMetadata?: MediaSourceMetadata;
+  discovery?: MediaDiscoveryProvenance;
   metadata?: MetadataAnalysis;
   analysis?: MediaAnalysisStatus[];
   semantic?: MediaSemanticDescription;

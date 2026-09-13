@@ -1,6 +1,7 @@
-import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import type { AssetSearchQuery, EditorAsset } from "@framekit/runtime";
 import type { NativeFinalCutTitleMatch, NativeFinalCutTransitionMatch } from "./native.js";
 
@@ -41,7 +42,7 @@ export class FinalCutAssetRegistry {
   private readonly roots: string[];
   private readonly nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
   private readonly nativeTransitionProvider?: Pick<NativeTransitionProvider, "searchTransitions">;
-  private cached?: EditorAsset[];
+  private cached?: { signature: string; assets: EditorAsset[] };
 
   public constructor(options: FinalCutAssetRegistryOptions = {}) {
     this.roots = (options.roots ?? defaultFinalCutAssetRoots()).map((root) => resolve(root));
@@ -50,8 +51,20 @@ export class FinalCutAssetRegistry {
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
-    if (!this.cached) this.cached = await this.scan();
-    const filesystemAssets = filterAssets(this.cached, query);
+    const scanned = await this.scan();
+    if (!this.cached || this.cached.signature !== scanned.signature) this.cached = scanned;
+    const discovery = query?.discovery ?? "background";
+    const filesystemAssets = discovery === "native" ? [] : filterAssets(this.cached.assets, query);
+    if (discovery === "background") return filesystemAssets;
+    if (discovery === "native" && query?.kind === "title" && !this.nativeTitleProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native title discovery is not configured");
+    }
+    if (discovery === "native" && query?.kind === "transition" && !this.nativeTransitionProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native transition discovery is not configured");
+    }
+    if (discovery === "native" && !query?.kind && !this.nativeTitleProvider && !this.nativeTransitionProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native asset discovery is not configured");
+    }
     let nativeTitleAssets: EditorAsset[] = [];
     let nativeTransitionAssets: EditorAsset[] = [];
     let nativeTitleError: unknown;
@@ -101,18 +114,27 @@ export class FinalCutAssetRegistry {
     this.cached = undefined;
   }
 
-  private async scan(): Promise<EditorAsset[]> {
+  private async scan(): Promise<{ signature: string; assets: EditorAsset[] }> {
     const assets: EditorAsset[] = [];
+    const signatures: string[] = [];
     for (const root of this.roots) {
-      await scanDirectory(root, assets);
+      await scanDirectory(root, assets, signatures, root);
     }
-    return assets
-      .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
-      .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
+    return {
+      signature: signatures.sort().join("\n"),
+      assets: assets
+        .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
+        .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id)),
+    };
   }
 }
 
-async function scanDirectory(directory: string, assets: EditorAsset[]): Promise<void> {
+async function scanDirectory(
+  directory: string,
+  assets: EditorAsset[],
+  signatures: string[],
+  root: string,
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -122,14 +144,20 @@ async function scanDirectory(directory: string, assets: EditorAsset[]): Promise<
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory() && CATEGORY_BY_DIRECTORY[entry.name]) {
-      await scanCategory(path, CATEGORY_BY_DIRECTORY[entry.name], assets);
+      await scanCategory(path, CATEGORY_BY_DIRECTORY[entry.name], assets, signatures, root);
     } else if (entry.isDirectory()) {
-      await scanDirectory(path, assets);
+      await scanDirectory(path, assets, signatures, root);
     }
   }
 }
 
-async function scanCategory(directory: string, kind: EditorAsset["kind"], assets: EditorAsset[]): Promise<void> {
+async function scanCategory(
+  directory: string,
+  kind: EditorAsset["kind"],
+  assets: EditorAsset[],
+  signatures: string[],
+  root: string,
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -139,6 +167,8 @@ async function scanCategory(directory: string, kind: EditorAsset["kind"], assets
   for (const entry of entries) {
     if (!entry.isDirectory() || !BUNDLE_SUFFIXES.has(extension(entry.name))) continue;
     const path = join(directory, entry.name);
+    const fingerprint = await bundleFingerprint(path);
+    signatures.push(fingerprint.signature);
     const metadata = await readMetadata(path);
     assets.push({
       id: `filesystem:${kind}:${path}`,
@@ -149,23 +179,71 @@ async function scanCategory(directory: string, kind: EditorAsset["kind"], assets
         path,
         ...metadata,
         identity: path,
+        sourceDigest: fingerprint.sourceDigest,
         provider: "filesystem-motion-template",
         source: "filesystem",
         discovery: {
           backend: "filesystem-motion-template",
           guarantee: "observed",
         },
-        ...(kind === "title"
-          ? {
-              placement: {
-                backend: "final-cut-accessibility",
-                guarantee: "native-verified",
-                operation: "editor.native.title.add",
-              },
-            }
-          : {}),
+        installation: {
+          path,
+          root,
+          relativePath: relative(root, path),
+        },
       },
     });
+  }
+}
+
+interface BundleFile {
+  path: string;
+  size: number;
+  modifiedAt: number;
+}
+
+async function bundleFingerprint(path: string): Promise<{ signature: string; sourceDigest: string }> {
+  const files: BundleFile[] = [];
+  await collectBundleFiles(path, files);
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  const digest = createHash("sha256");
+  for (const file of files) {
+    digest.update(file.path).update("\0");
+    try {
+      digest.update(await readFile(file.path));
+    } catch {
+      digest.update("missing");
+    }
+  }
+  return {
+    signature: files.map((file) => `${file.path}:${file.size}:${file.modifiedAt}`).join("\n"),
+    sourceDigest: `sha256:${digest.digest("hex")}`,
+  };
+}
+
+async function collectBundleFiles(path: string, files: BundleFile[]): Promise<void> {
+  let details;
+  try {
+    details = await stat(path);
+  } catch {
+    return;
+  }
+  if (details.isFile()) {
+    files.push({ path, size: details.size, modifiedAt: details.mtimeMs });
+    return;
+  }
+  if (!details.isDirectory()) return;
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) await collectBundleFiles(join(path, entry.name), files);
+  }
+  for (const entry of entries) {
+    if (entry.isFile()) await collectBundleFiles(join(path, entry.name), files);
   }
 }
 
