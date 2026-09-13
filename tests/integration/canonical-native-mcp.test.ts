@@ -75,8 +75,12 @@ function liveState(): EditorLiveState {
   };
 }
 
-function createRuntime(calls: string[]) {
+function createRuntime(
+  calls: string[],
+  readSnapshot?: () => Promise<ProjectSnapshot>,
+) {
   let clipName = "Original";
+  const snapshotReader = readSnapshot ?? (async () => snapshot(clipName));
   const live = {
     getIdentity: async () => identity,
     readLiveState: async () => liveState(),
@@ -96,7 +100,7 @@ function createRuntime(calls: string[]) {
         return { undone: true, verification: { verified: true } };
       },
     },
-    readSnapshot: async () => snapshot(clipName),
+    readSnapshot: snapshotReader,
     resolveTarget: async () => undefined,
     backgroundCatalog: {
       backend: "final-cut-background-library",
@@ -291,6 +295,67 @@ test("canonical native provider exposes a non-mutating preview-token transaction
     })));
     assert.equal(restored.timeline.clips[0].name, "Original");
     assert.deepEqual(calls, ["edit", "undo"]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP fails closed when canonical Export XML snapshot is unavailable", async () => {
+  const calls: string[] = [];
+  const runtime = createRuntime(calls, async () => {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear");
+  });
+  const { client, server } = await connect(runtime);
+
+  try {
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "metadata-only");
+    assert.equal(editor.capabilities.editor.projectRead, false);
+    assert.equal(editor.capabilities.editor.timelineSnapshotRead, false);
+    assert.equal(editor.capabilities.editor.timelineWrite, false);
+    assert.equal(editor.capabilities.families.canonicalDocument.read.available, false);
+    assert.match(
+      editor.capabilities.families.canonicalDocument.read.unavailableReason,
+      /FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE/,
+    );
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.edit" },
+    })));
+    assert.equal(route.status, "unavailable");
+    assert.equal(route.selectedPath, "none");
+    assert.ok(route.missingCapabilities.includes("editor.timelineSnapshotRead"));
+    assert.ok(route.missingCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
+
+    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    assert.equal(project.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(project)), {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "project.inspect requires canonicalDocument.read",
+      operation: "project.inspect",
+      capability: "canonicalDocument.read",
+      available: false,
+      backend: "final-cut-native-canonical",
+      guarantee: "none",
+      unavailableReason: "canonical snapshot provider unavailable: FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear",
+    });
+
+    const edit = await client.callTool({
+      name: "editor.timeline.edit",
+      arguments: {
+        projectId: "final-cut:project:canonical-mcp",
+        sequenceId: "final-cut:sequence:canonical-mcp",
+        baseRevision: { id: "unavailable", sequence: 0, timestamp: new Date(0).toISOString() },
+        type: "rename-clip",
+        clipId: "final-cut:occurrence:clip-1",
+        name: "Must not mutate",
+      },
+    });
+    assert.equal(edit.isError, true);
+    assert.match(textFrom(edit), /CAPABILITY_UNAVAILABLE/);
+    assert.deepEqual(calls, []);
   } finally {
     await client.close();
     await server.close();

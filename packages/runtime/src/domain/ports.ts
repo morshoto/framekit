@@ -13,7 +13,7 @@ import type {
 
 import type { CapturedFrameSource, MediaContext } from "./media.js";
 
-import type { EditorIdentity, RuntimeCapabilities } from "./capabilities.js";
+import type { CapabilityInspectionOptions, EditorIdentity, RuntimeCapabilities } from "./capabilities.js";
 
 import type { WorkflowOperation, EditOperation } from "./editing.js";
 
@@ -25,7 +25,7 @@ export interface EditorAdapter {
 
 export interface EditorPort extends EditorAdapter {
   getIdentity(): Promise<EditorIdentity>;
-  getCapabilities(): Promise<RuntimeCapabilities>;
+  getCapabilities(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
   getManagedArtifact?(): Promise<ManagedArtifact>;
   getManagedArtifactDigest?(): Promise<string | undefined>;
   readProject(): Promise<ProjectSnapshot>;

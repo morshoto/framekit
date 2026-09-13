@@ -831,7 +831,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      return await this.attachLiveState(await this.inspectRawNative(undefined, passiveTimelinePreflightScript()));
+      const deadline = this.now() + this.nativePreflightTimeoutMs;
+      const context = await this.inspectRawNative(deadline, passiveTimelinePreflightScript());
+      if (shouldRetryPassiveInspection(context) && this.now() < deadline) {
+        return await this.inspectRawNative(deadline, passiveTimelinePreflightScript());
+      }
+      return context;
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
@@ -6078,7 +6083,7 @@ function editScript(operation: NativeFinalCutEdit): string {
       ? `click menu item "Trim ${operation.edge === "start" ? "Start" : "End"}" of menu "Trim" of menu bar 1`
       : operation.type === "set-selected-clip-gain"
         ? `click menu item "Adjust Volume" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(`${operation.gainDb}`)}\n    key code 36`
-        : `click menu item "Marker" of menu "Mark" of menu bar 1`;
+        : `click menu item "Add Marker" of menu 1 of menu item "Markers" of menu "Mark" of menu bar 1`;
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
@@ -6142,6 +6147,15 @@ function parseContext(output: string): NativeFinalCutContext {
     ...(undoCommandState ? { undoCommand: undoCommandState } : {}),
   };
   return { ...context, readiness: readinessForContext(context) };
+}
+
+function shouldRetryPassiveInspection(context: NativeFinalCutContext): boolean {
+  return context.available
+    && context.frontmost
+    && context.timelineWindowAvailable
+    && context.timelineFocused
+    && context.focusTarget === "timeline"
+    && context.target.kind === "unknown";
 }
 
 function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutContext {
@@ -6631,7 +6645,7 @@ function commandName(operation: NativeFinalCutEdit): string {
   if (operation.type === "rename-selected-clip") return "Modify > Apply Custom Name";
   if (operation.type === "trim-selected-clip-to-playhead") return `Trim > Trim ${operation.edge === "start" ? "Start" : "End"}`;
   if (operation.type === "set-selected-clip-gain") return "Modify > Adjust Volume";
-  return "Mark > Marker";
+  return "Mark > Markers > Add Marker";
 }
 
 function appleScriptString(value: string): string {
