@@ -12,3 +12,4 @@ being organized.
 - [ADR 0006: Live browser blade and project publish](../../adr/0006-live-browser-blade-and-project-publish.md)
 - [ADR 0007: Native range and duration writes](../../adr/0007-native-range-and-duration-writes.md)
 - [ADR 0008: Skill contract](../../adr/0008-skill-contract.md)
+- [ADR 0010: Resumable native operation sessions](../../adr/0010-resumable-native-operation-session.md)
