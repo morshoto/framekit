@@ -379,7 +379,7 @@ test("Final Cut sessions do not advertise mutation-only project selection", asyn
   assert.equal(capabilities.editor.projectSelection, false);
   await assert.rejects(
     new AgentVideoRuntime(session).selectProject({ projectId: "project-1" }),
-    /CAPABILITY_UNAVAILABLE: editor project selection/,
+    /CAPABILITY_UNAVAILABLE: (?:editor project selection|project\.select requires editor\.projectSelection)/,
   );
 });
 

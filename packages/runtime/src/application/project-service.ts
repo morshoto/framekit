@@ -97,7 +97,13 @@ export class ProjectService {
   public async listProjects(): Promise<ProjectCatalog> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.projectCatalogRead || !this.adapter.listProjects) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project catalog");
+      const identity = await this.adapter.getIdentity();
+      throw new CapabilityUnavailableError("project.list", "editor.projectCatalogRead", {
+        available: false,
+        backend: identity.backend,
+        guarantee: "none",
+        unavailableReason: "project catalog is unavailable",
+      });
     }
     return this.adapter.listProjects();
   }
@@ -105,7 +111,13 @@ export class ProjectService {
   public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project selection");
+      const identity = await this.adapter.getIdentity();
+      throw new CapabilityUnavailableError("project.select", "editor.projectSelection", {
+        available: false,
+        backend: identity.backend,
+        guarantee: "none",
+        unavailableReason: "project selection is unavailable",
+      });
     }
     if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
     if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
