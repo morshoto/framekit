@@ -231,7 +231,11 @@ export function withCapabilityFamilies(
         "asset discovery is unavailable",
       ),
       library: descriptorFrom(
-        options.observation?.library ?? backgroundLibraryInspection,
+        options.observation?.library ?? (
+          backgroundLibraryInspection
+            ? previous?.observation.library ?? true
+            : false
+        ),
         backend,
         "observed",
         "background library inspection is unavailable",

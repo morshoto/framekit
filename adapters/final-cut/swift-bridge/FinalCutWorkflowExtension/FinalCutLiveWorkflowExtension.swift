@@ -88,6 +88,7 @@ private struct EditorCapabilities: Codable {
     let projectCatalogRead: Bool
     let projectSelection: Bool
     let projectSelectionMode: String
+    let backgroundLibraryInspection: Bool
 }
 
 private struct AnalyzerCapabilities: Codable {
@@ -111,6 +112,7 @@ private struct ConnectionCapabilities: Codable {
 private struct ObservationCapabilities: Codable {
     let timeline: CapabilityDescriptor
     let media: CapabilityDescriptor
+    let library: CapabilityDescriptor
 }
 
 private struct CanonicalDocumentCapabilities: Codable {
@@ -229,7 +231,8 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
         connection: ConnectionCapabilities(status: availableCapability(backend: liveBackend, guarantee: "observed")),
         observation: ObservationCapabilities(
             timeline: availableCapability(backend: liveBackend, guarantee: "observed"),
-            media: unavailableCapability(backend: liveBackend, operation: "media observation")
+            media: unavailableCapability(backend: liveBackend, operation: "media observation"),
+            library: unavailableCapability(backend: "final-cut-background-library", operation: "background library inspection")
         ),
         canonicalDocument: CanonicalDocumentCapabilities(
             read: unavailableCapability(backend: liveBackend, operation: "canonical timeline reads"),
@@ -471,7 +474,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-                editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: false, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable"),
+                editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: false, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable", backgroundLibraryInspection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
             schemaVersion: 1,
             families: metadataOnlyCapabilityFamilies()

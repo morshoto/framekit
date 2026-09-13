@@ -124,7 +124,11 @@ test("metadata-only project inspection has one capability contract across MCP su
 
     const timeline = await client.callTool({ name: "timeline.inspect", arguments: {} });
     assert.equal(timeline.isError, true);
-    assert.deepEqual(JSON.parse(textFrom(timeline)), projectError);
+    assert.deepEqual(JSON.parse(textFrom(timeline)), {
+      ...projectError,
+      message: "timeline.inspect requires canonicalDocument.read",
+      operation: "timeline.inspect",
+    });
 
     const catalog = await client.callTool({ name: "project.list", arguments: {} });
     assert.equal(catalog.isError, true);

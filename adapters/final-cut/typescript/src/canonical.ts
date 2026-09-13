@@ -303,6 +303,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectCatalogRead: true,
         projectSelection: false,
         projectSelectionMode: "unavailable",
+        backgroundLibraryInspection: Boolean(this.backgroundCatalog),
         compositeTransactions: true,
       },
       analyzers: {
@@ -315,6 +316,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       backend: "final-cut-native-canonical",
       connectionBackend: "workflow-extension-ipc",
       canonicalDocument: { read: true, write: true, artifactWrite: false },
+      observation: {
+        library: this.backgroundCatalog
+          ? {
+              available: true,
+              backend: this.backgroundCatalog.backend ?? "final-cut-background-library",
+              guarantee: "observed" as const,
+            }
+          : false,
+      },
     });
   }
 

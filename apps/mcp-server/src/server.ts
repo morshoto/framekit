@@ -1032,6 +1032,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
     inputSchema: {
       operation: z.enum([
+        "project.list",
+        "project.select",
+        "project.inspect",
+        "timeline.inspect",
+        "editor.live.inspect",
         "timeline.edit",
         "artifact.edit",
         "timeline.mask.add",
@@ -1545,9 +1550,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, waitMs ?? 0)));
 
   server.registerTool("editor.live.inspect", {
-    description: "Read live Final Cut Workflow Extension state: project, active sequence, playhead, and selected range.",
+    description: "Read observed live Final Cut state without requiring canonical timeline snapshot capability.",
     inputSchema: {},
-  }, async () => jsonResult(await runtime.inspectLiveEditor()));
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.observation.timeline;
+    if (!capability.available) {
+      return capabilityErrorResult("editor.live.inspect", "observation.timeline", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectLiveEditor());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("editor.live.changes", {
     description: "Read live Final Cut timeline change events after a revision; optionally wait for new events.",
@@ -1562,8 +1578,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, waitMs ?? 0)));
 
   server.registerTool("timeline.inspect", {
-    description: "Read the current canonical timeline snapshot.",
-  }, async () => jsonResult(await runtime.inspectTimeline()));
+    description: "Read the current canonical timeline snapshot after canonical capability checks.",
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) {
+      return capabilityErrorResult("timeline.inspect", "canonicalDocument.read", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectTimeline());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("timeline.frame.capture", {
     description: "Capture an image at an exact timeline position with project, sequence, clip, and optional visual-analysis metadata.",
@@ -1661,6 +1688,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Edit the identified managed FCPXML artifact in the background and return its artifact target, new revision, read-after-write, and diff.",
     inputSchema: artifactEditToolInputSchema,
   }, async (input) => {
+    await requireEditingRoute(runtime, options, "artifact.edit");
     const { artifactPath, verification, ...operation } = input;
     const transaction = await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation), verification ?? {});
     return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
@@ -1670,6 +1698,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
     inputSchema: editorTimelineEditToolInputSchema,
   }, async (input) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
     const { projectId, sequenceId, verification, ...operation } = input;
     return jsonResult(await runtime.editTimeline(
       { projectId, sequenceId },
@@ -1728,10 +1757,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
     },
-  }, async ({ artifactPath, baseRevision, operations, verification }) => jsonResult(await runtime.previewArtifactEdit(
-    artifactPath,
-    { baseRevision, operations, ...(verification ? { verification } : {}) },
-  ).then(withArtifactPreviewProvenance)));
+  }, async ({ artifactPath, baseRevision, operations, verification }) => {
+    await requireEditingRoute(runtime, options, "artifact.edit");
+    return jsonResult(await runtime.previewArtifactEdit(
+      artifactPath,
+      { baseRevision, operations, ...(verification ? { verification } : {}) },
+    ).then(withArtifactPreviewProvenance));
+  });
 
   server.registerTool("editor.timeline.edit.preview", {
     description: "Validate and preview an ordered live timeline edit against the identified active project and sequence without mutating it.",
@@ -1742,15 +1774,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
     },
-  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => jsonResult(await runtime.previewTimelineEdit(
-    { projectId, sequenceId },
-    { baseRevision, operations, ...(verification ? { verification } : {}) },
-  )));
+  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.previewTimelineEdit(
+      { projectId, sequenceId },
+      { baseRevision, operations, ...(verification ? { verification } : {}) },
+    ));
+  });
 
   server.registerTool("artifact.edit.execute", {
     description: "Execute one short-lived background artifact edit preview token exactly once and verify the FCPXML artifact transaction.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "artifact.edit");
     const transaction = await runtime.executeEdit(previewToken);
     return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
   });
@@ -1787,7 +1823,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.timeline.edit.execute", {
     description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+  }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.executeEdit(previewToken));
+  });
 
   server.registerTool("timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
