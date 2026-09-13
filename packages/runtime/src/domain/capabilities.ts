@@ -41,6 +41,10 @@ export interface EditorCapabilities {
   compositeTransactions?: boolean;
   /** The backend can export the active timeline to a verified local video file. */
   videoExport?: boolean;
+  /** A background renderer can produce a verified local video file without editor UI. */
+  backgroundRender?: boolean;
+  /** An external renderer is available as an explicitly separate evidence path. */
+  externalRender?: boolean;
   mediaImport?: boolean;
   mediaPlacement?: boolean;
   pictureInPicture?: boolean;
@@ -86,10 +90,13 @@ export type CapabilityGuarantee =
   | "native-verified"
   | "verified";
 
+export type ExportEvidenceTier = "headed-native" | "background-native" | "artifact-rendered" | "external-rendered";
+
 export interface CapabilityDescriptor {
   available: boolean;
   backend: string;
   guarantee: CapabilityGuarantee;
+  evidenceTier?: ExportEvidenceTier;
   unavailableReason?: string;
 }
 
@@ -195,6 +202,8 @@ export interface CapabilityFamilies {
   };
   export: {
     timeline: CapabilityDescriptor;
+    background: CapabilityDescriptor;
+    external: CapabilityDescriptor;
   };
   analyzers: {
     speechTranscribe: CapabilityDescriptor;
