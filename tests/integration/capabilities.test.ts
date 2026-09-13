@@ -81,6 +81,31 @@ test("capability families expose versioned canonical and observation operations"
   });
 });
 
+test("project selection capabilities expose their execution mode", () => {
+  const background = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, projectSelectionMode: "background-capable" },
+  }, { backend: "fcpxml-document" });
+  const headed = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, projectSelectionMode: "headed-only" },
+  }, { backend: "final-cut-accessibility" });
+  const unavailable = withCapabilityFamilies({
+    ...metadataOnlyCapabilities,
+    editor: { ...metadataOnlyCapabilities.editor, projectSelectionMode: "unavailable" },
+  }, { backend: "workflow-extension-ipc" });
+  const legacyBackground = withCapabilityFamilies(artifactCapabilities, { backend: "fcpxml-document" });
+  const legacyUnavailable = withCapabilityFamilies(metadataOnlyCapabilities, { backend: "workflow-extension-ipc" });
+
+  assert.equal(background.editor.projectSelectionMode, "background-capable");
+  assert.equal(background.editor.timelineWrite, false);
+  assert.notEqual(background.editor.canonicalTimelineMode, "canonical-write");
+  assert.equal(headed.editor.projectSelectionMode, "headed-only");
+  assert.equal(unavailable.editor.projectSelectionMode, "unavailable");
+  assert.equal(legacyBackground.editor.projectSelectionMode, "background-capable");
+  assert.equal(legacyUnavailable.editor.projectSelectionMode, "unavailable");
+});
+
 test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
   const canonicalWrite = withCapabilityFamilies({
     editor: {
@@ -496,6 +521,7 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /pictureInPicture: CapabilityDescriptor/);
   assert.match(swift, /projectCatalogRead: Bool/);
   assert.match(swift, /projectSelection: Bool/);
+  assert.match(swift, /projectSelectionMode: String/);
   assert.match(swift, /transitionDiscovery: CapabilityDescriptor/);
   assert.match(swift, /transitionPlacement: CapabilityDescriptor/);
 });
@@ -506,7 +532,16 @@ test("Workflow Extension does not advertise unsupported project catalog operatio
     "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
   ), "utf8");
 
-  assert.match(swift, /projectCatalogRead: false, projectSelection: false/);
+  assert.match(swift, /projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable"/);
+});
+
+test("canonical native provider declares unavailable project selection mode", async () => {
+  const canonical = await readFile(join(
+    process.cwd(),
+    "adapters/final-cut/typescript/src/canonical.ts",
+  ), "utf8");
+
+  assert.match(canonical, /projectCatalogRead: true,\s*projectSelection: false,\s*projectSelectionMode: "unavailable"/);
 });
 
 test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
@@ -539,4 +574,31 @@ test("Workflow Extension rejects unsupported project catalog methods", async () 
 
   assert.match(swift, /case "projects", "select-project":[\s\S]*CAPABILITY_UNAVAILABLE/);
   assert.doesNotMatch(swift, /private func selectProject\(/);
+});
+
+test("project selection decision records API and runtime evidence", async () => {
+  const decision = await readFile(join(
+    process.cwd(),
+    "docs/adr/0009-non-ui-project-selection.md",
+  ), "utf8");
+
+  assert.match(decision, /FCPXHost/);
+  assert.match(decision, /FCPXTimeline\.activeSequence/);
+  assert.match(decision, /projectCatalogRead: false/);
+  assert.match(decision, /projectSelection: false/);
+  assert.match(decision, /select-project/);
+  assert.match(decision, /CAPABILITY_UNAVAILABLE/);
+  assert.match(decision, /projectSelectionMode/);
+});
+
+test("headed project selection gate verifies transition evidence", async () => {
+  const runner = await readFile(join(
+    process.cwd(),
+    "scripts/final-cut-project-selection-headed-e2e.mjs",
+  ), "utf8");
+
+  assert.match(runner, /projectSelectionMode/);
+  assert.match(runner, /requestedTarget/);
+  assert.match(runner, /observedActiveTarget/);
+  assert.match(runner, /observedRevision/);
 });
