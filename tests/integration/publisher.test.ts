@@ -421,3 +421,65 @@ test("FCPXML publish jobs report success only after live target verification", a
   assert.equal(executorCalls, 1);
   assert.equal(liveStateCalls, 2);
 });
+
+test("FCPXML publish jobs resume verification without importing twice", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-resume-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-resume" name="Resume Publish"><sequence uid="sequence-resume" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalls = 0;
+  let liveStateCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => {
+      executorCalls += 1;
+      return "imported";
+    },
+    liveState: async () => {
+      liveStateCalls += 1;
+      if (liveStateCalls === 2) throw new Error("temporary bridge unavailable");
+      const imported = liveStateCalls > 2;
+      return {
+        project: { id: imported ? "project-created" : "project-before", name: imported ? "Resume Publish" : "Existing" },
+        sequence: {
+          id: imported ? "sequence-created" : "sequence-before",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "10", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-resume",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const pending = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(pending.state, "verification-pending");
+  assert.equal(pending.nextAction, "retry");
+  assert.equal(pending.retryable, true);
+  assert.equal(pending.createdTarget, undefined);
+  assert.match(pending.error?.code ?? "", /FINAL_CUT_PUBLISH_STATE_UNAVAILABLE/);
+
+  const resumed = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(resumed.state, "verified");
+  assert.equal(resumed.result?.verified, true);
+  assert.deepEqual(resumed.createdTarget, {
+    kind: "editor.project",
+    projectId: "project-created",
+    sequenceId: "sequence-created",
+    projectName: "Resume Publish",
+    sequenceName: "Main",
+  });
+  assert.equal(executorCalls, 1);
+  assert.equal(liveStateCalls, 3);
+});
