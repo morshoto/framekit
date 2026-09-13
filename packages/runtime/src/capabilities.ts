@@ -268,7 +268,7 @@ export function withCapabilityFamilies(
         "headed-native",
       ),
       background: exportDescriptor(
-        options.backgroundExport ?? previous?.export.background ?? editor.backgroundRender ?? false,
+        options.backgroundExport ?? previous?.export.background ?? false,
         options.backgroundExportBackend ?? previous?.export.background?.backend ?? backend,
         "verified",
         "background rendering is unavailable",

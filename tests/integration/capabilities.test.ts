@@ -106,6 +106,17 @@ test("project selection capabilities expose their execution mode", () => {
   assert.equal(legacyUnavailable.editor.projectSelectionMode, "unavailable");
 });
 
+test("background family does not infer native evidence from editor flags", () => {
+  const capabilities = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, backgroundRender: true },
+  }, { backend: "external-renderer" });
+
+  assert.equal(capabilities.editor.backgroundRender, true);
+  assert.equal(capabilities.families.export.background.available, false);
+  assert.equal(capabilities.families.export.background.evidenceTier, undefined);
+});
+
 test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
   const canonicalWrite = withCapabilityFamilies({
     editor: {
