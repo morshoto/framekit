@@ -56,3 +56,15 @@ test("does not introduce an internal Final Cut bundle dependency", async () => {
     assert.doesNotMatch(source, /fcpbundle|SQLite/i);
   }
 });
+
+test("links the decision from canonical Final Cut guidance", async () => {
+  const documents = await Promise.all([
+    readFile(join(repositoryRoot, "docs/architecture/backend-selection.md"), "utf8"),
+    readFile(join(repositoryRoot, "docs/architecture/capability-model.md"), "utf8"),
+    readFile(join(repositoryRoot, "docs/mcp/final-cut-live.md"), "utf8"),
+  ]);
+
+  for (const document of documents) {
+    assert.match(document, /non-ui-timeline-snapshot-investigation\.md/);
+  }
+});
