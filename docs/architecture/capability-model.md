@@ -5,6 +5,8 @@ the editor might be able to do through undocumented automation.
 
 For the current-version Final Cut non-UI snapshot decision and evidence, see the
 [non-UI timeline snapshot investigation](./non-ui-timeline-snapshot-investigation.md).
+The provider responsibilities and routing boundaries are summarized in the
+[Final Cut provider boundaries](./final-cut-provider-boundaries.md) contract.
 
 ## Versioned operation contract
 
