@@ -32,13 +32,16 @@ Every publish job is bound to:
 - the exact managed FCPXML `artifactPath`;
 - the verified source `transactionId`; and
 - the source `artifactDigest`, which is checked again immediately before any
-  headed import attempt.
+  headed import attempt; and
+- an exact project/sequence target-binding proof from a native publisher.
 
 Preparation is non-mutating and never opens Final Cut. Execution requires
-explicit `confirm: true`. A job enters `verified` only after the live provider
-observes a new project and sequence identity that match the source artifact
-identity and differ from the pre-import active target. `sourceTarget` and
-`createdTarget` remain separate objects in the result.
+explicit `confirm: true`. A job enters `verified` only when that stable
+target-binding proof and live readback agree on the exact project and sequence
+IDs. The current Workflow Extension does not provide this proof, so execution
+fails with `FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE` before import and
+reports that no import was attempted. `sourceTarget` and `createdTarget` remain
+separate objects in the result.
 
 ## Job state machine
 
@@ -48,7 +51,7 @@ identity and differ from the pre-import active target. `sourceTarget` and
 | `awaiting-final-cut` | Headed publishing or live verification is unavailable before import. | Retry when Final Cut and its provider are ready. |
 | `verification-pending` | Import may have started, but created-target readback is not complete. | Retry verification only; never import again. |
 | `verified` | Created project and sequence identity were observed through the live provider. | None. |
-| `failed` | Source validation or another non-retryable safety condition failed. | None. |
+| `failed` | Source validation, target binding, or another non-retryable safety condition failed. | None. |
 
 `awaiting-final-cut` and `verification-pending` are bounded, process-local
 handoff states. They are resumable while the MCP server retains the job. The
@@ -60,7 +63,8 @@ created target until verification succeeds.
 - `artifact.publish.preview` validates the verified artifact transaction and
   returns a headed-only job without opening Final Cut.
 - `artifact.publish.execute` accepts a job ID and literal `confirm: true`.
-  It returns `verified`, `awaiting-final-cut`, or `verification-pending`.
+  It returns `verified`, `awaiting-final-cut`, `verification-pending`, or a
+  fail-closed `failed` state when target-binding proof is unavailable.
 - `artifact.publish.status` reads a job without retrying it or opening Final
   Cut.
 
@@ -73,7 +77,8 @@ prove only the state-machine and safety contract.
 ## Safety boundaries
 
 The job flow never silently replaces the active project. If the live provider
-is unavailable before import, the executor is not called. If the provider is
-lost after import begins, the job remains unverified and a retry performs only
-bounded live verification against the saved pre-import target. A source digest
-change, target mismatch, invalid artifact, or missing confirmation fails closed.
+or target-binding proof is unavailable before import, the executor is not
+called. If the provider is lost after import begins, the job remains unverified
+and a retry performs only bounded live verification against the saved target
+binding and pre-import target. A source digest change, target mismatch, invalid
+artifact, or missing confirmation fails closed.
