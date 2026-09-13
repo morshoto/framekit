@@ -1743,9 +1743,17 @@ test("native Final Cut current Browser layout reveals its custom search field", 
   assert.ok(searchScript);
   assert.match(searchScript, /on browserSearchToggle\(candidate\)/);
   assert.match(searchScript, /on browserSearchRootForToggle\(containerItem\)/);
+  assert.match(searchScript, /on findBrowserMediaRoot\(containerItem, depth\)/);
   assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth\)/);
   assert.match(searchScript, /candidateText contains "toggle search bar"/);
   assert.match(searchScript, /set searchControlResult to my findBrowserSearchToggle\(mainWindow, 0\)/);
+  assert.match(searchScript, /if searchControlResult is missing value then\n        if my revealBrowser\(mainWindow, 0\)/);
+  assert.match(searchScript, /set browserRootContext to searchButtonIsToggle/);
+  assert.match(searchScript, /collectBrowserMedia\(browserRoot, 0, searchQuery, origin, browserRootContext/);
+  assert.match(searchScript, /set maxDepth to 12[\s\S]*if inheritedContext then set maxDepth to 6/);
+  assert.match(searchScript, /on mediaContainer\(containerItem, inheritedContext\)[\s\S]*if inheritedContext then return true/);
+  assert.match(searchScript, /if candidateName contains searchQuery then/);
+  assert.match(searchScript, /candidateRole is "AXTextField" then return mediaContext/);
   const toggleIndex = searchScript.indexOf('perform action "AXPress" of searchButton');
   assert.ok(toggleIndex >= 0);
   const postToggleScript = searchScript.slice(toggleIndex);

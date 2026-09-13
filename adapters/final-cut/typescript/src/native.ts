@@ -1179,7 +1179,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.ensureBrowserReady(deadline, timeoutCode);
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
-      const output = await this.executeNativeScript(searchMediaScript(query), deadline, timeoutCode);
+      const searchDeadline = deadline ?? this.now() + this.mediaImportDiscoveryTimeoutMs;
+      const output = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
       const explicitFailure = output.trim();
       if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
         throw new Error(explicitFailure);
@@ -4232,7 +4233,7 @@ function searchMediaScript(query: string): string {
     set value of searchField to searchQuery
     key code 36
     delay 0.5
-    set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, false, {}, "root")
+    set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, browserRootContext, {}, "root")
     return output
   end tell
 end tell`;
@@ -4308,11 +4309,15 @@ function browserSearchFieldScript(): string {
     set searchField to missing value
     set searchButton to missing value
     set searchButtonIsToggle to false
-    try
-      if my revealBrowser(mainWindow, 0) then delay 0.5
-    end try
+    set browserRootContext to false
     try
       set searchControlResult to my findBrowserSearchToggle(mainWindow, 0)
+      if searchControlResult is missing value then
+        if my revealBrowser(mainWindow, 0) then delay 0.5
+        set searchControlResult to my findBrowserSearchToggle(mainWindow, 0)
+      end if
+    end try
+    try
       if searchControlResult is missing value then set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
       if searchControlResult is not missing value then
         set searchControl to item 1 of searchControlResult
@@ -4324,6 +4329,7 @@ function browserSearchFieldScript(): string {
         else if searchRole is "AXButton" then
           set searchButton to searchControl
           set searchButtonIsToggle to my browserSearchToggle(searchControl)
+          set browserRootContext to searchButtonIsToggle
         end if
       end if
     end try
@@ -4433,22 +4439,49 @@ function browserSearchControlFinderScript(): string {
       repeat with candidateRef in UI elements of containerItem
         try
           set candidate to contents of candidateRef
-          if (role of candidate as text) is "AXSplitGroup" then return candidate
+          if (role of candidate as text) is "AXSplitGroup" then
+            set mediaRoot to my findBrowserMediaRoot(candidate, 0)
+            if mediaRoot is not missing value then return mediaRoot
+            return candidate
+          end if
         end try
       end repeat
       return containerItem
     end browserSearchRootForToggle
+
+    on findBrowserMediaRoot(containerItem, depth)
+      if depth > 8 then return missing value
+      set candidateRole to ""
+      set candidateText to ""
+      try
+        set candidateRole to role of containerItem as text
+        set candidateText to description of containerItem as text
+      end try
+      if candidateRole is "AXScrollArea" or candidateRole is "AXOutline" then
+        if candidateText contains "Organizer" or candidateText contains "organizer" or candidateText contains "film" or candidateText contains "Film" then return containerItem
+      end if
+      repeat with candidateRef in UI elements of containerItem
+        try
+          set candidate to contents of candidateRef
+          set nestedRoot to my findBrowserMediaRoot(candidate, depth + 1)
+          if nestedRoot is not missing value then return nestedRoot
+        end try
+      end repeat
+      return missing value
+    end findBrowserMediaRoot
 
     on findBrowserSearchToggle(containerItem, depth)
       if depth > 12 then return missing value
       repeat with candidateRef in UI elements of containerItem
         try
           set candidate to contents of candidateRef
+          set candidateRole to role of candidate as text
           if my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(containerItem)}
-        end try
-        try
-          set nestedCandidate to my findBrowserSearchToggle(candidate, depth + 1)
-          if nestedCandidate is not missing value then return nestedCandidate
+          if candidateRole is "AXGroup" or candidateRole is "AXSplitGroup" or candidateRole is "AXLayoutArea" or candidateRole is "AXToolbar" or candidateRole is "AXScrollArea" or candidateRole is "AXList" or candidateRole is "AXOutline" or candidateRole is "AXCollection" or candidateRole is "AXRadioGroup" then
+            set nestedCandidate to my findBrowserSearchToggle(candidate, depth + 1)
+            if nestedCandidate is not missing value then return nestedCandidate
+          end if
+        on error
         end try
       end repeat
       return missing value
@@ -4562,6 +4595,7 @@ function browserMediaTraversalScript(): string {
     end splitText
 
     on mediaContainer(containerItem, inheritedContext)
+      if inheritedContext then return true
       set containerText to ""
       try
         set containerText to description of containerItem as text
@@ -4582,7 +4616,7 @@ function browserMediaTraversalScript(): string {
 
     on accessibilityMediaIdentity(candidate, candidateName, candidateRole, mediaContext, browserPath)
       if not mediaContext or candidateName is "" then return ""
-      if candidateRole is not "AXGroup" and candidateRole is not "AXBrowserMedia" and candidateRole is not "AXRow" and candidateRole is not "AXCell" then
+      if candidateRole is not "AXGroup" and candidateRole is not "AXBrowserMedia" and candidateRole is not "AXRow" and candidateRole is not "AXCell" and candidateRole is not "AXTextField" then
         return ""
       end if
       return "fcp-ax://browser/" & browserPath & "|" & candidateRole & "|" & candidateName
@@ -4590,6 +4624,7 @@ function browserMediaTraversalScript(): string {
 
     on browserMediaRole(candidateRole, mediaContext, candidateSelected, candidateSourceIdentity)
       if candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" then return true
+      if candidateRole is "AXTextField" then return mediaContext
       if candidateRole is "AXButton" then return mediaContext and candidateSourceIdentity is not ""
       if candidateRole is "AXGroup" or candidateRole is "AXStaticText" or candidateRole is "AXImage" then return mediaContext or (candidateSelected and candidateSourceIdentity is not "")
       return false
@@ -4605,7 +4640,9 @@ function browserMediaTraversalScript(): string {
     end browserRegion
 
     on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath)
-      if depth > 12 then return ""
+      set maxDepth to 12
+      if inheritedContext then set maxDepth to 6
+      if depth > maxDepth then return ""
       set output to ""
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
@@ -4616,40 +4653,51 @@ function browserMediaTraversalScript(): string {
               set candidate to contents of item candidateIndex of candidateItems
               set candidatePath to browserPath & "/" & (candidateIndex as text)
               set candidateRole to role of candidate as text
-              set candidateName to ""
-              try
-                set candidateName to value of candidate as text
-              end try
-              if candidateName is "missing value" then set candidateName to ""
-              if candidateName is "" then
-                try
-                  set candidateName to name of candidate as text
-                end try
-              end if
-              if candidateName is "missing value" then set candidateName to ""
-              if candidateName is "" then
-                try
-                  set candidateName to description of candidate as text
-                end try
-              end if
-              if candidateName is "missing value" then set candidateName to ""
-              set candidateSelected to false
-              try
-                set candidateSelected to (selected of candidate) is true
-              end try
-              set candidateSourceIdentity to ""
-              try
-                set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
-              end try
-              set candidatePosition to position of candidate
               set candidateMediaContext to my mediaContainer(candidate, mediaContext)
-              set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
-              set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
-              if candidateSourceIdentity is "" and isBrowserMedia then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
-              if candidateName is not "" and candidateSourceIdentity is not "" and isBrowserMedia and inBrowserRegion and candidateName contains searchQuery then
-                if seenIdentities does not contain candidateSourceIdentity then
-                  set end of seenIdentities to candidateSourceIdentity
-                  set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+              set candidateName to ""
+              set candidateMayBeMedia to candidateRole is "AXBrowserMedia" or candidateRole is "AXRow" or candidateRole is "AXCell" or candidateRole is "AXButton" or candidateRole is "AXGroup" or candidateRole is "AXStaticText" or candidateRole is "AXImage" or candidateRole is "AXTextField"
+              set candidateSourceIdentity to ""
+              set candidateSelected to false
+              set isBrowserMedia to false
+              if candidateMayBeMedia then
+                try
+                  set candidateName to value of candidate as text
+                end try
+                if candidateName is "missing value" then set candidateName to ""
+                if candidateName is "" then
+                  try
+                    set candidateName to name of candidate as text
+                  end try
+                end if
+                if candidateName is "missing value" then set candidateName to ""
+                if candidateName is "" then
+                  try
+                    set candidateName to description of candidate as text
+                  end try
+                end if
+                if candidateName is "missing value" then set candidateName to ""
+                if candidateName contains searchQuery then
+                  try
+                    set candidateSourceIdentity to value of attribute "AXIdentifier" of candidate as text
+                  end try
+                  if not candidateMediaContext then
+                    try
+                      set candidateSelected to (selected of candidate) is true
+                    end try
+                  end if
+                  set isBrowserMedia to my browserMediaRole(candidateRole, candidateMediaContext, candidateSelected, candidateSourceIdentity)
+                  set inBrowserRegion to candidateMediaContext
+                  if not inBrowserRegion then
+                    set candidatePosition to position of candidate
+                    set inBrowserRegion to my browserRegion(candidatePosition, origin, candidateMediaContext)
+                  end if
+                  if candidateSourceIdentity is "" and isBrowserMedia then set candidateSourceIdentity to my accessibilityMediaIdentity(candidate, candidateName, candidateRole, candidateMediaContext, candidatePath)
+                  if candidateSourceIdentity is not "" and isBrowserMedia and inBrowserRegion then
+                    if seenIdentities does not contain candidateSourceIdentity then
+                      set end of seenIdentities to candidateSourceIdentity
+                      set output to output & candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateSourceIdentity & (ASCII character 31) & candidateSourceIdentity & (ASCII character 30)
+                    end if
+                  end if
                 end if
               end if
               set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities, candidatePath)
