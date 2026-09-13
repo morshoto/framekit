@@ -3,6 +3,7 @@ import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact, MediaS
 import type { MediaContext } from "../domain/media.js";
 import type { ProjectCatalog, ProjectSelection, ProjectSelectionResult } from "../domain/context.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
+import type { CapabilityInspectionOptions } from "../domain/capabilities.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineFrameCapture, VisualAnalysis } from "../domain/media.js";
@@ -98,7 +99,7 @@ export class ProjectService {
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
-    const capabilities = await this.adapter.getCapabilities();
+    const capabilities = await this.adapter.getCapabilities({ probeCanonicalSnapshot: false });
     if (!capabilities.editor.projectCatalogRead || !this.adapter.listProjects) {
       const identity = await this.adapter.getIdentity();
       throw new CapabilityUnavailableError("project.list", "editor.projectCatalogRead", {
@@ -129,9 +130,9 @@ export class ProjectService {
     return this.adapter.selectProject(selection);
   }
 
-  public async inspectEditor() {
+  public async inspectEditor(options: CapabilityInspectionOptions = {}) {
     const identity = await this.adapter.getIdentity();
-    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(), { backend: identity.backend });
+    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(options), { backend: identity.backend });
     const speechAnalyzer = this.options.speechAnalyzer;
     const speechTranscribe = capabilities.analyzers.speechTranscribe
       || (speechAnalyzer ? speechAnalyzer.capabilities?.transcription ?? true : false);
