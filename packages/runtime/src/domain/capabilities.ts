@@ -7,6 +7,7 @@ export interface EditorIdentity {
 }
 
 export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";
+export type ArtifactPublishMode = "background-capable" | "headed-only" | "unavailable";
 
 export interface EditorCapabilities {
   /** Derived canonical guarantee exposed to agents; omitted only by legacy adapters. */
@@ -26,6 +27,8 @@ export interface EditorCapabilities {
   playbackControl?: boolean;
   /** The managed artifact can be imported as a new editor project. */
   artifactPublish?: boolean;
+  /** How a managed artifact can be handed back to the editor. */
+  artifactPublishMode?: ArtifactPublishMode;
   /** Legacy alias for artifactPublish used by editor-first routing. */
   timelinePublishNewProject?: boolean;
   /** The backend can enumerate stable project and sequence identities. */

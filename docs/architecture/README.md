@@ -11,6 +11,7 @@ contracts separate from MCP transport and editor adapters.
 - [Skill runtime](./skill-runtime.md)
 - [Filler detection and safe cuts](./filler-detection-safe-cuts.md)
 - [Rough-cut construction](./rough-cut-construction.md)
+- [Artifact publishing and non-UI handoff](./artifact-publishing.md)
 
 This index is a map over the existing architecture documents; it does not
 replace or shorten them.
