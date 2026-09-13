@@ -72,6 +72,8 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
   const canonicalRead = normalized.editor.canonicalTimelineMode === "canonical-read"
     || normalized.editor.canonicalTimelineMode === "canonical-write";
   const canonicalWrite = normalized.editor.canonicalTimelineMode === "canonical-write";
+  const backgroundLibraryInspection = normalized.editor.backgroundLibraryInspection
+    ?? previous.observation.library.available;
   const compositeTransactions = Boolean(
     normalized.editor.compositeTransactions
     && normalized.editor.timelineSnapshotRead
@@ -100,7 +102,7 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
         ? previous.observation.media
         : false,
       assets: normalized.editor.assetDiscovery ? previous.observation.assets : false,
-      library: normalized.editor.backgroundLibraryInspection ? previous.observation.library : false,
+      library: backgroundLibraryInspection ? previous.observation.library : false,
     },
     canonicalDocument: {
       read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
