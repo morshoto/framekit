@@ -99,6 +99,17 @@ test("Final Cut asset discovery defaults to filesystem without native Browser ac
   });
 });
 
+test("filesystem titles do not advertise native placement verification", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-observed-title-placement-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(join(bundle, "Contents", "Info.plist"), "<plist />");
+
+  const [asset] = await new FinalCutAssetRegistry({ roots: [root] }).listAssets({ kind: "title" });
+
+  assert.equal(asset?.metadata.placement, undefined);
+});
+
 test("Final Cut asset discovery uses native Browser only when explicitly requested", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-explicit-native-title-assets-"));
   const bundle = join(root, "Titles.localized", "Lower Third.moti");
