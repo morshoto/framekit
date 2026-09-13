@@ -285,6 +285,9 @@ export class NativeOperationSession {
         return;
       }
       const execution = await this.options.executor.execute(job.request, context);
+      if (job.cancelRequested || job.controller.signal.aborted) {
+        throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+      }
       this.setState(job, "verifying");
       job.evidence = structuredClone(execution.evidence);
       if (execution.outcome === "completed" && !hasVerifiedCompletionEvidence(execution.evidence)) {
