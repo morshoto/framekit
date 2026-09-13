@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -90,4 +90,75 @@ test("background renderer rejects unproven native Final Cut sources", async () =
     }),
     /BACKGROUND_RENDER_NATIVE_UNAVAILABLE/,
   );
+});
+
+test("background renderer cancellation removes staged output and never commits", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-cancel-"));
+  const outputPath = join(directory, "final.mp4");
+  const states: string[] = [];
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath, signal }) => {
+      await writeFile(stagingPath, "partial output");
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
+    probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath: join(directory, "timeline.fcpxml"),
+      target: { projectId: "project-1", sequenceId: "sequence-1", digest: "sha256:source" },
+    },
+    outputPath,
+    preset: "master",
+  });
+  job.onProgress((event) => states.push(event.state));
+  await new Promise<void>((resolve) => {
+    const unsubscribe = job.onProgress((event) => {
+      if (event.state === "rendering") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  await job.cancel();
+
+  await assert.rejects(job.result(), /BACKGROUND_RENDER_CANCELLED/);
+  assert.equal(job.status().state, "cancelled");
+  await assert.rejects(readFile(outputPath), /ENOENT/);
+  assert.deepEqual(await readdir(directory), []);
+  assert.ok(states.includes("cancelled"));
+});
+
+test("background renderer timeout fails closed before verification or commit", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-timeout-"));
+  const outputPath = join(directory, "final.mp4");
+  let probeCalled = false;
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ signal }) => {
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
+    probe: async () => {
+      probeCalled = true;
+      return { durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false };
+    },
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath: join(directory, "timeline.fcpxml"),
+      target: { projectId: "project-1", sequenceId: "sequence-1", digest: "sha256:source" },
+    },
+    outputPath,
+    preset: "master",
+    timeoutMs: 1,
+  });
+
+  await assert.rejects(job.result(), /BACKGROUND_RENDER_TIMEOUT/);
+  assert.equal(probeCalled, false);
+  assert.equal(job.status().state, "failed");
+  await assert.rejects(readFile(outputPath), /ENOENT/);
 });
