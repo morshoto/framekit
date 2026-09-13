@@ -23,6 +23,9 @@ test("records the current-version non-UI snapshot capability decision", async ()
   assert.match(investigation, /File > Export XML/);
   assert.match(investigation, /FCPXML/);
   assert.match(investigation, /metadata-only/);
+  for (const evidenceCommand of ["PlistBuddy", "sdef", "strings", "otool -ov"]) {
+    assert.match(investigation, new RegExp(evidenceCommand.replace(" ", "\\s+")));
+  }
 });
 
 test("defines the complete snapshot contract and fail-closed boundaries", async () => {
