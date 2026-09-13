@@ -116,6 +116,10 @@ test("canonical catalog routing uses background data without canonical snapshot 
   assert.deepEqual(listed.projects, catalog().projects);
   assert.equal(listed.activeProjectId, "background-project");
   assert.equal(listed.activeSequenceId, "background-sequence");
+  assert.equal(listed.provenance?.catalog.source, "background-library");
+  assert.equal(listed.provenance?.live?.source, "live-socket");
+  assert.equal(listed.provenance?.reconciliation.status, "matched");
+  assert.equal(listed.provenance?.selection.available, false);
   assert.equal(snapshotReads, 0);
 });
 
@@ -134,4 +138,18 @@ test("background catalogs reject duplicate and inconsistent identities", async (
   });
 
   await assert.rejects(provider.listProjects(), /PROJECT_CATALOG_INVALID: duplicate project id background-project/);
+});
+
+test("canonical provider fails closed when background project selection is unavailable", async () => {
+  const provider = providerFor({
+    backend: "final-cut-background-library",
+    listProjects: async () => catalog(),
+  }, async () => {
+    throw new Error("canonical snapshot must not run");
+  });
+
+  await assert.rejects(
+    provider.selectProject({ projectId: "background-project", sequenceId: "background-sequence" }),
+    /CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider/,
+  );
 });
