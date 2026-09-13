@@ -192,3 +192,19 @@ test("MCP project.list preserves background reconciliation provenance", async ()
     await server.close();
   }
 });
+
+test("normal live sessions reconcile project catalogs before returning them", async () => {
+  const session = new FinalCutSessionAdapter({
+    live: {
+      ...live,
+      listProjects: async () => catalog(),
+    },
+  });
+
+  const listed = await session.listProjects();
+
+  assert.equal(listed.activeProjectId, "background-project");
+  assert.equal(listed.activeSequenceId, "background-sequence");
+  assert.equal(listed.provenance?.reconciliation.status, "matched");
+  assert.equal(listed.provenance?.live?.state.revision.id, "live-1");
+});
