@@ -11,10 +11,10 @@ import {
   resolveTimelineTarget,
   reconcileProjectCatalog,
   validateProjectCatalog,
+  withCapabilityFamilies,
 } from "@framekit/runtime";
 
 import {
-  withCapabilityFamilies,
   type ContextRevision,
   type EditorChange,
   type EditorIdentity,
