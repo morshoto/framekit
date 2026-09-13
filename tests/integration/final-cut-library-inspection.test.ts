@@ -129,6 +129,7 @@ test("builds a direct read-only Final Cut Apple Event script", () => {
   const script = buildFinalCutLibraryInspectionScript();
 
   assert.match(script, /Application\("com\.apple\.FinalCut"\)/);
+  assert.match(script, /typeof member === "function"/);
   assert.match(script, /libraries/);
   assert.match(script, /events/);
   assert.match(script, /projects/);
@@ -149,6 +150,39 @@ test("maps the rich inspection result to a project catalog", async () => {
       sequences: [{ id: "sequence-1", name: "Main" }],
     }],
   });
+});
+
+test("rejects duplicate stable project identities", async () => {
+  const duplicate = JSON.parse(validResponse) as {
+    libraries: Array<{ events: Array<{ projects: unknown[] }> }>;
+  };
+  duplicate.libraries[0]!.events[0]!.projects.push(
+    duplicate.libraries[0]!.events[0]!.projects[0],
+  );
+  const provider = new FinalCutLibraryInspectionProvider({
+    executor: async () => JSON.stringify(duplicate),
+  });
+
+  await assert.rejects(
+    provider.listProjects(),
+    (error: unknown) => error instanceof Error
+      && "code" in error
+      && error.code === "FINAL_CUT_LIBRARY_RESPONSE_INVALID",
+  );
+});
+
+test("marks a missing project sequence as partial", () => {
+  const response = JSON.parse(validResponse) as {
+    libraries: Array<{ events: Array<{ projects: Array<Record<string, unknown>> }> }>;
+  };
+  delete response.libraries[0]!.events[0]!.projects[0]!.sequence;
+
+  const result = parseFinalCutLibraryInspectionResponse(JSON.stringify(response));
+
+  assert.equal(result.status, "partial");
+  if (result.status !== "partial") return;
+  assert.equal(result.catalog.libraries[0]!.events[0]!.projects[0]!.sequences.length, 0);
+  assert.equal(result.issues[0]?.path, "libraries[0].events[0].projects[0].sequence");
 });
 
 test("routes live project listing through background inspection", async () => {
