@@ -4,6 +4,7 @@ import type { ProjectCatalog, ProjectDescriptor, ProjectSequence, RationalTime }
 import { validateProjectCatalog } from "@framekit/runtime";
 
 export const FINAL_CUT_LIBRARY_INSPECTION_BACKEND = "final-cut-background-library" as const;
+export const FINAL_CUT_LIBRARY_INSPECTION_TIMEOUT_MS = 30_000;
 
 export type FinalCutLibraryInspectionIssueCode =
   | "FINAL_CUT_LIBRARY_FIELD_UNAVAILABLE"
@@ -69,7 +70,7 @@ type JsonRecord = Record<string, unknown>;
 const execFile = promisify(execFileCallback);
 
 export interface FinalCutLibraryInspectionProviderOptions {
-  executor?: (script: string) => Promise<string>;
+  executor?: (script: string, timeoutMs: number) => Promise<string>;
   applicationIdentifier?: string;
 }
 
@@ -99,7 +100,7 @@ export function serializeFinalCutLibraryInspectionError(
 /** Read-only Final Cut library inspection through direct Apple Events. */
 export class FinalCutLibraryInspectionProvider {
   public readonly backend = FINAL_CUT_LIBRARY_INSPECTION_BACKEND;
-  private readonly executor: (script: string) => Promise<string>;
+  private readonly executor: (script: string, timeoutMs: number) => Promise<string>;
   private readonly applicationIdentifier: string;
 
   public constructor(options: FinalCutLibraryInspectionProviderOptions = {}) {
@@ -109,7 +110,10 @@ export class FinalCutLibraryInspectionProvider {
 
   public async inspect(): Promise<FinalCutLibraryInspectionResult> {
     try {
-      const response = await this.executor(buildFinalCutLibraryInspectionScript(this.applicationIdentifier));
+      const response = await this.executor(
+        buildFinalCutLibraryInspectionScript(this.applicationIdentifier),
+        FINAL_CUT_LIBRARY_INSPECTION_TIMEOUT_MS,
+      );
       return parseFinalCutLibraryInspectionResponse(response);
     } catch (error) {
       return {
@@ -210,9 +214,15 @@ JSON.stringify({
 });`;
 }
 
-async function executeFinalCutLibraryInspection(script: string): Promise<string> {
+async function executeFinalCutLibraryInspection(
+  script: string,
+  timeoutMs = FINAL_CUT_LIBRARY_INSPECTION_TIMEOUT_MS,
+): Promise<string> {
   try {
-    const result = await execFile("osascript", ["-l", "JavaScript", "-e", script], { maxBuffer: 1_000_000 });
+    const result = await execFile("osascript", ["-l", "JavaScript", "-e", script], {
+      maxBuffer: 1_000_000,
+      timeout: timeoutMs,
+    });
     return result.stdout.trim();
   } catch (error) {
     throw new Error(normalizeAppleEventFailure(error));
@@ -221,10 +231,22 @@ async function executeFinalCutLibraryInspection(script: string): Promise<string>
 
 function normalizeAppleEventFailure(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
+  if (isTimeoutFailure(error)) {
+    return `Final Cut library Apple Events timed out: ${detail}`;
+  }
   if (detail.includes("not authorized") || detail.includes("-1743") || detail.includes("-25211")) {
     return `Automation permission is required for Final Cut library inspection: ${detail}`;
   }
   return `Final Cut library Apple Events are unavailable: ${detail}`;
+}
+
+function isTimeoutFailure(error: unknown): boolean {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: unknown };
+    if (candidate.code === "ETIMEDOUT") return true;
+    if (typeof candidate.message === "string" && /timed out/i.test(candidate.message)) return true;
+  }
+  return typeof error === "string" && /timed out/i.test(error);
 }
 
 function unavailableError(error: unknown): FinalCutLibraryInspectionError {

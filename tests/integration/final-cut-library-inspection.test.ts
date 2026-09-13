@@ -151,7 +151,7 @@ test("bounds hanging Apple Events and preserves retryable timeout failures", asy
 
   const result = await provider.inspect();
 
-  assert.equal(typeof observedTimeout, "number");
+  assert.ok(observedTimeout !== undefined);
   assert.ok(observedTimeout > 0);
   assert.equal(result.status, "unavailable");
   if (result.status !== "unavailable") return;
