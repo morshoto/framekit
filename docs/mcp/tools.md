@@ -23,6 +23,31 @@ connected editor cannot satisfy the requested operation. It selects an
 never silently bypassed, and Framekit does not execute external rendering from
 this routing tool.
 
+## Background FCPXML artifact workflow
+
+When `FRAMEKIT_FCPXML_PATH` is configured, use the explicit `artifact.edit`
+route for edits that should run against the managed FCPXML file without
+bringing Final Cut Pro to the front. The recommended MCP sequence is:
+
+1. Call `connection.status` and `editor.inspect`.
+2. Confirm `editor.inspect.workflows.artifact` and the artifact-write
+   capability; `requiresFinalCutFrontmost` and `changesOpenTimeline` are both
+   `false`.
+3. Call `artifact.inspect` and retain its exact path and digest.
+4. Call `project.inspect`, then `editing.route` with
+   `{ "operation": "artifact.edit" }`.
+5. Call `artifact.edit.preview` with that path, revision, and ordered
+   operations.
+6. Execute the returned token with `artifact.edit.execute`.
+7. Read the result with `artifact.edit.diff` and `artifact.edit.verify`, then
+   use `artifact.edit.undo` with the exact path and transaction ID when needed.
+
+Artifact responses identify the artifact revision and digest separately from
+the live Final Cut revision. Their provenance includes
+`mutatesOpenTimeline: false`; a successful artifact edit therefore does not
+claim that the open Final Cut timeline changed. Publishing the verified file
+is a separate, confirmed `artifact.publish` step.
+
 ## Common runtime tools
 
 | Tool | Purpose | Backend notes |
@@ -69,10 +94,13 @@ this routing tool.
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
-| `artifact.inspect` | Identify the managed FCPXML artifact | FCPXML-backed session; unsupported backends fail closed |
-| `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
-| `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
-| `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
+| `artifact.inspect` | Identify the managed FCPXML artifact and its source digest | FCPXML-backed session; unsupported backends fail closed |
+| `artifact.edit` | Edit the identified managed FCPXML artifact in the background | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
+| `artifact.edit.preview` | Preview an ordered background edit against the identified FCPXML artifact | Non-mutating; captures the artifact revision and source digest |
+| `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Returns artifact revision, digest, and `mutatesOpenTimeline: false` |
+| `artifact.edit.diff` | Read the diff for a background artifact transaction | Requires the exact `artifactPath` and transaction ID; reports artifact provenance |
+| `artifact.edit.verify` | Read verification for a background artifact transaction | Requires the exact `artifactPath` and transaction ID; reports artifact provenance |
+| `artifact.edit.undo` | Restore a background artifact transaction | Requires the exact `artifactPath` and transaction ID; never changes the open timeline |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
 | `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
 | `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
