@@ -52,4 +52,6 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(artifactPublishing, /artifact\.publish\.(preview|execute|status)/);
   assert.match(artifactPublishing, /createdTarget/);
   assert.match(artifactPublishing, /artifactDigest/);
+  assert.match(artifactPublishing, /target-binding proof/);
+  assert.match(artifactPublishing, /no import was attempted/);
 });
