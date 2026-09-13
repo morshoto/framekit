@@ -61,6 +61,9 @@ bundled Workflow Extension remains metadata-only and is never upgraded by this
 flag. `FRAMEKIT_FCPXML_PATH` must be omitted; setting it with the flag returns
 `FINAL_CUT_CANONICAL_FALLBACK_CONFLICT`.
 
+The current-version investigation behind this boundary is documented in the
+[non-UI timeline snapshot investigation](../architecture/non-ui-timeline-snapshot-investigation.md).
+
 The provider must speak protocol v1 and support stable project/sequence
 catalog IDs, explicit selection, complete snapshots, apply, restore, and
 revision-bearing responses. `editor.inspect` is the first check; then use

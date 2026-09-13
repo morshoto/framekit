@@ -3,6 +3,9 @@
 Capabilities describe what the selected backend can safely guarantee, not what
 the editor might be able to do through undocumented automation.
 
+For the current-version Final Cut non-UI snapshot decision and evidence, see the
+[non-UI timeline snapshot investigation](./non-ui-timeline-snapshot-investigation.md).
+
 ## Versioned operation contract
 
 `RuntimeCapabilities` retains the boolean `editor` and `analyzers` fields for
