@@ -25,6 +25,7 @@ if (process.platform !== "darwin") {
   throw new Error("CAPABILITY_UNAVAILABLE: frontmost and focus probes require macOS");
 }
 
+const beforeUi = await stableFrontmostState();
 const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-regression-"));
 const artifactPath = join(directory, "project.fcpxml");
 await writeFile(artifactPath, FCPXML);
@@ -43,7 +44,6 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const client = new Client({ name: "framekit-background-regression-headed-e2e", version: "0.1.0" });
-const beforeUi = await frontmostState();
 
 try {
   await client.connect(transport);
@@ -105,7 +105,7 @@ try {
     throw new Error("NON_FRONTMOST_NATIVE_BLOCKER_INVALID: disabled native writes must fail closed");
   }
 
-  const afterUi = await frontmostState();
+  const afterUi = await stableFrontmostState();
   if (JSON.stringify(beforeUi) !== JSON.stringify(afterUi)) {
     throw new Error("NON_FRONTMOST_FOCUS_CHANGED: background-safe MCP calls changed frontmost or focus state");
   }
@@ -190,4 +190,10 @@ end tell`;
     timelineFocused: processName === "Final Cut Pro" && /timeline/i.test(focusText),
     dialogOpen: /AXDialog|AXSheet/i.test(`${windowRole} ${focusedRole}`),
   };
+}
+
+async function stableFrontmostState() {
+  const first = await frontmostState();
+  if (first.focusedWindowRole !== "unknown" && first.focusedElementRole !== "unknown") return first;
+  return frontmostState();
 }
