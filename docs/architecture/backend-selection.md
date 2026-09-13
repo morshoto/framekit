@@ -14,6 +14,9 @@ live connection must not silently downgrade to a fixture or claim that an
 incomplete native snapshot is canonical. With `FRAMEKIT_FCPXML_PATH`, the
 session composes both providers and keeps their capabilities separate.
 
+The current-version non-UI snapshot decision and evidence are recorded in the
+[non-UI timeline snapshot investigation](./non-ui-timeline-snapshot-investigation.md).
+
 ## Select the editing surface first
 
 Choose the target surface from the requested outcome before selecting a
