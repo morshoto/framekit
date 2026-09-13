@@ -2187,7 +2187,7 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview.mov", 1, true);
       if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes("collectTimelineClipMatches")) return `Interview.mov${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}20/1${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview.mov${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}20/1${separator}native:occurrence-1${recordSeparator}`;
       return "";
     },
   });
@@ -2199,6 +2199,21 @@ test("native Final Cut adapter targets one media occurrence and reports live pla
   assert.equal(target.media.sourceIdentity, "media-source-1");
   assert.equal(target.occurrence.timelineOffset, 800);
   assert.equal(target.occurrence.sourceIdentity, "media-source-1");
+  assert.equal(target.occurrence.identity, "native:occurrence-1");
+  assert.deepEqual(target.target, {
+    projectId: "project-1",
+    sequenceId: "sequence-1",
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    timelineStartTime: { value: "0", timescale: "1" },
+    frameDuration: { value: "1", timescale: "24" },
+    mediaId: "media-source-1",
+    occurrence: {
+      id: "native:occurrence-1",
+      mediaId: "media-source-1",
+      startTime: { value: "0", timescale: "1" },
+      durationTime: { value: "20", timescale: "1" },
+    },
+  });
   assert.equal(target.selected, true);
   assert.equal(target.playheadTime, "1/1");
   assert.equal(scripts.some((script) => script.includes("set value of searchField")), true);
@@ -2220,7 +2235,7 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
     sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
     revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
   });
-  const makeAdapter = (browserOutput: string, occurrenceOutput = `Interview${separator}AXRow${separator}media-source-1${separator}800${recordSeparator}`) => new FinalCutNativeAutomationAdapter({
+  const makeAdapter = (browserOutput: string, occurrenceOutput = `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}20/1${separator}native:occurrence-1${recordSeparator}`) => new FinalCutNativeAutomationAdapter({
     enabled: true,
     liveState,
     executor: async (script) => {
@@ -2252,6 +2267,10 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
   await assert.rejects(
     makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`, `Interview${separator}AXRow${separator}different-source${separator}800${recordSeparator}`).targetMedia("wrong-source-id"),
     /FINAL_CUT_NATIVE_OCCURRENCE_NOT_FOUND/,
+  );
+  await assert.rejects(
+    makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`, `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}20/1${recordSeparator}`).targetMedia("missing-occurrence-id"),
+    /FINAL_CUT_NATIVE_OCCURRENCE_IDENTITY_UNAVAILABLE/,
   );
 });
 

@@ -302,8 +302,10 @@ test("canonical target resolver requires one exact native occurrence", async () 
         handle: "occurrence-handle",
         mediaHandle: "media-handle",
         name: "Original",
+        identity: "native-occurrence-1",
         start: "0/24",
         duration: "96/24",
+        sequenceId: "final-cut:sequence:sequence-1",
       }],
     }),
   };
@@ -352,4 +354,55 @@ test("canonical target resolver rejects native coordinate drift", async () => {
     resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original")),
     /TARGET_MISMATCH/,
   );
+});
+
+test("canonical target resolver rejects coordinate-only native occurrences", async () => {
+  const native = {
+    searchMedia: async () => [{
+      handle: "media-handle",
+      name: "clip.mov",
+      sourceIdentity: "browser-source-1",
+    }],
+    locateOccurrence: async () => ({
+      status: "unique" as const,
+      occurrences: [{
+        handle: "occurrence-handle",
+        mediaHandle: "media-handle",
+        name: "Original",
+        start: "0/24",
+        duration: "96/24",
+        sequenceId: "final-cut:sequence:sequence-1",
+      }],
+    }),
+  };
+  const resolver = createFinalCutNativeTargetResolver(native);
+
+  await assert.rejects(
+    resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original")),
+    /TARGET_MISMATCH: native occurrence has no stable identity/,
+  );
+});
+
+test("canonical provider rejects media identity drift during read-after-write", async () => {
+  const calls: string[] = [];
+  const drifted = snapshot("Renamed");
+  drifted.timeline.clips[0]!.mediaId = "final-cut:media:drifted";
+  const provider = providerFor([
+    snapshot("Original"),
+    snapshot("Original"),
+    drifted,
+    snapshot("Original"),
+  ], calls);
+  const before = await provider.readProject();
+
+  await assert.rejects(
+    provider.apply({
+      type: "rename-clip",
+      clipId: "final-cut:occurrence:clip-1",
+      name: "Renamed",
+      baseRevision: before.revision,
+    }, before.revision),
+    /TARGET_MISMATCH: read-after-write changed media/,
+  );
+  assert.deepEqual(calls, ["edit", "undo"]);
 });
