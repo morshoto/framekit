@@ -160,3 +160,22 @@ test("media.search uses background media without requesting Final Cut UI state",
   assert.equal(methods.includes("snapshot"), false);
   assert.equal(methods.includes("state"), false);
 });
+
+test("media.search works when Final Cut is absent", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-background-media-without-fcp-"));
+  const mediaPath = join(root, "offline-source.wav");
+  await writeFile(mediaPath, "offline audio fixture");
+  const live = new FinalCutLiveAdapter({
+    request: async () => {
+      throw new Error("FINAL_CUT_LIVE_UNAVAILABLE: Final Cut is not running");
+    },
+  });
+  const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({
+    live,
+    media: new FinalCutMediaRegistry({ roots: [root] }),
+  }));
+
+  const media = await runtime.searchMedia("offline-source");
+
+  assert.equal(media[0]?.mediaId, `filesystem:media:${mediaPath}`);
+});
