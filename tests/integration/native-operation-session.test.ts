@@ -337,7 +337,7 @@ test("native operation session documentation names the contract and safety bound
   ]) assert.match(tools, new RegExp("\\\\| `" + tool + "` \\\\|"));
   assert.match(live, /waiting_for_final_cut/);
   assert.match(live, /idempotencyKey/);
-  assert.match(live, /does not survive MCP process restart/);
+  assert.match(live, /do not survive MCP process restart/);
 });
 
 interface DisposableState {
