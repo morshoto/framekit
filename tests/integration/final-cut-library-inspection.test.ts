@@ -165,9 +165,11 @@ test("builds a direct read-only Final Cut Apple Event script", () => {
 
   assert.match(script, /Application\("com\.apple\.FinalCut"\)/);
   assert.match(script, /typeof member === "function"/);
-  assert.match(script, /libraries/);
-  assert.match(script, /events/);
-  assert.match(script, /projects/);
+  assert.match(script, /function collectionCall\(target, property\)/);
+  assert.match(script, /var value = target\[property\]\(\)/);
+  assert.match(script, /collectionCall\(finalCut, "libraries"\)/);
+  assert.match(script, /collectionCall\(library, "events"\)/);
+  assert.match(script, /collectionCall\(event, "projects"\)/);
   assert.match(script, /sequence/);
   assert.doesNotMatch(script, /System Events/);
   assert.doesNotMatch(script, /frontmost|activate|keystroke|click|AXPress/);

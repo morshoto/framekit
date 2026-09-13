@@ -155,6 +155,15 @@ function safeCall(target, property) {
   }
 }
 
+function collectionCall(target, property) {
+  try {
+    var value = target[property]();
+    return value === undefined ? null : value;
+  } catch (_) {
+    return null;
+  }
+}
+
 function textValue(target, property) {
   var value = safeCall(target, property);
   return value === null ? null : String(value);
@@ -189,7 +198,7 @@ function projectValue(project) {
 }
 
 function eventValue(event) {
-  var projects = safeCall(event, "projects");
+  var projects = collectionCall(event, "projects");
   return {
     id: textValue(event, "id"),
     name: textValue(event, "name"),
@@ -198,7 +207,7 @@ function eventValue(event) {
 }
 
 function libraryValue(library) {
-  var events = safeCall(library, "events");
+  var events = collectionCall(library, "events");
   return {
     id: textValue(library, "id"),
     name: textValue(library, "name"),
@@ -207,7 +216,7 @@ function libraryValue(library) {
 }
 
 var finalCut = Application(${JSON.stringify(applicationIdentifier)});
-var libraries = safeCall(finalCut, "libraries");
+var libraries = collectionCall(finalCut, "libraries");
 JSON.stringify({
   version: 1,
   libraries: libraries === null ? null : libraries.map(libraryValue)
