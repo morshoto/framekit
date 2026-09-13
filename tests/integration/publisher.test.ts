@@ -526,4 +526,10 @@ test("FCPXML publish jobs recheck the source digest before execution", async () 
   });
   assert.equal(failed.createdTarget, undefined);
   assert.equal(executorCalled, false);
+
+  await writeFile(sourcePath, source);
+  const terminal = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.deepEqual(terminal, failed);
+  assert.equal(executorCalled, false);
 });
