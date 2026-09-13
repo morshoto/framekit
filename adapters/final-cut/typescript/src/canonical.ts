@@ -38,11 +38,17 @@ export type CanonicalNativeTargetResolver = (
   snapshot: ProjectSnapshot,
 ) => Promise<void>;
 
+export interface FinalCutBackgroundCatalogProvider {
+  listProjects(): Promise<ProjectCatalog>;
+  backend?: string;
+}
+
 export interface FinalCutCanonicalNativeProviderOptions {
   live: LiveEditorStatePort & { getIdentity(): Promise<EditorIdentity> };
   native: CanonicalNativeMutationPort;
   readSnapshot: () => Promise<ProjectSnapshot>;
   resolveTarget: CanonicalNativeTargetResolver;
+  backgroundCatalog?: FinalCutBackgroundCatalogProvider;
 }
 
 export interface FinalCutCanonicalSnapshotSourceOptions {
@@ -235,6 +241,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private readonly native: CanonicalNativeMutationPort;
   private readonly readSnapshotSource: () => Promise<ProjectSnapshot>;
   private readonly resolveTarget: CanonicalNativeTargetResolver;
+  private readonly backgroundCatalog?: FinalCutBackgroundCatalogProvider;
   private lastDigest?: string;
   private lastSnapshot?: ProjectSnapshot;
   private revisionSequence = 0;
@@ -246,6 +253,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     this.native = options.native;
     this.readSnapshotSource = options.readSnapshot;
     this.resolveTarget = options.resolveTarget;
+    this.backgroundCatalog = options.backgroundCatalog;
   }
 
   public async getIdentity(): Promise<EditorIdentity> {
@@ -408,6 +416,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
+    if (this.backgroundCatalog) {
+      const catalog = await this.backgroundCatalog.listProjects();
+      validateBackgroundCatalog(catalog);
+      return catalog;
+    }
     const snapshot = await this.readProject();
     return {
       projects: [{
@@ -454,6 +467,48 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
     if (live.sequence && live.sequence.name !== snapshot.timeline.name) {
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
+    }
+  }
+}
+
+function validateBackgroundCatalog(catalog: ProjectCatalog): void {
+  if (!Array.isArray(catalog.projects)) {
+    throw new Error("PROJECT_CATALOG_INVALID: projects must be an array");
+  }
+  const projectIds = new Set<string>();
+  for (const project of catalog.projects) {
+    if (!project || typeof project !== "object") {
+      throw new Error("PROJECT_CATALOG_INVALID: project must be an object");
+    }
+    if (!project.id.trim()) throw new Error("PROJECT_CATALOG_INVALID: project id must be non-empty");
+    if (projectIds.has(project.id)) {
+      throw new Error(`PROJECT_CATALOG_INVALID: duplicate project id ${project.id}`);
+    }
+    projectIds.add(project.id);
+    if (!project.name.trim()) throw new Error(`PROJECT_CATALOG_INVALID: project ${project.id} name must be non-empty`);
+    if (!Array.isArray(project.sequences)) {
+      throw new Error(`PROJECT_CATALOG_INVALID: project ${project.id} sequences must be an array`);
+    }
+    const sequenceIds = new Set<string>();
+    for (const sequence of project.sequences) {
+      if (!sequence || typeof sequence !== "object") {
+        throw new Error(`PROJECT_CATALOG_INVALID: sequence in project ${project.id} must be an object`);
+      }
+      if (!sequence.id.trim()) throw new Error(`PROJECT_CATALOG_INVALID: sequence in project ${project.id} id must be non-empty`);
+      if (sequenceIds.has(sequence.id)) {
+        throw new Error(`PROJECT_CATALOG_INVALID: duplicate sequence id ${sequence.id} in project ${project.id}`);
+      }
+      sequenceIds.add(sequence.id);
+      if (!sequence.name.trim()) throw new Error(`PROJECT_CATALOG_INVALID: sequence ${sequence.id} name must be non-empty`);
+    }
+  }
+  if (catalog.activeProjectId !== undefined && !projectIds.has(catalog.activeProjectId)) {
+    throw new Error(`PROJECT_CATALOG_INVALID: active project ${catalog.activeProjectId} is absent from the catalog`);
+  }
+  if (catalog.activeSequenceId !== undefined) {
+    const activeProject = catalog.projects.find(({ id }) => id === catalog.activeProjectId);
+    if (!activeProject?.sequences.some(({ id }) => id === catalog.activeSequenceId)) {
+      throw new Error(`PROJECT_CATALOG_INVALID: active sequence ${catalog.activeSequenceId} is absent from the active project`);
     }
   }
 }

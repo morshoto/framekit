@@ -80,6 +80,8 @@ function catalog(): ProjectCatalog {
         sequences: [{ id: "other-sequence", name: "Social" }],
       },
     ],
+    activeProjectId: "background-project",
+    activeSequenceId: "background-sequence",
   };
 }
 
