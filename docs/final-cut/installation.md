@@ -201,6 +201,9 @@ environment, time-of-day, mood, and usable-range descriptions. Each receives
 one JSON request on stdin and returns one typed JSON result on stdout.
 Motion-template discovery can be restricted with the colon-separated
 `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
+Local media discovery is opt-in and can be configured with the colon-separated
+`FRAMEKIT_FINAL_CUT_MEDIA_ROOTS` variable. It scans supported video and audio
+files without activating, focusing, or communicating with Final Cut.
 
 For selection-scoped native UI edits, explicitly opt in and grant the MCP host
 Accessibility and Automation permission in System Settings:
@@ -217,10 +220,14 @@ It does not report success until Final Cut has produced a non-empty file and
 `ffprobe` has verified its media metadata. Existing output files are protected
 unless the request includes `overwrite: true`.
 
-Framekit activates Final Cut and focuses the timeline before timeline-native
-operations using bounded Accessibility hierarchy discovery. Browser search
-also requires a labelled Browser or Events Accessibility relationship; it does
-not use ambiguous screen-coordinate fallback. If the visible Framekit extension window overlaps the editor,
+Background media and Motion-template discovery are filesystem-observed metadata
+and do not prove canonical timeline state or native placement. `editor.assets`
+uses filesystem discovery by default; native Titles or Transitions Browser
+discovery requires an explicit `discovery: "native"` request. Framekit activates
+Final Cut and focuses the timeline before timeline-native operations using
+bounded Accessibility hierarchy discovery. Browser search also requires a
+labelled Browser or Events Accessibility relationship; it does not use
+ambiguous screen-coordinate fallback. If the visible Framekit extension window overlaps the editor,
 Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
 and verifies the focused window after each attempt. It never clicks the
 Framekit close button. The user must open the intended project timeline and
