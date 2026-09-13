@@ -512,7 +512,7 @@ test("native operation session documentation names the contract and safety bound
     "editor.native.operation.status",
     "editor.native.operation.retry",
     "editor.native.operation.cancel",
-  ]) assert.match(tools, new RegExp("\\\\| `" + tool + "` \\\\|"));
+  ]) assert.ok(tools.includes(`| \`${tool}\` |`), `${tool} is not documented in docs/mcp/tools.md`);
   assert.match(live, /waiting_for_final_cut/);
   assert.match(live, /idempotencyKey/);
   assert.match(live, /five minutes after\s+their\s+`expiresAt`/);
