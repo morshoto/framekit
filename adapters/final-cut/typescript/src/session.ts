@@ -106,7 +106,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       : liveMutation
         ? this.options.live
         : this.options.snapshot;
-    const readCapabilities = snapshot ?? (useLiveCanonical ? live : undefined);
+    const readCapabilities = snapshot ?? (liveSnapshot ? live : undefined);
     const readAdapter = this.options.snapshot ?? (liveSnapshot ? this.options.live : undefined);
     const hasTransactionMethods = Boolean(
       operationAdapter
