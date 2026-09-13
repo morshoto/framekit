@@ -28,12 +28,20 @@ Cut project. The machine and application evidence was:
 | Read-only Apple Events | `sdef "/Applications/Final Cut Pro.app"` declares access group `com.apple.FinalCut.library.inspection` with `access="r"` | Supported read-only library inspection exists |
 | Apple Event commands | The current dictionary declares only the `get` command | No current-version direct XML export command is declared |
 | Apple Event object model | The dictionary declares `library`, `event`, `project`, `sequence`, and `item`; sequence fields are name, ID, container, start time, duration, frame duration, timecode format, and essential properties | Useful metadata, not complete timeline occurrences |
-| ProExtensionHost surface | `ProExtensionHostShim/ProExtensionHost.h` exposes project UID/sequence, sequence timing, active sequence, selected sequence range, playhead time, and three observer callbacks | No clip/resource enumeration, roles, or storyline relationship API is exposed |
+| Installed ProExtensionHost framework | `/Applications/Final Cut Pro.app/Contents/Frameworks/ProExtensionHost.framework/ProExtensionHost` is a universal binary; `strings` identifies `ProExtension-41000.8.16`; Objective-C metadata lists `FCPXLibrary.events`, `FCPXEvent.clips/projects`, `FCPXProject.sequence`, and sequence/timeline timing APIs | The current host has library/event collections and metadata, but no complete project-timeline occurrence, role, resource-binding, or storyline relationship contract |
+| ProExtensionHost bridge surface | `ProExtensionHostShim/ProExtensionHost.h` and the bridge expose project UID/sequence, sequence timing, active sequence, selected sequence range, playhead time, and three observer callbacks | Framekit uses only the supported metadata subset and does not invent a canonical snapshot |
 | Current bridge behavior | `FinalCutLiveWorkflowExtension.swift` reports `canonicalTimelineMode: metadata-only`, `timelineSnapshotRead: false`, and rejects `snapshot`, `apply`, and `restore` with `CAPABILITY_UNAVAILABLE` | Existing routing already fails closed |
 
 The Apple Event inventory was taken from the installed app, not from a legacy
 Final Cut Pro 7 dictionary. The older Apple Events/XML material is not evidence
 that Final Cut Pro 10.7.1 implements a direct current-version XML command.
+
+The installed host also has generic `sendAppleEvent:`,
+`sendGetObjectPropertyEvent:code:`, and `sendGetElementsEvent:code:` methods.
+Those transport operations do not add timeline semantics that the current
+`FCPXSequence` object does not expose. `FCPXEvent.clips` is an event-level
+collection; it is not a target-bound list of timeline occurrences with roles,
+lanes, source coordinates, and storyline relationships.
 
 ## Supported artifact path
 
