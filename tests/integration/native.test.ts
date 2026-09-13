@@ -1894,13 +1894,20 @@ test("native Final Cut search ignores unrelated search toggles", async () => {
   assert.ok(searchScript);
   const unrelated = finalCutBrowserSearchAccessibilityFixture.unrelatedToggle;
   const browser = finalCutBrowserSearchAccessibilityFixture.browser;
+  const currentLayout = finalCutBrowserSearchAccessibilityFixture.currentLayout;
   assert.equal(unrelated.label, "Effects");
   assert.equal(unrelated.children?.[0]?.children?.[0]?.label, "Toggle Search Bar");
   assert.equal(browser.label, "Browser");
   assert.equal(browser.children?.[0]?.children?.[0]?.label, "Toggle Search Bar");
+  assert.equal(currentLayout.label, "group");
+  assert.equal(currentLayout.children?.[0]?.label, "Toggle Search Bar");
+  assert.equal(currentLayout.children?.[1]?.children?.[0]?.children?.[0]?.label, "Event media sidebar");
+  assert.equal(currentLayout.children?.[1]?.children?.[1]?.label, "Organizer filmlist scroll view");
   assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
   assert.match(searchScript, /set candidateBrowserContext to browserContext/);
   assert.match(searchScript, /if candidateBrowserContext and my browserSearchToggle\(candidate\) then/);
+  assert.match(searchScript, /on browserSearchHasMediaMarker\(containerItem, depth\)/);
+  assert.match(searchScript, /if my browserSearchHasMediaMarker\(candidate, 0\) then return true/);
   assert.equal(searchScript.includes("if my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(containerItem)}"), false);
 });
 
