@@ -96,6 +96,8 @@ test("background renderer rejects unproven native Final Cut sources", async () =
 test("background renderer cancellation removes staged output and never commits", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-cancel-"));
   const outputPath = join(directory, "final.mp4");
+  const artifactPath = join(directory, "timeline.fcpxml");
+  await writeFile(artifactPath, "source artifact");
   const states: string[] = [];
   const provider = new BackgroundRenderExportProvider({
     enabled: true,
@@ -108,8 +110,12 @@ test("background renderer cancellation removes staged output and never commits",
   const job = provider.start({
     source: {
       kind: "fcpxml-artifact",
-      artifactPath: join(directory, "timeline.fcpxml"),
-      target: { projectId: "project-1", sequenceId: "sequence-1", digest: "sha256:source" },
+      artifactPath,
+      target: {
+        projectId: "project-1",
+        sequenceId: "sequence-1",
+        revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+      },
     },
     outputPath,
     preset: "master",
@@ -129,13 +135,15 @@ test("background renderer cancellation removes staged output and never commits",
   await assert.rejects(job.result(), /BACKGROUND_RENDER_CANCELLED/);
   assert.equal(job.status().state, "cancelled");
   await assert.rejects(readFile(outputPath), /ENOENT/);
-  assert.deepEqual(await readdir(directory), []);
+  assert.deepEqual(await readdir(directory), ["timeline.fcpxml"]);
   assert.ok(states.includes("cancelled"));
 });
 
 test("background renderer timeout fails closed before verification or commit", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-timeout-"));
   const outputPath = join(directory, "final.mp4");
+  const artifactPath = join(directory, "timeline.fcpxml");
+  await writeFile(artifactPath, "source artifact");
   let probeCalled = false;
   const provider = new BackgroundRenderExportProvider({
     enabled: true,
@@ -150,8 +158,12 @@ test("background renderer timeout fails closed before verification or commit", a
   const job = provider.start({
     source: {
       kind: "fcpxml-artifact",
-      artifactPath: join(directory, "timeline.fcpxml"),
-      target: { projectId: "project-1", sequenceId: "sequence-1", digest: "sha256:source" },
+      artifactPath,
+      target: {
+        projectId: "project-1",
+        sequenceId: "sequence-1",
+        revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+      },
     },
     outputPath,
     preset: "master",

@@ -199,6 +199,7 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
 
     try {
       if (this.controller.signal.aborted) throw this.controller.signal.reason;
+      await assertSourceBinding(this.request.source);
       await assertOutputDirectory(outputPath);
       await assertOutputCanBeReplaced(outputPath, this.request.overwrite ?? false);
       this.update("rendering", 0, "background renderer started");
@@ -206,6 +207,7 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
         this.controller.abort(backgroundRenderError("BACKGROUND_RENDER_TIMEOUT", "background render exceeded its deadline"));
       }, this.request.timeoutMs ?? this.defaultTimeoutMs);
       await this.runRenderer(stagingPath);
+      if (this.controller.signal.aborted) throw this.controller.signal.reason;
       this.update("verifying", 0.9, "verifying staged output");
       const details = await stat(stagingPath);
       if (!details.isFile() || details.size <= 0) {
@@ -309,6 +311,27 @@ function validateRequest(request: BackgroundRenderRequest): void {
   }
   if (request.timeoutMs !== undefined && (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0)) {
     throw backgroundRenderError("BACKGROUND_RENDER_INVALID_REQUEST", "timeoutMs must be a positive finite number");
+  }
+}
+
+async function assertSourceBinding(source: BackgroundRenderSource): Promise<void> {
+  if (source.kind !== "fcpxml-artifact") return;
+  try {
+    const observedDigest = await sha256File(source.artifactPath!);
+    if (source.target.digest !== undefined && source.target.digest !== observedDigest) {
+      throw backgroundRenderError(
+        "BACKGROUND_RENDER_SOURCE_CHANGED",
+        `source digest changed for ${source.artifactPath}`,
+      );
+    }
+  } catch (error) {
+    if (isNodeError(error) && typeof error.code === "string" && error.code.startsWith("BACKGROUND_RENDER_")) {
+      throw error;
+    }
+    throw backgroundRenderError(
+      "BACKGROUND_RENDER_SOURCE_UNAVAILABLE",
+      `could not read source artifact ${source.artifactPath} (${String(error)})`,
+    );
   }
 }
 
