@@ -196,7 +196,9 @@ export class NativeOperationSession {
       this.expire(job);
       return this.snapshot(job);
     }
-    if (!job.readiness?.retryable || !["retry", "queue"].includes(job.readiness.nextAction)) {
+    const retryable = job.error?.retryable
+      || (job.readiness?.retryable && ["retry", "queue"].includes(job.readiness.nextAction));
+    if (!retryable) {
       throw new Error(`NATIVE_OPERATION_SESSION_NOT_RETRYABLE: job ${jobId} has no retryable Final Cut readiness state`);
     }
     job.cancelRequested = false;
@@ -244,6 +246,7 @@ export class NativeOperationSession {
         return;
       }
 
+      job.error = undefined;
       this.setState(job, "executing");
       const context: NativeOperationExecutionContext = {
         signal: job.controller.signal,
