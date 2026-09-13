@@ -16,6 +16,7 @@ import {
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
   createNativeOperationLease,
+  createDisposableNativeOperationSession,
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
@@ -168,6 +169,9 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
       readCanonicalCapabilities: async () => (await runtime.inspectEditor()).capabilities,
     })
   : undefined;
+const nativeOperationSession = disposableNative && nativeEditor
+  ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor })
+  : undefined;
 const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
   ? new FinalCutProjectPublisher({
       enabled: true,
@@ -191,6 +195,7 @@ const server = createMcpServer(runtime, {
   connectionStatus: () => connection?.getStatus(),
   nativeEditor,
   disposableNative,
+  nativeOperationSession,
   projectPublisher,
   videoExporter,
 });
