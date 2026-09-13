@@ -5954,7 +5954,7 @@ function editScript(operation: NativeFinalCutEdit): string {
       ? `click menu item "Trim ${operation.edge === "start" ? "Start" : "End"}" of menu "Trim" of menu bar 1`
       : operation.type === "set-selected-clip-gain"
         ? `click menu item "Adjust Volume" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(`${operation.gainDb}`)}\n    key code 36`
-        : `click menu item "Marker" of menu "Mark" of menu bar 1`;
+        : `click menu item "Add Marker" of menu 1 of menu item "Markers" of menu "Mark" of menu bar 1`;
   return `
 tell application "System Events"
   tell process "Final Cut Pro"
@@ -6507,7 +6507,7 @@ function commandName(operation: NativeFinalCutEdit): string {
   if (operation.type === "rename-selected-clip") return "Modify > Apply Custom Name";
   if (operation.type === "trim-selected-clip-to-playhead") return `Trim > Trim ${operation.edge === "start" ? "Start" : "End"}`;
   if (operation.type === "set-selected-clip-gain") return "Modify > Adjust Volume";
-  return "Mark > Marker";
+  return "Mark > Markers > Add Marker";
 }
 
 function appleScriptString(value: string): string {

@@ -160,6 +160,35 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
+test("native Final Cut adapter adds markers through the Markers submenu and undoes them", async () => {
+  const scripts: string[] = [];
+  let markerAdded = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('click menu item "Add Marker"')) markerAdded = true;
+      if (script.includes('click menu item "Undo Add Marker"')) markerAdded = false;
+      if (script.includes("entire contents") || script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, markerAdded ? "Undo Add Marker" : "Undo");
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "add-marker-at-playhead", name: "Review" });
+  assert.equal(result.command, "Mark > Markers > Add Marker");
+  assert.equal(result.verification.verified, true);
+  assert.equal(result.undoCommand, "Undo Add Marker");
+  assert.equal(scripts.some((script) => script.includes('click menu item "Add Marker" of menu 1 of menu item "Markers" of menu "Mark" of menu bar 1')), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Marker" of menu "Mark"')), false);
+
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Add Marker" of menu "Edit"')), true);
+});
+
 test("native Final Cut adapter previews and inserts a title at the playhead with text and placement verification", async () => {
   const scripts: string[] = [];
   let revision = 1;
@@ -997,7 +1026,7 @@ test("native Final Cut focus uses semantic candidates and returns diagnostics wi
   assert.equal(scripts.some((script) => script.includes("fallbackPoints")), true);
   assert.equal(scripts.some((script) => script.includes("AXFocusedUIElement")), true);
   assert.equal(scripts.some((script) => script.includes("key code 51")), false);
-  assert.equal(scripts.some((script) => script.includes("menu item \"Marker\"")), false);
+  assert.equal(scripts.some((script) => script.includes('menu item "Marker" of menu "Mark"')), false);
 });
 
 test("native Final Cut focus preserves the last focus diagnostic on failure", async () => {
@@ -1429,7 +1458,7 @@ test("native Final Cut refuses a retry when focus recovery changes the playhead"
         if (preflightCalls === 2) playhead = "5";
         return context(true, "Final Cut Pro", "", 0, true);
       }
-      if (script.includes('menu item "Marker"')) {
+      if (script.includes('menu item "Add Marker" of menu 1 of menu item "Markers" of menu "Mark"')) {
         markerCalls += 1;
         throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
       }
@@ -1450,7 +1479,7 @@ test("native Final Cut refuses a playhead-dependent retry without live state", a
     enabled: true,
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) return context(true, "Final Cut Pro", "", 0, true);
-      if (script.includes('menu item "Marker"')) {
+      if (script.includes('menu item "Add Marker" of menu 1 of menu item "Markers" of menu "Mark"')) {
         markerCalls += 1;
         throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
       }
@@ -1484,7 +1513,7 @@ test("native timeline preflight reports a missing timeline window without mutati
     adapter.edit({ type: "add-marker-at-playhead", name: "marker" }),
     /FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW/,
   );
-  assert.equal(scripts.some((script) => script.includes("menu item \"Marker\"")), false);
+  assert.equal(scripts.some((script) => script.includes('menu item "Marker" of menu "Mark"')), false);
 });
 
 test("native timeline preflight distinguishes background Final Cut and unfocused timeline targets", async () => {
