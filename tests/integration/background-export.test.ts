@@ -205,3 +205,38 @@ test("background renderer rejects a changed artifact before invoking the rendere
   assert.equal(job.status().state, "failed");
   await assert.rejects(readFile(outputPath), /ENOENT/);
 });
+
+test("background renderer protects existing output until metadata verification passes", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-overwrite-"));
+  const artifactPath = join(directory, "timeline.fcpxml");
+  const outputPath = join(directory, "final.mp4");
+  await writeFile(artifactPath, "source artifact");
+  await writeFile(outputPath, "previous verified output");
+  let rendererCalled = false;
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath }) => {
+      rendererCalled = true;
+      await writeFile(stagingPath, "replacement output");
+    },
+    probe: async () => ({ durationSeconds: 0, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const source = {
+    kind: "fcpxml-artifact" as const,
+    artifactPath,
+    target: {
+      projectId: "project-1",
+      sequenceId: "sequence-1",
+      digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
+    },
+  };
+
+  const refused = provider.start({ source, outputPath, preset: "master" });
+  await assert.rejects(refused.result(), /BACKGROUND_RENDER_OUTPUT_EXISTS/);
+  assert.equal(rendererCalled, false);
+  assert.equal(await readFile(outputPath, "utf8"), "previous verified output");
+
+  const invalidReplacement = provider.start({ source, outputPath, preset: "master", overwrite: true });
+  await assert.rejects(invalidReplacement.result(), /BACKGROUND_RENDER_VERIFICATION_FAILED/);
+  assert.equal(await readFile(outputPath, "utf8"), "previous verified output");
+});
