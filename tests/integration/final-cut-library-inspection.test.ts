@@ -223,9 +223,8 @@ test("MCP project.list returns structured background inspection failures", async
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     const result = await client.callTool({ name: "project.list", arguments: {} });
     assert.equal(result.isError, true);
-    const content = result.content[0];
-    assert.equal(content?.type, "text");
-    if (content?.type !== "text") return;
+    const content = (result.content as Array<{ type: string; text?: string }>)[0];
+    if (!content || content.type !== "text" || typeof content.text !== "string") return;
     const payload = JSON.parse(content.text) as { code?: string; message?: string; retryable?: boolean };
     assert.equal(payload.code, "FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE");
     assert.match(payload.message ?? "", /Apple Events are unavailable/);

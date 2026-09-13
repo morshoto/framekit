@@ -90,6 +90,12 @@ export class FinalCutLibraryInspectionProviderError extends Error {
   }
 }
 
+export function serializeFinalCutLibraryInspectionError(
+  error: unknown,
+): FinalCutLibraryInspectionError | undefined {
+  return error instanceof FinalCutLibraryInspectionProviderError ? error.toJSON() : undefined;
+}
+
 /** Read-only Final Cut library inspection through direct Apple Events. */
 export class FinalCutLibraryInspectionProvider {
   public readonly backend = FINAL_CUT_LIBRARY_INSPECTION_BACKEND;

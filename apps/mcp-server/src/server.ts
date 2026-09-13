@@ -23,6 +23,7 @@ import {
 import {
   type BackgroundRenderExportProvider,
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
+  serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublisher,
@@ -982,6 +983,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     try {
       return jsonResult(await runtime.listProjects());
     } catch (error) {
+      const inspectionError = serializeFinalCutLibraryInspectionError(error);
+      if (inspectionError) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: JSON.stringify(inspectionError) }],
+        };
+      }
       return capabilityUnavailableErrorResult(error);
     }
   });
