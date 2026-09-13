@@ -138,6 +138,28 @@ test("returns an actionable unavailable result when Apple Events fail", async ()
   assert.match(result.error.message, /Automation permission/);
 });
 
+test("bounds hanging Apple Events and preserves retryable timeout failures", async () => {
+  let observedTimeout: number | undefined;
+  const provider = new FinalCutLibraryInspectionProvider({
+    executor: async (_script, timeoutMs) => {
+      observedTimeout = timeoutMs;
+      const error = new Error("command timed out") as Error & { code?: string };
+      error.code = "ETIMEDOUT";
+      throw error;
+    },
+  });
+
+  const result = await provider.inspect();
+
+  assert.equal(typeof observedTimeout, "number");
+  assert.ok(observedTimeout > 0);
+  assert.equal(result.status, "unavailable");
+  if (result.status !== "unavailable") return;
+  assert.equal(result.error.code, "FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE");
+  assert.equal(result.error.retryable, true);
+  assert.match(result.error.message, /timed out/);
+});
+
 test("builds a direct read-only Final Cut Apple Event script", () => {
   const script = buildFinalCutLibraryInspectionScript();
 
