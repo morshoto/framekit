@@ -4440,18 +4440,10 @@ function browserSearchControlFinderScript(): string {
       end try
     end browserSearchToggle
 
-    on browserSearchRootForToggle(containerItem)
-      repeat with candidateRef in UI elements of containerItem
-        try
-          set candidate to contents of candidateRef
-          if (role of candidate as text) is "AXSplitGroup" then
-            set mediaRoot to my findBrowserMediaRoot(candidate, 0)
-            if mediaRoot is not missing value then return mediaRoot
-            return candidate
-          end if
-        end try
-      end repeat
-      return containerItem
+    on browserSearchRootForToggle(browserContainer)
+      set mediaRoot to my findBrowserMediaRoot(browserContainer, 0)
+      if mediaRoot is not missing value then return mediaRoot
+      return browserContainer
     end browserSearchRootForToggle
 
     on findBrowserMediaRoot(containerItem, depth)
@@ -4462,6 +4454,16 @@ function browserSearchControlFinderScript(): string {
         set candidateRole to role of containerItem as text
         set candidateText to description of containerItem as text
       end try
+      if candidateText is "" then
+        try
+          set candidateText to name of containerItem as text
+        end try
+      end if
+      if candidateText is "" then
+        try
+          set candidateText to value of containerItem as text
+        end try
+      end if
       if candidateRole is "AXScrollArea" or candidateRole is "AXOutline" then
         if candidateText contains "Organizer" or candidateText contains "organizer" or candidateText contains "film" or candidateText contains "Film" then return containerItem
       end if

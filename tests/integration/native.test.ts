@@ -1853,7 +1853,7 @@ test("native Final Cut current Browser layout reveals its custom search field", 
   const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
   assert.ok(searchScript);
   assert.match(searchScript, /on browserSearchToggle\(candidate\)/);
-  assert.match(searchScript, /on browserSearchRootForToggle\(containerItem\)/);
+  assert.match(searchScript, /on browserSearchRootForToggle\(browserContainer\)/);
   assert.match(searchScript, /on findBrowserMediaRoot\(containerItem, depth\)/);
   assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
   assert.match(searchScript, /candidateText contains "toggle search bar"/);
