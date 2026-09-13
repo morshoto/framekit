@@ -133,6 +133,26 @@ test("sessions fail closed when live snapshots lack canonical target guarantees"
   assert.equal(readCalls, 0);
 });
 
+test("sessions hide live canonical reads without a snapshot provider", async () => {
+  const live = {
+    getIdentity: async () => ({ name: "Final Cut Pro", version: "test", backend: "incomplete-live-ipc" }),
+    getCapabilities: async () => canonicalReadCapabilities,
+    readLiveState: async () => {
+      throw new Error("not used");
+    },
+    liveChangesSince: async () => [],
+  };
+  const session = new FinalCutSessionAdapter({ live });
+
+  const capabilities = await session.getCapabilities();
+
+  assert.equal(capabilities.editor.projectRead, false);
+  assert.equal(capabilities.editor.timelineSnapshotRead, false);
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.families?.canonicalDocument.read.available, false);
+  await assert.rejects(session.readProject(), /CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider/);
+});
+
 test("mutation-only sessions do not route live canonical snapshot reads", async () => {
   let readCalls = 0;
   const live = {
