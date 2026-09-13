@@ -831,7 +831,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      return await this.attachLiveState(await this.inspectRawNative(undefined, passiveTimelinePreflightScript()));
+      const deadline = this.now() + this.nativePreflightTimeoutMs;
+      const context = await this.inspectRawNative(deadline, passiveTimelinePreflightScript());
+      if (shouldRetryPassiveInspection(context) && this.now() < deadline) {
+        return await this.inspectRawNative(deadline, passiveTimelinePreflightScript());
+      }
+      return context;
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
@@ -6018,6 +6023,15 @@ function parseContext(output: string): NativeFinalCutContext {
     ...(undoCommandState ? { undoCommand: undoCommandState } : {}),
   };
   return { ...context, readiness: readinessForContext(context) };
+}
+
+function shouldRetryPassiveInspection(context: NativeFinalCutContext): boolean {
+  return context.available
+    && context.frontmost
+    && context.timelineWindowAvailable
+    && context.timelineFocused
+    && context.focusTarget === "timeline"
+    && context.target.kind === "unknown";
 }
 
 function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutContext {
