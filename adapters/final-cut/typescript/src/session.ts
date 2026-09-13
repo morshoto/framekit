@@ -8,6 +8,8 @@ import type {
   EditorLiveState,
   EditorChange,
   AssetSearchQuery,
+  MediaContext,
+  MediaSearchQuery,
   LiveEditorStatePort,
   ProjectSnapshot,
   ProjectCatalog,
@@ -28,6 +30,7 @@ interface FinalCutSessionOptions {
     selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   };
   assets?: Pick<EditorPort, "listAssets">;
+  media?: Pick<EditorPort, "listMedia">;
 }
 
 /** Composes the independent Final Cut live, snapshot, and mutation surfaces. */
@@ -44,7 +47,13 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       }
     }
     if (this.options.snapshot) return this.options.snapshot.getIdentity();
-    if (this.options.live) return this.options.live.getIdentity();
+    if (this.options.live) {
+      try {
+        return await this.options.live.getIdentity();
+      } catch {
+        return { name: "Final Cut Pro", version: "unknown", backend: "final-cut-session" };
+      }
+    }
     return { name: "Final Cut Pro", version: "unknown", backend: "final-cut-session" };
   }
 
@@ -108,6 +117,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const operationFamilies = operationRuntimeCapabilities?.families;
     const readFamilies = readCapabilities?.families
       ?? (!this.options.snapshot && !this.options.mutation ? live?.families : undefined);
+    const backgroundMediaDiscovery = Boolean(this.options.media?.listMedia);
     return withCapabilityFamilies({
       editor: {
         ...operationCapabilities,
@@ -119,6 +129,8 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         incrementalChanges: Boolean(live?.editor.incrementalChanges),
         rollback: Boolean(operationCapabilities?.rollback && operationAdapter?.restore),
         assetDiscovery: Boolean(snapshot?.editor.assetDiscovery || this.options.assets?.listAssets),
+        backgroundMediaDiscovery,
+        backgroundTemplateDiscovery: Boolean(this.options.assets),
         liveStateRead: Boolean(live?.editor.liveStateRead),
         playheadWrite: Boolean(live?.editor.playheadWrite),
         frameCapture: false,
@@ -135,6 +147,14 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       },
     }, {
       backend: "final-cut-session",
+      observation: {
+        ...(backgroundMediaDiscovery ? {
+          media: { available: true, backend: "filesystem-media", guarantee: "observed" as const },
+        } : {}),
+        ...(this.options.assets ? {
+          assets: { available: true, backend: "filesystem-motion-template", guarantee: "observed" as const },
+        } : {}),
+      },
       canonicalDocument: {
         read: readFamilies?.canonicalDocument.read ?? Boolean(readCapabilities?.editor.timelineSnapshotRead),
         write: operationFamilies?.canonicalDocument.write ?? Boolean(operationCapabilities?.timelineWrite),
@@ -237,6 +257,20 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const provider = this.options.assets ?? this.options.snapshot;
     if (!provider?.listAssets) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut assets");
     return provider.listAssets(query);
+  }
+
+  public async listMedia(query?: MediaSearchQuery): Promise<MediaContext[]> {
+    if (this.options.media?.listMedia) return this.options.media.listMedia(query);
+    if (this.options.snapshot?.readProject) {
+      const project = await this.options.snapshot.readProject();
+      const normalized = query?.query?.trim().toLowerCase();
+      return project.media
+        .filter((media) => !query?.mediaKind || media.mediaKind === query.mediaKind)
+        .filter((media) => !normalized
+          || media.mediaId.toLowerCase().includes(normalized)
+          || media.source.toLowerCase().includes(normalized));
+    }
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut media discovery");
   }
 
   public async listProjects(): Promise<ProjectCatalog> {

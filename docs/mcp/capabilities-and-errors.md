@@ -97,12 +97,21 @@ attempting a canonical snapshot:
 This unavailable result is distinct from a successful search with no matching
 media, which remains the empty array `[]`.
 
+Background media discovery is read-only and does not activate, focus, or
+communicate with Final Cut. Configure one or more colon-separated local roots
+with `FRAMEKIT_FINAL_CUT_MEDIA_ROOTS`; there are no implicit user media roots.
+Results use IDs such as `filesystem:media:<absolute path>`, include a SHA-256
+`sourceDigest`, file `sourceMetadata`, and
+`discovery: { backend: "filesystem-media", source: "filesystem", guarantee: "observed" }`.
+The descriptor's `backgroundMediaDiscovery` flag identifies this provider and
+does not imply canonical timeline or native placement capability.
+
 The families are:
 
 | Family | Operation examples | Meaning |
 | --- | --- | --- |
 | `connection` | `status` | Bridge connection availability only |
-| `observation` | `timeline`, `media` | Live metadata or canonical observation |
+| `observation` | `timeline`, `media`, `assets` | Live metadata, background discovery, or canonical observation |
 | `canonicalDocument` | `read`, `write`, `artifactWrite` | Canonical timeline guarantees |
 | `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking`, `personCutout` | Routed editing operations and explicit unsupported boundaries |
 | `native` | `selectionWrite`, `titleDiscovery`, `titlePlacement`, `projectCreation`, `clipInsertion`, `clipMovement`, `pictureInPicture`, `masking` | Individual Final Cut Accessibility operations |
@@ -120,16 +129,24 @@ state and never implies arbitrary editability.
 
 `editor.assets` preserves its array response while attaching provider
 provenance under each asset's `metadata.discovery`. Filesystem Motion-template
-assets use `filesystem-motion-template`; headed Titles- and
-Transitions-browser assets use `final-cut-accessibility` and stable IDs such as
+assets use `filesystem-motion-template`, stable IDs such as
+`filesystem:title:<absolute path>`, and `metadata.installation` with the bundle
+`path`, configured `root`, and `relativePath`. The default
+`discovery: "background"` query never calls the native Browser provider.
+`discovery: "native"` explicitly requests headed Titles or Transitions Browser
+discovery; `discovery: "all"` retains the composed compatibility behavior.
+Native results use `final-cut-accessibility` and stable IDs such as
 `final-cut:title:<AXIdentifier>` or `final-cut:transition:<AXIdentifier>`.
 Discovery has an `observed` guarantee and is not placement proof. Native title
-and transition placement remain separate operations with explicit targets,
-timing, revision, and readback verification. If a native browser or
-Accessibility is unavailable, filesystem results may remain usable but include
+and transition placement require a final-cut-qualified identity plus explicit
+targets, timing, revision, and readback verification. Filesystem assets may be
+used for artifact workflows only when their source identity and digest are
+bound; native placement must revalidate a native asset identity. If a native
+browser or Accessibility is unavailable, composed results may include
 `metadata.discovery.native` with the native backend, `guarantee: "none"`, and
-`unavailableReason`; native-only queries fail closed with the native error
-instead of inventing an asset.
+`unavailableReason`; native-only queries fail closed instead of inventing an
+asset. The `backgroundTemplateDiscovery` flag identifies the filesystem
+provider and does not imply native placement capability.
 
 `editor.inspect` also returns an inspect-time `preflight` report. Its `mode` is
 `fixture`, `fcpxml-artifact`, `metadata-only`, `canonical-live`, or
@@ -158,6 +175,8 @@ FCPXML artifact results remain separate evidence tiers.
     "incrementalChanges": true,
     "rollback": false,
     "assetDiscovery": false,
+    "backgroundMediaDiscovery": false,
+    "backgroundTemplateDiscovery": false,
     "liveStateRead": true,
     "playheadWrite": false,
     "frameCapture": false,
@@ -191,6 +210,13 @@ true when the Motion-template registry is available. `metadataDescribe` is
 true only when a metadata provider is configured. Combined media understanding
 reports each missing or failed analyzer as an unavailable status and leaves
 that modality out of the semantic description.
+
+When `FRAMEKIT_FINAL_CUT_MEDIA_ROOTS` is configured, the session also reports
+`backgroundMediaDiscovery` and `observation.media` for the filesystem provider.
+When a Motion-template registry is available, it reports
+`backgroundTemplateDiscovery` and `observation.assets` for filesystem
+discovery. Both are observed metadata capabilities; neither activates Final
+Cut or upgrades filesystem results to canonical-live or headed-native evidence.
 
 `artifactPublish` is true only when the MCP server has a configured project
 publisher with native writes enabled. It is separate from both

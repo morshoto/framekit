@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -6,6 +9,7 @@ import { AgentVideoRuntime, type RuntimeCapabilities } from "@framekit/runtime";
 import {
   FinalCutLiveAdapter,
   FinalCutSessionAdapter,
+  FinalCutMediaRegistry,
   type FinalCutLiveRequest,
   type FinalCutLiveResponse,
 } from "@framekit/final-cut";
@@ -111,4 +115,67 @@ test("media.search preserves successful empty results", async () => {
     await client.close();
     await server.close();
   }
+});
+
+test("media.search uses background media without requesting Final Cut UI state", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-background-media-search-"));
+  const mediaPath = join(root, "background-interview.mov");
+  await mkdir(root, { recursive: true });
+  await writeFile(mediaPath, "background video fixture");
+  const methods: string[] = [];
+  const live = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      methods.push(request.method);
+      return {
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+          capabilities: metadataOnlyCapabilities,
+        },
+      };
+    },
+  });
+  const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({
+    live,
+    media: new FinalCutMediaRegistry({ roots: [root] }),
+  }));
+
+  const media = await runtime.searchMedia("background-interview");
+  const inspected = await runtime.inspectEditor();
+
+  assert.equal(media[0]?.mediaId, `filesystem:media:${mediaPath}`);
+  assert.deepEqual(media[0]?.discovery, {
+    backend: "filesystem-media",
+    guarantee: "observed",
+    source: "filesystem",
+  });
+  assert.equal(inspected.capabilities.editor.backgroundMediaDiscovery, true);
+  assert.deepEqual(inspected.capabilities.families?.observation.media, {
+    available: true,
+    backend: "filesystem-media",
+    guarantee: "observed",
+  });
+  assert.equal(methods.includes("snapshot"), false);
+  assert.equal(methods.includes("state"), false);
+});
+
+test("media.search works when Final Cut is absent", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-background-media-without-fcp-"));
+  const mediaPath = join(root, "offline-source.wav");
+  await writeFile(mediaPath, "offline audio fixture");
+  const live = new FinalCutLiveAdapter({
+    request: async () => {
+      throw new Error("FINAL_CUT_LIVE_UNAVAILABLE: Final Cut is not running");
+    },
+  });
+  const runtime = new AgentVideoRuntime(new FinalCutSessionAdapter({
+    live,
+    media: new FinalCutMediaRegistry({ roots: [root] }),
+  }));
+
+  const media = await runtime.searchMedia("offline-source");
+
+  assert.equal(media[0]?.mediaId, `filesystem:media:${mediaPath}`);
 });
