@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -105,6 +105,25 @@ test("local media discovery detects changed source content without refresh", asy
 
   assert.equal(after?.mediaId, before?.mediaId);
   assert.equal(after?.sourceDigest, digestOf("after"));
+  assert.notEqual(after?.sourceDigest, before?.sourceDigest);
+});
+
+test("local media discovery detects same-size replacements with restored mtime", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-media-ctime-cache-"));
+  const mediaPath = join(root, "replacement.mov");
+  const stableTime = new Date("2020-01-01T00:00:00.000Z");
+  await writeFile(mediaPath, "before");
+  await utimes(mediaPath, stableTime, stableTime);
+
+  const registry = new FinalCutMediaRegistry({ roots: [root] });
+  const [before] = await registry.listMedia();
+
+  await writeFile(mediaPath, "after!");
+  await utimes(mediaPath, stableTime, stableTime);
+  const [after] = await registry.listMedia();
+
+  assert.equal(after?.mediaId, before?.mediaId);
+  assert.equal(after?.sourceDigest, digestOf("after!"));
   assert.notEqual(after?.sourceDigest, before?.sourceDigest);
 });
 
