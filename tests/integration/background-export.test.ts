@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -45,7 +46,7 @@ test("background renderer reports progress and commits verified external output"
         projectId: "project-1",
         sequenceId: "sequence-1",
         revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
-        digest: "sha256:source",
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
       },
     },
     outputPath,
@@ -159,6 +160,36 @@ test("background renderer timeout fails closed before verification or commit", a
 
   await assert.rejects(job.result(), /BACKGROUND_RENDER_TIMEOUT/);
   assert.equal(probeCalled, false);
+  assert.equal(job.status().state, "failed");
+  await assert.rejects(readFile(outputPath), /ENOENT/);
+});
+
+test("background renderer rejects a changed artifact before invoking the renderer", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-source-"));
+  const artifactPath = join(directory, "timeline.fcpxml");
+  const outputPath = join(directory, "final.mp4");
+  await writeFile(artifactPath, "actual source");
+  let rendererCalled = false;
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath }) => {
+      rendererCalled = true;
+      await writeFile(stagingPath, "must not render");
+    },
+    probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath,
+      target: { projectId: "project-1", sequenceId: "sequence-1", digest: "sha256:expected" },
+    },
+    outputPath,
+    preset: "master",
+  });
+
+  await assert.rejects(job.result(), /BACKGROUND_RENDER_SOURCE_CHANGED/);
+  assert.equal(rendererCalled, false);
   assert.equal(job.status().state, "failed");
   await assert.rejects(readFile(outputPath), /ENOENT/);
 });
