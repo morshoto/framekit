@@ -299,3 +299,34 @@ test("FCPXML publisher rejects an artifact path outside its managed source", asy
   }), /PUBLISH_TARGET_MISMATCH/);
   assert.equal(called, false);
 });
+
+test("FCPXML publisher prepares a headed-only handoff without opening Final Cut", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-job-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-job" name="Publish Job"><sequence uid="sequence-job" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+
+  const job = await new FinalCutProjectPublisher({
+    enabled: false,
+    sourcePath,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+  }).preparePublish({
+    sourceTransactionId: "txn-job",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  assert.match(job.jobId, /^publish-job-/);
+  assert.equal(job.state, "awaiting-confirmation");
+  assert.equal(job.nextAction, "confirm");
+  assert.equal(job.retryable, false);
+  assert.equal(job.executionMode, "headed-only");
+  assert.deepEqual(job.sourceTarget, { kind: "artifact", artifactPath: sourcePath });
+  assert.equal(job.sourceTransactionId, "txn-job");
+  assert.equal(job.artifactDigest, digest(source));
+  assert.equal(executorCalled, false);
+});
