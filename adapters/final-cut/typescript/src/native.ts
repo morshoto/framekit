@@ -4316,10 +4316,10 @@ function browserSearchFieldScript(): string {
     set searchButtonIsToggle to false
     set browserRootContext to false
     try
-      set searchControlResult to my findBrowserSearchToggle(mainWindow, 0)
+      set searchControlResult to my findBrowserSearchToggle(mainWindow, 0, false, missing value)
       if searchControlResult is missing value then
         if my revealBrowser(mainWindow, 0) then delay 0.5
-        set searchControlResult to my findBrowserSearchToggle(mainWindow, 0)
+        set searchControlResult to my findBrowserSearchToggle(mainWindow, 0, false, missing value)
       end if
     end try
     try
@@ -4395,7 +4395,7 @@ function browserSearchControlFinderScript(): string {
     on browserSearchContainer(candidate)
       try
         set candidateRole to role of candidate as text
-        if candidateRole is not "AXGroup" and candidateRole is not "AXScrollArea" and candidateRole is not "AXSplitGroup" and candidateRole is not "AXLayoutArea" and candidateRole is not "AXToolbar" and candidateRole is not "AXList" and candidateRole is not "AXOutline" and candidateRole is not "AXCollection" then return false
+        if candidateRole is not "AXGroup" and candidateRole is not "AXScrollArea" and candidateRole is not "AXSplitGroup" and candidateRole is not "AXLayoutArea" and candidateRole is not "AXToolbar" and candidateRole is not "AXList" and candidateRole is not "AXOutline" and candidateRole is not "AXCollection" and candidateRole is not "AXRadioGroup" then return false
         set candidateText to ""
         try
           set candidateText to description of candidate as text
@@ -4475,15 +4475,28 @@ function browserSearchControlFinderScript(): string {
       return missing value
     end findBrowserMediaRoot
 
-    on findBrowserSearchToggle(containerItem, depth)
+    on findBrowserSearchToggle(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot)
       if depth > 12 then return missing value
-      repeat with candidateRef in UI elements of containerItem
+      set browserContext to inheritedBrowserContext
+      set browserRoot to inheritedBrowserRoot
+      if my browserSearchContainer(containerItem) then
+        set browserContext to true
+        set browserRoot to containerItem
+      end if
+      set candidateItems to UI elements of containerItem
+      repeat with candidateIndex in my orderedChildIndices(containerItem)
         try
-          set candidate to contents of candidateRef
+          set candidate to item (contents of candidateIndex) of candidateItems
           set candidateRole to role of candidate as text
-          if my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(containerItem)}
+          set candidateBrowserContext to browserContext
+          set candidateBrowserRoot to browserRoot
+          if my browserSearchContainer(candidate) then
+            set candidateBrowserContext to true
+            set candidateBrowserRoot to candidate
+          end if
+          if candidateBrowserContext and my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(candidateBrowserRoot)}
           if candidateRole is "AXGroup" or candidateRole is "AXSplitGroup" or candidateRole is "AXLayoutArea" or candidateRole is "AXToolbar" or candidateRole is "AXScrollArea" or candidateRole is "AXList" or candidateRole is "AXOutline" or candidateRole is "AXCollection" or candidateRole is "AXRadioGroup" then
-            set nestedCandidate to my findBrowserSearchToggle(candidate, depth + 1)
+            set nestedCandidate to my findBrowserSearchToggle(candidate, depth + 1, candidateBrowserContext, candidateBrowserRoot)
             if nestedCandidate is not missing value then return nestedCandidate
           end if
         on error
@@ -4510,7 +4523,7 @@ function browserSearchControlFinderScript(): string {
             set candidateBrowserContext to true
             set candidateBrowserRoot to candidate
           end if
-          if my browserSearchToggle(candidate) then return {candidate, containerItem}
+          if candidateBrowserContext and my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(candidateBrowserRoot)}
           set candidateRole to role of candidate as text
           if candidateBrowserContext and candidateRole is "AXSearchField" then
             return {candidate, candidateBrowserRoot}

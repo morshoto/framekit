@@ -1855,9 +1855,9 @@ test("native Final Cut current Browser layout reveals its custom search field", 
   assert.match(searchScript, /on browserSearchToggle\(candidate\)/);
   assert.match(searchScript, /on browserSearchRootForToggle\(containerItem\)/);
   assert.match(searchScript, /on findBrowserMediaRoot\(containerItem, depth\)/);
-  assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth\)/);
+  assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot\)/);
   assert.match(searchScript, /candidateText contains "toggle search bar"/);
-  assert.match(searchScript, /set searchControlResult to my findBrowserSearchToggle\(mainWindow, 0\)/);
+  assert.match(searchScript, /set searchControlResult to my findBrowserSearchToggle\(mainWindow, 0, false, missing value\)/);
   assert.match(searchScript, /if searchControlResult is missing value then\n        if my revealBrowser\(mainWindow, 0\)/);
   assert.match(searchScript, /set browserRootContext to searchButtonIsToggle/);
   assert.match(searchScript, /collectBrowserMedia\(browserRoot, 0, searchQuery, origin, browserRootContext/);
