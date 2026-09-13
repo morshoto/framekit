@@ -1,9 +1,9 @@
 # Non-UI Final Cut Native Write and Undo Investigation
 
-Issue: [#256](https://github.com/morshoto/framekit/issues/256)  
-Status: Decision recorded (read-only)  
-Last verified: 2026-09-13  
-Target: Final Cut Pro 10.7.1 (build 410082)  
+Issue: [#256](https://github.com/morshoto/framekit/issues/256)<br>
+Status: Decision recorded (read-only)<br>
+Last verified: 2026-09-13<br>
+Target: Final Cut Pro 10.7.1 (build 410082)<br>
 Evidence tier: Apple documentation plus installed Final Cut surface inspection
 
 ## Conclusion
