@@ -62,6 +62,28 @@ test("FCPXML capabilities advertise only the documented safe operation matrix", 
     "/Transitions/Cross.localized/Cross.moti");
 });
 
+test("FCPXML operation coverage has a documented evidence boundary", async () => {
+  const matrix = await readFile("docs/final-cut/fcpxml-operation-matrix.md", "utf8");
+
+  for (const operation of [
+    "timeline.media.add",
+    "timeline.media.move",
+    "timeline.media.replace",
+    "timeline.media.remove",
+    "timeline.audio.fades",
+    "timeline.audio.attach",
+    "timeline.audio.mix",
+    "timeline.title.add",
+    "timeline.transition.add",
+    "ripple-delete",
+    "timeline.mask.add",
+  ]) {
+    assert.match(matrix, new RegExp(operation.replaceAll(".", "\\\\.")));
+  }
+  assert.match(matrix, /CAPABILITY_UNAVAILABLE/);
+  assert.match(matrix, /does not prove a live Final Cut timeline change/i);
+});
+
 test("FCPXML media operations preview, execute, verify, diff, and undo", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);
