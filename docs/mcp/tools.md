@@ -73,6 +73,9 @@ this routing tool.
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
+| `artifact.publish.preview` | Prepare a headed-only handoff for a verified artifact without opening Final Cut | Requires the verified `artifactPath` and `transactionId`; returns an explicit publish job |
+| `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
+| `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
 | `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
 | `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
@@ -87,7 +90,7 @@ this routing tool.
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
-| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
+| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Explicit headed-native path; requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
 | `media.search` | Search media references through configured filesystem discovery or canonical observation | Requires `observation.media`; background discovery is read-only and does not activate Final Cut; unavailable sessions return structured `CAPABILITY_UNAVAILABLE`; capable sessions may return `[]` |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
@@ -163,6 +166,11 @@ The three editing surfaces have separate targets and guarantees:
   `createdTarget`, and `activeProject` before/after; it reports
   `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
   guessing.
+- `artifact.publish.preview`, `artifact.publish.execute`, and
+  `artifact.publish.status` expose a bounded headed-only handoff state machine.
+  `awaiting-final-cut` is retryable before import; `verification-pending` is
+  retryable verification only and never repeats the import. Neither state has
+  a `createdTarget`, and only `verified` has a successful publish result.
 
 The target-specific tools are preferred. The older `timeline.edit` and
 `timeline.publish.new-project` names remain registered as compatibility aliases;

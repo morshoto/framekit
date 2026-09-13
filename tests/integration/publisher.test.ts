@@ -299,3 +299,283 @@ test("FCPXML publisher rejects an artifact path outside its managed source", asy
   }), /PUBLISH_TARGET_MISMATCH/);
   assert.equal(called, false);
 });
+
+test("FCPXML publisher prepares a headed-only handoff without opening Final Cut", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-job-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-job" name="Publish Job"><sequence uid="sequence-job" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+
+  const job = await new FinalCutProjectPublisher({
+    enabled: false,
+    sourcePath,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+  }).preparePublish({
+    sourceTransactionId: "txn-job",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  assert.match(job.jobId, /^publish-job-/);
+  assert.equal(job.state, "awaiting-confirmation");
+  assert.equal(job.nextAction, "confirm");
+  assert.equal(job.retryable, false);
+  assert.equal(job.executionMode, "headed-only");
+  assert.deepEqual(job.sourceTarget, { kind: "artifact", artifactPath: sourcePath });
+  assert.equal(job.sourceTransactionId, "txn-job");
+  assert.equal(job.artifactDigest, digest(source));
+  assert.equal(executorCalled, false);
+});
+
+test("FCPXML publish jobs remain resumable while Final Cut is unavailable", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-waiting-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-waiting" name="Waiting Publish"><sequence uid="sequence-waiting" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: false,
+    sourcePath,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-waiting",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const waiting = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(waiting.jobId, prepared.jobId);
+  assert.equal(waiting.state, "awaiting-final-cut");
+  assert.equal(waiting.nextAction, "retry");
+  assert.equal(waiting.retryable, true);
+  assert.equal(waiting.createdTarget, undefined);
+  assert.deepEqual(waiting.error, {
+    code: "CAPABILITY_UNAVAILABLE",
+    message: "Final Cut project publishing is unavailable; bring Final Cut Pro to the front and retry this job",
+  });
+  assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
+  assert.equal(executorCalled, false);
+});
+
+test("FCPXML publish jobs report success only after live target verification", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-verified-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-verified" name="Verified Publish"><sequence uid="sequence-verified" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalls = 0;
+  let liveStateCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => {
+      executorCalls += 1;
+      return "imported";
+    },
+    targetBinding: async () => ({ projectId: "project-created", sequenceId: "sequence-created" }),
+    liveState: async () => {
+      liveStateCalls += 1;
+      const imported = liveStateCalls > 1;
+      return {
+        project: { id: imported ? "project-created" : "project-before", name: imported ? "Verified Publish" : "Existing" },
+        sequence: {
+          id: imported ? "sequence-created" : "sequence-before",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "10", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-verified",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const verified = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(verified.state, "verified");
+  assert.equal(verified.nextAction, "none");
+  assert.equal(verified.retryable, false);
+  assert.equal(verified.result?.verified, true);
+  assert.deepEqual(verified.createdTarget, {
+    kind: "editor.project",
+    projectId: "project-created",
+    sequenceId: "sequence-created",
+    projectName: "Verified Publish",
+    sequenceName: "Main",
+  });
+  assert.deepEqual(verified.result?.sourceTarget, { kind: "artifact", artifactPath: sourcePath });
+  assert.equal(executorCalls, 1);
+  assert.equal(liveStateCalls, 2);
+});
+
+test("FCPXML publish jobs resume verification without importing twice", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-resume-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-resume" name="Resume Publish"><sequence uid="sequence-resume" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalls = 0;
+  let liveStateCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => {
+      executorCalls += 1;
+      return "imported";
+    },
+    targetBinding: async () => ({ projectId: "project-created", sequenceId: "sequence-created" }),
+    liveState: async () => {
+      liveStateCalls += 1;
+      if (liveStateCalls === 2) throw new Error("temporary bridge unavailable");
+      const imported = liveStateCalls > 2;
+      return {
+        project: { id: imported ? "project-created" : "project-before", name: imported ? "Resume Publish" : "Existing" },
+        sequence: {
+          id: imported ? "sequence-created" : "sequence-before",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "10", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-resume",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const pending = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(pending.state, "verification-pending");
+  assert.equal(pending.nextAction, "retry");
+  assert.equal(pending.retryable, true);
+  assert.equal(pending.createdTarget, undefined);
+  assert.match(pending.error?.code ?? "", /FINAL_CUT_PUBLISH_STATE_UNAVAILABLE/);
+
+  const resumed = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(resumed.state, "verified");
+  assert.equal(resumed.result?.verified, true);
+  assert.deepEqual(resumed.createdTarget, {
+    kind: "editor.project",
+    projectId: "project-created",
+    sequenceId: "sequence-created",
+    projectName: "Resume Publish",
+    sequenceName: "Main",
+  });
+  assert.equal(executorCalls, 1);
+  assert.equal(liveStateCalls, 3);
+});
+
+test("FCPXML publish jobs recheck the source digest before execution", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-digest-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-digest" name="Digest Publish"><sequence uid="sequence-digest" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+    liveState: async () => ({
+      project: { id: "project-before", name: "Existing" },
+      sequence: {
+        id: "sequence-before",
+        name: "Existing",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "1", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-digest",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+  await writeFile(sourcePath, `${source}\nchanged`);
+
+  const failed = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.retryable, false);
+  assert.deepEqual(failed.error, {
+    code: "PUBLISH_SOURCE_CHANGED",
+    message: "PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed after transaction verification",
+  });
+  assert.equal(failed.createdTarget, undefined);
+  assert.equal(executorCalled, false);
+
+  await writeFile(sourcePath, source);
+  const terminal = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.deepEqual(terminal, failed);
+  assert.equal(executorCalled, false);
+});
+
+test("FCPXML publish jobs fail closed without target binding proof", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-binding-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-binding" name="Binding Publish"><sequence uid="sequence-binding" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+    liveState: async () => ({
+      project: { id: "project-before", name: "Existing" },
+      sequence: {
+        id: "sequence-before",
+        name: "Existing",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "1", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-binding",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const failed = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.retryable, false);
+  assert.deepEqual(failed.error, {
+    code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+    message: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted",
+  });
+  assert.equal(failed.createdTarget, undefined);
+  assert.equal(executorCalled, false);
+});

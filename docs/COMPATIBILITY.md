@@ -125,10 +125,26 @@ When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 project. It reports the created project target and active project before/after;
 the active project is never replaced automatically.
 
+The current publisher is a headed-only handoff because the inspected Final Cut
+Pro 10.7.1 surfaces do not provide supported non-UI project creation with
+target-bound readback. `artifact.publish.preview`, `artifact.publish.execute`,
+and `artifact.publish.status` expose a bounded job state so a missing Final Cut
+provider can be retried without claiming that a project was created. See
+[`artifact-publishing.md`](architecture/artifact-publishing.md) for the state
+machine and current-version decision.
+
 With native writes enabled, the live server also exposes `timeline.export` for
 rendering the active Final Cut timeline to a local video file. This separate
 capability requires `ffprobe`; it verifies file completion and media metadata
 and does not make the FCPXML artifact or live timeline canonically writable.
+
+Background rendering is a separate provider contract. When an external renderer
+is explicitly configured, `backgroundRender` exposes an `artifact-rendered`
+evidence tier with `backend: "external-renderer"`. `externalRender` remains
+unavailable until a provider can return `external-rendered` evidence. The
+provider binds an explicit FCPXML source, stages and verifies output, and
+preserves the headed-native boundary; it does not claim to reproduce Final Cut
+semantics.
 
 ## Phase 2 local runtime
 

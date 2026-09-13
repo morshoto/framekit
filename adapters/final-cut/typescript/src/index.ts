@@ -10,4 +10,5 @@ export * from "./native.js";
 export * from "./disposable-native.js";
 export * from "./publisher.js";
 export * from "./export.js";
+export * from "./background-export.js";
 export * from "./native-operation.js";

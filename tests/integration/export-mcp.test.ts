@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { FinalCutVideoExporter } from "@framekit/final-cut";
+import { BackgroundRenderExportProvider, FinalCutVideoExporter } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
@@ -146,6 +146,42 @@ test("MCP does not advertise video export when metadata probing is unavailable",
     const result = await client.callTool({ name: "timeline.export", arguments: { outputPath: "/tmp/final.mp4", preset: "master" } });
     assert.equal(result.isError, true);
     assert.match(textFrom(result), /CAPABILITY_UNAVAILABLE/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP reports artifact rendering separately from headed native export", async () => {
+  const backgroundRenderer = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async () => undefined,
+    probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Background Capability Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, { backgroundRenderer });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "background-capability-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.videoExport, false);
+    assert.equal(editor.capabilities.editor.backgroundRender, true);
+    assert.equal(editor.capabilities.editor.externalRender, false);
+    assert.equal(editor.capabilities.families.export.timeline.available, false);
+    assert.equal(editor.capabilities.families.export.background.available, true);
+    assert.equal(editor.capabilities.families.export.background.backend, "external-renderer");
+    assert.equal(editor.capabilities.families.export.background.evidenceTier, "artifact-rendered");
+    assert.equal(editor.capabilities.families.export.external.available, false);
+    assert.equal(editor.capabilities.families.export.external.backend, "external-renderer");
   } finally {
     await client.close();
     await server.close();

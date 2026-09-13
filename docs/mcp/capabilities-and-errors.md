@@ -116,7 +116,7 @@ The families are:
 | `editing` | `compositeTransactions`, `titlePlacement`, `pictureInPicture`, `masking`, `personCutout` | Routed editing operations and explicit unsupported boundaries |
 | `native` | `selectionWrite`, `titleDiscovery`, `titlePlacement`, `projectCreation`, `clipInsertion`, `clipMovement`, `pictureInPicture`, `masking` | Individual Final Cut Accessibility operations |
 | `publishing` | `projectCreation` | Importing a verified artifact as a new project |
-| `export` | `timeline` | Verified local video export |
+| `export` | `timeline`, `background`, `external` | Headed-native, background, and explicitly external verified video export paths |
 | `analyzers` | `speechTranscribe`, `speechVad`, `audioLoudness`, `visualTrack` | Configured analysis providers |
 
 Native operations are reported individually. An unsupported operation such as
@@ -218,8 +218,12 @@ When a Motion-template registry is available, it reports
 discovery. Both are observed metadata capabilities; neither activates Final
 Cut or upgrades filesystem results to canonical-live or headed-native evidence.
 
-`artifactPublish` is true only when the MCP server has a configured project
-publisher with native writes enabled. It is separate from both
+`artifactPublish` is true only when the MCP server has a configured headed
+project publisher with native writes enabled. `artifactPublishMode` reports
+`headed-only` for that guarded path and `unavailable` when it is not enabled;
+the current implementation does not advertise a background-capable mode. The
+job tools remain available when a managed artifact is configured so callers can
+prepare and inspect a no-UI handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
 new project is neither an artifact edit nor an edit of the open timeline.
 
@@ -426,6 +430,14 @@ currently open timeline is directly writable. Missing confirmation fails with
 `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
 `PUBLISH_TARGET_MISMATCH`.
 
+The job-based `artifact.publish.preview`, `artifact.publish.execute`, and
+`artifact.publish.status` tools make the headed-only boundary explicit. They
+return `awaiting-final-cut` when no headed provider is available and
+`verification-pending` when an import may have started but live readback is
+temporarily unavailable. A retry of the latter verifies the existing import
+and does not import the artifact again. Only `verified` includes a
+`createdTarget`.
+
 `videoExport` is reported separately from canonical timeline capabilities. It is
 true only when the live server has enabled the guarded native Final Cut export
 adapter with `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1` and a usable `ffprobe`; deterministic
@@ -437,3 +449,13 @@ the same native timeline-window/frontmost/focus preflight as other guarded UI
 operations. An existing file is preserved until the replacement has passed
 verification and is never replaced unless the request explicitly sets
 `overwrite: true`.
+
+Background and external rendering are reported separately as
+`editor.backgroundRender`, `editor.externalRender`, and the
+`families.export.background` / `families.export.external` descriptors. The
+current background provider is an injected external renderer over an explicit
+artifact source; it reports `backend: "external-renderer"` and
+`evidenceTier: "artifact-rendered"`. The separate external-rendered capability
+remains unavailable until a supported source can provide that evidence. It does
+not invoke Final Cut UI, does not claim native semantic equivalence, and does
+not change the headed `timeline.export` capability.
