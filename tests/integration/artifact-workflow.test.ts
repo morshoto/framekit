@@ -27,7 +27,7 @@ function textFrom(result: unknown): string {
   assert.ok(Array.isArray(content));
   const first = content[0] as { text?: unknown } | undefined;
   assert.equal(typeof first?.text, "string");
-  return first.text as string;
+  return first?.text as string;
 }
 
 test("MCP exposes the explicit background artifact workflow", async () => {
