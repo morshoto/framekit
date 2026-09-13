@@ -22,7 +22,8 @@ properties:
   the operation must fail closed.
 
 The families are `connection`, `observation`, `canonicalDocument`, `editing`,
-`native`, `publishing`, `export`, and `analyzers`. The shape is intentionally additive so
+`native`, `publishing`, `export`, and `analyzers`. The observation family
+contains `timeline`, `media`, and `assets` operations. The shape is intentionally additive so
 older clients can continue reading the legacy booleans while new agents choose
 one operation at a time:
 
@@ -33,7 +34,8 @@ one operation at a time:
     "connection": { "status": { "available": true, "backend": "workflow-extension-ipc", "guarantee": "observed" } },
     "observation": {
       "timeline": { "available": true, "backend": "workflow-extension-ipc", "guarantee": "observed" },
-      "media": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "media observation is unavailable" }
+      "media": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "media observation is unavailable" },
+      "assets": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "asset discovery is unavailable" }
     },
     "canonicalDocument": {
       "read": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "canonical timeline reads are unavailable" },

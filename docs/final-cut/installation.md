@@ -203,6 +203,9 @@ environment, time-of-day, mood, and usable-range descriptions. Each receives
 one JSON request on stdin and returns one typed JSON result on stdout.
 Motion-template discovery can be restricted with the colon-separated
 `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
+Local media discovery is opt-in and can be configured with the colon-separated
+`FRAMEKIT_FINAL_CUT_MEDIA_ROOTS` variable. It scans supported video and audio
+files without activating, focusing, or communicating with Final Cut.
 
 For selection-scoped native UI edits, explicitly opt in and grant the MCP host
 Accessibility and Automation permission in System Settings:
@@ -228,7 +231,11 @@ the frontmost, timeline-focus, target, permission, and overlay states.
 Explicit timeline-native previews and executions may activate Final Cut and
 focus the timeline. Browser search also requires a labelled Browser or Events
 Accessibility relationship; it does not use ambiguous screen-coordinate
-fallback. If the visible Framekit extension window overlaps the editor,
+fallback. Background media and Motion-template discovery are
+filesystem-observed metadata and do not prove canonical timeline state or native
+placement. `editor.assets` uses filesystem discovery by default; native Titles
+or Transitions Browser discovery requires an explicit `discovery: "native"`
+request. If the visible Framekit extension window overlaps the editor,
 Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
 and verifies the focused window after each attempt. It never clicks the
 Framekit close button. The user must open the intended project timeline and
