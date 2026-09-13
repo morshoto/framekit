@@ -170,8 +170,8 @@ test("canonical project listing requires a background catalog", async () => {
   });
 
   const capabilities = await provider.getCapabilities();
-  assert.equal(capabilities.editor.projectCatalogRead, true);
-  assert.equal(capabilities.editor.canonicalTimelineMode, "canonical-write");
+  assert.equal(capabilities.editor.projectCatalogRead, false);
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
   await assert.rejects(
     provider.listProjects(),
     /CAPABILITY_UNAVAILABLE: project\.list requires editor\.projectCatalogRead: background project catalog is unavailable; canonical timeline snapshot export \(File > Export XML\) requires a headed Final Cut UI/,
@@ -198,6 +198,9 @@ test("MCP project.list explains the headed fallback is unavailable", async () =>
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   try {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.projectCatalogRead, false);
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "metadata-only");
     const result = await client.callTool({ name: "project.list", arguments: {} });
     assert.equal(result.isError, true);
     const error = JSON.parse(textFrom(result)) as {
@@ -207,7 +210,7 @@ test("MCP project.list explains the headed fallback is unavailable", async () =>
     };
     assert.equal(error.operation, "project.list");
     assert.equal(error.capability, "editor.projectCatalogRead");
-    assert.equal(error.unavailableReason, "background project catalog is unavailable; canonical timeline snapshot export (File > Export XML) requires a headed Final Cut UI");
+    assert.equal(error.unavailableReason, "project catalog is unavailable");
     assert.equal(snapshotReads, 0);
   } finally {
     await client.close();
