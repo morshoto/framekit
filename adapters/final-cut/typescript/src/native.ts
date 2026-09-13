@@ -4307,11 +4307,13 @@ function browserSearchFieldScript(): string {
     set searchFieldFound to false
     set searchField to missing value
     set searchButton to missing value
+    set searchButtonIsToggle to false
     try
       if my revealBrowser(mainWindow, 0) then delay 0.5
     end try
     try
-      set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
+      set searchControlResult to my findBrowserSearchToggle(mainWindow, 0)
+      if searchControlResult is missing value then set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
       if searchControlResult is not missing value then
         set searchControl to item 1 of searchControlResult
         set browserRoot to item 2 of searchControlResult
@@ -4321,21 +4323,45 @@ function browserSearchFieldScript(): string {
           set searchFieldFound to true
         else if searchRole is "AXButton" then
           set searchButton to searchControl
+          set searchButtonIsToggle to my browserSearchToggle(searchControl)
         end if
       end if
     end try
     if not searchFieldFound and searchButton is not missing value then
       try
-        perform action "AXPress" of searchButton
-        delay 0.2
-        set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
-        if searchControlResult is not missing value then
-          set searchControl to item 1 of searchControlResult
-          set browserRoot to item 2 of searchControlResult
-          set searchRole to role of searchControl as text
-          if searchRole is "AXSearchField" or searchRole is "AXTextField" then
-            set searchField to searchControl
-            set searchFieldFound to true
+        if searchButtonIsToggle then
+          try
+            set focusedCandidate to value of attribute "AXFocusedUIElement"
+            set focusedRole to role of focusedCandidate as text
+            set focusedDescription to description of focusedCandidate as text
+            if (focusedRole is "AXSearchField" or focusedRole is "AXTextField") and (focusedDescription contains "search" or focusedDescription contains "Search") then
+              set searchField to focusedCandidate
+              set searchFieldFound to true
+            end if
+          end try
+        end if
+        if not searchFieldFound then
+          perform action "AXPress" of searchButton
+          delay 0.2
+          try
+            set focusedCandidate to value of attribute "AXFocusedUIElement"
+            set focusedRole to role of focusedCandidate as text
+            if focusedRole is "AXSearchField" or focusedRole is "AXTextField" then
+              set searchField to focusedCandidate
+              set searchFieldFound to true
+            end if
+          end try
+        end if
+        if not searchFieldFound then
+          set searchControlResult to my findBrowserSearchControl(mainWindow, 0, false, missing value)
+          if searchControlResult is not missing value then
+            set searchControl to item 1 of searchControlResult
+            set browserRoot to item 2 of searchControlResult
+            set searchRole to role of searchControl as text
+            if searchRole is "AXSearchField" or searchRole is "AXTextField" then
+              set searchField to searchControl
+              set searchFieldFound to true
+            end if
           end if
         end if
       end try
@@ -4379,6 +4405,55 @@ function browserSearchControlFinderScript(): string {
       end try
     end browserSearchContainer
 
+    on browserSearchToggle(candidate)
+      try
+        set candidateRole to role of candidate as text
+        if candidateRole is not "AXButton" then return false
+        set candidateText to ""
+        try
+          set candidateText to description of candidate as text
+        end try
+        if candidateText is "" then
+          try
+            set candidateText to name of candidate as text
+          end try
+        end if
+        if candidateText is "" then
+          try
+            set candidateText to value of candidate as text
+          end try
+        end if
+        return candidateText contains "toggle search bar" or candidateText contains "Toggle Search Bar"
+      on error
+        return false
+      end try
+    end browserSearchToggle
+
+    on browserSearchRootForToggle(containerItem)
+      repeat with candidateRef in UI elements of containerItem
+        try
+          set candidate to contents of candidateRef
+          if (role of candidate as text) is "AXSplitGroup" then return candidate
+        end try
+      end repeat
+      return containerItem
+    end browserSearchRootForToggle
+
+    on findBrowserSearchToggle(containerItem, depth)
+      if depth > 12 then return missing value
+      repeat with candidateRef in UI elements of containerItem
+        try
+          set candidate to contents of candidateRef
+          if my browserSearchToggle(candidate) then return {candidate, my browserSearchRootForToggle(containerItem)}
+        end try
+        try
+          set nestedCandidate to my findBrowserSearchToggle(candidate, depth + 1)
+          if nestedCandidate is not missing value then return nestedCandidate
+        end try
+      end repeat
+      return missing value
+    end findBrowserSearchToggle
+
     on findBrowserSearchControl(containerItem, depth, inheritedBrowserContext, inheritedBrowserRoot)
       if depth > 12 then return missing value
       set browserContext to inheritedBrowserContext
@@ -4397,6 +4472,7 @@ function browserSearchControlFinderScript(): string {
             set candidateBrowserContext to true
             set candidateBrowserRoot to candidate
           end if
+          if my browserSearchToggle(candidate) then return {candidate, containerItem}
           set candidateRole to role of candidate as text
           if candidateBrowserContext and candidateRole is "AXSearchField" then
             return {candidate, candidateBrowserRoot}

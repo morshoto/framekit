@@ -1589,7 +1589,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   assert.match(searchScript, /set candidateItems to UI elements of containerItem/);
   assert.match(searchScript, /set candidatePath to browserPath & "\/" & \(candidateIndex as text\)/);
   assert.match(searchScript, /if depth > 12 then return ""/);
-  assert.equal(searchScript.includes('value of attribute "AXFocusedUIElement"'), false);
+  const toggleFocusGuardIndex = searchScript.indexOf("if searchButtonIsToggle then");
+  const focusedCandidateIndex = searchScript.indexOf('set focusedCandidate to value of attribute "AXFocusedUIElement"');
+  assert.ok(toggleFocusGuardIndex >= 0);
+  assert.ok(focusedCandidateIndex > toggleFocusGuardIndex);
   assert.equal(searchScript.match(/set origin to position of mainWindow/g)?.length, 1);
   assert.ok(searchScript.indexOf("set origin to position of mainWindow") < searchScript.indexOf("set searchFieldFound to false"));
   assert.equal(scripts.some((script) => script.includes('perform action "AXConfirm" of searchField')), false);
@@ -1739,13 +1742,15 @@ test("native Final Cut current Browser layout reveals its custom search field", 
   const searchScript = scripts.find((script) => script.includes("set value of searchField to searchQuery"));
   assert.ok(searchScript);
   assert.match(searchScript, /on browserSearchToggle\(candidate\)/);
+  assert.match(searchScript, /on browserSearchRootForToggle\(containerItem\)/);
+  assert.match(searchScript, /on findBrowserSearchToggle\(containerItem, depth\)/);
   assert.match(searchScript, /candidateText contains "toggle search bar"/);
-  assert.match(searchScript, /if my browserSearchToggle\(candidate\) then return \{candidate, containerItem\}/);
+  assert.match(searchScript, /set searchControlResult to my findBrowserSearchToggle\(mainWindow, 0\)/);
   const toggleIndex = searchScript.indexOf('perform action "AXPress" of searchButton');
-  const focusedFieldIndex = searchScript.indexOf('set focusedCandidate to value of attribute "AXFocusedUIElement"');
   assert.ok(toggleIndex >= 0);
-  assert.ok(focusedFieldIndex > toggleIndex);
-  assert.match(searchScript, /set searchField to focusedCandidate/);
+  const postToggleScript = searchScript.slice(toggleIndex);
+  assert.match(postToggleScript, /set focusedCandidate to value of attribute "AXFocusedUIElement"/);
+  assert.match(postToggleScript, /set searchField to focusedCandidate/);
   assert.equal(searchScript.includes("entire contents"), false);
 });
 
