@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
@@ -11,6 +14,8 @@ import {
 import { AgentVideoRuntime } from "@framekit/runtime";
 import type { ContextRevision, EditorChange, EditorIdentity, EditorLiveState, RuntimeCapabilities } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const validResponse = JSON.stringify({
   version: 1,
@@ -233,4 +238,17 @@ test("MCP project.list returns structured background inspection failures", async
     await client.close();
     await server.close();
   }
+});
+
+test("documents the background library inspection safety boundary", async () => {
+  const documentation = await readFile(join(repositoryRoot, "docs/final-cut/background-library-inspection.md"), "utf8");
+  const finalCutGuide = await readFile(join(repositoryRoot, "docs/final-cut/README.md"), "utf8");
+
+  assert.match(documentation, /com\.apple\.FinalCut\.library\.inspection/);
+  assert.match(documentation, /direct Apple Events/);
+  assert.match(documentation, /System Events/);
+  assert.match(documentation, /metadata-only/);
+  assert.match(documentation, /FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE/);
+  assert.match(documentation, /Final Cut Pro 10\.7\.1/);
+  assert.match(finalCutGuide, /background-library-inspection\.md/);
 });
