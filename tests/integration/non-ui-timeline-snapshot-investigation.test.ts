@@ -15,6 +15,11 @@ test("records the current-version non-UI snapshot capability decision", async ()
   assert.match(investigation, /com\.apple\.FinalCut\.library\.inspection/);
   assert.match(investigation, /read-only/);
   assert.match(investigation, /ProExtensionHost/);
+  assert.match(investigation, /ProExtensionHost\.framework/);
+  assert.match(investigation, /ProExtension-41000\.8\.16/);
+  for (const hostSurface of ["FCPXLibrary", "FCPXEvent", "clips", "projects", "sendGetElementsEvent"]) {
+    assert.match(investigation, new RegExp(hostSurface));
+  }
   assert.match(investigation, /File > Export XML/);
   assert.match(investigation, /FCPXML/);
   assert.match(investigation, /metadata-only/);
