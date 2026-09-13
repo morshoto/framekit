@@ -564,3 +564,18 @@ test("Workflow Extension rejects unsupported project catalog methods", async () 
   assert.match(swift, /case "projects", "select-project":[\s\S]*CAPABILITY_UNAVAILABLE/);
   assert.doesNotMatch(swift, /private func selectProject\(/);
 });
+
+test("project selection decision records API and runtime evidence", async () => {
+  const decision = await readFile(join(
+    process.cwd(),
+    "docs/adr/0009-non-ui-project-selection.md",
+  ), "utf8");
+
+  assert.match(decision, /FCPXHost/);
+  assert.match(decision, /FCPXTimeline\.activeSequence/);
+  assert.match(decision, /projectCatalogRead: false/);
+  assert.match(decision, /projectSelection: false/);
+  assert.match(decision, /select-project/);
+  assert.match(decision, /CAPABILITY_UNAVAILABLE/);
+  assert.match(decision, /projectSelectionMode/);
+});
