@@ -121,6 +121,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     const assets = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { query: "dissolve" } })));
     assert.equal(assets[0].name, "Cross Dissolve");
     const titles = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { kind: "title", query: "lower" } })));
+    assert.match(titles[0].metadata.sourceDigest, /^sha256:[a-f0-9]{64}$/);
     assert.deepEqual(titles[0], {
       id: `filesystem:title:${join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti")}`,
       kind: "title",
@@ -131,6 +132,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
         name: "Lower Third",
         vendor: "Framekit Fixture",
         identity: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+        sourceDigest: titles[0].metadata.sourceDigest,
         provider: "filesystem-motion-template",
         source: "filesystem",
         discovery: {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
@@ -166,7 +167,8 @@ async function scanCategory(
   for (const entry of entries) {
     if (!entry.isDirectory() || !BUNDLE_SUFFIXES.has(extension(entry.name))) continue;
     const path = join(directory, entry.name);
-    signatures.push(await bundleSignature(path));
+    const fingerprint = await bundleFingerprint(path);
+    signatures.push(fingerprint.signature);
     const metadata = await readMetadata(path);
     assets.push({
       id: `filesystem:${kind}:${path}`,
@@ -177,6 +179,7 @@ async function scanCategory(
         path,
         ...metadata,
         identity: path,
+        sourceDigest: fingerprint.sourceDigest,
         provider: "filesystem-motion-template",
         source: "filesystem",
         discovery: {
@@ -202,18 +205,55 @@ async function scanCategory(
   }
 }
 
-async function bundleSignature(path: string): Promise<string> {
-  const paths = [path, join(path, "Contents", "Info.plist")];
-  const parts: string[] = [];
-  for (const candidate of paths) {
+interface BundleFile {
+  path: string;
+  size: number;
+  modifiedAt: number;
+}
+
+async function bundleFingerprint(path: string): Promise<{ signature: string; sourceDigest: string }> {
+  const files: BundleFile[] = [];
+  await collectBundleFiles(path, files);
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  const digest = createHash("sha256");
+  for (const file of files) {
+    digest.update(file.path).update("\0");
     try {
-      const details = await stat(candidate);
-      parts.push(`${candidate}:${details.size}:${details.mtimeMs}`);
+      digest.update(await readFile(file.path));
     } catch {
-      parts.push(`${candidate}:missing`);
+      digest.update("missing");
     }
   }
-  return parts.join(":");
+  return {
+    signature: files.map((file) => `${file.path}:${file.size}:${file.modifiedAt}`).join("\n"),
+    sourceDigest: `sha256:${digest.digest("hex")}`,
+  };
+}
+
+async function collectBundleFiles(path: string, files: BundleFile[]): Promise<void> {
+  let details;
+  try {
+    details = await stat(path);
+  } catch {
+    return;
+  }
+  if (details.isFile()) {
+    files.push({ path, size: details.size, modifiedAt: details.mtimeMs });
+    return;
+  }
+  if (!details.isDirectory()) return;
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) await collectBundleFiles(join(path, entry.name), files);
+  }
+  for (const entry of entries) {
+    if (entry.isFile()) await collectBundleFiles(join(path, entry.name), files);
+  }
 }
 
 function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
