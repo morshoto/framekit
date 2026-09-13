@@ -52,6 +52,8 @@ interface DiscoveredFile {
   path: string;
   sizeBytes: number;
   modifiedAt: number;
+  changedAt: number;
+  inode: number;
 }
 
 interface MediaCache {
@@ -70,7 +72,7 @@ export class FinalCutMediaRegistry {
 
   public async listMedia(query?: MediaSearchQuery): Promise<MediaContext[]> {
     const files = await discoverFiles(this.roots);
-    const signature = files.map((file) => `${file.path}:${file.sizeBytes}:${file.modifiedAt}`).join("\n");
+    const signature = files.map((file) => `${file.path}:${file.sizeBytes}:${file.modifiedAt}:${file.changedAt}:${file.inode}`).join("\n");
     if (!this.cached || this.cached.signature !== signature) {
       const media: MediaContext[] = [];
       for (const file of files) media.push(await mediaFromFile(file));
@@ -104,7 +106,13 @@ async function walk(path: string, files: DiscoveredFile[]): Promise<void> {
   if (details.isFile()) {
     const extension = extname(path).toLowerCase();
     if (MEDIA_KIND_BY_EXTENSION[extension]) {
-      files.push({ path: resolve(path), sizeBytes: details.size, modifiedAt: details.mtimeMs });
+      files.push({
+        path: resolve(path),
+        sizeBytes: details.size,
+        modifiedAt: details.mtimeMs,
+        changedAt: details.ctimeMs,
+        inode: details.ino,
+      });
     }
     return;
   }
