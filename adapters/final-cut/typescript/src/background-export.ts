@@ -295,6 +295,12 @@ function validateRequest(request: BackgroundRenderRequest): void {
   if (!target.revision && !target.digest) {
     throw backgroundRenderError("BACKGROUND_RENDER_INVALID_SOURCE", "source target requires a revision or digest binding");
   }
+  if (request.source.kind === "final-cut-timeline") {
+    throw backgroundRenderError(
+      "BACKGROUND_RENDER_NATIVE_UNAVAILABLE",
+      "no supported background-native Final Cut renderer is configured",
+    );
+  }
   if (target.digest !== undefined && !target.digest.trim()) {
     throw backgroundRenderError("BACKGROUND_RENDER_INVALID_SOURCE", "source digest cannot be empty");
   }
