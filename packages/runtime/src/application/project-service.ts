@@ -38,7 +38,9 @@ export class ProjectService {
     if (!this.adapter.getManagedArtifact) {
       throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
     }
-    return this.adapter.getManagedArtifact();
+    const artifact = await this.adapter.getManagedArtifact();
+    const digest = await this.adapter.getManagedArtifactDigest?.();
+    return digest ? { ...artifact, digest } : artifact;
   }
 
   public async captureFrame(

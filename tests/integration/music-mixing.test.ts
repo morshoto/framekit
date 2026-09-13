@@ -139,6 +139,9 @@ test("MCP exposes guarded music preview, execute, verification, and undo", async
     })));
     assert.deepEqual(undone.timeline.clips, before.timeline.clips);
     assert.deepEqual(undone.media, before.media);
+    assert.equal(undone.provenance.surface, "live-timeline");
+    assert.equal(undone.provenance.revisionScope, "live-timeline");
+    assert.equal(undone.provenance.mutatesOpenTimeline, true);
 
     const ducked = await client.callTool({
       name: "music.add",
@@ -155,7 +158,13 @@ test("MCP exposes guarded music preview, execute, verification, and undo", async
     });
     assert.equal(ducked.isError, true);
     assert.match(textFrom(ducked), /CAPABILITY_UNAVAILABLE: dialogue ducking/);
-    assert.deepEqual(await runtime.inspectProject(), undone);
+    assert.deepEqual(await runtime.inspectProject(), {
+      projectId: undone.projectId,
+      projectName: undone.projectName,
+      timeline: undone.timeline,
+      media: undone.media,
+      revision: undone.revision,
+    });
   } finally {
     await client.close();
     await server.close();

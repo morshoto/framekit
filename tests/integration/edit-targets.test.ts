@@ -107,11 +107,11 @@ test("artifact edits mutate only the identified FCPXML artifact", async () => {
     const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
     const before = await runtime.inspectProject();
 
-    assert.deepEqual(await runtime.inspectArtifact(), {
-      id: `fcpxml:${artifactPath}`,
-      path: artifactPath,
-      format: "fcpxml",
-    });
+    const inspectedArtifact = await runtime.inspectArtifact();
+    assert.equal(inspectedArtifact.id, `fcpxml:${artifactPath}`);
+    assert.equal(inspectedArtifact.path, artifactPath);
+    assert.equal(inspectedArtifact.format, "fcpxml");
+    assert.match(inspectedArtifact.digest ?? "", /^[a-f0-9]{64}$/);
 
     const transaction = await runtime.editArtifact(
       artifactPath,

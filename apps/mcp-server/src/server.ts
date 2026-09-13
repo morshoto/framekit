@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import {
   AgentVideoRuntime,
@@ -11,7 +12,11 @@ import {
   type CapabilityProcessMode,
   type CapabilityDescriptor,
   type CapabilityPreflight,
+  type CompositeEditPreview,
+  type ContextRevision,
   type EditorIdentity,
+  type EditTransaction,
+  type EditTarget,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
 } from "@framekit/runtime";
@@ -27,6 +32,7 @@ import {
   type NativeOperationSession,
 } from "@framekit/final-cut";
 import {
+  BACKGROUND_ARTIFACT_WORKFLOW,
   EDITOR_FIRST_MCP_INSTRUCTIONS,
   resolveEditingRoute,
   type EditorRoutingContext,
@@ -354,6 +360,10 @@ const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
   confirm: z.boolean(),
+}).strict();
+const artifactTransactionInputSchema = z.object({
+  artifactPath: z.string().trim().min(1),
+  transactionId: z.string().min(1),
 }).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
@@ -961,7 +971,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.inspect", {
-    description: "Identify the managed FCPXML artifact used by artifact.edit and artifact.publish.",
+    description: "Identify the managed FCPXML artifact used by the background artifact.edit and artifact.publish workflows.",
     inputSchema: {},
   }, async () => jsonResult(await runtime.inspectArtifact()));
 
@@ -1023,6 +1033,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       operation: z.enum([
         "timeline.edit",
+        "artifact.edit",
         "timeline.mask.add",
         "editor.native.edit",
         "editor.native.picture-in-picture",
@@ -1647,11 +1658,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (request) => jsonResult(await runtime.previewRoughCutConstruction(request)));
 
   server.registerTool("artifact.edit", {
-    description: "Edit the identified managed FCPXML artifact and return its artifact target, new revision, read-after-write, and diff.",
+    description: "Edit the identified managed FCPXML artifact in the background and return its artifact target, new revision, read-after-write, and diff.",
     inputSchema: artifactEditToolInputSchema,
   }, async (input) => {
     const { artifactPath, verification, ...operation } = input;
-    return jsonResult(await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation), verification ?? {}));
+    const transaction = await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation), verification ?? {});
+    return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
   });
 
   server.registerTool("editor.timeline.edit", {
@@ -1709,7 +1721,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.edit.preview", {
-    description: "Validate and preview an ordered artifact edit against the identified FCPXML artifact without mutating it.",
+    description: "Validate and preview an ordered background FCPXML artifact edit without mutating it or the open Final Cut timeline.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
       baseRevision: revisionValueSchema,
@@ -1719,7 +1731,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ artifactPath, baseRevision, operations, verification }) => jsonResult(await runtime.previewArtifactEdit(
     artifactPath,
     { baseRevision, operations, ...(verification ? { verification } : {}) },
-  )));
+  ).then(withArtifactPreviewProvenance)));
 
   server.registerTool("editor.timeline.edit.preview", {
     description: "Validate and preview an ordered live timeline edit against the identified active project and sequence without mutating it.",
@@ -1736,9 +1748,41 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   )));
 
   server.registerTool("artifact.edit.execute", {
-    description: "Execute one short-lived artifact edit preview token exactly once and verify the artifact transaction.",
+    description: "Execute one short-lived background artifact edit preview token exactly once and verify the FCPXML artifact transaction.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+  }, async ({ previewToken }) => {
+    const transaction = await runtime.executeEdit(previewToken);
+    return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
+  });
+
+  server.registerTool("artifact.edit.diff", {
+    description: "Read the deterministic diff for a background FCPXML artifact transaction.",
+    inputSchema: artifactTransactionInputSchema,
+  }, async ({ artifactPath, transactionId }) => {
+    const transaction = requireArtifactTransaction(runtime, transactionId, artifactPath);
+    return jsonResult({ ...runtime.getDiff(transactionId), ...withTransactionProvenance(transaction) });
+  });
+
+  server.registerTool("artifact.edit.verify", {
+    description: "Read verification checks for a background FCPXML artifact transaction.",
+    inputSchema: artifactTransactionInputSchema,
+  }, async ({ artifactPath, transactionId }) => {
+    const transaction = requireArtifactTransaction(runtime, transactionId, artifactPath);
+    return jsonResult({ ...(await runtime.verifyTransaction(transactionId)), ...withTransactionProvenance(transaction) });
+  });
+
+  server.registerTool("artifact.edit.undo", {
+    description: "Restore a background FCPXML artifact transaction without changing the open Final Cut timeline.",
+    inputSchema: artifactTransactionInputSchema,
+  }, async ({ artifactPath, transactionId }) => {
+    const transaction = requireArtifactTransaction(runtime, transactionId, artifactPath);
+    const restored = await runtime.undo(transactionId);
+    const artifact = await runtime.inspectArtifact();
+    return jsonResult({
+      ...restored,
+      ...withTransactionProvenance(transaction, restored.revision, artifact.digest),
+    });
+  });
 
   server.registerTool("editor.timeline.edit.execute", {
     description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
@@ -1823,20 +1867,89 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("edit.diff", {
     description: "Read the deterministic diff for a completed edit transaction.",
     inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => jsonResult(runtime.getDiff(transactionId)));
+  }, async ({ transactionId }) => {
+    const transaction = runtime.getTransaction(transactionId);
+    return jsonResult({ ...runtime.getDiff(transactionId), ...withTransactionProvenance(transaction) });
+  });
 
   server.registerTool("edit.verify", {
     description: "Read verification checks for a completed transaction.",
     inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => jsonResult(await runtime.verifyTransaction(transactionId)));
+  }, async ({ transactionId }) => {
+    const transaction = runtime.getTransaction(transactionId);
+    return jsonResult({ ...(await runtime.verifyTransaction(transactionId)), ...withTransactionProvenance(transaction) });
+  });
 
   server.registerTool("edit.undo", {
     description: "Restore the pre-edit snapshot for a completed transaction.",
     inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => jsonResult(await runtime.undo(transactionId)));
+  }, async ({ transactionId }) => {
+    const transaction = runtime.getTransaction(transactionId);
+    const restored = await runtime.undo(transactionId);
+    const artifact = transaction.target?.kind === "artifact" ? await runtime.inspectArtifact() : undefined;
+    return jsonResult({
+      ...restored,
+      ...withTransactionProvenance(transaction, restored.revision, artifact?.digest),
+    });
+  });
 
   installMcpSchemaCompatibility(server);
   return server;
+}
+
+function withTransactionProvenance(
+  transaction: EditTransaction,
+  revision: ContextRevision = transaction.after.revision,
+  digest = transaction.artifactDigest,
+) {
+  const target = transaction.target;
+  const artifact = target?.kind === "artifact"
+    ? {
+        mode: "background-artifact" as const,
+        path: target.artifactPath,
+        revisionScope: "artifact" as const,
+        revision: structuredClone(revision),
+        ...(digest ? { digest } : {}),
+        mutatesOpenTimeline: false as const,
+      }
+    : undefined;
+  return {
+    ...(target ? { target: structuredClone(target) } : {}),
+    ...(artifact ? { artifact } : {}),
+    provenance: {
+      surface: target?.kind === "artifact" ? "artifact" as const : "live-timeline" as const,
+      revisionScope: target?.kind === "artifact" ? "artifact" as const : "live-timeline" as const,
+      revision: structuredClone(revision),
+      ...(target?.kind === "artifact" && digest ? { digest } : {}),
+      mutatesOpenTimeline: target?.kind !== "artifact",
+    },
+  };
+}
+
+function withArtifactPreviewProvenance(preview: CompositeEditPreview) {
+  const target = preview.target as EditTarget;
+  if (target.kind !== "artifact") {
+    throw new Error("INVALID_ARTIFACT_TARGET: preview is not bound to an artifact");
+  }
+  const artifact = {
+    mode: "background-artifact" as const,
+    path: target.artifactPath,
+    revisionScope: "artifact" as const,
+    revision: structuredClone(preview.baseRevision),
+    ...(preview.artifactDigest ? { digest: preview.artifactDigest } : {}),
+    mutatesOpenTimeline: false as const,
+  };
+  return {
+    ...preview,
+    artifact,
+    provenance: {
+      surface: "artifact" as const,
+      revisionScope: "artifact" as const,
+      revision: structuredClone(preview.baseRevision),
+      ...(preview.artifactDigest ? { digest: preview.artifactDigest } : {}),
+      mutatesOpenTimeline: false as const,
+    },
+  };
 }
 
 async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: string) {
@@ -1992,6 +2105,14 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
   return {
     ...inspected,
     capabilities,
+    workflows: {
+      artifact: {
+        mode: "background-artifact",
+        tools: [...BACKGROUND_ARTIFACT_WORKFLOW],
+        requiresFinalCutFrontmost: false,
+        changesOpenTimeline: false,
+      },
+    },
     preflight: {
       ...createCapabilityPreflight(inspected.identity, capabilities, {
         processMode: options.processMode ?? (native ? "headed" : "headless"),
@@ -2001,6 +2122,19 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
+}
+
+function requireArtifactTransaction(
+  runtime: AgentVideoRuntime,
+  transactionId: string,
+  artifactPath: string,
+) {
+  const transaction = runtime.getTransaction(transactionId);
+  const target = transaction.target;
+  if (target?.kind !== "artifact" || resolvePath(target.artifactPath) !== resolvePath(artifactPath.trim())) {
+    throw new Error(`TARGET_MISMATCH: transaction ${transactionId} is not bound to artifact ${artifactPath}`);
+  }
+  return transaction;
 }
 
 async function requireEditingRoute(

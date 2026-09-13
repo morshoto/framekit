@@ -10,7 +10,11 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { resolveEditingRoute, type EditorRoutingContext } from "../../apps/mcp-server/src/routing.js";
+import {
+  BACKGROUND_ARTIFACT_WORKFLOW,
+  resolveEditingRoute,
+  type EditorRoutingContext,
+} from "../../apps/mcp-server/src/routing.js";
 
 const canonicalCapabilities: RuntimeCapabilities = {
   editor: {
@@ -137,6 +141,28 @@ test("routing permits an advertised artifact editor without a live connection", 
 
   assert.equal(route.status, "editor-selected");
   assert.equal(route.selectedPath, "editor");
+  assert.equal(route.reason.connectionState, "disconnected");
+});
+
+test("routing selects the explicit background artifact workflow offline", () => {
+  const capabilities = structuredClone(canonicalCapabilities);
+  capabilities.editor.timelineWrite = false;
+  capabilities.editor.timelineArtifactWrite = true;
+
+  const route = resolveEditingRoute({ operation: "artifact.edit" }, context({
+    connection: { state: "disconnected" },
+    editor: {
+      identity: { name: "FCPXML Document", version: "FCPXML", backend: "fcpxml-document" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "artifact");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.deepEqual(route.workflow, BACKGROUND_ARTIFACT_WORKFLOW);
+  assert.ok(route.requiredCapabilities.includes("editor.timelineArtifactWrite"));
+  assert.match(route.reason.message, /artifact/i);
   assert.equal(route.reason.connectionState, "disconnected");
 });
 

@@ -5,6 +5,7 @@ export type EditingRouteOperation =
   | "timeline.mask.add"
   | "editor.native.edit"
   | "editor.native.picture-in-picture"
+  | "artifact.edit"
   | "timeline.publish.new-project"
   | "timeline.export";
 
@@ -40,7 +41,7 @@ export interface EditingRouteReason {
 export interface EditingRoute {
   operation: EditingRouteOperation;
   status: "editor-selected" | "external-fallback-selected" | "unavailable";
-  selectedPath: "editor" | "external-renderer" | "none";
+  selectedPath: "editor" | "artifact" | "external-renderer" | "none";
   requiredCapabilities: string[];
   missingCapabilities: string[];
   editor?: EditorIdentity;
@@ -61,6 +62,19 @@ export const EDITOR_FIRST_WORKFLOW = [
   "edit.verify",
 ];
 
+export const BACKGROUND_ARTIFACT_WORKFLOW = [
+  "connection.status",
+  "editor.inspect",
+  "artifact.inspect",
+  "project.inspect",
+  "editing.route",
+  "artifact.edit.preview",
+  "artifact.edit.execute",
+  "artifact.edit.diff",
+  "artifact.edit.verify",
+  "artifact.edit.undo",
+];
+
 export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
   "Framekit uses an editor-first workflow for every editing request.",
   "1. Call connection.status to establish whether the expected editor is connected.",
@@ -69,6 +83,7 @@ export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
   "4. Call editing.route and use only a path whose required capabilities are advertised.",
   "5. Resolve intent when needed, then preview before execute; never mutate on an unavailable capability.",
   "6. Observe the result, then use edit.diff and edit.verify to confirm the change.",
+  "For an explicit FCPXML artifact, select artifact.edit; its background workflow uses artifact.inspect, artifact.edit.preview, artifact.edit.execute, artifact.edit.diff, artifact.edit.verify, and artifact.edit.undo, and never claims to change the open Final Cut timeline.",
   "An external renderer is never an implicit substitute for a connected editor. Select fallback: external-renderer explicitly and report the structured reason returned by editing.route.",
 ].join("\n");
 
@@ -111,6 +126,13 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     nativeRequirement("timelineFocus"),
     nativeRequirement("undo"),
   ],
+  "artifact.edit": [
+    editorRequirement("projectRead"),
+    editorRequirement("timelineSnapshotRead"),
+    editorRequirement("timelineArtifactWrite"),
+    editorRequirement("readAfterWrite"),
+    editorRequirement("rollback"),
+  ],
   "timeline.publish.new-project": [
     {
       label: "editor.artifactPublish",
@@ -135,6 +157,9 @@ export function resolveEditingRoute(
     .filter((requirement) => !requirement.satisfied(context))
     .map((requirement) => requirement.label);
   const editor = context.editor?.identity;
+  const workflow = request.operation === "artifact.edit"
+    ? BACKGROUND_ARTIFACT_WORKFLOW
+    : EDITOR_FIRST_WORKFLOW;
 
   if (request.fallback === "external-renderer") {
     const cause = externalFallbackCause(context, missingCapabilities);
@@ -145,7 +170,7 @@ export function resolveEditingRoute(
       requiredCapabilities,
       missingCapabilities,
       ...(editor ? { editor } : {}),
-      workflow: [...EDITOR_FIRST_WORKFLOW],
+      workflow: [...workflow],
       reason: {
         code: "EXTERNAL_FALLBACK_SELECTED",
         message: "The external renderer was selected explicitly; Framekit will not invoke it or bypass the editor silently.",
@@ -155,7 +180,7 @@ export function resolveEditingRoute(
     };
   }
 
-  const offlineArtifactEdit = request.operation === "timeline.edit"
+  const offlineArtifactEdit = (request.operation === "artifact.edit" || request.operation === "timeline.edit")
     && context.editor?.capabilities.editor.timelineArtifactWrite === true;
   if (context.connection.state !== "ready" && !offlineArtifactEdit) {
     return {
@@ -165,7 +190,7 @@ export function resolveEditingRoute(
       requiredCapabilities,
       missingCapabilities,
       ...(editor ? { editor } : {}),
-      workflow: [...EDITOR_FIRST_WORKFLOW],
+      workflow: [...workflow],
       reason: editorUnavailableReason(context, missingCapabilities),
     };
   }
@@ -178,7 +203,7 @@ export function resolveEditingRoute(
       requiredCapabilities,
       missingCapabilities,
       ...(editor ? { editor } : {}),
-      workflow: [...EDITOR_FIRST_WORKFLOW],
+      workflow: [...workflow],
       reason: {
         code: "CAPABILITY_UNAVAILABLE",
         message: `The connected editor cannot satisfy ${request.operation}; no alternate editor path was selected.`,
@@ -190,14 +215,16 @@ export function resolveEditingRoute(
   return {
     operation: request.operation,
     status: "editor-selected",
-    selectedPath: "editor",
+    selectedPath: request.operation === "artifact.edit" ? "artifact" : "editor",
     requiredCapabilities,
     missingCapabilities: [],
     editor,
-    workflow: [...EDITOR_FIRST_WORKFLOW],
+    workflow: [...workflow],
     reason: {
       code: "EDITOR_SELECTED",
-      message: "The connected editor satisfies the required capabilities; continue with the preview and execute contract.",
+      message: request.operation === "artifact.edit"
+        ? "The managed FCPXML artifact satisfies the required capabilities; continue with its background preview and execute contract without Final Cut UI access."
+        : "The connected editor satisfies the required capabilities; continue with the preview and execute contract.",
       connectionState: context.connection.state,
     },
   };
