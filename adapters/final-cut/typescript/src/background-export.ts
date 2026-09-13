@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, constants, readFile, rename, stat, unlink } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import type { ContextRevision } from "@framekit/runtime";
 
 export type BackgroundRenderSourceKind = "final-cut-timeline" | "fcpxml-artifact";
@@ -349,12 +348,12 @@ function validateProbe(probe: BackgroundRenderProbeResult): void {
 
 function createStagingPath(outputPath: string): string {
   const extension = extname(outputPath);
-  const stem = outputPath.slice(outputPath.lastIndexOf("/") + 1, extension ? -extension.length : undefined);
-  return join(outputPath.slice(0, outputPath.lastIndexOf("/")), `.${stem}.framekit-${randomUUID()}${extension}`);
+  const stem = basename(outputPath, extension);
+  return join(dirname(outputPath), `.${stem}.framekit-${randomUUID()}${extension}`);
 }
 
 async function assertOutputDirectory(outputPath: string): Promise<void> {
-  const parent = outputPath.slice(0, outputPath.lastIndexOf("/")) || ".";
+  const parent = dirname(outputPath);
   try {
     const details = await stat(parent);
     if (!details.isDirectory()) throw new Error("parent path is not a directory");
