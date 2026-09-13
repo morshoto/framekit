@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -51,6 +51,17 @@ test("local media discovery filters by source and media kind", async () => {
     [join(root, "Interview.wav")],
   );
   assert.deepEqual(await registry.listMedia({ query: "missing" }), []);
+});
+
+test("local media discovery does not follow symlinked directories", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-media-symlink-root-"));
+  const outside = await mkdtemp(join(os.tmpdir(), "framekit-media-symlink-outside-"));
+  await writeFile(join(outside, "escaped.mov"), "outside media");
+  await symlink(outside, join(root, "linked"), "dir");
+
+  const registry = new FinalCutMediaRegistry({ roots: [root] });
+
+  assert.deepEqual(await registry.listMedia(), []);
 });
 
 test("local media discovery refreshes its cache explicitly", async () => {
