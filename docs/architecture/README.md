@@ -7,10 +7,12 @@ contracts separate from MCP transport and editor adapters.
 - [Runtime boundaries](./runtime-boundaries.md)
 - [Backend selection](./backend-selection.md)
 - [Capability model](./capability-model.md)
+- [Background render and export investigation](../final-cut/background-render-export-investigation.md)
 - [Skill requirements](./skill-requirements.md)
 - [Skill runtime](./skill-runtime.md)
 - [Filler detection and safe cuts](./filler-detection-safe-cuts.md)
 - [Rough-cut construction](./rough-cut-construction.md)
+- [Artifact publishing and non-UI handoff](./artifact-publishing.md)
 
 This index is a map over the existing architecture documents; it does not
 replace or shorten them.

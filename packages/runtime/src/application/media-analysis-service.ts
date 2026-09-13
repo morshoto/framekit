@@ -195,16 +195,7 @@ export class MediaAnalysisService {
   }
 
   public async searchMedia(query: string): Promise<MediaContext[]> {
-    const inspected = await this.project.inspectEditor();
-    const mediaObservation = inspected.capabilities.families?.observation.media;
-    if (mediaObservation && !mediaObservation.available) {
-      throw new CapabilityUnavailableError("media.search", "observation.media", mediaObservation);
-    }
-    const project = await this.project.inspectProject();
-    const normalized = query.trim().toLowerCase();
-    return project.media.filter((media) =>
-      media.mediaId.toLowerCase().includes(normalized) || media.source.toLowerCase().includes(normalized),
-    );
+    return this.project.searchMedia(query);
   }
 
   public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {

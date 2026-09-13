@@ -3086,6 +3086,9 @@ function verifyNativeUndo(
 function assertNativeTitleAsset(asset: EditorAsset): void {
   if (!asset.id.trim() || !asset.name.trim()) throw new Error("TITLE_ASSET_NOT_FOUND: native title asset identity is incomplete");
   if (asset.kind !== "title") throw new Error(`TITLE_ASSET_INCOMPATIBLE: ${asset.id} is not a Final Cut title asset`);
+  if (!nativeTitleIdentity(asset)) {
+    throw new Error("TITLE_ASSET_NATIVE_ID_REQUIRED: filesystem-observed title assets must be rediscovered by Final Cut before placement");
+  }
 }
 
 function nativeTitleIdentity(asset: EditorAsset): string | undefined {

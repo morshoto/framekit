@@ -254,6 +254,10 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   assert.match(script, /Export/);
   assert.match(script, /XML/);
   assert.match(script, /framekit-canonical\.fcpxml/);
+  const activationIndex = script.indexOf("set frontmost to true");
+  const frontmostGuardIndex = script.indexOf("if not frontmost then error");
+  assert.ok(activationIndex >= 0);
+  assert.ok(frontmostGuardIndex > activationIndex);
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
 });
 

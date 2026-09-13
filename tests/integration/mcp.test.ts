@@ -121,6 +121,9 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "artifact.edit.verify",
         "artifact.inspect",
         "artifact.publish",
+        "artifact.publish.execute",
+        "artifact.publish.preview",
+        "artifact.publish.status",
         "editor.timeline.edit",
         "editor.timeline.edit.execute",
         "editor.timeline.edit.preview",
@@ -147,6 +150,12 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.deepEqual(artifactEditRename?.required?.slice().sort(), ["artifactPath", "baseRevision", "clipId", "name", "type"]);
     const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
     assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
+    const artifactPublishPreviewTool = tools.tools.find((tool) => tool.name === "artifact.publish.preview");
+    assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "transactionId"]);
+    const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
+    assert.deepEqual(artifactPublishExecuteTool?.inputSchema.required?.slice().sort(), ["confirm", "jobId"]);
+    const artifactPublishStatusTool = tools.tools.find((tool) => tool.name === "artifact.publish.status");
+    assert.deepEqual(artifactPublishStatusTool?.inputSchema.required?.slice().sort(), ["jobId"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
     assert.deepEqual(Object.keys(nativeEditTool?.inputSchema.properties ?? {}).sort(), ["duration", "edge", "gainDb", "name", "type"]);
     assert.deepEqual(nativeEditTool?.inputSchema.required, ["type"]);
