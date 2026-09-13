@@ -81,6 +81,13 @@ active target, and the observed context revision. The bundled Workflow
 Extension reports `unavailable` because its public host surface exposes only
 the active timeline sequence and no project catalog or activation command.
 
+An optional background library provider may advertise catalog discovery without
+advertising project selection or canonical timeline guarantees. Framekit keeps
+the catalog source, live Workflow Extension revision/timing source, and
+reconciliation status explicit. It returns active IDs only after stable project
+and sequence IDs match across both observations; name-only matches and any
+revision or target drift fail closed by returning unresolved/stale metadata.
+
 Every disabled operation must fail with an explicit capability error. This is
 preferable to returning partial state or reporting an unverified edit as
 successful.

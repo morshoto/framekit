@@ -67,7 +67,7 @@ this routing tool.
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
-| `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge |
+| `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
 | `artifact.inspect` | Identify the managed FCPXML artifact | FCPXML-backed session; unsupported backends fail closed |
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
@@ -181,6 +181,17 @@ non-empty `uid` attributes; otherwise project inspection and catalog operations
 fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
 `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
+
+When a background library provider is configured, `project.list` routes to that
+provider and does not invoke the canonical snapshot reader or Final Cut's
+`File > Export XML` UI. The response may include `provenance` with the
+background catalog source, observed live socket state, live revision and
+rational timing values, the stable-ID/name-only reconciliation method, and the
+selection capability. Stable IDs are required before active IDs are returned;
+name-only matches and changing revisions remain unresolved or stale and clear
+the active IDs. Background catalog discovery never upgrades metadata-only data
+to canonical timeline evidence, and project selection remains unavailable until
+a provider can prove a supported non-UI selection transition.
 
 On successful `project.select`, the response retains the catalog's active ID
 fields and adds `requestedTarget`, `observedActiveTarget`, and
