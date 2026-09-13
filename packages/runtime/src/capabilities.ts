@@ -129,6 +129,7 @@ function refreshDescriptor(
   unavailableReason: string,
 ): CapabilityDescriptor {
   if (available && previous.available) return previous;
+  if (!available && !previous.available) return previous;
   return descriptorFrom(available, previous.backend, guarantee, unavailableReason);
 }
 

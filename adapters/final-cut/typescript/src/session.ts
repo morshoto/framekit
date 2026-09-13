@@ -7,6 +7,7 @@ import {
 } from "@framekit/runtime";
 import type {
   ContextRevision,
+  CapabilityInspectionOptions,
   EditOperation,
   EditorAsset,
   EditorIdentity,
@@ -31,7 +32,7 @@ interface FinalCutSessionOptions {
   mutation?: EditorPort;
   live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore" | "previewTransaction" | "applyTransaction">> & {
     getIdentity(): Promise<EditorIdentity>;
-    getCapabilities(): Promise<RuntimeCapabilities>;
+    getCapabilities(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
     selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   };
@@ -76,10 +77,10 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     return this.options.snapshot?.getManagedArtifactDigest?.();
   }
 
-  public async getCapabilities(): Promise<RuntimeCapabilities> {
-    const snapshot = await this.options.snapshot?.getCapabilities();
-    const mutation = await this.options.mutation?.getCapabilities();
-    const live = await optionalCapabilities(this.options.live);
+  public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
+    const snapshot = await this.options.snapshot?.getCapabilities(options);
+    const mutation = await this.options.mutation?.getCapabilities(options);
+    const live = await optionalCapabilities(this.options.live, options);
     const hasExplicitDocumentPair = Boolean(this.options.snapshot && this.options.mutation);
     const useLiveCanonical = !this.options.snapshot && !this.options.mutation;
     const liveSnapshot = Boolean(
@@ -190,7 +191,9 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       },
       canonicalDocument: {
         read: readFamilies?.canonicalDocument.read ?? Boolean(readCapabilities?.editor.timelineSnapshotRead),
-        write: operationFamilies?.canonicalDocument.write ?? Boolean(operationCapabilities?.timelineWrite),
+        write: operationFamilies?.canonicalDocument.write
+          ?? readFamilies?.canonicalDocument.write
+          ?? Boolean(operationCapabilities?.timelineWrite),
         artifactWrite: operationFamilies?.canonicalDocument.artifactWrite ?? Boolean(operationCapabilities?.timelineArtifactWrite),
       },
       editing: {
@@ -310,7 +313,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     if (this.options.snapshot?.listProjects) return this.options.snapshot.listProjects();
     if (this.options.backgroundCatalog) return this.readBackgroundCatalog(this.options.backgroundCatalog);
     const live = this.options.live;
-    const capabilities = await optionalCapabilities(live);
+    const capabilities = await optionalCapabilities(live, { probeCanonicalSnapshot: false });
     if (!this.options.snapshot && live?.listProjects && capabilities?.editor.projectCatalogRead) {
       const before = await optionalLiveState(live);
       const catalog = await live.listProjects();
@@ -417,10 +420,11 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
 
 async function optionalCapabilities(
   live: FinalCutSessionOptions["live"],
+  options: CapabilityInspectionOptions = {},
 ): Promise<RuntimeCapabilities | undefined> {
   if (!live) return undefined;
   try {
-    return withCanonicalTimelineMode(await live.getCapabilities());
+    return withCanonicalTimelineMode(await live.getCapabilities(options));
   } catch {
     return undefined;
   }

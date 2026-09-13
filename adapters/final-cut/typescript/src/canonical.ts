@@ -28,6 +28,8 @@ import {
   type ProjectSelectionResult,
   type ProjectSnapshot,
   type RuntimeCapabilities,
+  type CapabilityDescriptor,
+  type CapabilityInspectionOptions,
   type WorkflowOperation,
 } from "@framekit/runtime";
 import type {
@@ -286,17 +288,28 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     return { ...identity, backend: "final-cut-native-canonical" };
   }
 
-  public async getCapabilities(): Promise<RuntimeCapabilities> {
+  public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
     const backgroundCatalog = await this.resolveBackgroundCatalog();
+    const snapshotProbe = backgroundCatalog && options.probeCanonicalSnapshot !== false
+      ? await this.probeCanonicalSnapshot()
+      : {
+          available: false as const,
+          reason: backgroundCatalog
+            ? "canonical snapshot availability was not checked"
+            : "canonical timeline snapshot requires a background project catalog",
+        };
+    const canonicalSnapshotCapability = snapshotProbe.available
+      ? true
+      : unavailableCanonicalSnapshot(snapshotProbe.reason);
     return withCapabilityFamilies({
       editor: {
-        projectRead: true,
-        timelineSnapshotRead: true,
-        timelineWrite: true,
+        projectRead: snapshotProbe.available,
+        timelineSnapshotRead: snapshotProbe.available,
+        timelineWrite: snapshotProbe.available,
         timelineArtifactWrite: false,
-        readAfterWrite: true,
+        readAfterWrite: snapshotProbe.available,
         incrementalChanges: true,
-        rollback: true,
+        rollback: snapshotProbe.available,
         assetDiscovery: false,
         liveStateRead: true,
         playheadWrite: false,
@@ -305,8 +318,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectCatalogRead: Boolean(backgroundCatalog),
         projectSelection: false,
         projectSelectionMode: "unavailable",
-        backgroundLibraryInspection: Boolean(this.backgroundCatalog),
-        compositeTransactions: true,
+        backgroundLibraryInspection: Boolean(backgroundCatalog),
+        compositeTransactions: snapshotProbe.available,
       },
       analyzers: {
         speechTranscribe: false,
@@ -317,7 +330,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }, {
       backend: "final-cut-native-canonical",
       connectionBackend: "workflow-extension-ipc",
-      canonicalDocument: { read: true, write: true, artifactWrite: false },
+      canonicalDocument: {
+        read: canonicalSnapshotCapability,
+        write: canonicalSnapshotCapability,
+        artifactWrite: false,
+      },
       observation: {
         library: this.backgroundCatalog
           ? {
@@ -328,6 +345,19 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           : false,
       },
     });
+  }
+
+  private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {
+    try {
+      await this.readSnapshotSource();
+      return { available: true };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        available: false,
+        reason: `canonical snapshot provider unavailable: ${detail}`,
+      };
+    }
   }
 
   public async read(): Promise<ProjectSnapshot> {
@@ -565,6 +595,15 @@ function validateCanonicalRename(
 ): Extract<EditOperation, { type: "rename-clip" }> {
   if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
   return operation;
+}
+
+function unavailableCanonicalSnapshot(reason: string): CapabilityDescriptor {
+  return {
+    available: false,
+    backend: "final-cut-native-canonical",
+    guarantee: "none",
+    unavailableReason: reason,
+  };
 }
 
 function previewRevision(snapshot: ProjectSnapshot, before: ContextRevision): ContextRevision {

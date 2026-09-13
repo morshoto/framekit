@@ -8,6 +8,7 @@ import type {
   CompositeEditRequest,
   ContextDiff,
   ContextRevision,
+  CapabilityInspectionOptions,
   EditOperation,
   EditTransaction,
   EditorAsset,
@@ -133,8 +134,8 @@ export class AgentVideoRuntime {
     return this.projects.selectProject(selection);
   }
 
-  public async inspectEditor() {
-    return this.projects.inspectEditor();
+  public async inspectEditor(options: CapabilityInspectionOptions = {}) {
+    return this.projects.inspectEditor(options);
   }
 
   public async inspectContext(): Promise<AgentContext> {

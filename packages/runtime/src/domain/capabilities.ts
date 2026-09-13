@@ -9,6 +9,11 @@ export interface EditorIdentity {
 export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";
 export type ArtifactPublishMode = "background-capable" | "headed-only" | "unavailable";
 
+export interface CapabilityInspectionOptions {
+  /** Skip provider probes that require an editor-specific canonical read. */
+  probeCanonicalSnapshot?: boolean;
+}
+
 export interface EditorCapabilities {
   /** Derived canonical guarantee exposed to agents; omitted only by legacy adapters. */
   canonicalTimelineMode?: "metadata-only" | "canonical-read" | "canonical-write";
