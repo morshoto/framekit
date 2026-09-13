@@ -76,6 +76,9 @@ uses Accessibility UI to satisfy `select-project`. See
 [`ADR-0009`](../../../../docs/adr/0009-non-ui-project-selection.md) for the
 evidence and future provider contract.
 
+The current-version native write and Undo investigation is recorded in
+[Native write and Undo investigation](../../../../docs/final-cut/native-write-undo-investigation.md).
+
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`
 installs the containing app into the user's Applications directory and
