@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import test from "node:test";
 import { FinalCutMediaRegistry } from "@framekit/final-cut";
 
-function digestOf(contents: string): string {
+function digestOf(contents: string | Buffer): string {
   return createHash("sha256").update(contents).digest("hex");
 }
 
@@ -106,4 +106,16 @@ test("local media discovery detects changed source content without refresh", asy
   assert.equal(after?.mediaId, before?.mediaId);
   assert.equal(after?.sourceDigest, digestOf("after"));
   assert.notEqual(after?.sourceDigest, before?.sourceDigest);
+});
+
+test("local media discovery hashes multiple large files", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-media-large-files-"));
+  const first = Buffer.alloc(2 * 1024 * 1024, "a");
+  const second = Buffer.alloc(2 * 1024 * 1024, "b");
+  await writeFile(join(root, "first.mov"), first);
+  await writeFile(join(root, "second.wav"), second);
+
+  const media = await new FinalCutMediaRegistry({ roots: [root] }).listMedia();
+
+  assert.deepEqual(media.map((candidate) => candidate.sourceDigest), [digestOf(first), digestOf(second)]);
 });
