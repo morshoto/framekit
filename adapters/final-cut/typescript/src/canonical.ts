@@ -287,6 +287,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {
+    const backgroundCatalog = await this.resolveBackgroundCatalog();
     return withCapabilityFamilies({
       editor: {
         projectRead: true,
@@ -301,7 +302,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         playheadWrite: false,
         frameCapture: false,
         playbackControl: false,
-        projectCatalogRead: true,
+        projectCatalogRead: Boolean(backgroundCatalog),
         projectSelection: false,
         projectSelectionMode: "unavailable",
         compositeTransactions: true,

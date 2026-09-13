@@ -586,7 +586,7 @@ test("canonical native provider declares unavailable project selection mode", as
     "adapters/final-cut/typescript/src/canonical.ts",
   ), "utf8");
 
-  assert.match(canonical, /projectCatalogRead: true,\s*projectSelection: false,\s*projectSelectionMode: "unavailable"/);
+  assert.match(canonical, /projectCatalogRead: Boolean\(backgroundCatalog\),\s*projectSelection: false,\s*projectSelectionMode: "unavailable"/);
 });
 
 test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
