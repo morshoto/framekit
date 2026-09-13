@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   FinalCutCanonicalNativeProvider,
+  FinalCutSessionAdapter,
   type FinalCutBackgroundCatalogProvider,
 } from "@framekit/final-cut";
 import type {
+  AgentVideoRuntime,
   ContextRevision,
   EditorChange,
   EditorIdentity,
@@ -13,6 +17,8 @@ import type {
   ProjectSnapshot,
   RuntimeCapabilities,
 } from "@framekit/runtime";
+import { AgentVideoRuntime as Runtime } from "@framekit/runtime";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
   name: "Final Cut Pro",
@@ -101,6 +107,15 @@ function providerFor(
   });
 }
 
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.ok(first);
+  assert.equal(typeof first?.text, "string");
+  return first.text as string;
+}
+
 test("canonical catalog routing uses background data without canonical snapshot export", async () => {
   let snapshotReads = 0;
   const provider = providerFor({
@@ -152,4 +167,28 @@ test("canonical provider fails closed when background project selection is unava
     provider.selectProject({ projectId: "background-project", sequenceId: "background-sequence" }),
     /CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider/,
   );
+});
+
+test("MCP project.list preserves background reconciliation provenance", async () => {
+  const provider = providerFor({
+    backend: "final-cut-background-library",
+    listProjects: async () => catalog(),
+  }, async () => {
+    throw new Error("canonical snapshot must not run");
+  });
+  const runtime: AgentVideoRuntime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const server = createMcpServer(runtime);
+  const client = new Client({ name: "background-catalog-mcp-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const result = JSON.parse(textFrom(await client.callTool({ name: "project.list", arguments: {} }))) as ProjectCatalog;
+    assert.equal(result.provenance?.catalog.backend, "final-cut-background-library");
+    assert.equal(result.provenance?.live?.state.revision.id, "live-1");
+    assert.equal(result.provenance?.reconciliation.status, "matched");
+    assert.equal(result.provenance?.selection.unavailableReason, "project selection is not exposed by the background provider");
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
