@@ -80,3 +80,14 @@ test("native write investigation preserves non-UI and unsupported-operation safe
   assert.match(documentation, /undocumented `?\.fcpbundle`?/i);
   assert.match(documentation, /must not.*SQLite|SQLite.*must not/i);
 });
+
+test("native write investigation is linked from Final Cut integration indexes", async () => {
+  const finalCutReadme = await readFile(join(repositoryRoot, "docs/final-cut/README.md"), "utf8");
+  const bridgeReadme = await readFile(join(
+    repositoryRoot,
+    "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md",
+  ), "utf8");
+
+  assert.match(finalCutReadme, /\[Native write and Undo investigation\]\(\.\/native-write-undo-investigation\.md\)/);
+  assert.match(bridgeReadme, /\[Native write and Undo investigation\]\(\.\.\/\.\.\/\.\.\/\.\.\/docs\/final-cut\/native-write-undo-investigation\.md\)/);
+});
