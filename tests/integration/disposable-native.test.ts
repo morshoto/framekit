@@ -304,6 +304,18 @@ function nativeContext(name: string, edited: boolean): NativeFinalCutContext {
     target: { kind: "selected-clip", name, identity: "native-target-1" },
     bladeAvailable: false,
     undoAvailable: edited,
+    readiness: {
+      state: "ready",
+      nextAction: "none",
+      retryable: false,
+      frontmost: true,
+      timelineFocus: true,
+      selectedTarget: true,
+      overlay: "unknown",
+      permission: "granted",
+      undo: edited ? "available" : "unavailable",
+      guidance: "Native Final Cut readiness is available",
+    },
     ...(edited ? { undoCommand: "Undo Apply Custom Name" } : {}),
   };
 }
