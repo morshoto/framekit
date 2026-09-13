@@ -330,3 +330,38 @@ test("FCPXML publisher prepares a headed-only handoff without opening Final Cut"
   assert.equal(job.artifactDigest, digest(source));
   assert.equal(executorCalled, false);
 });
+
+test("FCPXML publish jobs remain resumable while Final Cut is unavailable", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-waiting-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-waiting" name="Waiting Publish"><sequence uid="sequence-waiting" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: false,
+    sourcePath,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-waiting",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const waiting = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(waiting.jobId, prepared.jobId);
+  assert.equal(waiting.state, "awaiting-final-cut");
+  assert.equal(waiting.nextAction, "retry");
+  assert.equal(waiting.retryable, true);
+  assert.equal(waiting.createdTarget, undefined);
+  assert.deepEqual(waiting.error, {
+    code: "CAPABILITY_UNAVAILABLE",
+    message: "Final Cut project publishing is unavailable; bring Final Cut Pro to the front and retry this job",
+  });
+  assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
+  assert.equal(executorCalled, false);
+});
