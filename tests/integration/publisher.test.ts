@@ -533,3 +533,47 @@ test("FCPXML publish jobs recheck the source digest before execution", async () 
   assert.deepEqual(terminal, failed);
   assert.equal(executorCalled, false);
 });
+
+test("FCPXML publish jobs fail closed without target binding proof", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-binding-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-binding" name="Binding Publish"><sequence uid="sequence-binding" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+    liveState: async () => ({
+      project: { id: "project-before", name: "Existing" },
+      sequence: {
+        id: "sequence-before",
+        name: "Existing",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "1", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-binding",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const failed = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.retryable, false);
+  assert.deepEqual(failed.error, {
+    code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+    message: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted",
+  });
+  assert.equal(failed.createdTarget, undefined);
+  assert.equal(executorCalled, false);
+});
