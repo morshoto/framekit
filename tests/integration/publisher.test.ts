@@ -382,6 +382,7 @@ test("FCPXML publish jobs report success only after live target verification", a
       executorCalls += 1;
       return "imported";
     },
+    targetBinding: async () => ({ projectId: "project-created", sequenceId: "sequence-created" }),
     liveState: async () => {
       liveStateCalls += 1;
       const imported = liveStateCalls > 1;
@@ -438,6 +439,7 @@ test("FCPXML publish jobs resume verification without importing twice", async ()
       executorCalls += 1;
       return "imported";
     },
+    targetBinding: async () => ({ projectId: "project-created", sequenceId: "sequence-created" }),
     liveState: async () => {
       liveStateCalls += 1;
       if (liveStateCalls === 2) throw new Error("temporary bridge unavailable");

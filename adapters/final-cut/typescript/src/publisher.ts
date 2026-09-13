@@ -47,6 +47,11 @@ export interface FinalCutProjectPublishPreparationRequest {
   artifactDigest: string;
 }
 
+export interface FinalCutProjectPublishTargetBinding {
+  projectId: string;
+  sequenceId: string;
+}
+
 export type FinalCutProjectPublishJobState =
   | "awaiting-confirmation"
   | "awaiting-final-cut"
@@ -90,6 +95,8 @@ export interface FinalCutProjectPublisherOptions {
   sourcePath: string;
   executor?: (script: string) => Promise<string>;
   liveState?: () => Promise<EditorLiveState>;
+  /** Supplies the exact target identity reserved by a native publish path. */
+  targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
   verificationTimeoutMs?: number;
   pollIntervalMs?: number;
   /** @deprecated Use pollIntervalMs. */
@@ -99,6 +106,7 @@ export interface FinalCutProjectPublisherOptions {
 interface PublishJobRuntime {
   beforeLive: EditorLiveState;
   identity: { projectName: string; sequenceName: string };
+  targetBinding: FinalCutProjectPublishTargetBinding;
   importedPath?: string;
 }
 
@@ -108,6 +116,7 @@ export class FinalCutProjectPublisher {
   private readonly sourcePath: string;
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
   private readonly verificationTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly publishJobs = new Map<string, FinalCutProjectPublishJob>();
@@ -118,6 +127,7 @@ export class FinalCutProjectPublisher {
     this.sourcePath = options.sourcePath;
     this.executor = options.executor ?? runAppleScript;
     this.liveState = options.liveState;
+    this.targetBinding = options.targetBinding;
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
   }
@@ -199,6 +209,19 @@ export class FinalCutProjectPublisher {
       return this.markFailed(job, error);
     }
 
+    let targetBinding: FinalCutProjectPublishTargetBinding;
+    try {
+      if (!this.targetBinding) {
+        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
+      }
+      targetBinding = await this.targetBinding();
+      if (!targetBinding.projectId.trim() || !targetBinding.sequenceId.trim()) {
+        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: native target binding did not return project and sequence identities; no import was attempted");
+      }
+    } catch (error) {
+      return this.markFailed(job, error);
+    }
+
     let beforeLive: EditorLiveState;
     try {
       beforeLive = await readLiveState(this.liveState, "before import");
@@ -207,7 +230,7 @@ export class FinalCutProjectPublisher {
       return this.markAwaitingFinalCut(job, normalized.code, normalized.message);
     }
 
-    const runtime: PublishJobRuntime = { beforeLive, identity: validated.identity };
+    const runtime: PublishJobRuntime = { beforeLive, identity: validated.identity, targetBinding };
     this.publishJobRuntime.set(job.jobId, runtime);
     job.state = "verification-pending";
     job.nextAction = "status";
@@ -272,6 +295,9 @@ export class FinalCutProjectPublisher {
     runtime?: PublishJobRuntime,
   ): Promise<FinalCutProjectPublishResult> {
     if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
+    if (runtime && !runtime.targetBinding) {
+      throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no stable created-target identity was retained across verification; no publish success was reported");
+    }
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-publish-"));
     const importedPath = join(directory, basename(this.sourcePath));
     if (runtime) runtime.importedPath = importedPath;
@@ -282,6 +308,7 @@ export class FinalCutProjectPublisher {
         this.liveState,
         identity,
         beforeLive,
+        runtime?.targetBinding,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
@@ -300,11 +327,15 @@ export class FinalCutProjectPublisher {
         "Final Cut project state verification is unavailable; retry this job when the live provider is ready",
       );
     }
+    if (!runtime.targetBinding) {
+      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no stable created-target identity was retained across verification; no publish success was reported"));
+    }
     try {
       const live = await waitForImportedProject(
         this.liveState,
         runtime.identity,
         runtime.beforeLive,
+        runtime.targetBinding,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
@@ -558,6 +589,7 @@ async function waitForImportedProject(
   liveState: () => Promise<EditorLiveState>,
   identity: { projectName: string; sequenceName: string },
   before: EditorLiveState,
+  targetBinding: FinalCutProjectPublishTargetBinding | undefined,
   timeoutMs: number,
   pollIntervalMs: number,
 ): Promise<EditorLiveState> {
@@ -568,7 +600,7 @@ async function waitForImportedProject(
     try {
       latest = await readLiveState(liveState, "after import");
       lastError = undefined;
-      if (isImportedProject(latest, identity, before)) return latest;
+      if (isImportedProject(latest, identity, before, targetBinding)) return latest;
     } catch (error) {
       lastError = error;
     }
@@ -579,6 +611,12 @@ async function waitForImportedProject(
   if (lastError) throw lastError;
   const observedProject = latest?.project?.name ?? "none";
   const observedSequence = latest?.sequence?.name ?? "none";
+  if (targetBinding && latest?.project && latest.sequence
+    && (latest.project.id !== targetBinding.projectId || latest.sequence.id !== targetBinding.sequenceId)) {
+    throw new Error(
+      `FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected bound target ${targetBinding.projectId}/${targetBinding.sequenceId}, observed ${latest.project.id}/${latest.sequence.id}`,
+    );
+  }
   throw new Error(
     `FINAL_CUT_PUBLISH_VERIFICATION_FAILED: expected new project ${identity.projectName} / sequence ${identity.sequenceName}, observed ${observedProject} / ${observedSequence}`,
   );
@@ -588,9 +626,12 @@ function isImportedProject(
   live: EditorLiveState,
   identity: { projectName: string; sequenceName: string },
   before: EditorLiveState,
+  targetBinding?: FinalCutProjectPublishTargetBinding,
 ): boolean {
   if (!live.project || !live.sequence) return false;
   if (live.project.name !== identity.projectName || live.sequence.name !== identity.sequenceName) return false;
+  if (targetBinding
+    && (live.project.id !== targetBinding.projectId || live.sequence.id !== targetBinding.sequenceId)) return false;
   if (before.project && live.project.id === before.project.id) return false;
   if (before.sequence && live.sequence.id === before.sequence.id) return false;
   return true;
