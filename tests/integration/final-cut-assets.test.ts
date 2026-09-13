@@ -160,6 +160,24 @@ test("Final Cut asset discovery detects changed template metadata", async () => 
   assert.equal((await registry.listAssets({ kind: "title" }))[0]?.name, "After");
 });
 
+test("Final Cut asset discovery detects changed nested template resources", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-template-resource-cache-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  const resourcePath = join(bundle, "Contents", "Resources", "template.dat");
+  await mkdir(join(bundle, "Contents", "Resources"), { recursive: true });
+  await writeFile(join(bundle, "Contents", "Info.plist"), "<plist />");
+  await writeFile(resourcePath, "before");
+  const registry = new FinalCutAssetRegistry({ roots: [root] });
+
+  const [before] = await registry.listAssets({ kind: "title" });
+  assert.match(String(before?.metadata.sourceDigest), /^sha256:[a-f0-9]{64}$/);
+
+  await writeFile(resourcePath, "after");
+  const [after] = await registry.listAssets({ kind: "title" });
+
+  assert.notEqual(after?.metadata.sourceDigest, before?.metadata.sourceDigest);
+});
+
 test("Final Cut asset discovery composes stable filesystem and native transition identities", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-transition-assets-"));
   const bundle = join(root, "Transitions.localized", "Cross Dissolve.motr");
