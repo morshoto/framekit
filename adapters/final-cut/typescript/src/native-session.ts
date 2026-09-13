@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ContextRevision } from "@framekit/runtime";
+import type {
+  DisposableNativeEditWorkflow,
+  NativeFinalCutDisposableResult,
+} from "./disposable-native.js";
+import type { NativeFinalCutEditor } from "./native.js";
 import type { NativeFinalCutReadiness } from "./native.js";
 
 export type NativeOperationSessionState =
@@ -333,6 +338,55 @@ export class NativeOperationSession {
   }
 }
 
+export interface DisposableNativeOperationSessionOptions {
+  workflow: Pick<DisposableNativeEditWorkflow, "execute" | "getPreview">;
+  native: Pick<NativeFinalCutEditor, "inspect">;
+  now?: () => number;
+  jobTtlMs?: number;
+}
+
+/** Adapts the existing canonical disposable rename workflow to session jobs. */
+export function createDisposableNativeOperationSession(
+  options: DisposableNativeOperationSessionOptions,
+): NativeOperationSession {
+  return new NativeOperationSession({
+    now: options.now,
+    jobTtlMs: options.jobTtlMs,
+    executor: {
+      checkReadiness: async (_request, { signal }) => {
+        const context = await options.native.inspect({ signal });
+        return {
+          readiness: context.readiness,
+          ...(context.error ? { error: { code: context.error.code, message: context.error.message } } : {}),
+        };
+      },
+      revalidate: async (request) => {
+        if (request.operation !== "disposable.rename-clip") {
+          throw new Error(`NATIVE_OPERATION_SESSION_UNSUPPORTED: unsupported operation ${request.operation}`);
+        }
+        const preview = options.workflow.getPreview(request.previewToken);
+        if (!preview) throw new Error("PREVIEW_TOKEN_STALE: disposable native preview is missing or expired");
+        if (preview.projectId !== request.projectId || preview.sequenceId !== request.sequenceId || preview.targetIdentity !== request.targetIdentity) {
+          throw new Error("TARGET_MISMATCH: native session binding does not match the disposable preview");
+        }
+        if (!sameRevision(preview.baseRevision, request.baseRevision)) {
+          throw new Error("STALE_CONTEXT: native session base revision does not match the disposable preview");
+        }
+      },
+      execute: async (request, context) => {
+        const result = await options.workflow.execute(request.previewToken, {
+          signal: context.signal,
+          onMutationStart: context.markMutationStarted,
+        });
+        return {
+          outcome: result.status === "VERIFIED" ? "completed" : "rolled_back",
+          evidence: disposableEvidence(result),
+        };
+      },
+    },
+  });
+}
+
 function validateRequest(request: NativeOperationSessionRequest): void {
   for (const [name, value] of Object.entries({
     operation: request.operation,
@@ -357,6 +411,49 @@ function sameRequest(left: NativeOperationSessionRequest, right: NativeOperation
     && left.targetIdentity === right.targetIdentity
     && left.baseRevision.id === right.baseRevision.id
     && left.baseRevision.sequence === right.baseRevision.sequence;
+}
+
+function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
+  return left.id === right.id && left.sequence === right.sequence;
+}
+
+function disposableEvidence(result: NativeFinalCutDisposableResult): NativeOperationSessionEvidence {
+  const rollbackStatus = result.status === "ROLLED_BACK"
+    ? result.restoredDigest === result.beforeDigest ? "restored" : "failed"
+    : result.undoAvailable ? "available" : "not-required";
+  return {
+    readback: {
+      status: result.status === "VERIFIED" ? "verified" : "unverified",
+      revision: structuredClone(result.after.revision),
+      detail: result.status === "VERIFIED"
+        ? "Canonical read-after-write observed the requested target"
+        : "Canonical read-after-write did not verify the requested target",
+    },
+    diff: {
+      added: result.diff.added.length,
+      removed: result.diff.removed.length,
+      modified: result.diff.modified.length,
+    },
+    verification: {
+      status: result.verification.passed ? "verified" : "failed",
+      checks: result.verification.checks.map((check) => ({
+        name: check.name,
+        passed: check.passed,
+        detail: check.detail,
+      })),
+    },
+    rollback: {
+      status: rollbackStatus,
+      operationId: result.operationId,
+      detail: rollbackStatus === "available"
+        ? "Final Cut Undo is available for this operation"
+        : rollbackStatus === "restored"
+          ? "Canonical readback verified native Undo restoration"
+          : rollbackStatus === "failed"
+            ? "Native rollback did not restore the original canonical digest"
+            : "No native Undo is required for this result",
+    },
+  };
 }
 
 function isTerminal(state: NativeOperationSessionState): boolean {

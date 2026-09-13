@@ -34,9 +34,18 @@ export interface NativeFinalCutDisposablePreview {
   target: {
     clipId: string;
     name: string;
+    identity?: string;
   };
+  projectId: string;
+  sequenceId: string;
+  targetIdentity: string;
   baseRevision: ContextRevision;
   expiresAt: string;
+}
+
+export interface NativeFinalCutDisposableExecutionOptions {
+  signal?: AbortSignal;
+  onMutationStart?: () => void;
 }
 
 export interface NativeFinalCutDisposableResult {
@@ -129,13 +138,40 @@ export class DisposableNativeEditWorkflow {
     return {
       previewToken,
       operation: { type: "rename-selected-clip", name: request.name },
-      target: { clipId: target.id, name: target.name },
+      target: { clipId: target.id, name: target.name, ...(nativeTarget.identity ? { identity: nativeTarget.identity } : {}) },
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+      targetIdentity: target.id,
       baseRevision: structuredClone(before.revision),
       expiresAt: new Date(expiresAt).toISOString(),
     };
   }
 
-  public async execute(previewToken: string): Promise<NativeFinalCutDisposableResult> {
+  public getPreview(previewToken: string): NativeFinalCutDisposablePreview | undefined {
+    const preview = this.previews.get(previewToken);
+    if (!preview) return undefined;
+    if (this.now() >= preview.expiresAt) {
+      this.previews.delete(previewToken);
+      return undefined;
+    }
+    const target = preview.before.timeline.clips.find((clip) => clip.id === preview.request.clipId);
+    if (!target) return undefined;
+    return {
+      previewToken,
+      operation: { type: "rename-selected-clip", name: preview.request.name },
+      target: { clipId: target.id, name: target.name, ...(preview.nativeTarget.identity ? { identity: preview.nativeTarget.identity } : {}) },
+      projectId: preview.before.projectId,
+      sequenceId: preview.before.timeline.id,
+      targetIdentity: target.id,
+      baseRevision: structuredClone(preview.before.revision),
+      expiresAt: new Date(preview.expiresAt).toISOString(),
+    };
+  }
+
+  public async execute(
+    previewToken: string,
+    options: NativeFinalCutDisposableExecutionOptions = {},
+  ): Promise<NativeFinalCutDisposableResult> {
     const preview = this.previews.get(previewToken);
     if (!preview) throw new Error(`PREVIEW_TOKEN_INVALID: unknown or already used preview ${previewToken}`);
     this.previews.delete(previewToken);
@@ -149,9 +185,13 @@ export class DisposableNativeEditWorkflow {
     if (!currentTarget || currentTarget.name !== preview.before.timeline.clips.find((clip) => clip.id === preview.request.clipId)?.name) {
       throw new Error("TARGET_MISMATCH: canonical target changed after disposable native preview");
     }
-    await this.assertNativeTarget(current, currentTarget.name, preview.nativeTarget);
+    await this.assertNativeTarget(current, currentTarget.name, preview.nativeTarget, options.signal);
 
-    const native = await this.options.native.edit({ type: "rename-selected-clip", name: preview.request.name });
+    options.onMutationStart?.();
+    const native = await this.options.native.edit(
+      { type: "rename-selected-clip", name: preview.request.name },
+      { signal: options.signal },
+    );
     let after: ProjectSnapshot;
     try {
       after = await this.readCanonical("read-after-write");
@@ -268,10 +308,11 @@ export class DisposableNativeEditWorkflow {
     snapshot: ProjectSnapshot,
     expectedName: string,
     previousTarget?: NativeFinalCutContext["target"],
+    signal?: AbortSignal,
   ): Promise<NativeFinalCutContext["target"]> {
     const capabilities = this.options.native.capabilities();
     assertNativeCapabilities(capabilities);
-    const context = await this.options.native.inspect();
+    const context = await this.options.native.inspect({ signal });
     if (!context.available || !context.frontmost || !context.timelineWindowAvailable || !context.timelineFocused) {
       throw new Error("CAPABILITY_UNAVAILABLE: disposable native timeline preflight");
     }

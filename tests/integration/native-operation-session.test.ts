@@ -396,7 +396,7 @@ function createDisposableState(): DisposableState {
     inspect: async () => state.nativeReady
       ? disposableNativeContext(state.selectedName, state.nativeEditCalls > 0)
       : unavailableDisposableNativeContext(),
-    edit: async (operation) => {
+    edit: async (operation: Extract<import("@framekit/final-cut").NativeFinalCutEdit, { type: "rename-selected-clip" }>) => {
       state.nativeEditCalls += 1;
       state.selectedName = operation.name;
       return {
@@ -410,7 +410,7 @@ function createDisposableState(): DisposableState {
         undoCommand: "Undo Apply Custom Name",
       };
     },
-    undo: async (operationId) => {
+    undo: async (operationId: string) => {
       state.nativeUndoCalls += 1;
       state.selectedName = "Interview";
       return {
