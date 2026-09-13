@@ -483,3 +483,47 @@ test("FCPXML publish jobs resume verification without importing twice", async ()
   assert.equal(executorCalls, 1);
   assert.equal(liveStateCalls, 3);
 });
+
+test("FCPXML publish jobs recheck the source digest before execution", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-digest-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-digest" name="Digest Publish"><sequence uid="sequence-digest" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+    liveState: async () => ({
+      project: { id: "project-before", name: "Existing" },
+      sequence: {
+        id: "sequence-before",
+        name: "Existing",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "1", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-digest",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+  await writeFile(sourcePath, `${source}\nchanged`);
+
+  const failed = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.retryable, false);
+  assert.deepEqual(failed.error, {
+    code: "PUBLISH_SOURCE_CHANGED",
+    message: "PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed after transaction verification",
+  });
+  assert.equal(failed.createdTarget, undefined);
+  assert.equal(executorCalled, false);
+});
