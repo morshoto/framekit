@@ -324,6 +324,32 @@ test("disposable native session retries readiness and exposes sanitized canonica
   assert.doesNotMatch(JSON.stringify(status), /interview\.mov/);
 });
 
+test("disposable native session exposes verified restoration after a failed mutation", async () => {
+  const state = createDisposableState();
+  state.canonicalAfterEditName = "Unexpected result";
+  const workflow = createDisposableWorkflow(state);
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+  const session = createDisposableNativeOperationSession({ workflow, native: state.native });
+  const accepted = await session.submit({
+    operation: "disposable.rename-clip",
+    previewToken: preview.previewToken,
+    projectId: preview.projectId,
+    sequenceId: preview.sequenceId,
+    targetIdentity: preview.targetIdentity,
+    baseRevision: preview.baseRevision,
+    idempotencyKey: "disposable-request-rollback",
+  });
+
+  await eventually(() => session.status(accepted.jobId).state === "rolled_back", "failed mutation did not roll back");
+  const status = session.status(accepted.jobId);
+  assert.equal(status.completed, false);
+  assert.equal(status.verified, false);
+  assert.equal(status.restored, true);
+  assert.equal(status.evidence?.verification.status, "failed");
+  assert.equal(status.evidence?.rollback.status, "restored");
+  assert.equal(state.nativeUndoCalls, 1);
+});
+
 test("disposable native session rejects a changed preview binding before native mutation", async () => {
   const state = createDisposableState();
   const workflow = createDisposableWorkflow(state);
