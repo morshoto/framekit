@@ -1322,6 +1322,49 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken, { signal: extra.signal }));
   });
 
+  server.registerTool("artifact.publish.preview", {
+    description: "Prepare a headed-only publish handoff for a verified FCPXML artifact without opening Final Cut.",
+    inputSchema: {
+      artifactPath: z.string().trim().min(1),
+      transactionId: z.string().min(1),
+    },
+  }, async ({ artifactPath, transactionId }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const transaction = runtime.getTransaction(transactionId);
+    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    }
+    if (!transaction.artifactDigest) {
+      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    }
+    const verification = await runtime.verifyTransaction(transactionId);
+    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+    return jsonResult(await options.projectPublisher.preparePublish({
+      sourceTransactionId: transactionId,
+      artifactPath,
+      artifactDigest: transaction.artifactDigest,
+    }));
+  });
+
+  server.registerTool("artifact.publish.execute", {
+    description: "Execute a prepared artifact publish job after explicit confirmation and return only a verified or resumable state.",
+    inputSchema: {
+      jobId: z.string().trim().min(1),
+      confirm: z.literal(true),
+    },
+  }, async ({ jobId, confirm }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm));
+  });
+
+  server.registerTool("artifact.publish.status", {
+    description: "Read the current state of a prepared artifact publish job without opening Final Cut or retrying it.",
+    inputSchema: { jobId: z.string().trim().min(1) },
+  }, async ({ jobId }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    return jsonResult(options.projectPublisher.getPublishJob(jobId));
+  });
+
   server.registerTool("artifact.publish", {
     description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project; requires explicit confirmation.",
     inputSchema: artifactPublishInputSchema,
