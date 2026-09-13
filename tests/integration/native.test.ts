@@ -785,9 +785,11 @@ test("native Undo fails closed when Final Cut has no enabled Undo command", asyn
         : "";
     },
   });
-  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
-  assert.equal(result.undoAvailable, false);
-  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
+  await assert.rejects(
+    adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }),
+    /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/,
+  );
+  assert.equal(renamed, false);
   await assert.rejects(adapter.undo("native-op-missing"), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
 });
 
@@ -991,6 +993,32 @@ test("native inspect propagates caller cancellation to the native executor", asy
   assert.equal(inspected.error?.state, "cancelled");
   assert.equal(inspected.readiness.state, "cancelled");
   assert.equal(inspected.readiness.firstMissing, undefined);
+});
+
+test("native inspect blocks readiness without a target or Undo", async () => {
+  const noTarget = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "", -1, false)
+      : "",
+  });
+  const noTargetInspection = await noTarget.inspect();
+  assert.equal(noTargetInspection.readiness.state, "unavailable");
+  assert.equal(noTargetInspection.readiness.firstMissing, "target");
+  assert.equal(noTargetInspection.readiness.selectedTarget, false);
+  assert.equal(noTargetInspection.readiness.undo, "unavailable");
+
+  const noUndo = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 1, false)
+      : "",
+  });
+  const noUndoInspection = await noUndo.inspect();
+  assert.equal(noUndoInspection.readiness.state, "unavailable");
+  assert.equal(noUndoInspection.readiness.firstMissing, "undo");
+  assert.equal(noUndoInspection.readiness.selectedTarget, true);
+  assert.equal(noUndoInspection.readiness.undo, "unavailable");
 });
 
 test("native Final Cut focus uses semantic candidates and returns diagnostics without editing", async () => {
