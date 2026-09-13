@@ -1462,7 +1462,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.maskPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native mask preview has expired");
 
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
@@ -1562,7 +1562,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!preview) throw new Error(`FINAL_CUT_NATIVE_PREVIEW_STALE: unknown Blade preview ${previewToken}`);
     this.bladePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade preview has expired");
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
     if (before.target.name && before.target.name !== preview.occurrence.name) {
@@ -1791,7 +1791,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.transitionPreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native transition preview has expired");
 
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     validateTransitionPreviewBinding(preview, beforeLive);
     const frameDuration = beforeLive.sequence?.frameDuration;
@@ -1967,7 +1967,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.titlePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native title preview has expired");
 
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     this.validateTitleBinding(preview, beforeLive);
     const startTimecode = this.toTimecode(preview.start, beforeLive);
@@ -2113,7 +2113,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (this.selectedMediaHandle !== preview.mediaHandle) {
       throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before picture-in-picture placement");
     }
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     validatePictureInPicturePreviewBinding(preview, beforeLive);
     const anchorOccurrence = this.occurrenceHandles.get(preview.anchorOccurrence.handle) ?? preview.anchorOccurrence;
@@ -2302,7 +2302,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (preview.selectionMode === "handle" && this.selectedMediaHandle !== preview.mediaHandle) {
       throw new Error("FINAL_CUT_NATIVE_MEDIA_SELECTION_REQUIRED: selected Browser media changed before insertion");
     }
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     this.validateMediaInsertionBinding(preview, beforeLive);
     if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
@@ -2473,7 +2473,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.rangePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: range preview has expired");
     if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
-    const before = await this.requireTimelineContext();
+    const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
     this.validateRangeBinding(preview, beforeLive);
     const rangeDuration = subtractRational(preview.range.end, preview.range.start);
@@ -2858,10 +2858,26 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (requiresClip(operation) && context.target.kind !== "selected-clip") {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one clip in Final Cut Pro");
     }
-    if (!requiresClip(operation) && context.target.kind === "none") {
+    if (!requiresClip(operation) && (context.target.kind === "none" || context.target.kind === "unknown")) {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead in Final Cut Pro");
     }
+    this.assertNativeWriteContext(context);
     return context;
+  }
+
+  private async requireNativeWriteContext(): Promise<NativeFinalCutContext> {
+    const context = await this.requireTimelineContext();
+    this.assertNativeWriteContext(context);
+    return context;
+  }
+
+  private assertNativeWriteContext(context: NativeFinalCutContext): void {
+    if (!context.readiness.selectedTarget) {
+      throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead or select a timeline target in Final Cut Pro");
+    }
+    if (!context.undoAvailable) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command; native writes require an available Undo command");
+    }
   }
 
   private async requireTimelineContext(): Promise<NativeFinalCutContext> {
@@ -5986,11 +6002,12 @@ function reconcileTimelineFocus(context: NativeFinalCutContext): NativeFinalCutC
   );
   if (focusTarget === "unknown" && !focusedWindowMismatch) return context;
 
-  return {
+  const reconciled = {
     ...context,
     timelineFocused: false,
     focusTarget,
   };
+  return { ...reconciled, readiness: readinessForContext(reconciled) };
 }
 
 function classifyNativeFocusTarget(
@@ -6333,8 +6350,9 @@ function readinessForContext(context: {
   overlayBlocked?: boolean;
   error?: NativeFinalCutContext["error"];
 }): NativeFinalCutReadiness {
+  const selectedTarget = context.target.kind !== "none" && context.target.kind !== "unknown";
   const state = context.error?.state
-    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked
+    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget && context.undoAvailable
       ? "ready"
       : "unavailable");
   const overlay = context.overlayBlocked
@@ -6356,7 +6374,11 @@ function readinessForContext(context: {
             ? "frontmost"
             : !context.timelineFocused
               ? "timeline-focus"
-              : undefined;
+              : !selectedTarget
+                ? "target"
+                : !context.undoAvailable
+                  ? "undo"
+                  : undefined;
   const retryable = context.error?.retryable ?? state !== "ready";
   const nextAction = state === "ready"
     ? "none"
@@ -6372,13 +6394,17 @@ function readinessForContext(context: {
           ? "Bring Final Cut Pro to the front and retry"
           : firstMissing === "timeline-focus"
             ? "Focus the Final Cut Pro timeline and retry"
-            : state === "timeout"
-              ? "Final Cut did not respond before the native deadline; retry"
-              : state === "cancelled"
-                ? "The native request was cancelled; retry when ready"
-                : state === "stale"
-                  ? "The native target is stale; inspect and preview again"
-                  : "Native Final Cut readiness is unavailable; inspect and retry");
+            : firstMissing === "target"
+              ? "Select a single timeline target and retry"
+              : firstMissing === "undo"
+                ? "Enable an Undo command in Final Cut Pro and retry"
+                : state === "timeout"
+                  ? "Final Cut did not respond before the native deadline; retry"
+                  : state === "cancelled"
+                    ? "The native request was cancelled; retry when ready"
+                    : state === "stale"
+                      ? "The native target is stale; inspect and preview again"
+                      : "Native Final Cut readiness is unavailable; inspect and retry");
   return {
     state,
     nextAction,
@@ -6386,7 +6412,7 @@ function readinessForContext(context: {
     ...(firstMissing ? { firstMissing } : {}),
     frontmost: context.frontmost,
     timelineFocus: context.timelineFocused,
-    selectedTarget: context.target.kind !== "none" && context.target.kind !== "unknown",
+    selectedTarget,
     overlay,
     permission: context.error?.code.includes("PERMISSION") ? "required" : context.available ? "granted" : "unknown",
     undo: context.available ? context.undoAvailable ? "available" : "unavailable" : "unknown",
