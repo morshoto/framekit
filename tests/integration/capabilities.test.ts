@@ -117,6 +117,47 @@ test("background family does not infer native evidence from editor flags", () =>
   assert.equal(capabilities.families.export.background.evidenceTier, undefined);
 });
 
+test("background library capability reports observed provider provenance", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      projectCatalogRead: true,
+      backgroundLibraryInspection: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, {
+    backend: "final-cut-session",
+    observation: {
+      library: {
+        available: true,
+        backend: "final-cut-background-library",
+        guarantee: "observed",
+      },
+    },
+  });
+
+  assert.deepEqual(capabilities.families.observation.library, {
+    available: true,
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.families.canonicalDocument.read.available, false);
+});
+
+test("background library capability is unavailable without explicit provider support", () => {
+  const capabilities = withCapabilityFamilies(metadataOnlyCapabilities, {
+    backend: "workflow-extension-ipc",
+  });
+
+  assert.deepEqual(capabilities.families.observation.library, {
+    available: false,
+    backend: "workflow-extension-ipc",
+    guarantee: "none",
+    unavailableReason: "background library inspection is unavailable",
+  });
+});
+
 test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
   const canonicalWrite = withCapabilityFamilies({
     editor: {

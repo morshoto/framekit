@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { RuntimeCapabilities } from "@framekit/runtime";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, withCapabilityFamilies } from "@framekit/runtime";
 import { FinalCutProjectPublisher } from "@framekit/final-cut";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -124,6 +124,82 @@ test("routing reports missing capabilities before choosing an editing path", () 
     "editor.timelineSnapshotRead",
     "editor.timelineWrite|editor.timelineArtifactWrite",
   ]);
+});
+
+test("routing selects the background library for metadata-only project listing", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      projectRead: false,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      readAfterWrite: false,
+      rollback: false,
+      liveStateRead: true,
+      projectCatalogRead: true,
+      backgroundLibraryInspection: true,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, {
+    backend: "final-cut-session",
+    observation: {
+      library: {
+        available: true,
+        backend: "final-cut-background-library",
+        guarantee: "observed",
+      },
+    },
+  });
+
+  const route = resolveEditingRoute({ operation: "project.list" }, context({
+    editor: {
+      identity: { name: "Final Cut Pro", version: "test", backend: "final-cut-session" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "background");
+  assert.deepEqual(route.provider, {
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
+});
+
+test("routing explains missing canonical snapshot support", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      projectRead: false,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      projectCatalogRead: false,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, { backend: "workflow-extension-ipc" });
+
+  const route = resolveEditingRoute({ operation: "project.inspect" }, context({
+    editor: {
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.reason.unavailable?.category, "canonical-snapshot");
+  assert.equal(route.reason.unavailable?.capability, "canonicalDocument.read");
+  assert.match(route.reason.unavailable?.message ?? "", /canonical snapshot/i);
+});
+
+test("routing explains missing native UI access", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: false, timelineFocus: false, undo: false },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.reason.unavailable?.category, "native-ui");
+  assert.equal(route.reason.unavailable?.capability, "native.selectionEdit");
+  assert.match(route.reason.unavailable?.message ?? "", /native UI/i);
 });
 
 test("routing permits an advertised artifact editor without a live connection", () => {
