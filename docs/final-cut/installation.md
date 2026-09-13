@@ -230,8 +230,10 @@ object identifies the first missing requirement, whether retry is useful, and
 the frontmost, timeline-focus, target, permission, and overlay states.
 
 Explicit timeline-native previews and executions may activate Final Cut and
-focus the timeline. Browser search also requires a labelled Browser or Events
-Accessibility relationship; it does not use ambiguous screen-coordinate
+focus the timeline. Browser search accepts a labelled Browser or Events
+Accessibility relationship, or the current layout's Accessibility-labelled
+`toggle search bar` control. Framekit activates that control and uses the
+focused Browser text field; it does not use ambiguous screen-coordinate
 fallback. Background media and Motion-template discovery are
 filesystem-observed metadata and do not prove canonical timeline state or native
 placement. `editor.assets` uses filesystem discovery by default; native Titles
