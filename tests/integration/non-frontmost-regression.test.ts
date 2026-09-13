@@ -341,3 +341,30 @@ function textFrom(result: unknown): string {
   assert.equal(typeof first?.text, "string");
   return first?.text as string;
 }
+
+test("non-frontmost regression gate is documented and separately runnable", async () => {
+  const [documentation, packageJson, runner] = await Promise.all([
+    readFile(join(process.cwd(), "docs/tests/non-frontmost-regression.md"), "utf8"),
+    readFile(join(process.cwd(), "package.json"), "utf8").then(JSON.parse) as Promise<{ scripts?: Record<string, string> }>,
+    readFile(join(process.cwd(), "scripts/final-cut-background-regression-headed-e2e.mjs"), "utf8"),
+  ]);
+
+  assert.match(documentation, /required regression gate/i);
+  assert.match(documentation, /provider and routing/i);
+  assert.match(documentation, /pnpm run test/);
+  assert.match(documentation, /pnpm run test:final-cut-background-headed/);
+  assert.equal(
+    packageJson.scripts?.["test:final-cut-background-headed"],
+    "node scripts/final-cut-background-regression-headed-e2e.mjs",
+  );
+  for (const term of [
+    "FRAMEKIT_FCPXML_PATH",
+    "FRAMEKIT_FINAL_CUT_HEADLESS",
+    "FRAMEKIT_FINAL_CUT_NATIVE_WRITES",
+    "System Events",
+    "frontmost",
+    "timeline",
+    "CAPABILITY_UNAVAILABLE",
+  ]) assert.match(runner, new RegExp(term.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")), term);
+  assert.doesNotMatch(runner, /fcpbundle|SQLite/i);
+});
