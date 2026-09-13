@@ -353,6 +353,37 @@ test("native session reports recovery-required cancellation after mutation start
   assert.equal(status.error?.recovery, "required");
 });
 
+test("native session requires recovery when cancellation races completion", async () => {
+  let resolveStarted!: () => void;
+  let resolveExecution!: () => void;
+  const executionStarted = new Promise<void>((resolve) => {
+    resolveStarted = resolve;
+  });
+  const executionCanComplete = new Promise<void>((resolve) => {
+    resolveExecution = resolve;
+  });
+  const session = new NativeOperationSession({
+    executor: executor({
+      execute: async (_request, context) => {
+        context.markMutationStarted();
+        resolveStarted();
+        await executionCanComplete;
+        return { outcome: "completed", evidence };
+      },
+    }),
+  });
+  const accepted = await session.submit(request());
+  await executionStarted;
+
+  await session.cancel(accepted.jobId);
+  resolveExecution();
+  await eventually(() => session.status(accepted.jobId).state === "failed", "cancellation race did not fail closed");
+  const status = session.status(accepted.jobId);
+  assert.equal(status.completed, false);
+  assert.equal(status.error?.code, "NATIVE_OPERATION_CANCELLATION_REQUIRES_RECOVERY");
+  assert.equal(status.error?.recovery, "required");
+});
+
 test("native session fails closed on an unverifiable completed result", async () => {
   const unverifiedEvidence = structuredClone(evidence);
   unverifiedEvidence.readback.status = "unverified";
