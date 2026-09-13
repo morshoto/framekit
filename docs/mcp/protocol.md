@@ -44,3 +44,10 @@ Workflow Extension currently returns `CAPABILITY_UNAVAILABLE` for those
 methods because its public host API exposes only the active sequence; it does
 not fabricate a project browser. The socket is local-only and is created by
 the sandboxed Workflow Extension, not by MCP.
+
+An injected background library provider is a separate read-only catalog source.
+When present, `project.list` can return library projects while Final Cut is not
+frontmost; the result retains catalog provenance, observed live revision and
+rational timing values, and stable-ID reconciliation status. This source does
+not enable `select-project` and does not upgrade metadata-only state to a
+canonical timeline snapshot.

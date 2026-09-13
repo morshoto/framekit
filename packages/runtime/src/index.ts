@@ -6,6 +6,7 @@ export * from "./editing/intent.js";
 export * from "./editing/duration-policy.js";
 export * from "./capabilities.js";
 export * from "./timeline/snapshot-digest.js";
+export * from "./context/project-catalog.js";
 export * from "./speech/filler-removal.js";
 export * from "./audio/dialogue-normalization.js";
 export * from "./audio/noise-reduction.js";

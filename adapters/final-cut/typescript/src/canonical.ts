@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
-  createProjectSelectionResult,
+  reconcileProjectCatalog,
+  validateProjectCatalog,
   withCapabilityFamilies,
   type ContextRevision,
   type EditorChange,
@@ -38,11 +39,21 @@ export type CanonicalNativeTargetResolver = (
   snapshot: ProjectSnapshot,
 ) => Promise<void>;
 
+export interface FinalCutBackgroundCatalogProvider {
+  listProjects(): Promise<ProjectCatalog>;
+  backend?: string;
+}
+
 export interface FinalCutCanonicalNativeProviderOptions {
-  live: LiveEditorStatePort & { getIdentity(): Promise<EditorIdentity> };
+  live: LiveEditorStatePort & {
+    getIdentity(): Promise<EditorIdentity>;
+    getCapabilities?(): Promise<RuntimeCapabilities>;
+    listProjects?(): Promise<ProjectCatalog>;
+  };
   native: CanonicalNativeMutationPort;
   readSnapshot: () => Promise<ProjectSnapshot>;
   resolveTarget: CanonicalNativeTargetResolver;
+  backgroundCatalog?: FinalCutBackgroundCatalogProvider;
 }
 
 export interface FinalCutCanonicalSnapshotSourceOptions {
@@ -237,6 +248,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private readonly native: CanonicalNativeMutationPort;
   private readonly readSnapshotSource: () => Promise<ProjectSnapshot>;
   private readonly resolveTarget: CanonicalNativeTargetResolver;
+  private readonly backgroundCatalog?: FinalCutBackgroundCatalogProvider;
   private lastDigest?: string;
   private lastSnapshot?: ProjectSnapshot;
   private revisionSequence = 0;
@@ -248,6 +260,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     this.native = options.native;
     this.readSnapshotSource = options.readSnapshot;
     this.resolveTarget = options.resolveTarget;
+    this.backgroundCatalog = options.backgroundCatalog;
   }
 
   public async getIdentity(): Promise<EditorIdentity> {
@@ -410,6 +423,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
+    const backgroundCatalog = await this.resolveBackgroundCatalog();
+    if (backgroundCatalog) return this.readBackgroundCatalog(backgroundCatalog);
     const snapshot = await this.readProject();
     return {
       projects: [{
@@ -423,22 +438,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
-    const snapshot = await this.readProject();
-    const catalog: ProjectCatalog = {
-      projects: [{
-        id: snapshot.projectId,
-        name: snapshot.projectName,
-        sequences: [{ id: snapshot.timeline.id, name: snapshot.timeline.name }],
-      }],
-      activeProjectId: snapshot.projectId,
-      activeSequenceId: snapshot.timeline.id,
-    };
-    const project = catalog.projects.find(({ id }) => id === selection.projectId);
-    if (!project) throw new Error(`TARGET_MISMATCH: active project is not ${selection.projectId}`);
-    const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
-    if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: sequenceId is required for ${selection.projectId}`);
-    if (sequenceId !== catalog.activeSequenceId) throw new Error(`TARGET_MISMATCH: active sequence is not ${sequenceId}`);
-    return createProjectSelectionResult(catalog, selection, snapshot.revision);
+    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider");
   }
 
   public async readLiveState(): Promise<EditorLiveState> {
@@ -456,6 +456,60 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
     if (live.sequence && live.sequence.name !== snapshot.timeline.name) {
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
+    }
+  }
+
+  private async resolveBackgroundCatalog(): Promise<FinalCutBackgroundCatalogProvider | undefined> {
+    if (this.backgroundCatalog) return this.backgroundCatalog;
+    if (!this.live.listProjects || !this.live.getCapabilities) return undefined;
+    try {
+      const capabilities = await this.live.getCapabilities();
+      if (!capabilities.editor.projectCatalogRead) return undefined;
+      const identity = await this.live.getIdentity();
+      return {
+        backend: identity.backend,
+        listProjects: () => this.live.listProjects!(),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async readBackgroundCatalog(provider: FinalCutBackgroundCatalogProvider): Promise<ProjectCatalog> {
+    const before = await this.readLiveStateSafely();
+    const catalog = await provider.listProjects();
+    validateProjectCatalog(catalog);
+    const after = await this.readLiveStateSafely();
+    const liveIdentity = before && after ? await this.live.getIdentity() : undefined;
+    return reconcileProjectCatalog(catalog, {
+      ...(before && after ? { before, after } : {}),
+      provenance: {
+        catalog: {
+          source: "background-library",
+          backend: provider.backend ?? "final-cut-background-library",
+          guarantee: "observed",
+        },
+        ...(liveIdentity ? {
+          live: {
+            source: "live-socket",
+            backend: liveIdentity.backend,
+            guarantee: "observed" as const,
+          },
+        } : {}),
+        selection: {
+          available: false,
+          mode: "unavailable",
+          unavailableReason: "project selection is not exposed by the background provider",
+        },
+      },
+    });
+  }
+
+  private async readLiveStateSafely(): Promise<EditorLiveState | undefined> {
+    try {
+      return await this.live.readLiveState();
+    } catch {
+      return undefined;
     }
   }
 }
