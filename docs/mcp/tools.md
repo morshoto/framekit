@@ -237,6 +237,12 @@ the active IDs. Background catalog discovery never upgrades metadata-only data
 to canonical timeline evidence, and project selection remains unavailable until
 a provider can prove a supported non-UI selection transition.
 
+The canonical native provider does not synthesize `project.list` from its
+headed canonical snapshot. If no background catalog provider is available,
+`project.list` fails with structured `CAPABILITY_UNAVAILABLE` metadata naming
+canonical `File > Export XML` as the first headed requirement; use
+`project.inspect` when a complete canonical snapshot is intended.
+
 On successful `project.select`, the response retains the catalog's active ID
 fields and adds `requestedTarget`, `observedActiveTarget`, and
 `observedRevision`. The observed target and revision are read back after the
