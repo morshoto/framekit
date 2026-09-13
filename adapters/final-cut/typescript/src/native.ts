@@ -6344,17 +6344,19 @@ function readinessForContext(context: {
       : context.framekitWindowMinimized === false
         ? "blocked"
         : "clear";
-  const firstMissing = context.error?.code.includes("PERMISSION")
-    ? "permission"
-    : !context.timelineWindowAvailable
-      ? "timeline-window"
-      : context.overlayBlocked
-        ? "overlay"
-        : !context.frontmost
-          ? "frontmost"
-          : !context.timelineFocused
-            ? "timeline-focus"
-            : undefined;
+  const firstMissing = state === "timeout" || state === "cancelled" || state === "stale"
+    ? undefined
+    : context.error?.code.includes("PERMISSION")
+      ? "permission"
+      : !context.timelineWindowAvailable
+        ? "timeline-window"
+        : context.overlayBlocked
+          ? "overlay"
+          : !context.frontmost
+            ? "frontmost"
+            : !context.timelineFocused
+              ? "timeline-focus"
+              : undefined;
   const retryable = context.error?.retryable ?? state !== "ready";
   const nextAction = state === "ready"
     ? "none"
