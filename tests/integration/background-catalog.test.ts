@@ -239,7 +239,7 @@ test("normal live sessions reconcile project catalogs before returning them", as
   });
 });
 
-test.skip("sessions expose an explicitly injected background catalog beside metadata-only live state", async () => {
+test("sessions expose an explicitly injected background catalog beside metadata-only live state", async () => {
   const session = new FinalCutSessionAdapter({
     live: {
       ...live,
@@ -258,7 +258,6 @@ test.skip("sessions expose an explicitly injected background catalog beside meta
         },
       }),
     },
-    // @ts-expect-error review regression: the session must accept this provider.
     backgroundCatalog: {
       backend: "final-cut-background-library",
       listProjects: async () => catalog(),

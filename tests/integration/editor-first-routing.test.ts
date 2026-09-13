@@ -166,7 +166,7 @@ test("routing selects the background library for metadata-only project listing",
   });
 });
 
-test.skip("routing does not treat canonical artifact observation as live state", () => {
+test("routing does not treat canonical artifact observation as live state", () => {
   const capabilities = withCapabilityFamilies({
     editor: {
       ...canonicalCapabilities.editor,
@@ -191,7 +191,7 @@ test.skip("routing does not treat canonical artifact observation as live state",
   assert.equal(route.reason.unavailable?.capability, "observation.timeline");
 });
 
-test.skip("routing does not use canonical snapshots as a background library", () => {
+test("routing does not use canonical snapshots as a background library", () => {
   const capabilities = withCapabilityFamilies({
     editor: {
       ...canonicalCapabilities.editor,
