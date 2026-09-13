@@ -55,6 +55,15 @@ export class FinalCutAssetRegistry {
     const discovery = query?.discovery ?? "background";
     const filesystemAssets = discovery === "native" ? [] : filterAssets(this.cached.assets, query);
     if (discovery === "background") return filesystemAssets;
+    if (discovery === "native" && query?.kind === "title" && !this.nativeTitleProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native title discovery is not configured");
+    }
+    if (discovery === "native" && query?.kind === "transition" && !this.nativeTransitionProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native transition discovery is not configured");
+    }
+    if (discovery === "native" && !query?.kind && !this.nativeTitleProvider && !this.nativeTransitionProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native asset discovery is not configured");
+    }
     let nativeTitleAssets: EditorAsset[] = [];
     let nativeTransitionAssets: EditorAsset[] = [];
     let nativeTitleError: unknown;
