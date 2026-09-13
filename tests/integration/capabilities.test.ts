@@ -579,3 +579,15 @@ test("project selection decision records API and runtime evidence", async () => 
   assert.match(decision, /CAPABILITY_UNAVAILABLE/);
   assert.match(decision, /projectSelectionMode/);
 });
+
+test("headed project selection gate verifies transition evidence", async () => {
+  const runner = await readFile(join(
+    process.cwd(),
+    "scripts/final-cut-project-selection-headed-e2e.mjs",
+  ), "utf8");
+
+  assert.match(runner, /projectSelectionMode/);
+  assert.match(runner, /requestedTarget/);
+  assert.match(runner, /observedActiveTarget/);
+  assert.match(runner, /observedRevision/);
+});
