@@ -52,6 +52,34 @@ export interface ProjectSelection {
   sequenceId?: string;
 }
 
+export interface ProjectSelectionResult extends ProjectCatalog {
+  requestedTarget: ProjectSelection;
+  observedActiveTarget: {
+    projectId: string;
+    sequenceId: string;
+  };
+  observedRevision: ContextRevision;
+}
+
+export function createProjectSelectionResult(
+  catalog: ProjectCatalog,
+  requestedTarget: ProjectSelection,
+  observedRevision: ContextRevision,
+): ProjectSelectionResult {
+  if (!catalog.activeProjectId || !catalog.activeSequenceId) {
+    throw new Error("TARGET_MISMATCH: project selection did not produce an active target");
+  }
+  return {
+    ...catalog,
+    requestedTarget: { ...requestedTarget },
+    observedActiveTarget: {
+      projectId: catalog.activeProjectId,
+      sequenceId: catalog.activeSequenceId,
+    },
+    observedRevision: { ...observedRevision },
+  };
+}
+
 export type EditorChangeKind =
   | "active-sequence-changed"
   | "playhead-changed"

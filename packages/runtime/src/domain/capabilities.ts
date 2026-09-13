@@ -6,6 +6,8 @@ export interface EditorIdentity {
   backend: string;
 }
 
+export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";
+
 export interface EditorCapabilities {
   /** Derived canonical guarantee exposed to agents; omitted only by legacy adapters. */
   canonicalTimelineMode?: "metadata-only" | "canonical-read" | "canonical-write";
@@ -30,6 +32,8 @@ export interface EditorCapabilities {
   projectCatalogRead?: boolean;
   /** The backend can select a project and, when needed, one of its sequences. */
   projectSelection?: boolean;
+  /** How project selection is performed, independent of canonical mutation guarantees. */
+  projectSelectionMode?: ProjectSelectionMode;
   /** The backend can atomically preview and apply ordered workflow operations. */
   compositeTransactions?: boolean;
   /** The backend can export the active timeline to a verified local video file. */

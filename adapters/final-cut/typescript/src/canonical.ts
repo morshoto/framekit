@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
+  createProjectSelectionResult,
   withCapabilityFamilies,
   type ContextRevision,
   type EditorChange,
@@ -15,6 +16,7 @@ import {
   type LiveEditorStatePort,
   type ProjectCatalog,
   type ProjectSelection,
+  type ProjectSelectionResult,
   type ProjectSnapshot,
   type RuntimeCapabilities,
   type WorkflowOperation,
@@ -269,7 +271,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         frameCapture: false,
         playbackControl: false,
         projectCatalogRead: true,
-        projectSelection: true,
+        projectSelection: false,
+        projectSelectionMode: "unavailable",
         compositeTransactions: true,
       },
       analyzers: {
@@ -419,14 +422,23 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     };
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
-    const catalog = await this.listProjects();
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
+    const snapshot = await this.readProject();
+    const catalog: ProjectCatalog = {
+      projects: [{
+        id: snapshot.projectId,
+        name: snapshot.projectName,
+        sequences: [{ id: snapshot.timeline.id, name: snapshot.timeline.name }],
+      }],
+      activeProjectId: snapshot.projectId,
+      activeSequenceId: snapshot.timeline.id,
+    };
     const project = catalog.projects.find(({ id }) => id === selection.projectId);
     if (!project) throw new Error(`TARGET_MISMATCH: active project is not ${selection.projectId}`);
     const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
     if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: sequenceId is required for ${selection.projectId}`);
     if (sequenceId !== catalog.activeSequenceId) throw new Error(`TARGET_MISMATCH: active sequence is not ${sequenceId}`);
-    return catalog;
+    return createProjectSelectionResult(catalog, selection, snapshot.revision);
   }
 
   public async readLiveState(): Promise<EditorLiveState> {

@@ -29,7 +29,11 @@ try {
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
   const capabilities = editor.capabilities?.editor;
-  if (capabilities?.projectCatalogRead !== true || capabilities.projectSelection !== true) {
+  if (
+    capabilities?.projectCatalogRead !== true
+    || capabilities.projectSelection !== true
+    || !["background-capable", "headed-only"].includes(capabilities.projectSelectionMode)
+  ) {
     throw new Error("CAPABILITY_UNAVAILABLE: live project selection requires projectCatalogRead and projectSelection");
   }
 
@@ -46,8 +50,15 @@ try {
   }
 
   const selected = await callJson("project.select", { projectId: expectedProjectId, sequenceId });
-  if (selected.activeProjectId !== expectedProjectId || selected.activeSequenceId !== sequenceId) {
-    throw new Error("FINAL_CUT_E2E_PROJECT_SELECTION_FAILED: live catalog did not confirm the requested project and sequence");
+  if (
+    selected.requestedTarget?.projectId !== expectedProjectId
+    || selected.requestedTarget?.sequenceId !== sequenceId
+    || selected.observedActiveTarget?.projectId !== expectedProjectId
+    || selected.observedActiveTarget?.sequenceId !== sequenceId
+    || typeof selected.observedRevision?.id !== "string"
+    || !Number.isInteger(selected.observedRevision?.sequence)
+  ) {
+    throw new Error("FINAL_CUT_E2E_PROJECT_SELECTION_FAILED: live provider did not return target and revision evidence");
   }
 
   const evidence = {
@@ -65,6 +76,7 @@ try {
       canonicalTimelineMode: capabilities.canonicalTimelineMode,
       projectCatalogRead: capabilities.projectCatalogRead,
       projectSelection: capabilities.projectSelection,
+      projectSelectionMode: capabilities.projectSelectionMode,
     },
     selection: {
       projectId: expectedProjectId,
@@ -72,6 +84,12 @@ try {
       catalogProjectCount: catalog.projects.length,
       selectedActiveProjectId: selected.activeProjectId,
       selectedActiveSequenceId: selected.activeSequenceId,
+      requestedTarget: selected.requestedTarget,
+      observedActiveTarget: selected.observedActiveTarget,
+      observedRevision: {
+        id: selected.observedRevision.id,
+        sequence: selected.observedRevision.sequence,
+      },
     },
   };
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
