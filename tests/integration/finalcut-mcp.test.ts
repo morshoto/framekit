@@ -66,6 +66,7 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
       FRAMEKIT_FCPXML_PATH: xmlPath,
       FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
       FRAMEKIT_FINAL_CUT_ASSET_ROOTS: join(directory, "Motion Templates.localized"),
+      FRAMEKIT_FINAL_CUT_MEDIA_ROOTS: directory,
       FRAMEKIT_SPEECH_ANALYZER: speech,
       FRAMEKIT_AUDIO_ANALYZER: audio,
       FRAMEKIT_VISUAL_ANALYZER: visual,
@@ -82,6 +83,12 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     assert.equal(editor.capabilities.editor.timelineArtifactWrite, true);
     assert.equal(editor.capabilities.editor.rollback, true);
     assert.equal(editor.capabilities.editor.assetDiscovery, true);
+    assert.equal(editor.capabilities.editor.backgroundMediaDiscovery, true);
+    assert.deepEqual(editor.capabilities.families.observation.media, {
+      available: true,
+      backend: "filesystem-media",
+      guarantee: "observed",
+    });
     assert.equal(editor.capabilities.analyzers.speechTranscribe, true);
     assert.equal(editor.capabilities.analyzers.audioLoudness, true);
     assert.equal(editor.capabilities.analyzers.visualTrack, true);
@@ -90,6 +97,13 @@ test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and un
     const project = JSON.parse(textFrom(projectResult));
     assert.equal(project.projectName, "MCP Final Cut");
     assert.equal(project.media[0].source, mediaPath);
+
+    const searchedMedia = JSON.parse(textFrom(await client.callTool({
+      name: "media.search",
+      arguments: { query: "interview.wav" },
+    })));
+    assert.equal(searchedMedia[0].mediaId, `filesystem:media:${mediaPath}`);
+    assert.equal(searchedMedia[0].sourceDigest.length, 64);
 
     const context = JSON.parse(textFrom(await client.callTool({ name: "context.inspect", arguments: {} })));
     assert.equal(context.project.projectName, "MCP Final Cut");
