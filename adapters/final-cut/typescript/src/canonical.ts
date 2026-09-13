@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
   reconcileProjectCatalog,
+  validateProjectCatalog,
   withCapabilityFamilies,
   type ContextRevision,
   type EditorChange,
@@ -475,7 +476,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private async readBackgroundCatalog(provider: FinalCutBackgroundCatalogProvider): Promise<ProjectCatalog> {
     const before = await this.readLiveStateSafely();
     const catalog = await provider.listProjects();
-    validateBackgroundCatalog(catalog);
+    validateProjectCatalog(catalog);
     const after = await this.readLiveStateSafely();
     const liveIdentity = before && after ? await this.live.getIdentity() : undefined;
     return reconcileProjectCatalog(catalog, {
@@ -507,48 +508,6 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       return await this.live.readLiveState();
     } catch {
       return undefined;
-    }
-  }
-}
-
-function validateBackgroundCatalog(catalog: ProjectCatalog): void {
-  if (!Array.isArray(catalog.projects)) {
-    throw new Error("PROJECT_CATALOG_INVALID: projects must be an array");
-  }
-  const projectIds = new Set<string>();
-  for (const project of catalog.projects) {
-    if (!project || typeof project !== "object") {
-      throw new Error("PROJECT_CATALOG_INVALID: project must be an object");
-    }
-    if (!project.id.trim()) throw new Error("PROJECT_CATALOG_INVALID: project id must be non-empty");
-    if (projectIds.has(project.id)) {
-      throw new Error(`PROJECT_CATALOG_INVALID: duplicate project id ${project.id}`);
-    }
-    projectIds.add(project.id);
-    if (!project.name.trim()) throw new Error(`PROJECT_CATALOG_INVALID: project ${project.id} name must be non-empty`);
-    if (!Array.isArray(project.sequences)) {
-      throw new Error(`PROJECT_CATALOG_INVALID: project ${project.id} sequences must be an array`);
-    }
-    const sequenceIds = new Set<string>();
-    for (const sequence of project.sequences) {
-      if (!sequence || typeof sequence !== "object") {
-        throw new Error(`PROJECT_CATALOG_INVALID: sequence in project ${project.id} must be an object`);
-      }
-      if (!sequence.id.trim()) throw new Error(`PROJECT_CATALOG_INVALID: sequence in project ${project.id} id must be non-empty`);
-      if (sequenceIds.has(sequence.id)) {
-        throw new Error(`PROJECT_CATALOG_INVALID: duplicate sequence id ${sequence.id} in project ${project.id}`);
-      }
-      sequenceIds.add(sequence.id);
-      if (!sequence.name.trim()) throw new Error(`PROJECT_CATALOG_INVALID: sequence ${sequence.id} name must be non-empty`);
-    }
-  }
-  if (catalog.activeProjectId !== undefined && !projectIds.has(catalog.activeProjectId)) {
-    throw new Error(`PROJECT_CATALOG_INVALID: active project ${catalog.activeProjectId} is absent from the catalog`);
-  }
-  if (catalog.activeSequenceId !== undefined) {
-    const activeProject = catalog.projects.find(({ id }) => id === catalog.activeProjectId);
-    if (!activeProject?.sequences.some(({ id }) => id === catalog.activeSequenceId)) {
-      throw new Error(`PROJECT_CATALOG_INVALID: active sequence ${catalog.activeSequenceId} is absent from the active project`);
     }
   }
 }

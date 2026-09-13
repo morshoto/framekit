@@ -22,7 +22,7 @@ export function reconcileProjectCatalog(
   catalog: ProjectCatalog,
   options: ProjectCatalogReconciliationOptions,
 ): ProjectCatalog {
-  validateCatalog(catalog);
+  validateProjectCatalog(catalog);
   if (options.before) validateLiveState(options.before);
   if (options.after) validateLiveState(options.after);
 
@@ -50,6 +50,15 @@ export function reconcileProjectCatalog(
     ? "matched"
     : "unresolved";
   let reason = status === "unresolved" ? "stable project and sequence IDs could not be reconciled" : undefined;
+
+  if (
+    status === "matched"
+    && ((catalog.activeProjectId !== undefined && catalog.activeProjectId !== project.catalogId)
+      || (catalog.activeSequenceId !== undefined && catalog.activeSequenceId !== sequence.catalogId))
+  ) {
+    status = "stale";
+    reason = "background active target differs from live target";
+  }
 
   if (options.before && options.after) {
     if (options.after.revision.sequence < options.before.revision.sequence) {
@@ -117,7 +126,7 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence;
 }
 
-function validateCatalog(catalog: ProjectCatalog): void {
+export function validateProjectCatalog(catalog: ProjectCatalog): void {
   if (!Array.isArray(catalog.projects)) throw new Error("PROJECT_CATALOG_INVALID: projects must be an array");
   const projectIds = new Set<string>();
   for (const project of catalog.projects) {
@@ -136,6 +145,15 @@ function validateCatalog(catalog: ProjectCatalog): void {
       if (sequenceIds.has(sequence.id)) throw new Error(`PROJECT_CATALOG_INVALID: duplicate sequence id ${sequence.id} in project ${project.id}`);
       sequenceIds.add(sequence.id);
       if (!sequence.name.trim()) throw new Error(`PROJECT_CATALOG_INVALID: sequence ${sequence.id} name must be non-empty`);
+    }
+  }
+  if (catalog.activeProjectId !== undefined && !projectIds.has(catalog.activeProjectId)) {
+    throw new Error(`PROJECT_CATALOG_INVALID: active project ${catalog.activeProjectId} is absent from the catalog`);
+  }
+  if (catalog.activeSequenceId !== undefined) {
+    const activeProject = catalog.projects.find(({ id }) => id === catalog.activeProjectId);
+    if (!activeProject?.sequences.some(({ id }) => id === catalog.activeSequenceId)) {
+      throw new Error(`PROJECT_CATALOG_INVALID: active sequence ${catalog.activeSequenceId} is absent from the active project`);
     }
   }
 }
