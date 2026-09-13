@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { appendFile, writeFile } from "node:fs/promises";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   buildFinalCutCanonicalExportScript,
   createFinalCutNativeTargetResolver,
   FinalCutCanonicalSnapshotSource,
   FinalCutCanonicalNativeProvider,
+  FinalCutSessionAdapter,
   type CanonicalNativeTargetResolver,
 } from "@framekit/final-cut";
 import type {
@@ -15,6 +18,8 @@ import type {
   EditorLiveState,
   ProjectSnapshot,
 } from "@framekit/runtime";
+import { AgentVideoRuntime as Runtime } from "@framekit/runtime";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
   name: "Final Cut Pro",
@@ -74,6 +79,23 @@ function liveState(): EditorLiveState {
   };
 }
 
+function liveWithoutBackgroundCatalog() {
+  return {
+    getIdentity: async () => identity,
+    readLiveState: async () => structuredClone(liveState()),
+    liveChangesSince: async () => [],
+  };
+}
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.ok(first);
+  assert.equal(typeof first.text, "string");
+  return first.text as string;
+}
+
 function providerFor(
   snapshots: Array<ProjectSnapshot | Error>,
   calls: string[],
@@ -117,6 +139,67 @@ test("canonical native provider exposes one explicit active project and sequence
   assert.equal(catalog.activeProjectId, "final-cut:project:project-1");
   assert.equal(catalog.activeSequenceId, "final-cut:sequence:sequence-1");
   assert.equal((await provider.getCapabilities()).editor.canonicalTimelineMode, "canonical-write");
+});
+
+test("canonical project listing requires a background catalog", async () => {
+  let snapshotReads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: liveWithoutBackgroundCatalog(),
+    native: {
+      renameSelectedClip: async () => ({ operationId: "native-operation-1", undoAvailable: true }),
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => {
+      snapshotReads += 1;
+      throw new Error("headed Export XML must not run for project.list");
+    },
+    resolveTarget: async () => undefined,
+  });
+
+  const capabilities = await provider.getCapabilities();
+  assert.equal(capabilities.editor.projectCatalogRead, false);
+  assert.equal(capabilities.families?.canonicalDocument.read.available, false);
+  await assert.rejects(
+    provider.listProjects(),
+    /CAPABILITY_UNAVAILABLE: project\.list requires editor\.projectCatalogRead: background project catalog is unavailable; canonical timeline snapshot requires a headed Final Cut UI/,
+  );
+  assert.equal(snapshotReads, 0);
+});
+
+test("MCP project.list explains the headed fallback is unavailable", async () => {
+  let snapshotReads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: liveWithoutBackgroundCatalog(),
+    native: {
+      renameSelectedClip: async () => ({ operationId: "native-operation-1", undoAvailable: true }),
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => {
+      snapshotReads += 1;
+      throw new Error("headed Export XML must not run for project.list");
+    },
+    resolveTarget: async () => undefined,
+  });
+  const server = createMcpServer(new Runtime(new FinalCutSessionAdapter({ live: provider })));
+  const client = new Client({ name: "canonical-project-list-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const result = await client.callTool({ name: "project.list", arguments: {} });
+    assert.equal(result.isError, true);
+    const error = JSON.parse(textFrom(result)) as {
+      operation: string;
+      capability: string;
+      unavailableReason: string;
+    };
+    assert.equal(error.operation, "project.list");
+    assert.equal(error.capability, "editor.projectCatalogRead");
+    assert.equal(error.unavailableReason, "background project catalog is unavailable; canonical timeline snapshot requires a headed Final Cut UI");
+    assert.equal(snapshotReads, 0);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
 
 test("canonical native provider previews and applies its supported timeline transaction", async () => {
