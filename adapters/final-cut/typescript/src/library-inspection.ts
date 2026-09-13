@@ -1,4 +1,7 @@
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import type { ProjectCatalog, ProjectDescriptor, ProjectSequence, RationalTime } from "@framekit/runtime";
+import { validateProjectCatalog } from "@framekit/runtime";
 
 export const FINAL_CUT_LIBRARY_INSPECTION_BACKEND = "final-cut-background-library" as const;
 
@@ -62,6 +65,173 @@ export type FinalCutLibraryInspectionResult =
   | { status: "error"; error: FinalCutLibraryInspectionError };
 
 type JsonRecord = Record<string, unknown>;
+
+const execFile = promisify(execFileCallback);
+
+export interface FinalCutLibraryInspectionProviderOptions {
+  executor?: (script: string) => Promise<string>;
+  applicationIdentifier?: string;
+}
+
+/** Structured failure raised when project.list cannot use the background provider. */
+export class FinalCutLibraryInspectionProviderError extends Error {
+  public readonly code: FinalCutLibraryInspectionIssueCode;
+  public readonly retryable: boolean;
+
+  public constructor(public readonly failure: FinalCutLibraryInspectionError) {
+    super(`${failure.code}: ${failure.message}`);
+    this.name = "FinalCutLibraryInspectionProviderError";
+    this.code = failure.code;
+    this.retryable = failure.retryable;
+  }
+
+  public toJSON(): FinalCutLibraryInspectionError {
+    return { ...this.failure };
+  }
+}
+
+/** Read-only Final Cut library inspection through direct Apple Events. */
+export class FinalCutLibraryInspectionProvider {
+  public readonly backend = FINAL_CUT_LIBRARY_INSPECTION_BACKEND;
+  private readonly executor: (script: string) => Promise<string>;
+  private readonly applicationIdentifier: string;
+
+  public constructor(options: FinalCutLibraryInspectionProviderOptions = {}) {
+    this.executor = options.executor ?? executeFinalCutLibraryInspection;
+    this.applicationIdentifier = options.applicationIdentifier ?? "com.apple.FinalCut";
+  }
+
+  public async inspect(): Promise<FinalCutLibraryInspectionResult> {
+    try {
+      const response = await this.executor(buildFinalCutLibraryInspectionScript(this.applicationIdentifier));
+      return parseFinalCutLibraryInspectionResponse(response);
+    } catch (error) {
+      return {
+        status: "unavailable",
+        error: unavailableError(error),
+      };
+    }
+  }
+
+  public async listProjects(): Promise<ProjectCatalog> {
+    const result = await this.inspect();
+    if (result.status === "unavailable" || result.status === "error") {
+      throw new FinalCutLibraryInspectionProviderError(result.error);
+    }
+    const catalog = toFinalCutProjectCatalog(result.catalog);
+    try {
+      validateProjectCatalog(catalog);
+    } catch (error) {
+      throw new FinalCutLibraryInspectionProviderError({
+        code: "FINAL_CUT_LIBRARY_RESPONSE_INVALID",
+        message: error instanceof Error ? error.message : String(error),
+        retryable: false,
+      });
+    }
+    return catalog;
+  }
+}
+
+/** Build the JXA program used for direct, read-only Final Cut Apple Events. */
+export function buildFinalCutLibraryInspectionScript(applicationIdentifier = "com.apple.FinalCut"): string {
+  return `
+function safeCall(target, property) {
+  try {
+    var value = target[property]();
+    return value === undefined ? null : value;
+  } catch (_) {
+    return null;
+  }
+}
+
+function textValue(target, property) {
+  var value = safeCall(target, property);
+  return value === null ? null : String(value);
+}
+
+function mediaTimeValue(target, property) {
+  var value = safeCall(target, property);
+  if (value === null) return null;
+  return {
+    value: textValue(value, "value"),
+    timescale: textValue(value, "timescale")
+  };
+}
+
+function sequenceValue(sequence) {
+  return {
+    id: textValue(sequence, "id"),
+    name: textValue(sequence, "name"),
+    startTime: mediaTimeValue(sequence, "startTime"),
+    duration: mediaTimeValue(sequence, "duration"),
+    frameDuration: mediaTimeValue(sequence, "frameDuration")
+  };
+}
+
+function projectValue(project) {
+  var sequence = safeCall(project, "sequence");
+  return {
+    id: textValue(project, "id"),
+    name: textValue(project, "name"),
+    sequence: sequence === null ? null : sequenceValue(sequence)
+  };
+}
+
+function eventValue(event) {
+  var projects = safeCall(event, "projects");
+  return {
+    id: textValue(event, "id"),
+    name: textValue(event, "name"),
+    projects: projects === null ? null : projects.map(projectValue)
+  };
+}
+
+function libraryValue(library) {
+  var events = safeCall(library, "events");
+  return {
+    id: textValue(library, "id"),
+    name: textValue(library, "name"),
+    events: events === null ? null : events.map(eventValue)
+  };
+}
+
+var finalCut = Application(${JSON.stringify(applicationIdentifier)});
+var libraries = safeCall(finalCut, "libraries");
+JSON.stringify({
+  version: 1,
+  libraries: libraries === null ? null : libraries.map(libraryValue)
+});`;
+}
+
+async function executeFinalCutLibraryInspection(script: string): Promise<string> {
+  try {
+    const result = await execFile("osascript", ["-l", "JavaScript", "-e", script], { maxBuffer: 1_000_000 });
+    return result.stdout.trim();
+  } catch (error) {
+    throw new Error(normalizeAppleEventFailure(error));
+  }
+}
+
+function normalizeAppleEventFailure(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  if (detail.includes("not authorized") || detail.includes("-1743") || detail.includes("-25211")) {
+    return `Automation permission is required for Final Cut library inspection: ${detail}`;
+  }
+  return `Final Cut library Apple Events are unavailable: ${detail}`;
+}
+
+function unavailableError(error: unknown): FinalCutLibraryInspectionError {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = rawMessage.startsWith("Automation permission is required")
+    || rawMessage.startsWith("Final Cut library Apple Events are unavailable")
+    ? rawMessage
+    : normalizeAppleEventFailure(error);
+  return {
+    code: "FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE",
+    message,
+    retryable: !message.includes("Automation permission is required"),
+  };
+}
 
 /** Parse the JSON envelope returned by the direct Final Cut Apple Event query. */
 export function parseFinalCutLibraryInspectionResponse(input: string | unknown): FinalCutLibraryInspectionResult {
@@ -200,7 +370,11 @@ function parseChildren<T>(
 }
 
 function parseTimeField(value: unknown, path: string, issues: FinalCutLibraryInspectionIssue[]): FinalCutLibraryInspectionField<RationalTime> {
-  if (value === undefined || value === null) return { status: "unavailable", issue: fieldUnavailableIssue(path, "media-time field is unavailable") };
+  if (value === undefined || value === null) {
+    const issue = fieldUnavailableIssue(path, "media-time field is unavailable");
+    issues.push(issue);
+    return { status: "unavailable", issue };
+  }
   const record = asRecord(value);
   const normalizedValue = normalizeInteger(record?.value);
   const normalizedTimescale = normalizeInteger(record?.timescale);
