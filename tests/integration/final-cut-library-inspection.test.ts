@@ -3,8 +3,10 @@ import test from "node:test";
 import {
   buildFinalCutLibraryInspectionScript,
   FinalCutLibraryInspectionProvider,
+  FinalCutSessionAdapter,
   parseFinalCutLibraryInspectionResponse,
 } from "@framekit/final-cut";
+import type { ContextRevision, EditorChange, EditorIdentity, EditorLiveState, RuntimeCapabilities } from "@framekit/runtime";
 
 const validResponse = JSON.stringify({
   version: 1,
@@ -124,4 +126,79 @@ test("builds a direct read-only Final Cut Apple Event script", () => {
   assert.match(script, /sequence/);
   assert.doesNotMatch(script, /System Events/);
   assert.doesNotMatch(script, /frontmost|activate|keystroke|click|AXPress/);
+});
+
+test("maps the rich inspection result to a project catalog", async () => {
+  const provider = new FinalCutLibraryInspectionProvider({ executor: async () => validResponse });
+
+  const catalog = await provider.listProjects();
+
+  assert.deepEqual(catalog, {
+    projects: [{
+      id: "project-1",
+      name: "Project",
+      sequences: [{ id: "sequence-1", name: "Main" }],
+    }],
+  });
+});
+
+test("routes live project listing through background inspection", async () => {
+  const identity: EditorIdentity = {
+    name: "Final Cut Pro",
+    version: "10.7.1",
+    backend: "workflow-extension-ipc",
+  };
+  const capabilities: RuntimeCapabilities = {
+    editor: {
+      projectRead: false,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      timelineArtifactWrite: false,
+      readAfterWrite: false,
+      incrementalChanges: true,
+      rollback: false,
+      assetDiscovery: false,
+      liveStateRead: true,
+      playheadWrite: false,
+      frameCapture: false,
+      projectCatalogRead: false,
+      projectSelection: false,
+    },
+    analyzers: {
+      speechTranscribe: false,
+      speechVad: false,
+      audioLoudness: false,
+      visualTrack: false,
+    },
+  };
+  const live = {
+    getIdentity: async () => identity,
+    getCapabilities: async () => capabilities,
+    readLiveState: async (): Promise<EditorLiveState> => ({
+      project: { id: "project-1", name: "Project" },
+      sequence: {
+        id: "sequence-1",
+        name: "Main",
+        startTime: { value: "0", timescale: "24" },
+        duration: { value: "240", timescale: "24" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: "live-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    }),
+    liveChangesSince: async (_revision: ContextRevision, _waitMs?: number): Promise<EditorChange[]> => [],
+  };
+  const session = new FinalCutSessionAdapter({
+    live,
+    backgroundCatalog: new FinalCutLibraryInspectionProvider({ executor: async () => validResponse }),
+  });
+
+  const catalog = await session.listProjects();
+  const sessionCapabilities = await session.getCapabilities();
+
+  assert.equal(catalog.projects[0]?.id, "project-1");
+  assert.equal(catalog.activeProjectId, "project-1");
+  assert.equal(catalog.activeSequenceId, "sequence-1");
+  assert.equal(catalog.provenance?.catalog.source, "background-library");
+  assert.equal(sessionCapabilities.editor.projectCatalogRead, true);
+  assert.equal(sessionCapabilities.editor.projectSelection, false);
 });
