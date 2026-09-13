@@ -1016,24 +1016,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
     inputSchema: {},
-  }, async () => jsonResult(options.nativeEditor
-    ? await options.nativeEditor.inspect()
+  }, async (_args, extra) => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.inspect({ signal: extra.signal })
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
   server.registerTool("editor.native.focus", {
     description: "Activate Final Cut Pro and focus its timeline without changing project or timeline content.",
     inputSchema: {},
-  }, async () => jsonResult(options.nativeEditor
-    ? await options.nativeEditor.focusTimeline()
+  }, async (_args, extra) => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.focusTimeline({ signal: extra.signal })
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
   server.registerTool("editor.native.media.import", {
     description: "Import one local video or audio file into the active Final Cut Browser and wait for a stable media handle.",
     inputSchema: { path: z.string().min(1) },
-  }, async ({ path }) => {
+  }, async ({ path }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
     try {
-      return jsonResult(await options.nativeEditor.importMedia(path));
+      return jsonResult(await options.nativeEditor.importMedia(path, { signal: extra.signal }));
     } catch (error) {
       return nativeMediaImportErrorResult(error);
     }
@@ -1042,26 +1042,26 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.media.directory.preview", {
     description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
     inputSchema: { path: z.string().trim().min(1) },
-  }, async ({ path }) => {
+  }, async ({ path }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path));
+    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.directory.execute", {
     description: "Import every file from a directory preview after explicit confirmation and return per-file stable media handles or failures.",
     inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
-  }, async ({ previewToken, confirm }) => {
+  }, async ({ previewToken, confirm }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm));
+    return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
     inputSchema: nativeEditToolInputSchema,
-  }, async (input) => {
+  }, async (input, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
     const operation = nativeEditSchema.parse(input);
-    return jsonResult(await options.nativeEditor.edit(operation));
+    return jsonResult(await options.nativeEditor.edit(operation, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.disposable.preview", {
@@ -1075,7 +1075,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.disposable.execute", {
     description: "Execute a disposable native Final Cut edit and return canonical diff, verification, and rollback state.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.disposableNative) throw new Error("CAPABILITY_UNAVAILABLE: disposable native edit is not configured");
     return jsonResult(await options.disposableNative.execute(previewToken));
   });
@@ -1091,44 +1091,44 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.title.add.preview", {
     description: "Preview adding an installed Final Cut title at the live playhead or an explicit timeline range.",
     inputSchema: nativeTitlePreviewSchema,
-  }, async ({ assetId, text, start, duration }) => {
+  }, async ({ assetId, text, start, duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
     const asset = await resolveNativeTitleAsset(runtime, assetId);
-    return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }));
+    return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.title.add.execute", {
     description: "Execute a previously previewed native Final Cut title placement and return its verification and Undo handle.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
-    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
+    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.picture-in-picture.preview", {
     description: "Preview connecting selected Final Cut Browser video to a stable timeline occurrence with verified transform properties.",
     inputSchema: nativePictureInPicturePreviewSchema,
-  }, async (request) => {
+  }, async (request, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
     await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
-    return jsonResult(await options.nativeEditor.previewPictureInPicture(request));
+    return jsonResult(await options.nativeEditor.previewPictureInPicture(request, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.picture-in-picture.execute", {
     description: "Execute a native Final Cut picture-in-picture preview and return transform readback, revision, and Undo verification.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
     await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
-    return jsonResult(await options.nativeEditor.executePictureInPicture(previewToken));
+    return jsonResult(await options.nativeEditor.executePictureInPicture(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.transition.search", {
     description: "Search the visible Final Cut Transitions browser and return only transitions with stable native identities.",
     inputSchema: { query: z.string().trim().min(1) },
-  }, async ({ query }) => {
+  }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition discovery is not configured");
-    const matches = await options.nativeEditor.searchTransitions(query);
+    const matches = await options.nativeEditor.searchTransitions(query, { signal: extra.signal });
     for (const match of matches) {
       nativeTransitionAssets.set(match.id, match);
       nativeTransitionAssets.set(`final-cut:transition:${match.identity}`, match);
@@ -1139,7 +1139,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.transition.add.preview", {
     description: "Preview adding a discovered native transition between two adjacent occurrence handles at an exact duration.",
     inputSchema: nativeTransitionPreviewSchema,
-  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }) => {
+  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
     const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets);
     return jsonResult(await options.nativeEditor.previewTransitionAdd({
@@ -1147,167 +1147,167 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       beforeOccurrenceHandle,
       afterOccurrenceHandle,
       duration,
-    }));
+    }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.transition.add.execute", {
     description: "Execute a previously previewed native transition placement and return verified revision and Undo state.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
-    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken));
+    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.mask.preview", {
     description: "Preview adding a bounded native Final Cut Draw Mask to one located occurrence without mutating the timeline.",
     inputSchema: nativeMaskPreviewSchema,
-  }, async ({ occurrenceHandle, mask }) => {
+  }, async ({ occurrenceHandle, mask }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
-    return jsonResult(await options.nativeEditor.previewMask({ occurrenceHandle, mask }));
+    return jsonResult(await options.nativeEditor.previewMask({ occurrenceHandle, mask }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.mask.execute", {
     description: "Execute a previously previewed native Draw Mask and return readback verification and native Undo state.",
     inputSchema: { previewToken: z.string().trim().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
-    return jsonResult(await options.nativeEditor.executeMask(previewToken));
+    return jsonResult(await options.nativeEditor.executeMask(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.undo", {
     description: "Undo a previously accepted native Final Cut UI edit using Final Cut's native Undo command.",
     inputSchema: { operationId: z.string().min(1) },
-  }, async ({ operationId }) => {
+  }, async ({ operationId }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
-    return jsonResult(await options.nativeEditor.undo(operationId));
+    return jsonResult(await options.nativeEditor.undo(operationId, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.search", {
     description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
     inputSchema: { query: z.string().min(1) },
-  }, async ({ query }) => {
+  }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
-    return jsonResult(await options.nativeEditor.searchMedia(query));
+    return jsonResult(await options.nativeEditor.searchMedia(query, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.select", {
     description: "Select one live Final Cut Browser media result using its short-lived handle.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media selection is not configured");
-    return jsonResult(await options.nativeEditor.selectMedia(mediaHandle));
+    return jsonResult(await options.nativeEditor.selectMedia(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.preview", {
     description: "Preview appending the selected Final Cut Browser media to the end of the active timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
-    return jsonResult(await options.nativeEditor.previewAppendMedia(mediaHandle));
+    return jsonResult(await options.nativeEditor.previewAppendMedia(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.execute", {
     description: "Execute a previously previewed append of selected Final Cut Browser media.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
-    return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken));
+    return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.selected.preview", {
     description: "Preview appending the currently selected Final Cut Browser media to the end of the active timeline.",
     inputSchema: {},
-  }, async () => {
+  }, async (_args, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
-    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia());
+    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia({ signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.selected.execute", {
     description: "Execute a previously previewed append of the currently selected Final Cut Browser media.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
-    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken));
+    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.insert.preview", {
     description: "Preview inserting the selected Final Cut Browser media at the current playhead.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
-    return jsonResult(await options.nativeEditor.previewInsertMedia(mediaHandle));
+    return jsonResult(await options.nativeEditor.previewInsertMedia(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.insert.execute", {
     description: "Execute a previously previewed insertion of selected Final Cut Browser media at the playhead.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
-    return jsonResult(await options.nativeEditor.executeInsertMedia(previewToken));
+    return jsonResult(await options.nativeEditor.executeInsertMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.timeline.locate", {
     description: "Locate matching occurrences of a live Browser media result in the active Final Cut timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut timeline occurrence location is not configured");
-    return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle));
+    return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.target", {
     description: "Search Final Cut's Browser and target exactly one timeline occurrence with a deterministic live playhead.",
     inputSchema: { query: z.string().min(1) },
-  }, async ({ query }) => {
+  }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media targeting is not configured");
-    return jsonResult(await options.nativeEditor.targetMedia(query));
+    return jsonResult(await options.nativeEditor.targetMedia(query, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.blade.preview", {
     description: "Prepare a short-lived confirmation token for a Blade-at-playhead operation.",
     inputSchema: { occurrenceHandle: z.string().min(1) },
-  }, async ({ occurrenceHandle }) => {
+  }, async ({ occurrenceHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
-    return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle));
+    return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.blade.execute", {
     description: "Execute a previously previewed Blade-at-playhead operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
-    return jsonResult(await options.nativeEditor.executeBlade(previewToken));
+    return jsonResult(await options.nativeEditor.executeBlade(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.delete-range.preview", {
     description: "Preview a destructive ripple-delete of an explicit rational time range from the Final Cut primary storyline.",
     inputSchema: { start: rationalTimeSchema, end: rationalTimeSchema },
-  }, async ({ start, end }) => {
+  }, async ({ start, end }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
-    return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }));
+    return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.delete-range.execute", {
     description: "Execute a previously previewed primary-storyline ripple-delete range operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
-    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken));
+    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.trim-to-duration.preview", {
     description: "Preview a destructive operation that preserves the beginning of the Final Cut sequence and removes everything after the requested rational duration.",
     inputSchema: { duration: rationalTimeSchema },
-  }, async ({ duration }) => {
+  }, async ({ duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
-    return jsonResult(await options.nativeEditor.previewTrimToDuration(duration));
+    return jsonResult(await options.nativeEditor.previewTrimToDuration(duration, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.trim-to-duration.execute", {
     description: "Execute a previously previewed trim-to-duration operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
-    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken));
+    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("artifact.publish", {
