@@ -4,7 +4,7 @@ import type { ProjectSnapshot } from "./project.js";
 
 import type { EditorLiveState, EditorChange, ContextChangeSet, ProjectCatalog, ProjectSelection } from "./context.js";
 
-import type { CapturedFrameSource } from "./media.js";
+import type { CapturedFrameSource, MediaContext } from "./media.js";
 
 import type { EditorIdentity, RuntimeCapabilities } from "./capabilities.js";
 
@@ -24,6 +24,7 @@ export interface EditorPort extends EditorAdapter {
   readProject(): Promise<ProjectSnapshot>;
   restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void>;
   listAssets?(query?: AssetSearchQuery): Promise<EditorAsset[]>;
+  listMedia?(query?: MediaSearchQuery): Promise<MediaContext[]>;
   /** Optional native change feed; absence falls back to a snapshot diff. */
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
   listProjects?(): Promise<ProjectCatalog>;
@@ -61,4 +62,10 @@ export interface AssetSearchQuery {
   query?: string;
   kind?: EditorAsset["kind"];
   vendor?: string;
+  discovery?: "background" | "native";
+}
+
+export interface MediaSearchQuery {
+  query?: string;
+  mediaKind?: "video" | "audio";
 }
