@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { access, constants, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { ContextRevision } from "@framekit/runtime";
 
 export type BackgroundRenderSourceKind = "final-cut-timeline" | "fcpxml-artifact";
@@ -198,14 +200,23 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
     const timeout = setTimeout(() => {
       this.controller.abort(backgroundRenderError("BACKGROUND_RENDER_TIMEOUT", "background render exceeded its deadline"));
     }, this.request.timeoutMs ?? this.defaultTimeoutMs);
+    let sourceSnapshotPath: string | undefined;
+    let completionResult: BackgroundRenderResult | undefined;
+    let completionError: unknown;
 
     try {
       if (this.controller.signal.aborted) throw this.controller.signal.reason;
-      await assertSourceBinding(this.request.source, this.controller.signal);
       await assertOutputDirectory(outputPath);
       await assertOutputCanBeReplaced(outputPath, this.request.overwrite ?? false);
+      sourceSnapshotPath = await snapshotSource(this.request.source, outputPath, this.controller.signal);
+      const renderRequest = sourceSnapshotPath === undefined
+        ? this.request
+        : {
+            ...this.request,
+            source: { ...this.request.source, artifactPath: sourceSnapshotPath },
+          };
       this.update("rendering", 0, "background renderer started");
-      await this.runRenderer(stagingPath);
+      await this.runRenderer(stagingPath, renderRequest);
       throwIfAborted(this.controller.signal);
       this.update("verifying", 0.9, "verifying staged output");
       const details = await stat(stagingPath);
@@ -241,22 +252,25 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
         },
       };
       this.update("completed", 1, "background render verified and committed");
-      this.resolveCompletion(result);
+      completionResult = result;
     } catch (error) {
       const normalized = normalizeBackgroundRenderError(error, this.cancelRequested);
       const cancelled = normalized.code === "BACKGROUND_RENDER_CANCELLED";
       this.update(cancelled ? "cancelled" : "failed", this.current.progress, normalized.message, normalized);
-      this.rejectCompletion(normalized);
+      completionError = normalized;
     } finally {
       clearTimeout(timeout);
       if (!this.committed) await removeIfPresent(stagingPath);
+      if (sourceSnapshotPath) await removeIfPresent(sourceSnapshotPath);
     }
+    if (completionResult) this.resolveCompletion(completionResult);
+    else this.rejectCompletion(completionError);
   }
 
-  private async runRenderer(stagingPath: string): Promise<void> {
+  private async runRenderer(stagingPath: string, request: BackgroundRenderRequest): Promise<void> {
     throwIfAborted(this.controller.signal);
     const renderPromise = this.renderer({
-      request: this.request,
+      request,
       stagingPath,
       signal: this.controller.signal,
       reportProgress: (progress, message) => {
@@ -321,25 +335,50 @@ function validateRequest(request: BackgroundRenderRequest): void {
   if (target.digest !== undefined && !target.digest.trim()) {
     throw backgroundRenderError("BACKGROUND_RENDER_INVALID_SOURCE", "source digest cannot be empty");
   }
-  if (request.source.kind === "fcpxml-artifact" && !request.source.artifactPath?.trim()) {
-    throw backgroundRenderError("BACKGROUND_RENDER_INVALID_SOURCE", "fcpxml-artifact source requires artifactPath");
+  if (request.source.kind === "fcpxml-artifact") {
+    if (!request.source.artifactPath?.trim()) {
+      throw backgroundRenderError("BACKGROUND_RENDER_INVALID_SOURCE", "fcpxml-artifact source requires artifactPath");
+    }
+    if (!target.digest) {
+      throw backgroundRenderError("BACKGROUND_RENDER_INVALID_SOURCE", "fcpxml-artifact source requires a digest binding");
+    }
   }
   if (request.timeoutMs !== undefined && (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0)) {
     throw backgroundRenderError("BACKGROUND_RENDER_INVALID_REQUEST", "timeoutMs must be a positive finite number");
   }
 }
 
-async function assertSourceBinding(source: BackgroundRenderSource, signal: AbortSignal): Promise<void> {
-  if (source.kind !== "fcpxml-artifact") return;
+async function snapshotSource(
+  source: BackgroundRenderSource,
+  outputPath: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  if (source.kind !== "fcpxml-artifact") return undefined;
+  const snapshotPath = createSourceSnapshotPath(outputPath, source.artifactPath!);
+  const hash = createHash("sha256");
   try {
-    const observedDigest = await sha256File(source.artifactPath!, signal);
-    if (source.target.digest !== undefined && source.target.digest !== observedDigest) {
+    await pipeline(
+      createReadStream(source.artifactPath!, { signal }),
+      new Transform({
+        transform(chunk, _encoding, callback) {
+          hash.update(chunk);
+          callback(null, chunk);
+        },
+      }),
+      createWriteStream(snapshotPath, { flags: "wx" }),
+      { signal },
+    );
+    throwIfAborted(signal);
+    const observedDigest = `sha256:${hash.digest("hex")}`;
+    if (source.target.digest !== observedDigest) {
       throw backgroundRenderError(
         "BACKGROUND_RENDER_SOURCE_CHANGED",
         `source digest changed for ${source.artifactPath}`,
       );
     }
+    return snapshotPath;
   } catch (error) {
+    await removeIfPresent(snapshotPath);
     if (signal.aborted) throw signal.reason;
     if (isNodeError(error) && typeof error.code === "string" && error.code.startsWith("BACKGROUND_RENDER_")) {
       throw error;
@@ -367,6 +406,12 @@ function createStagingPath(outputPath: string): string {
   const extension = extname(outputPath);
   const stem = basename(outputPath, extension);
   return join(dirname(outputPath), `.${stem}.framekit-${randomUUID()}${extension}`);
+}
+
+function createSourceSnapshotPath(outputPath: string, artifactPath: string): string {
+  const extension = extname(artifactPath) || ".fcpxml";
+  const stem = basename(artifactPath, extension);
+  return join(dirname(outputPath), `.${stem}.framekit-source-${randomUUID()}${extension}`);
 }
 
 async function assertOutputDirectory(outputPath: string): Promise<void> {

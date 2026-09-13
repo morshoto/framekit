@@ -25,7 +25,10 @@ test("background renderer reports progress and commits verified external output"
     enabled: true,
     renderer: async ({ request, stagingPath, reportProgress }) => {
       assert.equal(request.source.kind, "fcpxml-artifact");
-      assert.equal(request.source.artifactPath, artifactPath);
+      assert.notEqual(request.source.artifactPath, artifactPath);
+      assert.equal(await readFile(request.source.artifactPath!, "utf8"), "source artifact");
+      await writeFile(artifactPath, "changed after snapshot");
+      assert.equal(await readFile(request.source.artifactPath!, "utf8"), "source artifact");
       reportProgress(0.25, "rendering source");
       await writeFile(stagingPathFromRequest({ ...request, outputPath: stagingPath }), "rendered video");
       reportProgress(1, "render complete");
@@ -87,6 +90,7 @@ test("background renderer isolates progress listener failures", async () => {
         projectId: "project-1",
         sequenceId: "sequence-1",
         revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
       },
     },
     outputPath,
@@ -130,6 +134,30 @@ test("background renderer rejects unproven native Final Cut sources", async () =
   );
 });
 
+test("background renderer requires a digest for artifact sources", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-digest-"));
+  const artifactPath = join(directory, "timeline.fcpxml");
+  await writeFile(artifactPath, "source artifact");
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async () => undefined,
+    probe: async () => ({ durationSeconds: 1, width: 1, height: 1, frameRate: 1, hasAudio: false }),
+  });
+
+  assert.throws(
+    () => provider.start({
+      source: {
+        kind: "fcpxml-artifact",
+        artifactPath,
+        target: { projectId: "project-1", sequenceId: "sequence-1", revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" } },
+      },
+      outputPath: join(directory, "final.mp4"),
+      preset: "master",
+    }),
+    /BACKGROUND_RENDER_INVALID_SOURCE/,
+  );
+});
+
 test("background renderer cancellation removes staged output and never commits", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-cancel-"));
   const outputPath = join(directory, "final.mp4");
@@ -153,6 +181,7 @@ test("background renderer cancellation removes staged output and never commits",
         projectId: "project-1",
         sequenceId: "sequence-1",
         revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
       },
     },
     outputPath,
@@ -208,6 +237,7 @@ test("background renderer waits for shutdown before cleaning staged output", asy
         projectId: "project-1",
         sequenceId: "sequence-1",
         revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
       },
     },
     outputPath,
@@ -253,6 +283,7 @@ test("background renderer timeout fails closed before verification or commit", a
         projectId: "project-1",
         sequenceId: "sequence-1",
         revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
       },
     },
     outputPath,
@@ -293,6 +324,7 @@ test("background renderer cancellation during probing never commits output", asy
         projectId: "project-1",
         sequenceId: "sequence-1",
         revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
       },
     },
     outputPath,
