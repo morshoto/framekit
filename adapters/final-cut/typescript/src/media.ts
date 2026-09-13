@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import type { MediaContext, MediaSearchQuery } from "@framekit/runtime";
 
@@ -93,10 +93,11 @@ async function discoverFiles(roots: string[]): Promise<DiscoveredFile[]> {
 async function walk(path: string, files: DiscoveredFile[]): Promise<void> {
   let details;
   try {
-    details = await stat(path);
+    details = await lstat(path);
   } catch {
     return;
   }
+  if (details.isSymbolicLink()) return;
   if (details.isFile()) {
     const extension = extname(path).toLowerCase();
     if (MEDIA_KIND_BY_EXTENSION[extension]) {

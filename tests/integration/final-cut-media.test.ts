@@ -64,6 +64,15 @@ test("local media discovery does not follow symlinked directories", async () => 
   assert.deepEqual(await registry.listMedia(), []);
 });
 
+test("local media discovery terminates on symlink cycles", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-media-cycle-root-"));
+  await symlink(root, join(root, "cycle"), "dir");
+
+  const registry = new FinalCutMediaRegistry({ roots: [root] });
+
+  assert.deepEqual(await registry.listMedia(), []);
+});
+
 test("local media discovery refreshes its cache explicitly", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-media-refresh-"));
   const firstPath = join(root, "first.mp4");
