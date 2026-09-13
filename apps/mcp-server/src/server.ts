@@ -16,6 +16,7 @@ import {
   type TimelineFrameCapture,
 } from "@framekit/runtime";
 import {
+  type BackgroundRenderExportProvider,
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
   serializeNativeFinalCutMediaImportError,
   type DisposableNativeEditWorkflow,
@@ -852,6 +853,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   projectPublisher?: FinalCutProjectPublisher;
   videoExporter?: FinalCutVideoExporter;
+  backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
 }
 
@@ -1840,6 +1842,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
+  const backgroundExportAvailable = Boolean(options.backgroundRenderer?.isAvailable());
   const capabilities = withCapabilityFamilies({
     ...inspected.capabilities,
     editor: {
@@ -1847,6 +1850,8 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       artifactPublish: publishingAvailable,
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
+      backgroundRender: backgroundExportAvailable,
+      externalRender: backgroundExportAvailable,
     },
   }, {
     backend: inspected.identity.backend,
@@ -1879,6 +1884,20 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     publishingBackend: "fcpxml-publisher",
     export: exportAvailable,
     exportBackend: "final-cut-native-export",
+    backgroundExport: {
+      available: backgroundExportAvailable,
+      backend: "external-renderer",
+      guarantee: backgroundExportAvailable ? "verified" : "none",
+      ...(backgroundExportAvailable ? { evidenceTier: "external-rendered" as const } : { unavailableReason: "background rendering is unavailable" }),
+    },
+    backgroundExportBackend: "external-renderer",
+    externalExport: {
+      available: backgroundExportAvailable,
+      backend: "external-renderer",
+      guarantee: backgroundExportAvailable ? "verified" : "none",
+      ...(backgroundExportAvailable ? { evidenceTier: "external-rendered" as const } : { unavailableReason: "external rendering is unavailable" }),
+    },
+    externalExportBackend: "external-renderer",
   });
   return {
     ...inspected,
