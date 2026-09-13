@@ -405,3 +405,34 @@ test("background renderer protects existing output until metadata verification p
   await assert.rejects(invalidReplacement.result(), /BACKGROUND_RENDER_VERIFICATION_FAILED/);
   assert.equal(await readFile(outputPath, "utf8"), "previous verified output");
 });
+
+test("background renderer rejects an output created during rendering", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-race-"));
+  const artifactPath = join(directory, "timeline.fcpxml");
+  const outputPath = join(directory, "final.mp4");
+  await writeFile(artifactPath, "source artifact");
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath }) => {
+      await writeFile(outputPath, "concurrent output");
+      await writeFile(stagingPath, "rendered output");
+    },
+    probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath,
+      target: {
+        projectId: "project-1",
+        sequenceId: "sequence-1",
+        digest: `sha256:${createHash("sha256").update("source artifact").digest("hex")}`,
+      },
+    },
+    outputPath,
+    preset: "master",
+  });
+
+  await assert.rejects(job.result(), /BACKGROUND_RENDER_OUTPUT_EXISTS/);
+  assert.equal(await readFile(outputPath, "utf8"), "concurrent output");
+});

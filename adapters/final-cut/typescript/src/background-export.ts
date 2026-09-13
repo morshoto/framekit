@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { access, constants, rename, stat, unlink } from "node:fs/promises";
+import { access, constants, link, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -444,10 +444,18 @@ async function commitOutput(
 ): Promise<void> {
   if (!overwrite) {
     try {
-      await stat(outputPath);
-      throw backgroundRenderError("BACKGROUND_RENDER_OUTPUT_EXISTS", `output appeared while rendering ${outputPath}`);
+      throwIfAborted(signal);
+      await link(stagingPath, outputPath);
+      await unlink(stagingPath);
+      return;
     } catch (error) {
-      if (!(isNodeError(error) && error.code === "ENOENT")) throw error;
+      if (isNodeError(error) && error.code === "EEXIST") {
+        throw backgroundRenderError("BACKGROUND_RENDER_OUTPUT_EXISTS", `output appeared while rendering ${outputPath}`);
+      }
+      if (isNodeError(error) && typeof error.code === "string" && error.code.startsWith("BACKGROUND_RENDER_")) {
+        throw error;
+      }
+      throw backgroundRenderError("BACKGROUND_RENDER_COMMIT_FAILED", `could not commit ${outputPath} (${String(error)})`);
     }
   }
   throwIfAborted(signal);
