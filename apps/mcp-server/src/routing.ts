@@ -1,5 +1,6 @@
 import type {
   CapabilityDescriptor,
+  CapabilityFamilies,
   CapabilityGuarantee,
   EditorIdentity,
   RuntimeCapabilities,
@@ -282,7 +283,7 @@ function canonicalRequirement(): Requirement {
   };
 }
 
-function observationRequirement(operation: keyof RuntimeCapabilities["editor"] extends never ? never : "timeline"): Requirement {
+function observationRequirement(operation: keyof CapabilityFamilies["observation"]): Requirement {
   return {
     name: `observation.${operation}`,
     label: `observation.${operation}`,
