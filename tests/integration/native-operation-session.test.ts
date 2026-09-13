@@ -327,6 +327,28 @@ test("native session reports recovery-required cancellation after mutation start
   assert.equal(status.error?.recovery, "required");
 });
 
+test("native session fails closed on an unverifiable completed result", async () => {
+  const unverifiedEvidence = structuredClone(evidence);
+  unverifiedEvidence.readback.status = "unverified";
+  unverifiedEvidence.verification.status = "failed";
+  const session = new NativeOperationSession({
+    executor: executor({
+      execute: async (_request, context) => {
+        context.markMutationStarted();
+        return { outcome: "completed", evidence: unverifiedEvidence };
+      },
+    }),
+  });
+  const accepted = await session.submit(request());
+
+  await eventually(() => session.status(accepted.jobId).state === "failed", "unverifiable result did not fail closed");
+  const status = session.status(accepted.jobId);
+  assert.equal(status.completed, false);
+  assert.equal(status.verified, false);
+  assert.equal(status.error?.code, "NATIVE_OPERATION_UNVERIFIED_RESULT");
+  assert.equal(status.error?.recovery, "required");
+});
+
 test("disposable native session retries readiness and exposes sanitized canonical evidence", async () => {
   const state = createDisposableState();
   const workflow = createDisposableWorkflow(state);
