@@ -5,9 +5,16 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
+  createProjectSelectionResult,
+  assertTimelineTargetReadAfterWrite,
+  createTimelineTarget,
+  resolveTimelineTarget,
   reconcileProjectCatalog,
   validateProjectCatalog,
   withCapabilityFamilies,
+} from "@framekit/runtime";
+
+import {
   type ContextRevision,
   type EditorChange,
   type EditorIdentity,
@@ -216,6 +223,16 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline has multiple occurrences for ${query}`);
     }
     const occurrence = located.occurrences[0]!;
+    const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
+    if (!occurrenceIdentity) {
+      throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
+    }
+    if (!occurrence.sequenceId) {
+      throw new Error(`TARGET_MISMATCH: native occurrence has no stable sequence identity for ${clip.id}`);
+    }
+    if (occurrence.sequenceId !== snapshot.timeline.id) {
+      throw new Error(`TARGET_MISMATCH: native occurrence sequence changed for ${clip.id}`);
+    }
     if (occurrence.sourceIdentity && occurrence.sourceIdentity !== match.sourceIdentity) {
       throw new Error(`TARGET_MISMATCH: native occurrence source identity changed for ${clip.id}`);
     }
@@ -357,6 +374,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
 
+    const timelineTarget = createTimelineTarget(before, {
+      occurrenceId: clip.id,
+      mediaId: clip.mediaId,
+    });
+    resolveTimelineTarget(before, timelineTarget);
     await this.resolveTarget(clip, before);
     const nativeResult = await this.native.renameSelectedClip(operation.name);
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
@@ -378,6 +400,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
       }
+      assertTimelineTargetReadAfterWrite(timelineTarget, before, after);
       this.pending.afterRevision = after.revision;
       return after.revision;
     } catch (error) {
@@ -451,10 +474,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<void> {
     const live = await this.live.readLiveState();
-    if (live.project && live.project.name !== snapshot.projectName) {
+    if (!live.project || live.project.id !== snapshot.projectId) {
+      throw new Error(`TARGET_MISMATCH: active project identity ${live.project?.id ?? "<unavailable>"} does not match exported project ${snapshot.projectId}`);
+    }
+    if (live.project.name !== snapshot.projectName) {
       throw new Error(`TARGET_MISMATCH: exported project ${snapshot.projectName} is not active Final Cut project ${live.project.name}`);
     }
-    if (live.sequence && live.sequence.name !== snapshot.timeline.name) {
+    if (!live.sequence || live.sequence.id !== snapshot.timeline.id) {
+      throw new Error(`TARGET_MISMATCH: active sequence identity ${live.sequence?.id ?? "<unavailable>"} does not match exported sequence ${snapshot.timeline.id}`);
+    }
+    if (live.sequence.name !== snapshot.timeline.name) {
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
     }
   }
