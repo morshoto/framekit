@@ -268,6 +268,32 @@ test("native session reports expiry when polling a waiting job", async () => {
   assert.equal(expired.error?.code, "NATIVE_OPERATION_SESSION_EXPIRED");
 });
 
+test("native session retains expired jobs before pruning status and idempotency", async () => {
+  let now = 1_000;
+  const session = new NativeOperationSession({
+    now: () => now,
+    jobTtlMs: 100,
+    jobRetentionMs: 50,
+    executor: executor({ checkReadiness: async () => waiting }),
+  });
+  const accepted = await session.submit(request());
+  await eventually(() => session.status(accepted.jobId).state === "waiting_for_final_cut", "job did not wait");
+
+  now = 1_101;
+  const expired = session.status(accepted.jobId);
+  assert.equal(expired.state, "failed");
+  assert.equal((await session.submit(request())).jobId, accepted.jobId);
+
+  now = 1_140;
+  assert.equal(session.status(accepted.jobId).jobId, accepted.jobId);
+  assert.equal((await session.submit(request())).jobId, accepted.jobId);
+
+  now = 1_151;
+  assert.throws(() => session.status(accepted.jobId), /NATIVE_OPERATION_SESSION_NOT_FOUND/);
+  const replacement = await session.submit(request());
+  assert.notEqual(replacement.jobId, accepted.jobId);
+});
+
 test("native session sanitizes arbitrary executor diagnostics", async () => {
   const session = new NativeOperationSession({
     executor: executor({
