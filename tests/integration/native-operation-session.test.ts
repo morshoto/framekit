@@ -252,6 +252,39 @@ test("native session expires a waiting job before retry", async () => {
   assert.equal(executeCalls, 0);
 });
 
+test("native session reports expiry when polling a waiting job", async () => {
+  let now = 1_000;
+  const session = new NativeOperationSession({
+    now: () => now,
+    jobTtlMs: 100,
+    executor: executor({ checkReadiness: async () => waiting }),
+  });
+  const accepted = await session.submit(request());
+  await eventually(() => session.status(accepted.jobId).state === "waiting_for_final_cut", "job did not wait");
+  now += 101;
+
+  const expired = session.status(accepted.jobId);
+  assert.equal(expired.state, "failed");
+  assert.equal(expired.error?.code, "NATIVE_OPERATION_SESSION_EXPIRED");
+});
+
+test("native session sanitizes arbitrary executor diagnostics", async () => {
+  const session = new NativeOperationSession({
+    executor: executor({
+      execute: async () => {
+        throw new Error("PERMISSION_DENIED: credential=secret path=/Users/private/interview.mov");
+      },
+    }),
+  });
+  const accepted = await session.submit(request());
+
+  await eventually(() => session.status(accepted.jobId).state === "failed", "unsafe executor error did not fail");
+  const status = session.status(accepted.jobId);
+  assert.equal(status.error?.code, "PERMISSION_DENIED");
+  assert.doesNotMatch(status.error?.message ?? "", /secret|interview\.mov|\/Users\/private/);
+  assert.match(status.error?.message ?? "", /native operation failed/i);
+});
+
 test("native session cancels waiting work without invoking the executor", async () => {
   let executeCalls = 0;
   const session = new NativeOperationSession({
