@@ -1141,7 +1141,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: nativeTransitionPreviewSchema,
   }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
-    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets);
+    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets, extra.signal);
     return jsonResult(await options.nativeEditor.previewTransitionAdd({
       asset,
       beforeOccurrenceHandle,
@@ -1748,6 +1748,7 @@ async function resolveNativeTransitionAsset(
   nativeEditor: NativeFinalCutEditor,
   assetId: string,
   nativeTransitionAssets: Map<string, NativeFinalCutTransitionMatch> = new Map(),
+  signal?: AbortSignal,
 ) {
   const cachedAsset = nativeTransitionAssets.get(assetId);
   if (cachedAsset) return cachedAsset;
@@ -1763,7 +1764,7 @@ async function resolveNativeTransitionAsset(
   // transition placement must use the stable identity returned by Final Cut's
   // Transitions browser. Resolve registry assets back through native discovery
   // instead of fabricating a native identity from the registry id.
-  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId);
+  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId, { signal });
   const matchingNativeMatches = asset
     ? nativeMatches.filter((candidate) => candidate.name === asset.name)
     : nativeMatches.filter((candidate) => candidate.id === assetId || candidate.identity === assetId);
