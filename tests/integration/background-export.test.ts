@@ -64,3 +64,30 @@ test("background renderer reports progress and commits verified external output"
   assert.deepEqual(result.provenance.source, request.source);
   assert.equal(await readFile(outputPath, "utf8"), "rendered video");
 });
+
+test("background renderer rejects unproven native Final Cut sources", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-native-"));
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath }) => {
+      await writeFile(stagingPath, "must not render");
+    },
+    probe: async () => ({ durationSeconds: 1, width: 1, height: 1, frameRate: 1, hasAudio: false }),
+  });
+
+  assert.throws(
+    () => provider.start({
+      source: {
+        kind: "final-cut-timeline",
+        target: {
+          projectId: "project-1",
+          sequenceId: "sequence-1",
+          revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+        },
+      },
+      outputPath: join(directory, "final.mp4"),
+      preset: "master",
+    }),
+    /BACKGROUND_RENDER_NATIVE_UNAVAILABLE/,
+  );
+});
