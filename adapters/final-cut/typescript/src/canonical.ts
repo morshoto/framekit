@@ -468,10 +468,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<void> {
     const live = await this.live.readLiveState();
-    if (live.project && live.project.name !== snapshot.projectName) {
+    if (!live.project || live.project.id !== snapshot.projectId) {
+      throw new Error(`TARGET_MISMATCH: active project identity ${live.project?.id ?? "<unavailable>"} does not match exported project ${snapshot.projectId}`);
+    }
+    if (live.project.name !== snapshot.projectName) {
       throw new Error(`TARGET_MISMATCH: exported project ${snapshot.projectName} is not active Final Cut project ${live.project.name}`);
     }
-    if (live.sequence && live.sequence.name !== snapshot.timeline.name) {
+    if (!live.sequence || live.sequence.id !== snapshot.timeline.id) {
+      throw new Error(`TARGET_MISMATCH: active sequence identity ${live.sequence?.id ?? "<unavailable>"} does not match exported sequence ${snapshot.timeline.id}`);
+    }
+    if (live.sequence.name !== snapshot.timeline.name) {
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
     }
   }
