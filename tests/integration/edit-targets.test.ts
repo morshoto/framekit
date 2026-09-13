@@ -180,6 +180,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
       await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
       const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
       assert.equal(editor.capabilities.editor.artifactPublish, true);
+      assert.equal(editor.capabilities.editor.artifactPublishMode, "headed-only");
       assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
       const published = await client.callTool({
         name: "artifact.publish",
@@ -229,6 +230,7 @@ test("MCP reports disabled artifact publishing as unavailable", async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.editor.artifactPublishMode, "unavailable");
   } finally {
     await client.close();
     await server.close();
