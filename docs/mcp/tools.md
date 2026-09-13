@@ -73,6 +73,9 @@ this routing tool.
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
+| `artifact.publish.preview` | Prepare a headed-only handoff for a verified artifact without opening Final Cut | Requires the verified `artifactPath` and `transactionId`; returns an explicit publish job |
+| `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
+| `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
 | `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
 | `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
@@ -87,9 +90,9 @@ this routing tool.
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
-| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
+| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Explicit headed-native path; requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
-| `media.search` | Search media references | Requires `observation.media`; unavailable sessions return structured `CAPABILITY_UNAVAILABLE`; capable sessions may return `[]` |
+| `media.search` | Search media references through configured filesystem discovery or canonical observation | Requires `observation.media`; background discovery is read-only and does not activate Final Cut; unavailable sessions return structured `CAPABILITY_UNAVAILABLE`; capable sessions may return `[]` |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
@@ -101,7 +104,7 @@ this routing tool.
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
 | `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
-| `editor.assets` | Search editor assets by text, kind, or vendor; IDs are provider-qualified and include discovery provenance | Fixture, filesystem Motion-template registry, or headed Final Cut Titles/Transitions browser; native discovery requires Accessibility and Final Cut frontmost |
+| `editor.assets` | Search editor assets by text, kind, vendor, and explicit discovery mode; IDs are provider-qualified and include discovery provenance | `discovery: "background"` is the default filesystem registry; `discovery: "native"` explicitly requires Accessibility and Final Cut frontmost; `discovery: "all"` composes both |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
@@ -163,6 +166,11 @@ The three editing surfaces have separate targets and guarantees:
   `createdTarget`, and `activeProject` before/after; it reports
   `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
   guessing.
+- `artifact.publish.preview`, `artifact.publish.execute`, and
+  `artifact.publish.status` expose a bounded headed-only handoff state machine.
+  `awaiting-final-cut` is retryable before import; `verification-pending` is
+  retryable verification only and never repeats the import. Neither state has
+  a `createdTarget`, and only `verified` has a successful publish result.
 
 The target-specific tools are preferred. The older `timeline.edit` and
 `timeline.publish.new-project` names remain registered as compatibility aliases;
@@ -217,11 +225,30 @@ With the bundled metadata-only Workflow Extension it fails closed with
 enumeration nor project activation, so that failure remains the expected result
 until a supported provider supplies both capabilities.
 
-`media.search` remains canonical snapshot search. Live Browser import and search
-use the explicit `editor.native.media.*` tools because Browser media identity and
-timeline occurrence identity are different. Imported media handles are stable
-for the current native session; timeline occurrence handles remain short-lived
-and bound to the active sequence/playhead state.
+`media.search` is background-first. With `FRAMEKIT_FINAL_CUT_MEDIA_ROOTS`
+configured, it searches local video and audio files without activating,
+focusing, or communicating with Final Cut; otherwise a canonical-capable
+provider may answer from its project snapshot. Filesystem results include a
+provider-qualified media ID, absolute source path, SHA-256 source digest, file
+metadata, and observed filesystem provenance. A changed file or root listing is
+rescanned before the next search. This metadata-only result is not a native
+Browser handle, canonical timeline observation, or placement proof.
+
+`editor.assets` is likewise background-first. The default
+`discovery: "background"` scans configured or standard Motion Template roots
+and returns installation provenance. `discovery: "native"` is the explicit
+headed fallback for Final Cut Titles or Transitions Browser discovery, while
+`discovery: "all"` preserves the composed compatibility response. Filesystem
+assets can support artifact workflows only when their source identity and digest
+are bound. Native title or transition placement must revalidate a stable
+`final-cut:` asset identity, and Browser handles remain separate from timeline
+occurrence identities.
+
+Live Browser import and search continue to use the explicit
+`editor.native.media.*` tools because Browser media identity and timeline
+occurrence identity are different. Imported media handles are stable for the
+current native session; timeline occurrence handles remain short-lived and
+bound to the active sequence/playhead state.
 
 ## Semantic media understanding
 

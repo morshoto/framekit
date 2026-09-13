@@ -106,6 +106,17 @@ test("project selection capabilities expose their execution mode", () => {
   assert.equal(legacyUnavailable.editor.projectSelectionMode, "unavailable");
 });
 
+test("background family does not infer native evidence from editor flags", () => {
+  const capabilities = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, backgroundRender: true },
+  }, { backend: "external-renderer" });
+
+  assert.equal(capabilities.editor.backgroundRender, true);
+  assert.equal(capabilities.families.export.background.available, false);
+  assert.equal(capabilities.families.export.background.evidenceTier, undefined);
+});
+
 test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
   const canonicalWrite = withCapabilityFamilies({
     editor: {
@@ -158,6 +169,36 @@ test("capability normalization invalidates stale descriptors after a downgrade",
   assert.equal(downgraded.families?.canonicalDocument.write.backend, "canonical-live-ipc");
   assert.equal(downgraded.families?.editing.compositeTransactions.available, false);
   assert.equal(downgraded.families?.editing.compositeTransactions.backend, "canonical-live-ipc");
+});
+
+test("capability normalization invalidates stale background media descriptors", () => {
+  const background = withCapabilityFamilies({
+    editor: {
+      ...metadataOnlyCapabilities.editor,
+      backgroundMediaDiscovery: true,
+    },
+    analyzers: metadataOnlyCapabilities.analyzers,
+  }, {
+    backend: "filesystem-media",
+    observation: {
+      media: { available: true, backend: "filesystem-media", guarantee: "observed" },
+    },
+  });
+
+  const downgraded = withCanonicalTimelineMode({
+    ...background,
+    editor: {
+      ...background.editor,
+      backgroundMediaDiscovery: false,
+    },
+  });
+
+  assert.deepEqual(downgraded.families?.observation.media, {
+    available: false,
+    backend: "filesystem-media",
+    guarantee: "none",
+    unavailableReason: "media observation is unavailable",
+  });
 });
 
 test("unavailable capability operations explain their fail-closed reason", () => {
@@ -441,6 +482,10 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /projectCreation/);
   assert.match(documentation, /clipInsertion/);
   assert.match(documentation, /clipMovement/);
+  assert.match(documentation, /backgroundMediaDiscovery/);
+  assert.match(documentation, /backgroundTemplateDiscovery/);
+  assert.match(mcp, /FRAMEKIT_FINAL_CUT_MEDIA_ROOTS/);
+  assert.match(mcp, /discovery: \"native\"/);
   assert.match(architecture, /`editor\.projectRead` is disabled/);
   assert.match(mcp, /"projectRead": false/);
 });

@@ -7,6 +7,7 @@ export interface EditorIdentity {
 }
 
 export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";
+export type ArtifactPublishMode = "background-capable" | "headed-only" | "unavailable";
 
 export interface EditorCapabilities {
   /** Derived canonical guarantee exposed to agents; omitted only by legacy adapters. */
@@ -26,6 +27,8 @@ export interface EditorCapabilities {
   playbackControl?: boolean;
   /** The managed artifact can be imported as a new editor project. */
   artifactPublish?: boolean;
+  /** How a managed artifact can be handed back to the editor. */
+  artifactPublishMode?: ArtifactPublishMode;
   /** Legacy alias for artifactPublish used by editor-first routing. */
   timelinePublishNewProject?: boolean;
   /** The backend can enumerate stable project and sequence identities. */
@@ -38,6 +41,10 @@ export interface EditorCapabilities {
   compositeTransactions?: boolean;
   /** The backend can export the active timeline to a verified local video file. */
   videoExport?: boolean;
+  /** A background renderer can produce a verified local video file without editor UI. */
+  backgroundRender?: boolean;
+  /** An external renderer is available as an explicitly separate evidence path. */
+  externalRender?: boolean;
   mediaImport?: boolean;
   mediaPlacement?: boolean;
   pictureInPicture?: boolean;
@@ -56,6 +63,10 @@ export interface EditorCapabilities {
   personCutout?: boolean;
   /** Explicit semantic operation guarantees; timelineWrite alone is insufficient. */
   semanticOperations?: Partial<Record<SkillOperation, boolean>>;
+  /** The backend can discover local media without Final Cut UI access. */
+  backgroundMediaDiscovery?: boolean;
+  /** The backend can discover installed templates without Final Cut UI access. */
+  backgroundTemplateDiscovery?: boolean;
 }
 
 export interface AnalyzerCapabilities {
@@ -79,10 +90,13 @@ export type CapabilityGuarantee =
   | "native-verified"
   | "verified";
 
+export type ExportEvidenceTier = "headed-native" | "background-native" | "artifact-rendered" | "external-rendered";
+
 export interface CapabilityDescriptor {
   available: boolean;
   backend: string;
   guarantee: CapabilityGuarantee;
+  evidenceTier?: ExportEvidenceTier;
   unavailableReason?: string;
 }
 
@@ -174,6 +188,7 @@ export interface CapabilityFamilies {
   observation: {
     timeline: CapabilityDescriptor;
     media: CapabilityDescriptor;
+    assets: CapabilityDescriptor;
   };
   canonicalDocument: {
     read: CapabilityDescriptor;
@@ -187,6 +202,8 @@ export interface CapabilityFamilies {
   };
   export: {
     timeline: CapabilityDescriptor;
+    background: CapabilityDescriptor;
+    external: CapabilityDescriptor;
   };
   analyzers: {
     speechTranscribe: CapabilityDescriptor;

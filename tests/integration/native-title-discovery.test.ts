@@ -115,3 +115,41 @@ test("native title discovery fails closed without browser identities or frontmos
   const disabled = new FinalCutNativeAutomationAdapter({ enabled: false });
   await assert.rejects(disabled.searchTitles("Lower Third"), /CAPABILITY_UNAVAILABLE/);
 });
+
+test("native title placement rejects filesystem-observed identities", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Test" },
+      sequence: {
+        id: "sequence-1",
+        name: "Test",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "10", timescale: "1" },
+        frameDuration: { value: "1", timescale: "1" },
+      },
+      playheadTime: { value: "0", timescale: "1" },
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "1" },
+        duration: { value: "10", timescale: "1" },
+      },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    }),
+    executor: async (script) => script.includes("timelineWindowAvailable") ? context() : "",
+  });
+
+  await assert.rejects(
+    adapter.previewTitleAdd({
+      asset: {
+        id: "filesystem:title:/Motion Templates.localized/Titles.localized/Lower Third.moti",
+        kind: "title",
+        name: "Lower Third",
+        vendor: "Framekit Fixture",
+        metadata: { provider: "filesystem-motion-template", source: "filesystem" },
+      },
+      text: "Observed title",
+      duration: { value: "1", timescale: "1" },
+    }),
+    /TITLE_ASSET_NATIVE_ID_REQUIRED/,
+  );
+});

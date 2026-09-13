@@ -18,11 +18,16 @@ properties:
 - `guarantee` describes the strongest proof the provider offers: `observed`,
   `artifact-write`, `canonical-read`, `canonical-write`, `native-verified`, or
   `verified`.
+- Export descriptors may also include `evidenceTier`: `headed-native`,
+  `background-native`, `artifact-rendered`, or `external-rendered`. This is
+  separate from availability and prevents an external render from being
+  presented as Final Cut-native output.
 - `unavailableReason` is required when `available` is false and explains why
   the operation must fail closed.
 
 The families are `connection`, `observation`, `canonicalDocument`, `editing`,
-`native`, `publishing`, `export`, and `analyzers`. The shape is intentionally additive so
+`native`, `publishing`, `export`, and `analyzers`. The observation family
+contains `timeline`, `media`, and `assets` operations. The shape is intentionally additive so
 older clients can continue reading the legacy booleans while new agents choose
 one operation at a time:
 
@@ -33,7 +38,8 @@ one operation at a time:
     "connection": { "status": { "available": true, "backend": "workflow-extension-ipc", "guarantee": "observed" } },
     "observation": {
       "timeline": { "available": true, "backend": "workflow-extension-ipc", "guarantee": "observed" },
-      "media": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "media observation is unavailable" }
+      "media": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "media observation is unavailable" },
+      "assets": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "asset discovery is unavailable" }
     },
     "canonicalDocument": {
       "read": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "canonical timeline reads are unavailable" },
@@ -56,7 +62,11 @@ one operation at a time:
       "pictureInPicture": { "available": false, "backend": "final-cut-accessibility", "guarantee": "none", "unavailableReason": "native picture in picture is unavailable" }
     },
     "publishing": { "projectCreation": { "available": false, "backend": "fcpxml-publisher", "guarantee": "none", "unavailableReason": "new project publishing is unavailable" } },
-    "export": { "timeline": { "available": false, "backend": "final-cut-native-export", "guarantee": "none", "unavailableReason": "timeline export is unavailable" } },
+    "export": {
+      "timeline": { "available": false, "backend": "final-cut-native-export", "guarantee": "none", "unavailableReason": "timeline export is unavailable" },
+      "background": { "available": false, "backend": "external-renderer", "guarantee": "none", "unavailableReason": "background rendering is unavailable" },
+      "external": { "available": false, "backend": "external-renderer", "guarantee": "none", "unavailableReason": "external rendering is unavailable" }
+    },
     "analyzers": { "speechTranscribe": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "speech transcription is unavailable" } }
   }
 }
@@ -95,6 +105,13 @@ successful.
 `connection.status` being `ready` only makes the connection descriptor
 available. It never upgrades `canonicalDocument`, `native`, `publishing`, or
 `export` operations; agents must inspect the corresponding family descriptor.
+
+`families.export.timeline` is the headed-native Final Cut Share-menu path.
+`families.export.background` and `families.export.external` are separate
+capabilities. The current artifact-backed provider reports backend
+`external-renderer` and `evidenceTier: "artifact-rendered"`; it does not make
+the headed path background-native or advertise the separate external-rendered
+capability.
 
 A live bridge that can safely provide canonical state uses the additive socket
 methods `snapshot`, `apply`, and `restore`. `apply` and `restore` carry an

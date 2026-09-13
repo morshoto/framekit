@@ -84,6 +84,8 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     nativeBackend: previous.native.selectionWrite.backend,
     publishingBackend: previous.publishing.projectCreation.backend,
     exportBackend: previous.export.timeline.backend,
+    backgroundExportBackend: previous.export.background.backend,
+    externalExportBackend: previous.export.external.backend,
     analyzerBackends: {
       speechTranscribe: previous.analyzers.speechTranscribe.backend,
       speechVad: previous.analyzers.speechVad.backend,
@@ -92,6 +94,13 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
       visualTrack: previous.analyzers.visualTrack.backend,
     },
     connection: previous.connection.status,
+    observation: {
+      media: normalized.editor.timelineSnapshotRead && normalized.editor.projectRead
+        || normalized.editor.backgroundMediaDiscovery
+        ? previous.observation.media
+        : false,
+      assets: normalized.editor.assetDiscovery ? previous.observation.assets : false,
+    },
     canonicalDocument: {
       read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
       write: refreshDescriptor(canonicalWrite, previous.canonicalDocument.write, "canonical-write", "canonical timeline writes are unavailable"),
@@ -126,8 +135,11 @@ export interface CapabilityFamilyOptions {
   nativeBackend?: string;
   publishingBackend?: string;
   exportBackend?: string;
+  backgroundExportBackend?: string;
+  externalExportBackend?: string;
   analyzerBackend?: string;
   analyzerBackends?: Partial<Record<keyof CapabilityFamilies["analyzers"], string | undefined>>;
+  observation?: Partial<Record<keyof CapabilityFamilies["observation"], boolean | CapabilityDescriptor>>;
   canonicalDocument?: Partial<Record<"read" | "write" | "artifactWrite", boolean | CapabilityDescriptor>>;
   editing?: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>;
   editingBackend?: string;
@@ -135,6 +147,8 @@ export interface CapabilityFamilyOptions {
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
   export?: boolean | CapabilityDescriptor;
+  backgroundExport?: boolean | CapabilityDescriptor;
+  externalExport?: boolean | CapabilityDescriptor;
 }
 
 /**
@@ -192,10 +206,22 @@ export function withCapabilityFamilies(
         "timeline observation is unavailable",
       ),
       media: descriptorFrom(
-        editor.timelineSnapshotRead && editor.projectRead,
+        options.observation?.media ?? (
+          editor.timelineSnapshotRead && editor.projectRead
+            ? previous?.observation.media ?? true
+            : editor.backgroundMediaDiscovery
+              ? previous?.observation.media ?? { available: true, backend, guarantee: "observed" as const }
+              : false
+        ),
         backend,
-        "canonical-read",
+        editor.timelineSnapshotRead && editor.projectRead ? "canonical-read" : "observed",
         "media observation is unavailable",
+      ),
+      assets: descriptorFrom(
+        options.observation?.assets ?? (editor.assetDiscovery ? previous?.observation.assets ?? true : false),
+        backend,
+        "observed",
+        "asset discovery is unavailable",
       ),
     },
     canonicalDocument: {
@@ -234,11 +260,26 @@ export function withCapabilityFamilies(
       ),
     },
     export: {
-      timeline: descriptorFrom(
+      timeline: exportDescriptor(
         options.export ?? previous?.export.timeline ?? false,
         options.exportBackend ?? backend,
         "verified",
         "timeline export is unavailable",
+        "headed-native",
+      ),
+      background: exportDescriptor(
+        options.backgroundExport ?? previous?.export.background ?? false,
+        options.backgroundExportBackend ?? previous?.export.background?.backend ?? backend,
+        "verified",
+        "background rendering is unavailable",
+        "background-native",
+      ),
+      external: exportDescriptor(
+        options.externalExport ?? previous?.export.external ?? editor.externalRender ?? false,
+        options.externalExportBackend ?? previous?.export.external?.backend ?? backend,
+        "verified",
+        "external rendering is unavailable",
+        "external-rendered",
       ),
     },
     analyzers: {
@@ -332,6 +373,19 @@ function descriptorFrom(
   if (typeof value !== "boolean") return value;
   return value
     ? { available: true, backend, guarantee }
+    : { available: false, backend, guarantee: "none", unavailableReason };
+}
+
+function exportDescriptor(
+  value: boolean | CapabilityDescriptor,
+  backend: string,
+  guarantee: Exclude<CapabilityDescriptor["guarantee"], "none">,
+  unavailableReason: string,
+  evidenceTier: NonNullable<CapabilityDescriptor["evidenceTier"]>,
+): CapabilityDescriptor {
+  if (typeof value !== "boolean") return value;
+  return value
+    ? { available: true, backend, guarantee, evidenceTier }
     : { available: false, backend, guarantee: "none", unavailableReason };
 }
 

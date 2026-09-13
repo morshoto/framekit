@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -41,15 +41,73 @@ export interface FinalCutProjectPublishRequest {
   confirm: boolean;
 }
 
+export interface FinalCutProjectPublishPreparationRequest {
+  sourceTransactionId: string;
+  artifactPath: string;
+  artifactDigest: string;
+}
+
+export interface FinalCutProjectPublishTargetBinding {
+  projectId: string;
+  sequenceId: string;
+}
+
+export type FinalCutProjectPublishJobState =
+  | "awaiting-confirmation"
+  | "awaiting-final-cut"
+  | "verification-pending"
+  | "verified"
+  | "failed";
+
+export type FinalCutProjectPublishJobAction = "confirm" | "retry" | "status" | "none";
+
+export interface FinalCutProjectPublishJob {
+  jobId: string;
+  state: FinalCutProjectPublishJobState;
+  nextAction: FinalCutProjectPublishJobAction;
+  retryable: boolean;
+  executionMode: "headed-only" | "background-capable";
+  sourceTransactionId: string;
+  sourcePath: string;
+  sourceTarget: {
+    kind: "artifact";
+    artifactPath: string;
+  };
+  artifactDigest: string;
+  projectName: string;
+  sequenceName: string;
+  confirmationRequired: boolean;
+  handoff: {
+    mode: "headed-only";
+    backgroundSupported: false;
+    reason: string;
+  };
+  createdTarget?: FinalCutProjectPublishResult["createdTarget"];
+  result?: FinalCutProjectPublishResult;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
 export interface FinalCutProjectPublisherOptions {
   enabled?: boolean;
   sourcePath: string;
   executor?: (script: string) => Promise<string>;
   liveState?: () => Promise<EditorLiveState>;
+  /** Supplies the exact target identity reserved by a native publish path. */
+  targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
   verificationTimeoutMs?: number;
   pollIntervalMs?: number;
   /** @deprecated Use pollIntervalMs. */
   waitMs?: number;
+}
+
+interface PublishJobRuntime {
+  beforeLive: EditorLiveState;
+  identity: { projectName: string; sequenceName: string };
+  targetBinding: FinalCutProjectPublishTargetBinding;
+  importedPath?: string;
 }
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
@@ -58,14 +116,18 @@ export class FinalCutProjectPublisher {
   private readonly sourcePath: string;
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
   private readonly verificationTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly publishJobs = new Map<string, FinalCutProjectPublishJob>();
+  private readonly publishJobRuntime = new Map<string, PublishJobRuntime>();
 
   public constructor(options: FinalCutProjectPublisherOptions) {
     this.enabled = options.enabled ?? false;
     this.sourcePath = options.sourcePath;
     this.executor = options.executor ?? runAppleScript;
     this.liveState = options.liveState;
+    this.targetBinding = options.targetBinding;
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
   }
@@ -74,9 +136,142 @@ export class FinalCutProjectPublisher {
     return this.enabled;
   }
 
+  public async preparePublish(
+    request: FinalCutProjectPublishPreparationRequest,
+  ): Promise<FinalCutProjectPublishJob> {
+    const { identity } = await this.readValidatedSource(request);
+    const job: FinalCutProjectPublishJob = {
+      jobId: `publish-job-${randomUUID()}`,
+      state: "awaiting-confirmation",
+      nextAction: "confirm",
+      retryable: false,
+      executionMode: "headed-only",
+      sourceTransactionId: request.sourceTransactionId,
+      sourcePath: this.sourcePath,
+      sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
+      artifactDigest: request.artifactDigest,
+      projectName: identity.projectName,
+      sequenceName: identity.sequenceName,
+      confirmationRequired: true,
+      handoff: {
+        mode: "headed-only",
+        backgroundSupported: false,
+        reason: "Final Cut has no supported non-UI project publishing contract; use the explicit headed handoff and verify the created target.",
+      },
+    };
+    this.publishJobs.set(job.jobId, job);
+    return clonePublishJob(job);
+  }
+
+  public getPublishJob(jobId: string): FinalCutProjectPublishJob {
+    const job = this.publishJobs.get(jobId);
+    if (!job) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    return clonePublishJob(job);
+  }
+
+  public async executePublishJob(
+    jobId: string,
+    confirm: boolean,
+  ): Promise<FinalCutProjectPublishJob> {
+    const job = this.publishJobs.get(jobId);
+    if (!job) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    if (job.state === "verified") return clonePublishJob(job);
+    if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
+    if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+
+    if (!this.enabled) {
+      job.state = "awaiting-final-cut";
+      job.nextAction = "retry";
+      job.retryable = true;
+      job.error = {
+        code: "CAPABILITY_UNAVAILABLE",
+        message: "Final Cut project publishing is unavailable; bring Final Cut Pro to the front and retry this job",
+      };
+      return clonePublishJob(job);
+    }
+
+    if (!this.liveState) return this.markAwaitingFinalCut(
+      job,
+      "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+      "Final Cut project state verification is unavailable; retry this job when the live provider is ready",
+    );
+
+    if (job.state === "verification-pending") return this.resumePublishVerification(job);
+
+    let validated: Awaited<ReturnType<FinalCutProjectPublisher["readValidatedSource"]>>;
+    try {
+      validated = await this.readValidatedSource({
+        sourceTransactionId: job.sourceTransactionId,
+        artifactPath: job.sourcePath,
+        artifactDigest: job.artifactDigest,
+      });
+    } catch (error) {
+      return this.markFailed(job, error);
+    }
+
+    let targetBinding: FinalCutProjectPublishTargetBinding;
+    try {
+      if (!this.targetBinding) {
+        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
+      }
+      targetBinding = await this.targetBinding();
+      if (!targetBinding.projectId.trim() || !targetBinding.sequenceId.trim()) {
+        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: native target binding did not return project and sequence identities; no import was attempted");
+      }
+    } catch (error) {
+      return this.markFailed(job, error);
+    }
+
+    let beforeLive: EditorLiveState;
+    try {
+      beforeLive = await readLiveState(this.liveState, "before import");
+    } catch (error) {
+      const normalized = publishError(error);
+      return this.markAwaitingFinalCut(job, normalized.code, normalized.message);
+    }
+
+    const runtime: PublishJobRuntime = { beforeLive, identity: validated.identity, targetBinding };
+    this.publishJobRuntime.set(job.jobId, runtime);
+    job.state = "verification-pending";
+    job.nextAction = "status";
+    job.retryable = false;
+    try {
+      const result = await this.importAndVerify(
+        {
+          sourceTransactionId: job.sourceTransactionId,
+          artifactPath: job.sourcePath,
+          artifactDigest: job.artifactDigest,
+          confirm: true,
+        },
+        validated.source,
+        validated.identity,
+        beforeLive,
+        runtime,
+      );
+      return this.markVerified(job, result);
+    } catch (error) {
+      job.state = "verification-pending";
+      job.nextAction = "retry";
+      job.retryable = true;
+      job.error = publishError(error);
+      return clonePublishJob(job);
+    }
+  }
+
   public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; configure FRAMEKIT_EDITOR=final-cut-live and FRAMEKIT_FCPXML_PATH, and ensure Final Cut is reachable through FRAMEKIT_FINAL_CUT_SOCKET");
     if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+    const { source, identity } = await this.readValidatedSource(request);
+    if (!this.liveState) {
+      throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
+    }
+    const beforeLive = await readLiveState(this.liveState, "before import");
+    return this.importAndVerify(request, source, identity, beforeLive);
+  }
+
+  private async readValidatedSource(
+    request: FinalCutProjectPublishPreparationRequest,
+  ): Promise<{ source: string; identity: { projectName: string; sequenceName: string } }> {
     if (!request.sourceTransactionId.trim()) throw new Error("INVALID_PUBLISH_REQUEST: sourceTransactionId is required");
     if (!request.artifactDigest.trim()) throw new Error("INVALID_PUBLISH_REQUEST: artifactDigest is required");
     if (request.artifactPath !== this.sourcePath) {
@@ -89,13 +284,23 @@ export class FinalCutProjectPublisher {
     if (!source.includes("<fcpxml") || !source.includes("<project")) {
       throw new Error("FINAL_CUT_PUBLISH_VALIDATION_FAILED: source is not a valid FCPXML project artifact");
     }
-    const identity = projectIdentityFromXml(source);
-    if (!this.liveState) {
-      throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
+    return { source, identity: projectIdentityFromXml(source) };
+  }
+
+  private async importAndVerify(
+    request: FinalCutProjectPublishRequest,
+    source: string,
+    identity: { projectName: string; sequenceName: string },
+    beforeLive: EditorLiveState,
+    runtime?: PublishJobRuntime,
+  ): Promise<FinalCutProjectPublishResult> {
+    if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
+    if (runtime && !runtime.targetBinding) {
+      throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no stable created-target identity was retained across verification; no publish success was reported");
     }
-    const beforeLive = await readLiveState(this.liveState, "before import");
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-publish-"));
     const importedPath = join(directory, basename(this.sourcePath));
+    if (runtime) runtime.importedPath = importedPath;
     await writeFile(importedPath, source, "utf8");
     try {
       await this.executor(importXmlScript(importedPath));
@@ -103,36 +308,87 @@ export class FinalCutProjectPublisher {
         this.liveState,
         identity,
         beforeLive,
+        runtime?.targetBinding,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
-      return {
-        sourceTransactionId: request.sourceTransactionId,
-        sourcePath: this.sourcePath,
-        sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
-        importedPath,
-        projectName: identity.projectName,
-        createdTarget: {
-          kind: "editor.project",
-          ...(live?.project?.id ? { projectId: live.project.id } : {}),
-          ...(live?.sequence?.id ? { sequenceId: live.sequence.id } : {}),
-          projectName: identity.projectName,
-          ...(live?.sequence?.name ? { sequenceName: live.sequence.name } : {}),
-        },
-        activeProject: {
-          ...(beforeLive.project ? { before: beforeLive.project } : {}),
-          ...(live.project ? { after: live.project } : {}),
-          ...(beforeLive.project && live.project
-            ? { changed: beforeLive.project.id !== live.project.id || beforeLive.project.name !== live.project.name }
-            : {}),
-        },
-        verified: true,
-        ...(live.project?.name ? { liveProject: live.project.name } : {}),
-        ...(live.sequence?.name ? { liveSequence: live.sequence.name } : {}),
-      };
+      return publishResult(request, importedPath, identity, beforeLive, live);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  }
+
+  private async resumePublishVerification(job: FinalCutProjectPublishJob): Promise<FinalCutProjectPublishJob> {
+    const runtime = this.publishJobRuntime.get(job.jobId);
+    if (!runtime || !this.liveState) {
+      return this.markAwaitingFinalCut(
+        job,
+        "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+        "Final Cut project state verification is unavailable; retry this job when the live provider is ready",
+      );
+    }
+    if (!runtime.targetBinding) {
+      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no stable created-target identity was retained across verification; no publish success was reported"));
+    }
+    try {
+      const live = await waitForImportedProject(
+        this.liveState,
+        runtime.identity,
+        runtime.beforeLive,
+        runtime.targetBinding,
+        this.verificationTimeoutMs,
+        this.pollIntervalMs,
+      );
+      const result = publishResult(
+        {
+          sourceTransactionId: job.sourceTransactionId,
+          artifactPath: job.sourcePath,
+          artifactDigest: job.artifactDigest,
+          confirm: true,
+        },
+        runtime.importedPath ?? job.sourcePath,
+        runtime.identity,
+        runtime.beforeLive,
+        live,
+      );
+      return this.markVerified(job, result);
+    } catch (error) {
+      job.state = "verification-pending";
+      job.nextAction = "retry";
+      job.retryable = true;
+      job.error = publishError(error);
+      return clonePublishJob(job);
+    }
+  }
+
+  private markVerified(job: FinalCutProjectPublishJob, result: FinalCutProjectPublishResult): FinalCutProjectPublishJob {
+    job.state = "verified";
+    job.nextAction = "none";
+    job.retryable = false;
+    job.createdTarget = structuredClone(result.createdTarget);
+    job.result = structuredClone(result);
+    delete job.error;
+    return clonePublishJob(job);
+  }
+
+  private markAwaitingFinalCut(
+    job: FinalCutProjectPublishJob,
+    code: string,
+    message: string,
+  ): FinalCutProjectPublishJob {
+    job.state = "awaiting-final-cut";
+    job.nextAction = "retry";
+    job.retryable = true;
+    job.error = { code, message };
+    return clonePublishJob(job);
+  }
+
+  private markFailed(job: FinalCutProjectPublishJob, error: unknown): FinalCutProjectPublishJob {
+    job.state = "failed";
+    job.nextAction = "none";
+    job.retryable = false;
+    job.error = publishError(error);
+    return clonePublishJob(job);
   }
 }
 
@@ -333,6 +589,7 @@ async function waitForImportedProject(
   liveState: () => Promise<EditorLiveState>,
   identity: { projectName: string; sequenceName: string },
   before: EditorLiveState,
+  targetBinding: FinalCutProjectPublishTargetBinding | undefined,
   timeoutMs: number,
   pollIntervalMs: number,
 ): Promise<EditorLiveState> {
@@ -343,7 +600,7 @@ async function waitForImportedProject(
     try {
       latest = await readLiveState(liveState, "after import");
       lastError = undefined;
-      if (isImportedProject(latest, identity, before)) return latest;
+      if (isImportedProject(latest, identity, before, targetBinding)) return latest;
     } catch (error) {
       lastError = error;
     }
@@ -354,6 +611,12 @@ async function waitForImportedProject(
   if (lastError) throw lastError;
   const observedProject = latest?.project?.name ?? "none";
   const observedSequence = latest?.sequence?.name ?? "none";
+  if (targetBinding && latest?.project && latest.sequence
+    && (latest.project.id !== targetBinding.projectId || latest.sequence.id !== targetBinding.sequenceId)) {
+    throw new Error(
+      `FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected bound target ${targetBinding.projectId}/${targetBinding.sequenceId}, observed ${latest.project.id}/${latest.sequence.id}`,
+    );
+  }
   throw new Error(
     `FINAL_CUT_PUBLISH_VERIFICATION_FAILED: expected new project ${identity.projectName} / sequence ${identity.sequenceName}, observed ${observedProject} / ${observedSequence}`,
   );
@@ -363,9 +626,12 @@ function isImportedProject(
   live: EditorLiveState,
   identity: { projectName: string; sequenceName: string },
   before: EditorLiveState,
+  targetBinding?: FinalCutProjectPublishTargetBinding,
 ): boolean {
   if (!live.project || !live.sequence) return false;
   if (live.project.name !== identity.projectName || live.sequence.name !== identity.sequenceName) return false;
+  if (targetBinding
+    && (live.project.id !== targetBinding.projectId || live.sequence.id !== targetBinding.sequenceId)) return false;
   if (before.project && live.project.id === before.project.id) return false;
   if (before.sequence && live.sequence.id === before.sequence.id) return false;
   return true;
@@ -377,4 +643,48 @@ function delay(milliseconds: number): Promise<void> {
 
 function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {
+  return structuredClone(job);
+}
+
+function publishResult(
+  request: FinalCutProjectPublishRequest,
+  importedPath: string,
+  identity: { projectName: string; sequenceName: string },
+  beforeLive: EditorLiveState,
+  live: EditorLiveState,
+): FinalCutProjectPublishResult {
+  return {
+    sourceTransactionId: request.sourceTransactionId,
+    sourcePath: request.artifactPath,
+    sourceTarget: { kind: "artifact", artifactPath: request.artifactPath },
+    importedPath,
+    projectName: identity.projectName,
+    createdTarget: {
+      kind: "editor.project",
+      ...(live.project?.id ? { projectId: live.project.id } : {}),
+      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      projectName: identity.projectName,
+      ...(live.sequence?.name ? { sequenceName: live.sequence.name } : {}),
+    },
+    activeProject: {
+      ...(beforeLive.project ? { before: beforeLive.project } : {}),
+      ...(live.project ? { after: live.project } : {}),
+      ...(beforeLive.project && live.project
+        ? { changed: beforeLive.project.id !== live.project.id || beforeLive.project.name !== live.project.name }
+        : {}),
+    },
+    verified: true,
+    ...(live.project?.name ? { liveProject: live.project.name } : {}),
+    ...(live.sequence?.name ? { liveSequence: live.sequence.name } : {}),
+  };
+}
+
+function publishError(error: unknown): { code: string; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const separator = message.indexOf(":");
+  const code = separator > 0 ? message.slice(0, separator) : "FINAL_CUT_PUBLISH_FAILED";
+  return { code, message };
 }

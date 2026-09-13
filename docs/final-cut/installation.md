@@ -140,9 +140,10 @@ the sanitized headed evidence.
 
 The repository also provides an explicit headed provider that composes the
 metadata socket with Final Cut's own UI. It exports the active timeline through
-`File > Export XML` into a private temporary file, parses that export as the
-canonical snapshot, and removes the file after each read. It does not read or
-write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
+`File > Export XML` into a private temporary file. Before opening the export
+flow, it requests Final Cut Pro to become frontmost and verifies that state.
+It parses that export as the canonical snapshot and removes the file after each
+read. It does not read or write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
 Browser media match and a unique timeline occurrence with matching rational
 coordinates; native Accessibility Undo and a second export verify rollback. Its
 canonical transaction port currently supports one `rename-clip` operation through
@@ -203,6 +204,9 @@ environment, time-of-day, mood, and usable-range descriptions. Each receives
 one JSON request on stdin and returns one typed JSON result on stdout.
 Motion-template discovery can be restricted with the colon-separated
 `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
+Local media discovery is opt-in and can be configured with the colon-separated
+`FRAMEKIT_FINAL_CUT_MEDIA_ROOTS` variable. It scans supported video and audio
+files without activating, focusing, or communicating with Final Cut.
 
 For selection-scoped native UI edits, explicitly opt in and grant the MCP host
 Accessibility and Automation permission in System Settings:
@@ -228,7 +232,11 @@ the frontmost, timeline-focus, target, permission, and overlay states.
 Explicit timeline-native previews and executions may activate Final Cut and
 focus the timeline. Browser search also requires a labelled Browser or Events
 Accessibility relationship; it does not use ambiguous screen-coordinate
-fallback. If the visible Framekit extension window overlaps the editor,
+fallback. Background media and Motion-template discovery are
+filesystem-observed metadata and do not prove canonical timeline state or native
+placement. `editor.assets` uses filesystem discovery by default; native Titles
+or Transitions Browser discovery requires an explicit `discovery: "native"`
+request. If the visible Framekit extension window overlaps the editor,
 Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
 and verifies the focused window after each attempt. It never clicks the
 Framekit close button. The user must open the intended project timeline and
