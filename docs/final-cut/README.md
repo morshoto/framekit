@@ -9,6 +9,8 @@ Framekit uses two distinct Final Cut backends:
 - Guarded selection-scoped native UI edits through Accessibility automation.
 - A native Workflow Extension for live project/sequence metadata, playhead,
   selected range, and change events.
+- A read-only background library inspection provider for library, event,
+  project, and sequence catalog metadata.
 
 - [Workflow Extension](./workflow-extension.md)
 - [Final Cut provider boundaries](../architecture/final-cut-provider-boundaries.md)
@@ -19,6 +21,7 @@ Framekit uses two distinct Final Cut backends:
 - [Native media insertion breakthrough](./native-media-insertion-breakthrough.md)
 - [Native picture-in-picture](./picture-in-picture.md)
 - [FCPXML operation matrix](./fcpxml-operation-matrix.md)
+- [Background library inspection](./background-library-inspection.md)
 - [Native write and Undo investigation](./native-write-undo-investigation.md)
 - [Stable timeline targets](../adr/0010-stable-timeline-targets.md)
 - [Background render and export investigation](./background-render-export-investigation.md)

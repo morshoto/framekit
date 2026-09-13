@@ -108,8 +108,8 @@ The headed baseline is Final Cut Pro 10.7.1 on the repository's macOS/Xcode
 Use a disposable project, open the intended sequence before connecting, and
 grant Accessibility and Automation permission to the MCP host. The bundled
 Workflow Extension exposes only the active project/sequence metadata and does
-not infer a project from an arbitrary artifact. A separately injected
-background library provider may return a full read-only catalog while Final Cut
+not infer a project from an arbitrary artifact. The Node live adapter also uses
+the read-only background library provider to return a catalog while Final Cut
 is not frontmost. Its capability contract is
 `editor.backgroundLibraryInspection: true` plus
 `families.observation.library` with backend
@@ -121,7 +121,8 @@ source, observed live revision/timing provenance, and the reason that project
 selection is unavailable. This metadata-only path never invokes canonical
 `File > Export XML` and never claims a complete timeline snapshot or native UI
 access. Missing background API support, canonical snapshot support, and native
-UI access remain distinct unavailable route categories.
+UI access remain distinct unavailable route categories. See the
+[background library inspection contract](../final-cut/background-library-inspection.md).
 
 ## Headless mode
 

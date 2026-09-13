@@ -33,6 +33,12 @@ detection fails, both language jobs deliberately fall back to a full scan.
 The policy intentionally does not suppress genuine CodeQL failures, delete
 historical analyses, or change the configured security rules and query suites.
 
+The JavaScript/TypeScript pull-request job uploads its SARIF result without
+waiting for GitHub's server-side processing response. This keeps the required
+analyzer check bounded when processing is delayed while preserving upload and
+analysis failures. Confirm the resulting CodeQL analysis through the analyses
+API before treating the scan as complete.
+
 ## Verification
 
 Status: Verified for the pull-request merge ref; post-merge `main` validation is pending.

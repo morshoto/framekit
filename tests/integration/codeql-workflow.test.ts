@@ -119,6 +119,19 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   );
 });
 
+test("JavaScript CodeQL uploads without waiting on remote processing", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const javascriptJob = workflow.match(
+    /\n  analyze:\n[\s\S]*?(?=\n  analyze-swift:|$)/,
+  )?.[0];
+
+  assert.ok(javascriptJob, "JavaScript CodeQL job should be present");
+  assert.match(
+    javascriptJob,
+    /name: Analyze with CodeQL[\s\S]*?wait-for-processing: false/,
+  );
+});
+
 test("Swift CodeQL extraction uses the checked-in shim only", async () => {
   const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
   const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml");
