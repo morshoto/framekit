@@ -29,9 +29,9 @@ properties:
 
 The families are `connection`, `observation`, `canonicalDocument`, `editing`,
 `native`, `publishing`, `export`, and `analyzers`. The observation family
-contains `timeline`, `media`, and `assets` operations. The shape is intentionally additive so
-older clients can continue reading the legacy booleans while new agents choose
-one operation at a time:
+contains `library`, `timeline`, `media`, and `assets` operations. The shape is
+intentionally additive so older clients can continue reading the legacy
+booleans while new agents choose one operation at a time:
 
 ```json
 {
@@ -39,6 +39,7 @@ one operation at a time:
   "families": {
     "connection": { "status": { "available": true, "backend": "workflow-extension-ipc", "guarantee": "observed" } },
     "observation": {
+      "library": { "available": false, "backend": "final-cut-background-library", "guarantee": "none", "unavailableReason": "background library inspection is unavailable" },
       "timeline": { "available": true, "backend": "workflow-extension-ipc", "guarantee": "observed" },
       "media": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "media observation is unavailable" },
       "assets": { "available": false, "backend": "workflow-extension-ipc", "guarantee": "none", "unavailableReason": "asset discovery is unavailable" }
@@ -99,6 +100,18 @@ the catalog source, live Workflow Extension revision/timing source, and
 reconciliation status explicit. It returns active IDs only after stable project
 and sequence IDs match across both observations; name-only matches and any
 revision or target drift fail closed by returning unresolved/stale metadata.
+
+The background library contract is explicit. A provider sets
+`editor.backgroundLibraryInspection` to `true` and reports
+`families.observation.library` with its provider identity. The bundled contract
+uses backend `final-cut-background-library` and guarantee `observed`; this is
+background metadata only, not canonical timeline evidence or native UI access.
+`project.list` may route to this descriptor while `project.inspect`,
+`timeline.inspect`, and native writes continue to require their own capabilities.
+
+Route failures classify the missing proof as background API support, canonical
+snapshot support, or native UI access. Each unavailable route preserves the
+missing operation descriptor, including its backend, guarantee, and message.
 
 Every disabled operation must fail with an explicit capability error. This is
 preferable to returning partial state or reporting an unverified edit as
