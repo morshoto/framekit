@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const packagedEntrypoint = fileURLToPath(new URL("../dist-package/apps/cli/src/main.js", import.meta.url));
 const developmentEntrypoint = fileURLToPath(new URL("../apps/cli/src/main.ts", import.meta.url));
-const packaged = existsSync(packagedEntrypoint);
+const development = existsSync(developmentEntrypoint);
+const packaged = !development && existsSync(packagedEntrypoint);
 const child = spawn(
   process.execPath,
   [...(packaged ? [] : ["--import", "tsx"]), packaged ? packagedEntrypoint : developmentEntrypoint, ...process.argv.slice(2)],

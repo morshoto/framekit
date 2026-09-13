@@ -12,6 +12,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
+test("development checkout launcher prefers source over a stale dist package", async () => {
+  const launcher = await readFile(join(repository, "bin", "framekit.mjs"), "utf8");
+
+  assert.match(launcher, /const development = existsSync\(developmentEntrypoint\);/);
+  assert.match(launcher, /const packaged = !development && existsSync\(packagedEntrypoint\);/);
+});
+
 test("published package contains the runnable Framekit CLI and MCP sources", async () => {
   const manifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     name?: string;
