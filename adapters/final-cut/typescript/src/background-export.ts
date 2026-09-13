@@ -291,7 +291,13 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
       message,
       ...(error ? { error } : {}),
     };
-    for (const listener of this.listeners) listener(this.status());
+    for (const listener of this.listeners) {
+      try {
+        listener(this.status());
+      } catch {
+        // Progress observers must not affect job execution or settlement.
+      }
+    }
   }
 }
 

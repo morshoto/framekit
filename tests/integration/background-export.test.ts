@@ -66,6 +66,42 @@ test("background renderer reports progress and commits verified external output"
   assert.equal(await readFile(outputPath, "utf8"), "rendered video");
 });
 
+test("background renderer isolates progress listener failures", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-listener-"));
+  const outputPath = join(directory, "final.mp4");
+  const artifactPath = join(directory, "timeline.fcpxml");
+  await writeFile(artifactPath, "source artifact");
+  const provider = new BackgroundRenderExportProvider({
+    enabled: true,
+    renderer: async ({ stagingPath }) => {
+      await writeFile(stagingPath, "rendered video");
+    },
+    probe: async () => ({ durationSeconds: 1, width: 1920, height: 1080, frameRate: 30, hasAudio: false }),
+  });
+  const job = provider.start({
+    source: {
+      kind: "fcpxml-artifact",
+      artifactPath,
+      target: {
+        projectId: "project-1",
+        sequenceId: "sequence-1",
+        revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-13T00:00:00.000Z" },
+      },
+    },
+    outputPath,
+    preset: "master",
+  });
+  job.onProgress((event) => {
+    if (event.state === "completed") throw new Error("observer failed");
+  });
+
+  const result = await job.result();
+
+  assert.equal(result.completed, true);
+  assert.equal(job.status().state, "completed");
+  assert.equal(await readFile(outputPath, "utf8"), "rendered video");
+});
+
 test("background renderer rejects unproven native Final Cut sources", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-native-"));
   const provider = new BackgroundRenderExportProvider({
