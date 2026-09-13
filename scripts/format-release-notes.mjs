@@ -1,4 +1,4 @@
-export const MAINTENANCE_RELEASE_SUMMARY = "🧰 Maintenance & Internal";
+export const MAINTENANCE_RELEASE_SUMMARY = "Maintenance and internal";
 
 const MAINTENANCE_HEADING = `### ${MAINTENANCE_RELEASE_SUMMARY}`;
 
