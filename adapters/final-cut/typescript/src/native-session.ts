@@ -184,7 +184,11 @@ export class NativeOperationSession {
   }
 
   public status(jobId: string): NativeOperationSessionJob {
-    return this.snapshot(this.requireJob(jobId));
+    const job = this.requireJob(jobId);
+    if ((job.state === "planned" || job.state === "waiting_for_final_cut") && this.isExpired(job)) {
+      this.expire(job);
+    }
+    return this.snapshot(job);
   }
 
   public async retry(jobId: string): Promise<NativeOperationSessionJob> {
@@ -233,13 +237,17 @@ export class NativeOperationSession {
     try {
       const readiness = await this.options.executor.checkReadiness(job.request, { signal: job.controller.signal });
       if (job.cancelRequested) return;
+      if (this.isExpired(job)) {
+        this.expire(job);
+        return;
+      }
       job.readiness = structuredClone(readiness.readiness);
       if (readiness.readiness.state !== "ready") {
         job.error = readiness.error
-          ? { ...readiness.error, retryable: readiness.readiness.retryable }
+          ? sessionErrorForCode(readiness.error.code, readiness.readiness.retryable)
           : {
               code: "NATIVE_OPERATION_SESSION_WAITING",
-              message: readiness.readiness.guidance,
+              message: safeSessionErrorMessage("NATIVE_OPERATION_SESSION_WAITING"),
               retryable: readiness.readiness.retryable,
             };
         this.setState(job, "waiting_for_final_cut");
@@ -256,6 +264,10 @@ export class NativeOperationSession {
       };
       await this.options.executor.revalidate(job.request, context);
       if (job.cancelRequested) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
+      if (this.isExpired(job)) {
+        this.expire(job);
+        return;
+      }
       const execution = await this.options.executor.execute(job.request, context);
       this.setState(job, "verifying");
       job.evidence = structuredClone(execution.evidence);
@@ -468,11 +480,39 @@ function sessionError(error: unknown): NativeOperationSessionError {
   const code = error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
     ? (error as { code: string }).code
     : message.split(":", 1)[0] || "NATIVE_OPERATION_SESSION_FAILED";
+  return sessionErrorForCode(code, isRetryable(code));
+}
+
+function sessionErrorForCode(code: string, retryable: boolean): NativeOperationSessionError {
   return {
     code,
-    message,
-    retryable: isRetryable(code),
+    message: safeSessionErrorMessage(code),
+    retryable,
   };
+}
+
+function safeSessionErrorMessage(code: string): string {
+  switch (code) {
+    case "FINAL_CUT_NATIVE_NOT_FRONTMOST":
+      return "Final Cut is not frontmost; restore the headed session and retry";
+    case "FINAL_CUT_NATIVE_TIMELINE_FOCUS_REQUIRED":
+      return "Final Cut timeline focus is required; restore focus and retry";
+    case "FINAL_CUT_NATIVE_OVERLAY_BLOCKED":
+      return "A visible overlay blocks Final Cut; clear it and retry";
+    case "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT":
+      return "Final Cut did not respond before the native deadline; retry";
+    case "STALE_CONTEXT":
+      return "Preview context is stale; inspect and preview again";
+    case "TARGET_MISMATCH":
+      return "The native target no longer matches the preview";
+    case "PREVIEW_TOKEN_STALE":
+    case "PREVIEW_TOKEN_EXPIRED":
+      return "The native preview is missing or expired; preview again";
+    case "CAPABILITY_UNAVAILABLE":
+      return "The required native capability is unavailable; inspect readiness";
+    default:
+      return "Native operation failed; inspect readiness and verification details";
+  }
 }
 
 function isRetryable(code: string): boolean {
