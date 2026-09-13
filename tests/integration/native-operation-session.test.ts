@@ -403,6 +403,24 @@ test("disposable native session rejects a changed preview binding before native 
   assert.equal(state.nativeEditCalls, 0);
 });
 
+test("disposable native preview binds the native target identity", async () => {
+  const state = createDisposableState();
+  const workflow = createDisposableWorkflow(state);
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+
+  assert.equal(preview.targetIdentity, "native-target-1");
+});
+
+test("disposable native execution rejects a missing observed identity", async () => {
+  const state = createDisposableState();
+  const workflow = createDisposableWorkflow(state);
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+
+  state.nativeTargetIdentity = null;
+  await assert.rejects(workflow.execute(preview.previewToken), /TARGET_MISMATCH/);
+  assert.equal(state.nativeEditCalls, 0);
+});
+
 test("native operation session documentation names the contract and safety boundary", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const tools = await readFile(join(here, "../../docs/mcp/tools.md"), "utf8");
@@ -422,6 +440,7 @@ test("native operation session documentation names the contract and safety bound
 interface DisposableState {
   snapshot: ReturnType<typeof disposableSnapshot>;
   nativeReady: boolean;
+  nativeTargetIdentity: string | null;
   targetClipId: string;
   selectedName: string;
   canonicalAfterEditName?: string;
@@ -468,6 +487,7 @@ function createDisposableState(): DisposableState {
   const state = {} as DisposableState;
   state.snapshot = disposableSnapshot("Interview", 1);
   state.nativeReady = true;
+  state.nativeTargetIdentity = "native-target-1";
   state.targetClipId = "clip-1";
   state.selectedName = "Interview";
   state.nativeEditCalls = 0;
@@ -492,7 +512,7 @@ function createDisposableState(): DisposableState {
       requiresFinalCutFrontmost: true,
     }),
     inspect: async () => state.nativeReady
-      ? disposableNativeContext(state.selectedName, state.nativeEditCalls > 0)
+      ? disposableNativeContext(state.selectedName, state.nativeEditCalls > 0, state.nativeTargetIdentity)
       : unavailableDisposableNativeContext(),
     edit: async (operation: Extract<import("@framekit/final-cut").NativeFinalCutEdit, { type: "rename-selected-clip" }>) => {
       state.nativeEditCalls += 1;
@@ -541,7 +561,7 @@ function disposableSnapshot(name: string, revision: number) {
   };
 }
 
-function disposableNativeContext(name: string, edited: boolean): import("@framekit/final-cut").NativeFinalCutContext {
+function disposableNativeContext(name: string, edited: boolean, identity: string | null = "native-target-1"): import("@framekit/final-cut").NativeFinalCutContext {
   return {
     available: true,
     application: "Final Cut Pro",
@@ -552,7 +572,7 @@ function disposableNativeContext(name: string, edited: boolean): import("@framek
     focusTarget: "timeline",
     project: "Disposable Native",
     sequence: "Main",
-    target: { kind: "selected-clip", name, identity: "native-target-1" },
+    target: { kind: "selected-clip", name, ...(identity ? { identity } : {}) },
     bladeAvailable: false,
     undoAvailable: edited,
     readiness: {
