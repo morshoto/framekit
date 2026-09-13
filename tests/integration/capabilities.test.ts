@@ -98,6 +98,8 @@ test("project selection capabilities expose their execution mode", () => {
   const legacyUnavailable = withCapabilityFamilies(metadataOnlyCapabilities, { backend: "workflow-extension-ipc" });
 
   assert.equal(background.editor.projectSelectionMode, "background-capable");
+  assert.equal(background.editor.timelineWrite, false);
+  assert.notEqual(background.editor.canonicalTimelineMode, "canonical-write");
   assert.equal(headed.editor.projectSelectionMode, "headed-only");
   assert.equal(unavailable.editor.projectSelectionMode, "unavailable");
   assert.equal(legacyBackground.editor.projectSelectionMode, "background-capable");
