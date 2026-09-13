@@ -25,6 +25,9 @@ real Final Cut Pro process.
   import, placement, visible title, and verification workflow.
 - [Test matrix](./test-matrix.md): scope and evidence by backend.
 - [Evidence](./evidence/2026-08-16-phase-1-live.md): sanitized local run.
+- [Milestone 6 headed MCP preflight](./evidence/2026-09-13-milestone-6-headed-mcp-preflight.md):
+  v0.1.7 native-canonical process provenance and the exact pre-mutation Final
+  Cut responsiveness blocker.
 
 The repository test command is:
 

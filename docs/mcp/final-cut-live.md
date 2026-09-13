@@ -86,8 +86,10 @@ pnpm run framekit -- mcp --editor final-cut-live
 
 This provider uses the socket only for live identity/state and change events.
 Each canonical read drives Final Cut's `File > Export XML` command into a
-private temporary file, parses the result, and removes it. It never uses
-`FRAMEKIT_FCPXML_PATH`. The supported write is `rename-clip`: Framekit requires
+private temporary file, first requests Final Cut Pro to become frontmost, then
+verifies that state before opening the export flow, parses the result, and
+removes it. It never uses `FRAMEKIT_FCPXML_PATH`. The supported write is
+`rename-clip`: Framekit requires
 one exact Browser media result, one timeline occurrence, matching rational
 start/duration coordinates, native readback, an advancing canonical revision,
 and native Undo that restores the original canonical digest. Duplicate media,
