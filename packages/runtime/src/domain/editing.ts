@@ -279,6 +279,7 @@ export interface CompositeEditPreview {
   previewToken: string;
   target: EditTarget;
   baseRevision: ContextRevision;
+  artifactDigest?: string;
   operations: WorkflowOperation[];
   expectedDiff: TimelineDiff;
   warnings: string[];

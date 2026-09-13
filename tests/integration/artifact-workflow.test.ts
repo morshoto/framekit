@@ -137,7 +137,9 @@ test("MCP exposes the explicit background artifact workflow", async () => {
     })));
     assert.equal(undone.provenance.surface, "artifact");
     assert.equal(undone.provenance.revisionScope, "artifact");
-    assert.equal(undone.provenance.digest, digest(FCPXML));
+    const restoredArtifact = await readFile(artifactPath, "utf8");
+    assert.equal(undone.provenance.digest, digest(restoredArtifact));
+    assert.match(restoredArtifact, /name="Original"/);
     assert.equal(undone.provenance.mutatesOpenTimeline, false);
 
     const wrongPath = await client.callTool({

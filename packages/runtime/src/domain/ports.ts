@@ -45,6 +45,7 @@ export interface ManagedArtifact {
   id: string;
   path: string;
   format: "fcpxml";
+  digest?: string;
 }
 
 export interface LiveEditorStatePort {

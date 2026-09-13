@@ -197,11 +197,13 @@ export class EditService {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
     }
     const expectedAfter = await this.adapter.previewTransaction(request.operations, before.revision);
+    const artifactDigest = await this.readArtifactDigest(target);
     const previewToken = `preview-${randomUUID()}`;
     const preview: CompositeEditPreview = {
       previewToken,
       target: structuredClone(target),
       baseRevision: structuredClone(before.revision),
+      ...(artifactDigest ? { artifactDigest } : {}),
       operations: structuredClone(request.operations),
       expectedDiff: diffSnapshots(before, expectedAfter),
       warnings: [],
@@ -231,6 +233,12 @@ export class EditService {
       throw new Error("PREVIEW_TOKEN_EXPIRED: composite edit preview has expired");
     }
     const before = await this.project.inspectProject();
+    const currentArtifactDigest = await this.readArtifactDigest(preview.target);
+    if (preview.target.kind === "artifact"
+      && preview.artifactDigest !== undefined
+      && currentArtifactDigest !== preview.artifactDigest) {
+      throw new Error("ARTIFACT_SOURCE_CHANGED: FCPXML artifact digest changed before execution");
+    }
     if (!sameRevision(preview.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
     }
@@ -349,6 +357,12 @@ export class EditService {
 
   public async undo(transactionId: string): Promise<ProjectSnapshot> {
     const transaction = this.getTransaction(transactionId);
+    const currentArtifactDigest = await this.readArtifactDigest(transaction.target);
+    if (transaction.target?.kind === "artifact"
+      && transaction.artifactDigest !== undefined
+      && currentArtifactDigest !== transaction.artifactDigest) {
+      throw new Error("ARTIFACT_SOURCE_CHANGED: FCPXML artifact digest changed after transaction");
+    }
     const current = await this.project.inspectProject();
     if (current.projectId !== transaction.before.projectId || current.timeline.id !== transaction.before.timeline.id) {
       throw new Error(
@@ -472,8 +486,8 @@ export class EditService {
     return { kind: "artifact", artifactId: artifact.id, artifactPath: artifact.path };
   }
 
-  private async readArtifactDigest(target: EditTarget): Promise<string | undefined> {
-    if (target.kind !== "artifact" || !this.adapter.getManagedArtifactDigest) return undefined;
+  private async readArtifactDigest(target: EditTarget | undefined): Promise<string | undefined> {
+    if (!target || target.kind !== "artifact" || !this.adapter.getManagedArtifactDigest) return undefined;
     return this.adapter.getManagedArtifactDigest();
   }
 
