@@ -130,6 +130,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     const backgroundMediaDiscovery = Boolean(this.options.media?.listMedia);
     const backgroundLibraryInspection = Boolean(
       operationCapabilities?.backgroundLibraryInspection
+      || this.options.backgroundCatalog
       || (!this.options.snapshot
         && this.options.live?.listProjects
         && live?.editor.projectCatalogRead
@@ -351,7 +352,9 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project catalog");
   }
 
-  private async readBackgroundCatalog(provider: NonNullable<FinalCutSessionOptions["backgroundCatalog"]>): Promise<ProjectCatalog> {
+  private async readBackgroundCatalog(
+    provider: NonNullable<FinalCutSessionOptions["backgroundCatalog"]>,
+  ): Promise<ProjectCatalog> {
     const before = await optionalLiveState(this.options.live);
     const catalog = await provider.listProjects();
     validateProjectCatalog(catalog);

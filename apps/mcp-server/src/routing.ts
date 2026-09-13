@@ -290,7 +290,10 @@ function observationRequirement(operation: keyof CapabilityFamilies["observation
     category: "background-api",
     satisfied: (context) => {
       const descriptor = context.editor?.capabilities.families?.observation[operation];
-      return descriptor ? descriptor.available : Boolean(context.editor?.capabilities.editor.liveStateRead);
+      return Boolean(
+        context.editor?.capabilities.editor.liveStateRead
+        || descriptor?.available && descriptor.guarantee === "observed",
+      );
     },
     descriptor: (context) => context.editor?.capabilities.families?.observation[operation],
   };
@@ -299,22 +302,10 @@ function observationRequirement(operation: keyof CapabilityFamilies["observation
 function backgroundLibraryRequirement(): Requirement {
   return {
     name: "observation.library",
-    label: "observation.library|canonicalDocument.read",
+    label: "observation.library",
     category: "background-api",
-    satisfied: (context) => Boolean(
-      context.editor?.capabilities.families?.observation.library.available
-      || context.editor?.capabilities.editor.projectCatalogRead
-        && context.editor.capabilities.families?.canonicalDocument.read.available,
-    ) || Boolean(
-      !context.editor?.capabilities.families
-      && context.editor?.capabilities.editor.projectCatalogRead,
-    ),
-    descriptor: (context) => {
-      const families = context.editor?.capabilities.families;
-      if (families?.observation.library.available) return families.observation.library;
-      if (families?.canonicalDocument.read.available) return families.canonicalDocument.read;
-      return families?.observation.library;
-    },
+    satisfied: (context) => context.editor?.capabilities.families?.observation.library.available === true,
+    descriptor: (context) => context.editor?.capabilities.families?.observation.library,
   };
 }
 

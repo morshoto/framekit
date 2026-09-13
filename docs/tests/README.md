@@ -28,6 +28,9 @@ real Final Cut Pro process.
 - [Milestone 6 headed MCP preflight](./evidence/2026-09-13-milestone-6-headed-mcp-preflight.md):
   v0.1.7 native-canonical process provenance and the exact pre-mutation Final
   Cut responsiveness blocker.
+- [Non-frontmost MCP regression](./non-frontmost-regression.md): required
+  background routing, artifact safety, evidence-tier, and bounded native
+  blocker coverage.
 
 The repository test command is:
 
