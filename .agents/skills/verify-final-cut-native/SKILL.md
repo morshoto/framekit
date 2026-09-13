@@ -21,6 +21,13 @@ Run without `--execute` first. The helper checks the environment but does not ru
 .agents/skills/verify-final-cut-native/scripts/run-headed-check.sh MODE
 ```
 
+The preflight reads the current macOS `IOConsoleLocked` signal and accepts the
+legacy `CGSSessionScreenIsLocked` signal when the current field is unavailable.
+An unlocked preflight reports `console_lock_state` and `console_lock_source`.
+If no supported signal is available, or the signals disagree, it stops before
+the headed scenario and emits a structured `FINAL_CUT_NATIVE_CONSOLE_LOCK_STATE_UNKNOWN`
+result with `retryable=true` and exit status `75`.
+
 For a write scenario, require the user-authorized disposable target and set `FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1`. Then rerun with `--execute`.
 
 ## Proof contract
