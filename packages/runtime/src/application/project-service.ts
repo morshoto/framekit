@@ -1,5 +1,6 @@
 import { ContextEngine } from "../context/context-engine.js";
-import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact } from "../domain/ports.js";
+import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact, MediaSearchQuery } from "../domain/ports.js";
+import type { MediaContext } from "../domain/media.js";
 import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import type { RationalTime } from "../domain/primitives.js";
@@ -159,6 +160,25 @@ export class ProjectService {
     }
     const assets = await this.context.listAssets(query);
     return assets.filter((asset) => matchesAssetQuery(asset, query));
+  }
+
+  public async searchMedia(query: string): Promise<MediaContext[]> {
+    const identity = await this.adapter.getIdentity();
+    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(), {
+      backend: identity.backend,
+    });
+    const mediaObservation = capabilities.families.observation.media;
+    if (!mediaObservation.available) {
+      throw new CapabilityUnavailableError("media.search", "observation.media", mediaObservation);
+    }
+    if (capabilities.editor.backgroundMediaDiscovery && this.adapter.listMedia) {
+      return this.adapter.listMedia({ query } satisfies MediaSearchQuery);
+    }
+    const project = await this.inspectProject();
+    const normalized = query.trim().toLowerCase();
+    return project.media.filter((media) =>
+      media.mediaId.toLowerCase().includes(normalized) || media.source.toLowerCase().includes(normalized),
+    );
   }
 }
 

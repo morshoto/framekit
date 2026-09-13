@@ -84,6 +84,7 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
       visualTrack: previous.analyzers.visualTrack.backend,
     },
     connection: previous.connection.status,
+    observation: previous.observation,
     canonicalDocument: {
       read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
       write: refreshDescriptor(canonicalWrite, previous.canonicalDocument.write, "canonical-write", "canonical timeline writes are unavailable"),
@@ -120,6 +121,7 @@ export interface CapabilityFamilyOptions {
   exportBackend?: string;
   analyzerBackend?: string;
   analyzerBackends?: Partial<Record<keyof CapabilityFamilies["analyzers"], string | undefined>>;
+  observation?: Partial<Record<keyof CapabilityFamilies["observation"], boolean | CapabilityDescriptor>>;
   canonicalDocument?: Partial<Record<"read" | "write" | "artifactWrite", boolean | CapabilityDescriptor>>;
   editing?: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>;
   editingBackend?: string;
@@ -183,10 +185,22 @@ export function withCapabilityFamilies(
         "timeline observation is unavailable",
       ),
       media: descriptorFrom(
-        editor.timelineSnapshotRead && editor.projectRead,
+        options.observation?.media ?? (
+          editor.timelineSnapshotRead && editor.projectRead
+            ? previous?.observation.media ?? true
+            : editor.backgroundMediaDiscovery
+              ? previous?.observation.media ?? { available: true, backend, guarantee: "observed" as const }
+              : false
+        ),
         backend,
-        "canonical-read",
+        editor.timelineSnapshotRead && editor.projectRead ? "canonical-read" : "observed",
         "media observation is unavailable",
+      ),
+      assets: descriptorFrom(
+        options.observation?.assets ?? (editor.assetDiscovery ? previous?.observation.assets ?? true : false),
+        backend,
+        "observed",
+        "asset discovery is unavailable",
       ),
     },
     canonicalDocument: {
