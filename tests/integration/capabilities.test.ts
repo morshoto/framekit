@@ -81,6 +81,29 @@ test("capability families expose versioned canonical and observation operations"
   });
 });
 
+test("project selection capabilities expose their execution mode", () => {
+  const background = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, projectSelectionMode: "background-capable" },
+  }, { backend: "fcpxml-document" });
+  const headed = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, projectSelectionMode: "headed-only" },
+  }, { backend: "final-cut-accessibility" });
+  const unavailable = withCapabilityFamilies({
+    ...metadataOnlyCapabilities,
+    editor: { ...metadataOnlyCapabilities.editor, projectSelectionMode: "unavailable" },
+  }, { backend: "workflow-extension-ipc" });
+  const legacyBackground = withCapabilityFamilies(artifactCapabilities, { backend: "fcpxml-document" });
+  const legacyUnavailable = withCapabilityFamilies(metadataOnlyCapabilities, { backend: "workflow-extension-ipc" });
+
+  assert.equal(background.editor.projectSelectionMode, "background-capable");
+  assert.equal(headed.editor.projectSelectionMode, "headed-only");
+  assert.equal(unavailable.editor.projectSelectionMode, "unavailable");
+  assert.equal(legacyBackground.editor.projectSelectionMode, "background-capable");
+  assert.equal(legacyUnavailable.editor.projectSelectionMode, "unavailable");
+});
+
 test("canonical writes retain canonical-read guarantees and asset discovery is not media observation", () => {
   const canonicalWrite = withCapabilityFamilies({
     editor: {
@@ -496,6 +519,7 @@ test("Workflow Extension capability payload defines the versioned family contrac
   assert.match(swift, /pictureInPicture: CapabilityDescriptor/);
   assert.match(swift, /projectCatalogRead: Bool/);
   assert.match(swift, /projectSelection: Bool/);
+  assert.match(swift, /projectSelectionMode: String/);
   assert.match(swift, /transitionDiscovery: CapabilityDescriptor/);
   assert.match(swift, /transitionPlacement: CapabilityDescriptor/);
 });
@@ -506,7 +530,7 @@ test("Workflow Extension does not advertise unsupported project catalog operatio
     "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
   ), "utf8");
 
-  assert.match(swift, /projectCatalogRead: false, projectSelection: false/);
+  assert.match(swift, /projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable"/);
 });
 
 test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
