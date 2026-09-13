@@ -112,6 +112,16 @@ test("preserves partial sequence timing as structured unavailable fields", () =>
   assert.equal(sequence.duration.issue.path, "libraries[0].events[0].projects[0].sequence.duration");
 });
 
+test("returns a structured error for malformed inspection responses", () => {
+  const result = parseFinalCutLibraryInspectionResponse("not-json");
+
+  assert.equal(result.status, "error");
+  if (result.status !== "error") return;
+  assert.equal(result.error.code, "FINAL_CUT_LIBRARY_RESPONSE_INVALID");
+  assert.match(result.error.message, /response was not valid JSON/);
+  assert.equal(result.error.retryable, false);
+});
+
 test("returns an actionable unavailable result when Apple Events fail", async () => {
   const provider = new FinalCutLibraryInspectionProvider({
     executor: async () => {
