@@ -243,6 +243,11 @@ The same `idempotencyKey` and binding returns the original job; reusing the key
 for different work is an error. Jobs expire with
 `NATIVE_OPERATION_SESSION_EXPIRED` and cannot be retried after expiry.
 
+Terminal and expired jobs are retained in memory for five minutes after their
+`expiresAt` for status polling and same-key idempotency lookups. The job and
+idempotency entry are then pruned together; later status calls return not-found
+and a reused key starts a new job.
+
 The lifecycle is `planned` -> `waiting_for_final_cut` -> `executing` ->
 `verifying` -> `completed`, `rolled_back`, or `failed`. A pending job can be
 cancelled with `editor.native.operation.cancel`; cancellation after native

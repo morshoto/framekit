@@ -120,6 +120,7 @@ export interface NativeOperationSessionOptions {
   executor: NativeOperationSessionExecutor;
   now?: () => number;
   jobTtlMs?: number;
+  jobRetentionMs?: number;
 }
 
 interface JobRecord {
@@ -129,6 +130,7 @@ interface JobRecord {
   submittedAt: string;
   updatedAt: string;
   expiresAt: string;
+  retainedUntil: number;
   readiness?: NativeOperationReadinessResult["readiness"];
   evidence?: NativeOperationSessionEvidence;
   error?: NativeOperationSessionError;
@@ -146,33 +148,42 @@ export class NativeOperationSession {
   private readonly idempotency = new Map<string, JobRecord>();
   private readonly now: () => number;
   private readonly jobTtlMs: number;
+  private readonly jobRetentionMs: number;
 
   public constructor(private readonly options: NativeOperationSessionOptions) {
     this.now = options.now ?? Date.now;
     this.jobTtlMs = options.jobTtlMs ?? 60_000;
+    this.jobRetentionMs = options.jobRetentionMs ?? 300_000;
     if (!Number.isInteger(this.jobTtlMs) || this.jobTtlMs < 1) {
       throw new Error("INVALID_OPERATION: native operation session jobTtlMs must be a positive integer");
+    }
+    if (!Number.isInteger(this.jobRetentionMs) || this.jobRetentionMs < 1) {
+      throw new Error("INVALID_OPERATION: native operation session jobRetentionMs must be a positive integer");
     }
   }
 
   public async submit(request: NativeOperationSessionRequest): Promise<NativeOperationSessionJob> {
     validateRequest(request);
+    this.pruneExpiredJobs();
     const existing = this.idempotency.get(request.idempotencyKey);
     if (existing) {
       if (!sameRequest(existing.request, request)) {
         throw new Error("NATIVE_OPERATION_IDEMPOTENCY_CONFLICT: idempotency key is bound to a different native request");
       }
+      this.expireIfNeeded(existing);
       return this.snapshot(existing);
     }
 
-    const submittedAt = new Date(this.now()).toISOString();
+    const submittedAtMs = this.now();
+    const expiresAtMs = submittedAtMs + this.jobTtlMs;
     const job: JobRecord = {
       jobId: `native-job-${randomUUID()}`,
       request: structuredClone(request),
       state: "planned",
-      submittedAt,
-      updatedAt: submittedAt,
-      expiresAt: new Date(this.now() + this.jobTtlMs).toISOString(),
+      submittedAt: new Date(submittedAtMs).toISOString(),
+      updatedAt: new Date(submittedAtMs).toISOString(),
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      retainedUntil: expiresAtMs + this.jobRetentionMs,
       cancelRequested: false,
       mutationStarted: false,
       controller: new AbortController(),
@@ -184,14 +195,14 @@ export class NativeOperationSession {
   }
 
   public status(jobId: string): NativeOperationSessionJob {
+    this.pruneExpiredJobs();
     const job = this.requireJob(jobId);
-    if ((job.state === "planned" || job.state === "waiting_for_final_cut") && this.isExpired(job)) {
-      this.expire(job);
-    }
+    this.expireIfNeeded(job);
     return this.snapshot(job);
   }
 
   public async retry(jobId: string): Promise<NativeOperationSessionJob> {
+    this.pruneExpiredJobs();
     const job = this.requireJob(jobId);
     if (job.state !== "waiting_for_final_cut") {
       throw new Error(`NATIVE_OPERATION_SESSION_NOT_RETRYABLE: job ${jobId} is ${job.state}`);
@@ -214,8 +225,13 @@ export class NativeOperationSession {
   }
 
   public async cancel(jobId: string): Promise<NativeOperationSessionJob> {
+    this.pruneExpiredJobs();
     const job = this.requireJob(jobId);
     if (isTerminal(job.state)) return this.snapshot(job);
+    if (this.isExpired(job)) {
+      this.expire(job);
+      return this.snapshot(job);
+    }
     if (job.state === "planned" || job.state === "waiting_for_final_cut") {
       job.cancelRequested = true;
       job.controller.abort();
@@ -324,6 +340,26 @@ export class NativeOperationSession {
     return this.now() >= Date.parse(job.expiresAt);
   }
 
+  private expireIfNeeded(job: JobRecord): void {
+    if ((job.state === "planned" || job.state === "waiting_for_final_cut") && this.isExpired(job)) {
+      this.expire(job);
+    }
+  }
+
+  private pruneExpiredJobs(): void {
+    const now = this.now();
+    for (const [jobId, job] of this.jobs) {
+      const expired = now >= Date.parse(job.expiresAt);
+      const eligible = isTerminal(job.state)
+        || ((job.state === "planned" || job.state === "waiting_for_final_cut") && expired);
+      if (!eligible || now < job.retainedUntil) continue;
+      this.jobs.delete(jobId);
+      if (this.idempotency.get(job.request.idempotencyKey) === job) {
+        this.idempotency.delete(job.request.idempotencyKey);
+      }
+    }
+  }
+
   private setState(job: JobRecord, state: NativeOperationSessionState): void {
     job.state = state;
     job.updatedAt = new Date(this.now()).toISOString();
@@ -366,6 +402,7 @@ export interface DisposableNativeOperationSessionOptions {
   native: Pick<NativeFinalCutEditor, "inspect">;
   now?: () => number;
   jobTtlMs?: number;
+  jobRetentionMs?: number;
 }
 
 /** Adapts the existing canonical disposable rename workflow to session jobs. */
@@ -375,6 +412,7 @@ export function createDisposableNativeOperationSession(
   return new NativeOperationSession({
     now: options.now,
     jobTtlMs: options.jobTtlMs,
+    jobRetentionMs: options.jobRetentionMs,
     executor: {
       checkReadiness: async (_request, { signal }) => {
         const context = await options.native.inspect({ signal });

@@ -57,6 +57,12 @@ completion. Callers poll `status`; `retry` explicitly resumes a retryable
 `waiting_for_final_cut` job. No tool activates or focuses Final Cut implicitly,
 and no completion notification is claimed by this first implementation.
 
+Terminal and expired jobs remain available in memory for five minutes after
+their `expiresAt` so callers can read the terminal status and safely repeat an
+idempotent submission. After that retention window, the job and its
+idempotency entry are pruned together; status returns not-found and reusing the
+key creates a new job.
+
 Before execution, the session compares the submitted binding with the stored
 preview. The wrapped workflow then rechecks the canonical revision and native
 target immediately before mutation. Any mismatch fails closed and the native
