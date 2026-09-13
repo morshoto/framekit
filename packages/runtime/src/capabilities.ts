@@ -53,8 +53,7 @@ function canonicalProjectReadAvailable(editor: RuntimeCapabilities["editor"]): b
   return Boolean(
     editor.projectRead
     && editor.timelineSnapshotRead
-    && editor.projectCatalogRead
-    && editor.projectSelection,
+    && editor.projectCatalogRead,
   );
 }
 

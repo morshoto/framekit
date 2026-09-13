@@ -269,7 +269,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         frameCapture: false,
         playbackControl: false,
         projectCatalogRead: true,
-        projectSelection: true,
+        projectSelection: false,
         compositeTransactions: true,
       },
       analyzers: {
