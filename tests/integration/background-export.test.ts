@@ -60,6 +60,7 @@ test("background renderer reports progress and commits verified external output"
   assert.deepEqual(progress, ["rendering", "rendering", "rendering", "verifying", "completed"]);
   assert.equal(result.completed, true);
   assert.equal(result.verified, true);
+  assert.equal(result.metadata.outputDigest, `sha256:${createHash("sha256").update("rendered video").digest("hex")}`);
   assert.equal(result.provenance.renderer, "external-renderer");
   assert.equal(result.provenance.evidenceTier, "artifact-rendered");
   assert.deepEqual(result.provenance.source, request.source);

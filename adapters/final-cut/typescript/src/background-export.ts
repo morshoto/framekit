@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, constants, readFile, rename, stat, unlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { access, constants, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { ContextRevision } from "@framekit/runtime";
 
@@ -419,7 +420,8 @@ function throwIfAborted(signal: AbortSignal): void {
 }
 
 async function sha256File(filePath: string, signal?: AbortSignal): Promise<string> {
-  const hash = createHash("sha256").update(await readFile(filePath, { signal }));
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath, { signal })) hash.update(chunk);
   return `sha256:${hash.digest("hex")}`;
 }
 
