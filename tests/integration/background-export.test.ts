@@ -56,7 +56,7 @@ test("background renderer reports progress and commits verified external output"
   job.onProgress((event) => progress.push(event.state));
   const result = await job.result();
 
-  assert.deepEqual(progress, ["rendering", "rendering", "verifying", "completed"]);
+  assert.deepEqual(progress, ["rendering", "rendering", "rendering", "verifying", "completed"]);
   assert.equal(result.completed, true);
   assert.equal(result.verified, true);
   assert.equal(result.provenance.renderer, "external-renderer");
