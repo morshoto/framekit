@@ -12,3 +12,4 @@ export * from "./publisher.js";
 export * from "./export.js";
 export * from "./background-export.js";
 export * from "./native-operation.js";
+export * from "./native-session.js";

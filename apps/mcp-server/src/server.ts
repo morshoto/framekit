@@ -24,6 +24,7 @@ import {
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
+  type NativeOperationSession,
 } from "@framekit/final-cut";
 import {
   EDITOR_FIRST_MCP_INSTRUCTIONS,
@@ -678,6 +679,18 @@ const nativeEditToolInputSchema = z.object({
   gainDb: z.number().finite().optional(),
   duration: z.number().nonnegative().optional(),
 }).strict();
+const nativeOperationSessionSubmitSchema = z.object({
+  operation: z.literal("disposable.rename-clip"),
+  previewToken: z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  targetIdentity: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  idempotencyKey: z.string().trim().min(1),
+}).strict();
+const nativeOperationSessionJobSchema = {
+  jobId: z.string().trim().min(1),
+};
 
 function jsonResult(value: unknown) {
   return {
@@ -851,6 +864,7 @@ export interface McpServerOptions {
   connectionStatus?: () => McpConnectionStatus | undefined | Promise<McpConnectionStatus | undefined>;
   nativeEditor?: NativeFinalCutEditor;
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
+  nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
@@ -1100,6 +1114,38 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ operationId }) => {
     if (!options.disposableNative) throw new Error("CAPABILITY_UNAVAILABLE: disposable native edit is not configured");
     return jsonResult(await options.disposableNative.undo(operationId));
+  });
+
+  server.registerTool("editor.native.operation.submit", {
+    description: "Accept a previewed native Final Cut operation as a resumable job without waiting for headed readiness.",
+    inputSchema: nativeOperationSessionSubmitSchema,
+  }, async (request) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(await options.nativeOperationSession.submit(request));
+  });
+
+  server.registerTool("editor.native.operation.status", {
+    description: "Poll a resumable native Final Cut operation for readiness, completion, verification, and restoration evidence.",
+    inputSchema: nativeOperationSessionJobSchema,
+  }, async ({ jobId }) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(options.nativeOperationSession.status(jobId));
+  });
+
+  server.registerTool("editor.native.operation.retry", {
+    description: "Retry a waiting native Final Cut operation after the required headed session becomes ready.",
+    inputSchema: nativeOperationSessionJobSchema,
+  }, async ({ jobId }) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(await options.nativeOperationSession.retry(jobId));
+  });
+
+  server.registerTool("editor.native.operation.cancel", {
+    description: "Cancel a pending native Final Cut operation or report recovery when mutation has already started.",
+    inputSchema: nativeOperationSessionJobSchema,
+  }, async ({ jobId }) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(await options.nativeOperationSession.cancel(jobId));
   });
 
   server.registerTool("editor.native.title.add.preview", {

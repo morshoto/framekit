@@ -35,6 +35,10 @@ this routing tool.
 | `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
 | `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
+| `editor.native.operation.submit` | Accept a previewed native Final Cut operation as a resumable job without waiting for headed readiness | First implementation supports `disposable.rename-clip`; requires the preview token, project, sequence, target, base revision, and idempotency key |
+| `editor.native.operation.status` | Poll a resumable native operation for readiness, completion, verification, and restoration evidence | Returns structured `waiting_for_final_cut`, terminal state, and sanitized evidence |
+| `editor.native.operation.retry` | Retry a waiting native operation after Final Cut becomes ready | Requires a retryable readiness state and an unexpired preview |
+| `editor.native.operation.cancel` | Cancel pending native work or report recovery when mutation has started | Never claims safe cancellation of an unverified mutation |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
 | `editor.native.picture-in-picture.preview` | Preview connecting selected Browser video to a stable timeline occurrence | Requires native PIP capability, selected media and occurrence handles, frame-aligned timing, and explicit transform properties |

@@ -213,6 +213,66 @@ it through Accessibility, raises the timeline window, and verifies the focused
 window after every attempt. It never clicks the Framekit close button. An
 overlay that cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
 
+## Resumable native operation sessions
+
+For a previewed disposable native rename that cannot run immediately, submit a
+resumable operation instead of waiting for Final Cut to become frontmost. The
+first implementation supports `disposable.rename-clip` and remains a headed UI
+operation; it does not turn queued work into background-native execution.
+
+Use the binding values returned by `editor.native.disposable.preview`:
+
+```json
+{
+  "operation": "disposable.rename-clip",
+  "previewToken": "disposable-native-preview-...",
+  "projectId": "project-1",
+  "sequenceId": "sequence-1",
+  "targetIdentity": "clip-1",
+  "baseRevision": {
+    "id": "revision-1",
+    "sequence": 1,
+    "timestamp": "2026-09-13T00:00:00.000Z"
+  },
+  "idempotencyKey": "rename-request-1"
+}
+```
+
+Call `editor.native.operation.submit` with that object. It returns an accepted
+job without waiting for the native readiness probe or the edit to finish. Poll
+`editor.native.operation.status` with the returned `jobId`. A missing frontmost
+Final Cut session is reported as `state: "waiting_for_final_cut"`, with the
+first missing readiness requirement, actionable guidance, and retryability.
+
+When the user has restored the required headed state, call
+`editor.native.operation.retry`. The preview, project, sequence, target
+identity, and base revision are revalidated immediately before mutation. A
+changed target or revision fails closed and does not invoke the native edit.
+The same `idempotencyKey` and binding returns the original job; reusing the key
+for different work is an error. Jobs expire with
+`NATIVE_OPERATION_SESSION_EXPIRED` and cannot be retried after expiry.
+
+Terminal and expired jobs are retained in memory for five minutes after their
+`expiresAt` for status polling and same-key idempotency lookups. The job and
+idempotency entry are then pruned together; later status calls return not-found
+and a reused key starts a new job.
+
+The lifecycle is `planned` -> `waiting_for_final_cut` -> `executing` ->
+`verifying` -> `completed`, `rolled_back`, `failed`, or `cancelled`. A pending job can be
+cancelled with `editor.native.operation.cancel`; cancellation after native
+mutation starts reports a recovery-required failure rather than claiming that
+an unverified change was safely cancelled. Terminal status keeps `accepted`,
+`completed`, `verified`, and `restored` separate and includes canonical
+readback revision, diff counts, verification checks, and native Undo/rollback
+state. Session status is sanitized and does not include raw canonical media
+paths or credentials.
+
+Jobs are process-local and do not survive MCP process restart. This first
+implementation provides status polling but does not claim a completion
+notification channel. The existing operation-specific preview/execute tools
+remain available for native title, transition, mask, range, and media
+operations until they adopt the session contract.
+
 ## Importing local media
 
 With native writes enabled, import a local video or audio file into the active
