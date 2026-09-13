@@ -94,6 +94,13 @@ disabled. It reports
 not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
 
+The editor capability payload explicitly reports
+`projectSelectionMode` as `background-capable`, `headed-only`, or
+`unavailable`. A successful selection returns the requested target, the
+observed active target, and the observed revision separately. These fields keep
+target transitions distinct from canonical timeline mutation and prevent
+request acknowledgements from being treated as active-target proof.
+
 Native selection and media-library operations are separate MCP capabilities.
 They use Accessibility automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`,
 and do not change the canonical `timelineWrite` or `timelineSnapshotRead`

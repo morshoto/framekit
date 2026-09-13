@@ -192,7 +192,9 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 The FCPXML file is the managed artifact. Framekit does not automatically
-import edits into the open Final Cut timeline.
+import edits into the open Final Cut timeline. See the [FCPXML operation
+matrix](./fcpxml-operation-matrix.md) for the supported artifact operations and
+their evidence boundary.
 
 Optional local JSON analyzer commands can be configured with
 `FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, and
@@ -217,13 +219,19 @@ It does not report success until Final Cut has produced a non-empty file and
 `ffprobe` has verified its media metadata. Existing output files are protected
 unless the request includes `overwrite: true`.
 
-Framekit activates Final Cut and focuses the timeline before timeline-native
-operations using bounded Accessibility hierarchy discovery. Browser search
-also requires a labelled Browser or Events Accessibility relationship; it does
-not use ambiguous screen-coordinate fallback. If the visible Framekit extension window overlaps the editor,
+Use `editor.native.inspect` for a bounded, passive readiness check before
+timeline-native work. It does not activate Final Cut, raise a window, minimize
+the Framekit overlay, click, or change selection. The returned `readiness`
+object identifies the first missing requirement, whether retry is useful, and
+the frontmost, timeline-focus, target, permission, and overlay states.
+
+Explicit timeline-native previews and executions may activate Final Cut and
+focus the timeline. Browser search also requires a labelled Browser or Events
+Accessibility relationship; it does not use ambiguous screen-coordinate
+fallback. If the visible Framekit extension window overlaps the editor,
 Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
 and verifies the focused window after each attempt. It never clicks the
 Framekit close button. The user must open the intended project timeline and
 select the target clip; Framekit does not choose projects automatically. A
-failed focus can be retried with `editor.native.focus` without changing
-timeline content.
+failed focus can be retried explicitly with `editor.native.focus` without
+changing timeline content.

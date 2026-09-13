@@ -128,7 +128,26 @@ test("canonical native provider satisfies the MCP targeting, edit, verify, and U
     assert.equal(editor.identity.backend, "final-cut-native-canonical");
     assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-write");
     assert.equal(editor.capabilities.editor.projectCatalogRead, true);
-    assert.equal(editor.capabilities.editor.projectSelection, true);
+    assert.equal(editor.capabilities.editor.projectSelection, false);
+
+    const selection = await client.callTool({
+      name: "project.select",
+      arguments: {
+        projectId: "final-cut:project:canonical-mcp",
+        sequenceId: "final-cut:sequence:canonical-mcp",
+      },
+    });
+    assert.equal(selection.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(selection)), {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "project.select requires editor.projectSelection",
+      operation: "project.select",
+      capability: "editor.projectSelection",
+      available: false,
+      backend: "final-cut-native-canonical",
+      guarantee: "none",
+      unavailableReason: "project selection is unavailable",
+    });
 
     const catalog = JSON.parse(textFrom(await client.callTool({ name: "project.list", arguments: {} })));
     assert.deepEqual(catalog, {

@@ -3,6 +3,9 @@
 Capabilities describe what the selected backend can safely guarantee, not what
 the editor might be able to do through undocumented automation.
 
+For the current-version Final Cut non-UI snapshot decision and evidence, see the
+[non-UI timeline snapshot investigation](./non-ui-timeline-snapshot-investigation.md).
+
 ## Versioned operation contract
 
 `RuntimeCapabilities` retains the boolean `editor` and `analyzers` fields for
@@ -69,6 +72,14 @@ because `project.inspect` has no canonical snapshot provider, while
 `editor.liveStateRead` and `editor.incrementalChanges` remain enabled. An FCPXML document provider reports
 `editor.timelineSnapshotRead` and `editor.timelineArtifactWrite`, never
 `editor.timelineWrite`. Analyzer availability is negotiated independently.
+
+Project targeting is also explicit. `editor.projectSelectionMode` is
+`background-capable`, `headed-only`, or `unavailable`; the legacy
+`editor.projectSelection` boolean remains for compatibility. A successful
+`project.select` response includes the requested stable target, the observed
+active target, and the observed context revision. The bundled Workflow
+Extension reports `unavailable` because its public host surface exposes only
+the active timeline sequence and no project catalog or activation command.
 
 Every disabled operation must fail with an explicit capability error. This is
 preferable to returning partial state or reporting an unverified edit as

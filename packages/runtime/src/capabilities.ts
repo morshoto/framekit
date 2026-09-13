@@ -5,6 +5,7 @@ import type {
   EditingCapabilityOperation,
   EditorIdentity,
   NativeCapabilityOperation,
+  ProjectSelectionMode,
   RuntimeCapabilities,
   VersionedRuntimeCapabilities,
 } from "./domain/capabilities.js";
@@ -41,12 +42,18 @@ export function canonicalTimelineMode(capabilities: RuntimeCapabilities): Canoni
   return "metadata-only";
 }
 
+export function projectSelectionMode(
+  editor: RuntimeCapabilities["editor"],
+): ProjectSelectionMode {
+  return editor.projectSelectionMode
+    ?? (editor.projectSelection ? "background-capable" : "unavailable");
+}
+
 function canonicalProjectReadAvailable(editor: RuntimeCapabilities["editor"]): boolean {
   return Boolean(
     editor.projectRead
     && editor.timelineSnapshotRead
-    && editor.projectCatalogRead
-    && editor.projectSelection,
+    && editor.projectCatalogRead,
   );
 }
 
@@ -57,6 +64,7 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
       ...capabilities.editor,
       projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
+      projectSelectionMode: projectSelectionMode(capabilities.editor),
     },
   };
   const previous = capabilities.families;
@@ -146,6 +154,7 @@ export function withCapabilityFamilies(
       ...capabilities.editor,
       projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
+      projectSelectionMode: projectSelectionMode(capabilities.editor),
     },
   };
   const editor = normalized.editor;
