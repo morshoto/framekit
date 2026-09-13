@@ -194,17 +194,16 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
   private async run(): Promise<void> {
     const outputPath = resolve(this.request.outputPath.trim());
     const stagingPath = createStagingPath(outputPath);
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeout = setTimeout(() => {
+      this.controller.abort(backgroundRenderError("BACKGROUND_RENDER_TIMEOUT", "background render exceeded its deadline"));
+    }, this.request.timeoutMs ?? this.defaultTimeoutMs);
 
     try {
       if (this.controller.signal.aborted) throw this.controller.signal.reason;
-      await assertSourceBinding(this.request.source);
+      await assertSourceBinding(this.request.source, this.controller.signal);
       await assertOutputDirectory(outputPath);
       await assertOutputCanBeReplaced(outputPath, this.request.overwrite ?? false);
       this.update("rendering", 0, "background renderer started");
-      timeout = setTimeout(() => {
-        this.controller.abort(backgroundRenderError("BACKGROUND_RENDER_TIMEOUT", "background render exceeded its deadline"));
-      }, this.request.timeoutMs ?? this.defaultTimeoutMs);
       await this.runRenderer(stagingPath);
       if (this.controller.signal.aborted) throw this.controller.signal.reason;
       this.update("verifying", 0.9, "verifying staged output");
@@ -244,7 +243,7 @@ class BackgroundRenderJobHandle implements BackgroundRenderJob {
       this.update(cancelled ? "cancelled" : "failed", this.current.progress, normalized.message, normalized);
       this.rejectCompletion(normalized);
     } finally {
-      if (timeout) clearTimeout(timeout);
+      clearTimeout(timeout);
       if (!this.committed) await removeIfPresent(stagingPath);
     }
   }
@@ -313,10 +312,10 @@ function validateRequest(request: BackgroundRenderRequest): void {
   }
 }
 
-async function assertSourceBinding(source: BackgroundRenderSource): Promise<void> {
+async function assertSourceBinding(source: BackgroundRenderSource, signal: AbortSignal): Promise<void> {
   if (source.kind !== "fcpxml-artifact") return;
   try {
-    const observedDigest = await sha256File(source.artifactPath!);
+    const observedDigest = await sha256File(source.artifactPath!, signal);
     if (source.target.digest !== undefined && source.target.digest !== observedDigest) {
       throw backgroundRenderError(
         "BACKGROUND_RENDER_SOURCE_CHANGED",
@@ -324,6 +323,7 @@ async function assertSourceBinding(source: BackgroundRenderSource): Promise<void
       );
     }
   } catch (error) {
+    if (signal.aborted) throw signal.reason;
     if (isNodeError(error) && typeof error.code === "string" && error.code.startsWith("BACKGROUND_RENDER_")) {
       throw error;
     }
@@ -390,8 +390,8 @@ async function commitOutput(stagingPath: string, outputPath: string, overwrite: 
   }
 }
 
-async function sha256File(filePath: string): Promise<string> {
-  const hash = createHash("sha256").update(await readFile(filePath));
+async function sha256File(filePath: string, signal?: AbortSignal): Promise<string> {
+  const hash = createHash("sha256").update(await readFile(filePath, { signal }));
   return `sha256:${hash.digest("hex")}`;
 }
 
