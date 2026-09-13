@@ -62,7 +62,7 @@ export interface AssetSearchQuery {
   query?: string;
   kind?: EditorAsset["kind"];
   vendor?: string;
-  discovery?: "background" | "native";
+  discovery?: "background" | "native" | "all";
 }
 
 export interface MediaSearchQuery {

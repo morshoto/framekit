@@ -42,7 +42,7 @@ test("Final Cut asset discovery composes stable filesystem and native title iden
     },
   });
 
-  const assets = await registry.listAssets({ kind: "title", query: "lower" });
+  const assets = await registry.listAssets({ kind: "title", query: "lower", discovery: "all" });
 
   assert.deepEqual(assets.map((asset) => asset.id), [
     `filesystem:title:${bundle}`,
@@ -69,6 +69,79 @@ test("Final Cut asset discovery composes stable filesystem and native title iden
   });
 });
 
+test("Final Cut asset discovery defaults to filesystem without native Browser access", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-background-title-assets-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(
+    join(bundle, "Contents", "Info.plist"),
+    "<plist><key>CFBundleDisplayName</key><string>Lower Third</string></plist>",
+  );
+  let nativeCalls = 0;
+  const registry = new FinalCutAssetRegistry({
+    roots: [root],
+    nativeTitleProvider: {
+      searchTitles: async () => {
+        nativeCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  const assets = await registry.listAssets({ kind: "title" });
+
+  assert.deepEqual(assets.map((asset) => asset.id), [`filesystem:title:${bundle}`]);
+  assert.equal(nativeCalls, 0);
+  assert.deepEqual(assets[0]?.metadata.installation, {
+    path: bundle,
+    root,
+    relativePath: "Titles.localized/Lower Third.moti",
+  });
+});
+
+test("Final Cut asset discovery uses native Browser only when explicitly requested", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-explicit-native-title-assets-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(join(bundle, "Contents", "Info.plist"), "<plist />");
+  const nativeTitle: NativeFinalCutTitleMatch = {
+    id: "final-cut:title:fcp://title/lower-third",
+    kind: "title",
+    name: "Lower Third",
+    vendor: "Final Cut Pro",
+    identity: "fcp://title/lower-third",
+  };
+  let nativeCalls = 0;
+  const registry = new FinalCutAssetRegistry({
+    roots: [root],
+    nativeTitleProvider: {
+      searchTitles: async () => {
+        nativeCalls += 1;
+        return [nativeTitle];
+      },
+    },
+  });
+
+  const assets = await registry.listAssets({ kind: "title", discovery: "native" });
+
+  assert.deepEqual(assets.map((asset) => asset.id), [nativeTitle.id]);
+  assert.equal(nativeCalls, 1);
+});
+
+test("Final Cut asset discovery detects changed template metadata", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "framekit-template-cache-"));
+  const bundle = join(root, "Titles.localized", "Lower Third.moti");
+  const infoPath = join(bundle, "Contents", "Info.plist");
+  await mkdir(join(bundle, "Contents"), { recursive: true });
+  await writeFile(infoPath, "<plist><key>CFBundleDisplayName</key><string>Before</string></plist>");
+  const registry = new FinalCutAssetRegistry({ roots: [root] });
+
+  assert.equal((await registry.listAssets({ kind: "title" }))[0]?.name, "Before");
+  await writeFile(infoPath, "<plist><key>CFBundleDisplayName</key><string>After</string></plist>");
+
+  assert.equal((await registry.listAssets({ kind: "title" }))[0]?.name, "After");
+});
+
 test("Final Cut asset discovery composes stable filesystem and native transition identities", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "framekit-transition-assets-"));
   const bundle = join(root, "Transitions.localized", "Cross Dissolve.motr");
@@ -92,7 +165,7 @@ test("Final Cut asset discovery composes stable filesystem and native transition
     },
   });
 
-  const assets = await registry.listAssets({ kind: "transition", query: "dissolve" });
+  const assets = await registry.listAssets({ kind: "transition", query: "dissolve", discovery: "all" });
 
   assert.deepEqual(assets.map((asset) => asset.id), [
     `filesystem:transition:${bundle}`,
@@ -126,7 +199,7 @@ test("Final Cut asset discovery propagates native browser unavailability", async
   });
 
   await assert.rejects(
-    registry.listAssets({ kind: "title" }),
+    registry.listAssets({ kind: "title", discovery: "native" }),
     /FINAL_CUT_NATIVE_TITLE_BROWSER_PERMISSION/,
   );
 });
@@ -140,7 +213,7 @@ test("Final Cut asset discovery fails closed on empty native title results", asy
   });
 
   await assert.rejects(
-    registry.listAssets({ kind: "title" }),
+    registry.listAssets({ kind: "title", discovery: "native" }),
     /FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY/,
   );
 });
@@ -160,7 +233,7 @@ test("Final Cut asset discovery preserves filesystem titles when native discover
     },
   });
 
-  const assets = await registry.listAssets({ kind: "title" });
+  const assets = await registry.listAssets({ kind: "title", discovery: "all" });
 
   assert.equal(assets.length, 1);
   assert.deepEqual(assets[0]?.metadata.discovery, {
@@ -191,7 +264,7 @@ test("Final Cut asset discovery reports native unavailability with filesystem re
     },
   });
 
-  const assets = await registry.listAssets({ kind: "title", query: "lower" });
+  const assets = await registry.listAssets({ kind: "title", query: "lower", discovery: "all" });
 
   assert.equal(assets.length, 1);
   assert.deepEqual(assets[0]?.metadata.discovery, {
@@ -222,7 +295,7 @@ test("Final Cut transition discovery reports native unavailability with filesyst
     },
   });
 
-  const assets = await registry.listAssets({ kind: "transition", query: "dissolve" });
+  const assets = await registry.listAssets({ kind: "transition", query: "dissolve", discovery: "all" });
 
   assert.equal(assets.length, 1);
   assert.deepEqual(assets[0]?.metadata.discovery, {
@@ -247,7 +320,7 @@ test("Final Cut native-only transition discovery fails closed", async () => {
   });
 
   await assert.rejects(
-    registry.listAssets({ kind: "transition", query: "dissolve" }),
+    registry.listAssets({ kind: "transition", query: "dissolve", discovery: "native" }),
     /FINAL_CUT_NATIVE_TRANSITION_BROWSER_PERMISSION/,
   );
 });
@@ -279,7 +352,7 @@ test("Final Cut transition discovery continues after a title-provider failure", 
     },
   });
 
-  const assets = await registry.listAssets({ query: "dissolve" });
+  const assets = await registry.listAssets({ query: "dissolve", discovery: "all" });
 
   assert.deepEqual(assets.map((asset) => asset.id), [
     `filesystem:transition:${bundle}`,
@@ -319,8 +392,8 @@ test("Final Cut transition discovery supports vendor-only and unfiltered queries
     },
   });
 
-  assert.deepEqual((await registry.listAssets({ vendor: "Final Cut Pro" })).map((asset) => asset.id), [nativeTransition.id]);
-  assert.deepEqual((await registry.listAssets({})).map((asset) => asset.id), [nativeTransition.id]);
+  assert.deepEqual((await registry.listAssets({ vendor: "Final Cut Pro", discovery: "native" })).map((asset) => asset.id), [nativeTransition.id]);
+  assert.deepEqual((await registry.listAssets({ discovery: "native" })).map((asset) => asset.id), [nativeTransition.id]);
   assert.deepEqual(queries, ["", ""]);
 });
 
@@ -354,7 +427,7 @@ test("MCP editor.assets exposes native title provenance", async () => {
     await client.connect(clientTransport);
     const assets = JSON.parse(textFrom(await client.callTool({
       name: "editor.assets",
-      arguments: { kind: "title", query: "lower" },
+      arguments: { kind: "title", query: "lower", discovery: "native" },
     })));
     assert.equal(assets[0].id, nativeTitle.id);
     assert.deepEqual(assets[0].metadata.discovery, {
@@ -397,7 +470,7 @@ test("MCP editor.assets exposes native transition provenance", async () => {
     await client.connect(clientTransport);
     const assets = JSON.parse(textFrom(await client.callTool({
       name: "editor.assets",
-      arguments: { kind: "transition", query: "dissolve" },
+      arguments: { kind: "transition", query: "dissolve", discovery: "native" },
     })));
     assert.equal(assets[0].id, nativeTransition.id);
     assert.equal(assets[0].name, nativeTransition.name);
