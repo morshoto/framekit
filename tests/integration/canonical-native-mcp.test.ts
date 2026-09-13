@@ -98,6 +98,18 @@ function createRuntime(calls: string[]) {
     },
     readSnapshot: async () => snapshot(clipName),
     resolveTarget: async () => undefined,
+    backgroundCatalog: {
+      backend: "final-cut-background-library",
+      listProjects: async () => ({
+        projects: [{
+          id: "final-cut:project:canonical-mcp",
+          name: "Canonical MCP",
+          sequences: [{ id: "final-cut:sequence:canonical-mcp", name: "Main Edit" }],
+        }],
+        activeProjectId: "final-cut:project:canonical-mcp",
+        activeSequenceId: "final-cut:sequence:canonical-mcp",
+      }),
+    },
   });
   return new AgentVideoRuntime(new FinalCutSessionAdapter({ live: provider }));
 }
@@ -150,15 +162,14 @@ test("canonical native provider satisfies the MCP targeting, edit, verify, and U
     });
 
     const catalog = JSON.parse(textFrom(await client.callTool({ name: "project.list", arguments: {} })));
-    assert.deepEqual(catalog, {
-      projects: [{
-        id: "final-cut:project:canonical-mcp",
-        name: "Canonical MCP",
-        sequences: [{ id: "final-cut:sequence:canonical-mcp", name: "Main Edit" }],
-      }],
-      activeProjectId: "final-cut:project:canonical-mcp",
-      activeSequenceId: "final-cut:sequence:canonical-mcp",
-    });
+    assert.deepEqual(catalog.projects, [{
+      id: "final-cut:project:canonical-mcp",
+      name: "Canonical MCP",
+      sequences: [{ id: "final-cut:sequence:canonical-mcp", name: "Main Edit" }],
+    }]);
+    assert.equal(catalog.activeProjectId, "final-cut:project:canonical-mcp");
+    assert.equal(catalog.activeSequenceId, "final-cut:sequence:canonical-mcp");
+    assert.equal(catalog.provenance.catalog.source, "background-library");
 
     const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
     const route = JSON.parse(textFrom(await client.callTool({

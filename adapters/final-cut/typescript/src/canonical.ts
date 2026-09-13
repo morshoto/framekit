@@ -12,6 +12,7 @@ import {
   reconcileProjectCatalog,
   validateProjectCatalog,
   withCapabilityFamilies,
+  CapabilityUnavailableError,
 } from "@framekit/runtime";
 
 import {
@@ -286,6 +287,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {
+    const backgroundCatalog = await this.resolveBackgroundCatalog();
     return withCapabilityFamilies({
       editor: {
         projectRead: true,
@@ -300,7 +302,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         playheadWrite: false,
         frameCapture: false,
         playbackControl: false,
-        projectCatalogRead: true,
+        projectCatalogRead: Boolean(backgroundCatalog),
         projectSelection: false,
         projectSelectionMode: "unavailable",
         compositeTransactions: true,
@@ -447,17 +449,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   public async listProjects(): Promise<ProjectCatalog> {
     const backgroundCatalog = await this.resolveBackgroundCatalog();
-    if (backgroundCatalog) return this.readBackgroundCatalog(backgroundCatalog);
-    const snapshot = await this.readProject();
-    return {
-      projects: [{
-        id: snapshot.projectId,
-        name: snapshot.projectName,
-        sequences: [{ id: snapshot.timeline.id, name: snapshot.timeline.name }],
-      }],
-      activeProjectId: snapshot.projectId,
-      activeSequenceId: snapshot.timeline.id,
-    };
+    if (!backgroundCatalog) {
+      throw new CapabilityUnavailableError("project.list", "editor.projectCatalogRead", {
+        available: false,
+        backend: "final-cut-native-canonical",
+        guarantee: "none",
+        unavailableReason: "background project catalog is unavailable; canonical timeline snapshot export (File > Export XML) requires a headed Final Cut UI",
+      });
+    }
+    return this.readBackgroundCatalog(backgroundCatalog);
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
