@@ -6,6 +6,9 @@ import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
   createProjectSelectionResult,
+  assertTimelineTargetReadAfterWrite,
+  createTimelineTarget,
+  resolveTimelineTarget,
   withCapabilityFamilies,
   type ContextRevision,
   type EditorChange,
@@ -203,6 +206,16 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline has multiple occurrences for ${query}`);
     }
     const occurrence = located.occurrences[0]!;
+    const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
+    if (!occurrenceIdentity) {
+      throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
+    }
+    if (!occurrence.sequenceId) {
+      throw new Error(`TARGET_MISMATCH: native occurrence has no stable sequence identity for ${clip.id}`);
+    }
+    if (occurrence.sequenceId !== snapshot.timeline.id) {
+      throw new Error(`TARGET_MISMATCH: native occurrence sequence changed for ${clip.id}`);
+    }
     if (occurrence.sourceIdentity && occurrence.sourceIdentity !== match.sourceIdentity) {
       throw new Error(`TARGET_MISMATCH: native occurrence source identity changed for ${clip.id}`);
     }
@@ -342,6 +355,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
 
+    const timelineTarget = createTimelineTarget(before, {
+      occurrenceId: clip.id,
+      mediaId: clip.mediaId,
+    });
+    resolveTimelineTarget(before, timelineTarget);
     await this.resolveTarget(clip, before);
     const nativeResult = await this.native.renameSelectedClip(operation.name);
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
@@ -363,6 +381,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
       }
+      assertTimelineTargetReadAfterWrite(timelineTarget, before, after);
       this.pending.afterRevision = after.revision;
       return after.revision;
     } catch (error) {
