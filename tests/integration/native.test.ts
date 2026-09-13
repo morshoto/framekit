@@ -913,7 +913,7 @@ test("native inspect is passive and reports partial readiness", async () => {
   assert.equal(inspected.readiness.selectedTarget, true);
   assert.equal(scripts.length, 1);
   assert.match(scripts[0]!, /FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT/);
-  assert.doesNotMatch(scripts[0]!, /set frontmost to true|AXRaise|AXMinimize|click at/);
+  assert.doesNotMatch(scripts[0]!, /set frontmost to true|perform action "AXRaise"|perform action "AXMinimize"|click at/);
 });
 
 test("native inspect reports timeline focus as the first missing requirement", async () => {

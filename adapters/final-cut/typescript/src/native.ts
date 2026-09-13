@@ -3609,8 +3609,65 @@ function requireFrontmostAppleScript(): string {
 function passiveTimelinePreflightScript(): string {
   return `
 -- FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT
-on preflightResult(processFrontmost, frontWindowName, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget)
-  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & "-1" & (ASCII character 31) & "" & (ASCII character 31) & "" & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & "0" & (ASCII character 31) & "false" & (ASCII character 31) & "false" & (ASCII character 31) & focusedWindowName & (ASCII character 31) & "false" & (ASCII character 31) & "" & (ASCII character 31) & ""
+using terms from application "System Events"
+  on splitText(valueText, delimiter)
+    set oldDelimiters to AppleScript's text item delimiters
+    set AppleScript's text item delimiters to delimiter
+    set parts to text items of valueText
+    set AppleScript's text item delimiters to oldDelimiters
+    return parts
+  end splitText
+
+  on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
+    if depth > 6 then return ""
+    set output to ""
+    repeat with candidateRef in UI elements of containerItem
+      try
+        set candidate to contents of candidateRef
+        set candidatePosition to position of candidate
+        set candidateSize to size of candidate
+        set candidateX to item 1 of candidatePosition
+        set candidateY to item 2 of candidatePosition
+        set candidateWidth to item 1 of candidateSize
+        set candidateHeight to item 2 of candidateSize
+        set timelineTop to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.62)
+        set timelineLeft to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.20)
+        if (candidateX + candidateWidth) is greater than timelineLeft and (candidateY + candidateHeight) is greater than timelineTop then
+          set candidateSelected to false
+          try
+            set candidateSelected to (selected of candidate) is true
+          end try
+          if candidateSelected then
+            set candidateRole to role of candidate as text
+            set candidateName to ""
+            try
+              set candidateName to description of candidate as text
+            end try
+            if candidateName is "" then
+              try
+                set candidateName to value of candidate as text
+              end try
+            end if
+            if candidateName is "missing value" then set candidateName to ""
+            set candidateIdentity to ""
+            try
+              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+            end try
+            return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+          end if
+          set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
+          if output is not "" then return output
+        end if
+      on error
+        -- Ignore inaccessible descendants and continue the bounded scan.
+      end try
+    end repeat
+    return ""
+  end selectedTimelineItem
+end using terms from
+
+on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)
+  return processFrontmost & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & timelineWindowAvailable & (ASCII character 31) & timelineFocused & (ASCII character 31) & focusTarget & (ASCII character 31) & focusAttempts & (ASCII character 31) & framekitWindowAvailable & (ASCII character 31) & framekitWindowMinimized & (ASCII character 31) & focusedWindowName & (ASCII character 31) & overlayBlocked & (ASCII character 31) & undoCommand & (ASCII character 31) & selectedIdentity
 end preflightResult
 
 on focusTargetFor(roleName, descriptionText, elementName)
@@ -3628,11 +3685,71 @@ tell application "System Events"
     set processFrontmost to frontmost as text
     set frontWindowName to ""
     set timelineWindowAvailable to false
+    set mainOrigin to {0, 0}
+    set mainSize to {0, 0}
     try
       if (count of windows) > 0 then
-        set frontWindowName to name of front window as text
+        set frontWindow to front window
+        set frontWindowName to name of frontWindow as text
         set timelineWindowAvailable to true
+        set mainOrigin to position of frontWindow
+        set mainSize to size of frontWindow
       end if
+    end try
+    set selectedCount to -1
+    set selectedName to ""
+    set selectedRole to ""
+    set selectedIdentity to ""
+    set selectionLookupAvailable to false
+    try
+      set timelineArea to UI element 1 of UI element 8 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
+      set selectionLookupAvailable to true
+      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      if selectedRecord is not "" then
+        set selectedFields to my splitText(selectedRecord, ASCII character 31)
+        set selectedName to item 1 of selectedFields
+        set selectedRole to item 2 of selectedFields
+        set selectedIdentity to item 3 of selectedFields
+        set selectedCount to 1
+      end if
+    end try
+    if not selectionLookupAvailable then set selectedCount to -1
+    set undoEnabled to false
+    set undoCommand to ""
+    try
+      repeat with candidate in menu items of menu "Edit" of menu bar 1
+        try
+          set candidateName to name of candidate as text
+          if candidateName starts with "Undo" and (enabled of candidate) is true then
+            set undoEnabled to true
+            set undoCommand to candidateName
+            exit repeat
+          end if
+        end try
+      end repeat
+    end try
+    set bladeEnabled to false
+    try
+      set bladeEnabled to enabled of menu item "Blade" of menu "Trim" of menu bar 1
+    end try
+    set framekitWindowAvailable to false
+    set framekitWindowMinimized to false
+    set overlayBlocked to false
+    try
+      repeat with candidateWindow in windows
+        try
+          set candidateWindowName to name of candidateWindow as text
+          if candidateWindowName contains "Framekit" then
+            set framekitWindowAvailable to true
+            set framekitWindow to contents of candidateWindow
+            try
+              set framekitWindowMinimized to (value of attribute "AXMinimized" of framekitWindow) as boolean
+            end try
+            if not framekitWindowMinimized then set overlayBlocked to true
+            exit repeat
+          end if
+        end try
+      end repeat
     end try
     set focusedWindowName to ""
     set focusedName to ""
@@ -3650,7 +3767,7 @@ tell application "System Events"
     end try
     set focusTarget to my focusTargetFor(focusedRole, focusedDescription, focusedName)
     set timelineFocused to processFrontmost is "true" and focusTarget is "timeline"
-    return my preflightResult(processFrontmost, frontWindowName, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget)
+    return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, 0, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)
   end tell
 end tell`;
 }
