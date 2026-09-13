@@ -9,6 +9,7 @@ conditions, and where the evidence stops.
 - [Final Cut live validation](../tests/final-cut-live-e2e.md)
 - [Release gate](../tests/release-gate.md)
 - [Skill conformance](../tests/skill-conformance.md)
+- [Non-frontmost MCP regression](../tests/non-frontmost-regression.md)
 - [Evidence directory](../tests/evidence/)
 
 Every validation report should identify its goal, result, environment, scope,
