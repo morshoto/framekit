@@ -141,7 +141,7 @@ export class DisposableNativeEditWorkflow {
       target: { clipId: target.id, name: target.name, ...(nativeTarget.identity ? { identity: nativeTarget.identity } : {}) },
       projectId: before.projectId,
       sequenceId: before.timeline.id,
-      targetIdentity: target.id,
+      targetIdentity: nativeTarget.identity ?? target.id,
       baseRevision: structuredClone(before.revision),
       expiresAt: new Date(expiresAt).toISOString(),
     };
@@ -162,7 +162,7 @@ export class DisposableNativeEditWorkflow {
       target: { clipId: target.id, name: target.name, ...(preview.nativeTarget.identity ? { identity: preview.nativeTarget.identity } : {}) },
       projectId: preview.before.projectId,
       sequenceId: preview.before.timeline.id,
-      targetIdentity: target.id,
+      targetIdentity: preview.nativeTarget.identity ?? target.id,
       baseRevision: structuredClone(preview.before.revision),
       expiresAt: new Date(preview.expiresAt).toISOString(),
     };
@@ -325,7 +325,7 @@ export class DisposableNativeEditWorkflow {
     if (context.target.kind !== "selected-clip" || context.target.name !== expectedName) {
       throw new Error("TARGET_MISMATCH: native selected clip does not match the canonical target");
     }
-    if (previousTarget?.identity && context.target.identity && previousTarget.identity !== context.target.identity) {
+    if (previousTarget?.identity && previousTarget.identity !== context.target.identity) {
       throw new Error("TARGET_MISMATCH: native selected clip identity changed after disposable preview");
     }
     return context.target;
