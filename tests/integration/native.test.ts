@@ -976,12 +976,16 @@ test("native inspect blocks readiness without a target or Undo", async () => {
   assert.equal(noUndoInspection.readiness.undo, "unavailable");
 });
 
-test("native inspect reconciles a transient partial result after focus recovery", async () => {
+test("native inspect retries a transient partial result after focus recovery", async () => {
+  let passiveCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
       if (script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")) {
-        return context(true, "", "", -1, true, true, true, "timeline");
+        passiveCalls += 1;
+        return passiveCalls === 1
+          ? context(true, "", "", -1, true, true, true, "timeline")
+          : context(true, "Final Cut Pro", "", 0, true, true, true, "timeline");
       }
       return script.includes("semanticPoints")
         ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1)
@@ -1003,9 +1007,10 @@ test("native inspect reconciles a transient partial result after focus recovery"
   assert.equal(inspected.target.kind, "playhead");
   assert.equal(inspected.readiness.state, "ready");
   assert.equal(inspected.readiness.firstMissing, undefined);
+  assert.equal(passiveCalls, 2);
 });
 
-test("native inspect does not reuse focus state after the UI changes", async () => {
+test("native inspect reports changed UI state after focus recovery", async () => {
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
@@ -1026,25 +1031,30 @@ test("native inspect does not reuse focus state after the UI changes", async () 
   assert.equal(inspected.readiness.firstMissing, "timeline-focus");
 });
 
-test("native inspect consumes the focus recovery baseline once", async () => {
+test("native inspect stays unavailable when a changed selection is unknown", async () => {
+  let passiveCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
-      ? context(true, "", "", -1, true, true, true, "timeline")
-      : script.includes("semanticPoints")
-        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1)
-        : "",
+    executor: async (script) => {
+      if (script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")) {
+        passiveCalls += 1;
+        return context(true, "Final Cut Pro", "", -1, true, true, true, "timeline");
+      }
+      return script.includes("semanticPoints")
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1)
+        : "";
+    },
   });
 
-  await adapter.focusTimeline();
-  const reconciled = await adapter.inspect();
-  const later = await adapter.inspect();
+  const focused = await adapter.focusTimeline();
+  assert.equal(focused.target.kind, "selected-clip");
 
-  assert.equal(reconciled.readiness.state, "ready");
-  assert.equal(later.frontWindow, "");
-  assert.equal(later.target.kind, "unknown");
-  assert.equal(later.readiness.state, "unavailable");
-  assert.equal(later.readiness.firstMissing, "target");
+  const inspected = await adapter.inspect();
+
+  assert.equal(inspected.target.kind, "unknown");
+  assert.equal(inspected.readiness.state, "unavailable");
+  assert.equal(inspected.readiness.firstMissing, "target");
+  assert.equal(passiveCalls, 2);
 });
 
 test("native Final Cut focus uses semantic candidates and returns diagnostics without editing", async () => {
