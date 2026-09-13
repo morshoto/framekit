@@ -191,15 +191,6 @@ async function scanCategory(
           root,
           relativePath: relative(root, path),
         },
-        ...(kind === "title"
-          ? {
-              placement: {
-                backend: "final-cut-accessibility",
-                guarantee: "native-verified",
-                operation: "editor.native.title.add",
-              },
-            }
-          : {}),
       },
     });
   }
