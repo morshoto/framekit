@@ -473,6 +473,11 @@ test("MCP documentation describes one consistent editor-first policy", async () 
     assert.match(content, /external-renderer/);
     assert.match(content, /CAPABILITY_UNAVAILABLE/);
   }
+  assert.match(tools, /project\.list/);
+  assert.match(tools, /observation\.library/);
+  assert.match(errors, /background API support/);
+  assert.match(errors, /canonical snapshot support/);
+  assert.match(errors, /native UI access/);
   for (const [before, after] of [
     ["connection.status", "editor.inspect"],
     ["editor.inspect", "project.inspect"],

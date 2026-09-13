@@ -525,6 +525,11 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(documentation, /clipMovement/);
   assert.match(documentation, /backgroundMediaDiscovery/);
   assert.match(documentation, /backgroundTemplateDiscovery/);
+  assert.match(documentation, /backgroundLibraryInspection/);
+  assert.match(documentation, /observation\.library/);
+  assert.match(documentation, /final-cut-background-library/);
+  assert.match(documentation, /metadata-only/);
+  assert.match(documentation, /canonical timeline evidence/);
   assert.match(mcp, /FRAMEKIT_FINAL_CUT_MEDIA_ROOTS/);
   assert.match(mcp, /discovery: \"native\"/);
   assert.match(architecture, /`editor\.projectRead` is disabled/);
