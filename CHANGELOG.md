@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.1.10](https://github.com/morshoto/framekit/compare/v0.1.9...v0.1.10) - 2026-09-14
+
+### Patch changes
+- fix: restore native browser search discovery by @morshoto in https://github.com/morshoto/framekit/pull/303
+- fix: decouple native assets from release publishing by @morshoto in https://github.com/morshoto/framekit/pull/309
+### Maintenance and internal
+- fix: use Markers submenu for native add-marker by @morshoto in https://github.com/morshoto/framekit/pull/297
+- fix: keep native readiness consistent after focus recovery by @morshoto in https://github.com/morshoto/framekit/pull/298
+- fix: recognize macOS console lock state by @morshoto in https://github.com/morshoto/framekit/pull/299
+- fix: fail closed when canonical snapshot unavailable by @morshoto in https://github.com/morshoto/framekit/pull/300
+- chore: Update release.yml by @morshoto in https://github.com/morshoto/framekit/pull/296
+- chore: Update labeling-branch.yaml by @morshoto in https://github.com/morshoto/framekit/pull/302
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/304
+
 ## [v0.1.9](https://github.com/morshoto/framekit/compare/v0.1.8...v0.1.9) - 2026-09-13
 
 ### Feature changes
