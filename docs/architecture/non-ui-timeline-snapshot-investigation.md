@@ -51,6 +51,63 @@ The Apple Event inventory was taken from the installed app, not from a legacy
 Final Cut Pro 7 dictionary. The older Apple Events/XML material is not evidence
 that Final Cut Pro 10.7.1 implements a direct current-version XML command.
 
+## Read-only SQLite investigation
+
+The `.fcpbundle` stores are SQLite databases, but they are not a supported
+timeline interchange contract. A read-only inspection was run against a Final
+Cut Pro 10.7.1 backup without opening or focusing Final Cut Pro:
+
+```sh
+SQLITE_DB="/path/to/CurrentVersion.fcpevent"
+sqlite3 -readonly -batch -noheader "$SQLITE_DB" \
+  'PRAGMA query_only=ON; SELECT name, sql FROM sqlite_master WHERE type = "table" ORDER BY name;'
+sqlite3 -readonly -header "$SQLITE_DB" \
+  'PRAGMA query_only=ON; SELECT ZTYPE, COUNT(*) FROM ZCOLLECTION GROUP BY ZTYPE ORDER BY ZTYPE;'
+sqlite3 -readonly -header "$SQLITE_DB" \
+  'PRAGMA query_only=ON; SELECT Z_PK, Z_OPT, ZIDENTIFIER, ZTYPE FROM ZCOLLECTION WHERE ZTYPE LIKE "FFMediaEventProject%" OR ZTYPE IN ("FFAnchoredSequence", "FFAnchoredClip", "FFAsset", "FFMediaRep") ORDER BY Z_PK;'
+```
+
+The captured `CurrentVersion.fcpevent` contained the following schema surfaces:
+
+| Surface | Observed evidence | Trust boundary |
+| --- | --- | --- |
+| Relational catalog | `ZCATALOGROOT`, `ZCOLLECTION`, `Z_3CHILDCOLLECTIONS`, `Z_PRIMARYKEY`, and Core Data metadata tables | Object type names, local primary keys, `Z_OPT`, and some identifiers are observable |
+| Project/sequence objects | `FFMediaEventProject` (1), `FFMediaEventProjectData` (1), `FFAnchoredSequence` (304), `FFAnchoredClip` (4) | Rows are not a target-bound ordered timeline occurrence list |
+| Media objects | `FFAsset` (301), `FFAssetRef` (301), `FFMediaRep` (301) | Resource-like identities are visible, but timeline bindings are not relationally complete |
+| Archived payload | `ZCOLLECTIONMD.ZDICTIONARYDATA` (2,727 rows); the captured payload begins with `bplist00` and decodes as `NSKeyedArchiver` | Contents are undocumented and version-bound; no fields are promoted to canonical state |
+| Revision signals | SQLite file digest, schema version 18, and observed `Z_OPT` values | These detect storage changes, but do not establish a Final Cut editor revision |
+
+Framekit now exposes `FinalCutSqliteInspectionProvider` as a read-only
+observation contract. It runs `sqlite3 -readonly`, enables `query_only`,
+captures schema/type/count evidence, hashes the database bytes, and compares
+two observations for storage drift. It never returns a `ProjectSnapshot`,
+reads BLOB contents into the model, or performs a write. The deterministic
+fixture is `tests/fixtures/final-cut-sqlite-inspection.json`.
+
+The observed coverage for the captured database is:
+
+| Snapshot field | SQLite result |
+| --- | --- |
+| Project identity | `partial`: a project object type and local identifier surface exist |
+| Sequence identity | `unknown` |
+| Clip occurrences | `unknown` |
+| Media identity | `partial`: asset/media-representation objects exist, but complete bindings are opaque |
+| Rational timing | `unknown` |
+| Roles | `unknown` |
+| Storyline relationships | `unknown` |
+| Markers/captions | `unknown` |
+| Revision | `partial`: digest and object-version evidence only |
+
+Therefore the answer to the issue's read-side question is bounded: SQLite can
+provide a useful background storage-change signal and partial project/media
+inventory, but it cannot currently provide the complete canonical timeline
+snapshot required by Framekit. A backgrounded filesystem read was reproduced
+against a backup. Locked-console behavior for a live bundle remains an
+experiment-level question and is not claimed by this provider; filesystem
+readability does not prove that Final Cut has flushed or committed the latest
+state. The SQLite observation is not a production source for canonical
+timeline state.
+
 The installed host also has generic `sendAppleEvent:`,
 `sendGetObjectPropertyEvent:code:`, and `sendGetElementsEvent:code:` methods.
 Those transport operations do not add timeline semantics that the current
@@ -73,7 +130,7 @@ boundary explicit:
 | User-provided `FRAMEKIT_FCPXML_PATH` | `fcpxml-artifact` | No; it is an explicit file artifact |
 | Headed `File > Export XML` provider | `canonical-live` | Yes, after target validation and complete FCPXML parsing |
 | Workflow Extension Apple Events | `metadata-only` | No; the current dictionary has no complete snapshot contract |
-| `.fcpbundle` internals | Unsupported | Never; no undocumented SQLite dependency is introduced |
+| `.fcpbundle` internals | Read-only observation only | Storage digest and partial inventory may inform diagnostics/drift signals; undocumented fields never become canonical |
 
 References:
 
@@ -116,14 +173,17 @@ metadata-only.
   closed. They must not be replaced with guessed values or an empty timeline.
 - An FCPXML artifact is reported as `fcpxml-artifact`; it is never silently
   promoted to a live Final Cut target or to headed-native evidence.
-- Final Cut's internal `.fcpbundle` SQLite stores are deliberately excluded.
-  They are not a supported production source: these undocumented implementation
-  details cannot establish a stable, complete current-version snapshot contract.
+- Final Cut's internal `.fcpbundle` SQLite stores are limited to read-only
+  observation. They are not a supported canonical source: these undocumented
+  implementation details cannot establish a stable, complete current-version
+  snapshot contract.
 
 ## Follow-up decision
 
-Do not add a non-UI live snapshot adapter for Final Cut Pro 10.7.1. Re-open this
-decision only when a future Final Cut version exposes a documented or empirically
-stable interface that returns the complete contract above, is target-bound, and
-has evidence for background behavior. Until then, retain the split between
-background metadata, explicit FCPXML artifacts, and headed canonical export.
+Do not add a non-UI canonical live snapshot adapter for Final Cut Pro 10.7.1.
+The SQLite provider is deliberately limited to read-only observation and drift
+signals. Re-open canonical promotion only when a future Final Cut version
+exposes a documented or empirically stable interface that returns the complete
+contract above, is target-bound, and has evidence for background behavior.
+Until then, retain the split between background metadata/observation, explicit
+FCPXML artifacts, and headed canonical export.
