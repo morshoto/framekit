@@ -35,7 +35,7 @@ export interface UnattendedEditingWorkflowOptions {
   };
 }
 
-export type UnattendedEditingStatus = "artifact-verified" | "artifact-verified-native-blocked" | "conflicted";
+export type UnattendedEditingStatus = "artifact-verified" | "artifact-verified-native-blocked" | "conflicted" | "stale";
 
 export type UnattendedSqliteEvidence =
   | { status: "not-provided"; canonical: false }
@@ -81,6 +81,10 @@ export function runUnattendedEditingWorkflow(
   const session = EditingSession.create({ base: options.base, provider: { id: "final-cut" } });
   session.apply(options.operations);
   const sqlite = sqliteEvidence(options.sqlite);
+  if (sqlite.status === "changed" && sameRevision(options.base.revision, options.providerState.revision)) {
+    session.markPossiblyStale();
+    return result(session, "stale", sqlite);
+  }
   let reconciliation: TimelineReconciliationResult | undefined;
   if (!sameRevision(options.base.revision, options.providerState.revision)) {
     reconciliation = session.reconcile(options.providerState);

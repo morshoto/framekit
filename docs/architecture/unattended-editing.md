@@ -17,7 +17,10 @@ overwrite a destination.
 ## Evidence boundaries
 
 - SQLite input is summarized as `canonical: false`; a changed digest is
-  storage-drift evidence, not a canonical timeline revision.
+  storage-drift evidence, not a canonical timeline revision. If the digest
+  changes without a fresh provider revision, the workflow returns `stale` and
+  produces no FCPXML until the provider state has been refreshed and
+  reconciled.
 - A provider revision change must reconcile before materialization. Explicit
   conflicts stop the workflow and return no FCPXML artifact.
 - A successful compile is `artifact-verified` evidence. Exact target binding,

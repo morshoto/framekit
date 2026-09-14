@@ -139,6 +139,26 @@ test("stops before FCPXML materialization when reconciliation has an explicit co
   assert.equal(result.overwritten, false);
 });
 
+test("stops before materialization when SQLite changes without a fresh provider revision", async () => {
+  const before = await sqliteObservation("a".repeat(64));
+  const after = await sqliteObservation("b".repeat(64));
+  const result = runUnattendedEditingWorkflow({
+    base: timeline(),
+    providerState: timeline(),
+    operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Opening revised" }],
+    target: { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1" },
+    environment: environment({ console: { state: "unlocked", source: "IOConsoleLocked", retryable: false } }),
+    sqlite: { before, after },
+  });
+
+  assert.equal(result.status, "stale");
+  assert.equal(result.session.state, "possibly_stale");
+  assert.equal(result.reconciliation, undefined);
+  assert.equal(result.artifact, undefined);
+  assert.equal(result.experiment, undefined);
+  assert.equal(result.overwritten, false);
+});
+
 test("documents the unattended evidence boundaries", async () => {
   const documentation = await readFile("docs/architecture/unattended-editing.md", "utf8");
 
