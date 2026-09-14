@@ -92,96 +92,6 @@ jobs:
                     echo "milestone=false" >> "$GITHUB_OUTPUT"
                   fi
 
-    release-runner-preflight:
-        if: needs.tagpr.outputs.release-tag != ''
-        needs: tagpr
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-        steps:
-            - name: Check out workflow revision
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-              with:
-                  persist-credentials: false
-
-            - name: Verify required release runner
-              env:
-                  GH_TOKEN: ${{ secrets.TAGPR_TOKEN }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
-                    | node scripts/check-release-runner.mjs
-
-    native-release-assets:
-        if: needs.tagpr.outputs.release-tag != ''
-        needs:
-            - tagpr
-            - release-runner-preflight
-        runs-on: [self-hosted, macOS, framekit-release]
-        permissions:
-            contents: write
-        steps:
-            - name: Check out release tag
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-              with:
-                  ref: ${{ needs.tagpr.outputs.release-tag }}
-                  persist-credentials: false
-
-            - name: Package signed native release assets
-              env:
-                  FRAMEKIT_CODESIGN_IDENTITY: ${{ secrets.FRAMEKIT_CODESIGN_IDENTITY }}
-                  FRAMEKIT_NOTARY_PROFILE: ${{ vars.FRAMEKIT_NOTARY_PROFILE }}
-                  FRAMEKIT_RELEASE_DIR: ${{ runner.temp }}/framekit-native-release
-                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  export FRAMEKIT_RELEASE_VERSION="${RELEASE_TAG#v}"
-                  bash scripts/package-final-cut-release.sh
-
-            - name: Upload native release assets
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-                  FRAMEKIT_RELEASE_DIR: ${{ runner.temp }}/framekit-native-release
-                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  expected_version="${RELEASE_TAG#v}"
-                  archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
-                  checksum_name="${archive_name}.sha256"
-                  test -s "${FRAMEKIT_RELEASE_DIR}/${archive_name}"
-                  test -s "${FRAMEKIT_RELEASE_DIR}/${checksum_name}"
-                  release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
-                    --jq ".[] | select(.name == \"${RELEASE_TAG}\" or .tag_name == \"${RELEASE_TAG}\") | .id" \
-                    | head -n 1)"
-                  test -n "${release_id}"
-                  upload_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.upload_url')"
-                  upload_url="${upload_url%%\{*}"
-
-                  upload_asset() {
-                    local asset_name="$1"
-                    local content_type="$2"
-                    local asset_path="$3"
-                    local asset_id
-                    asset_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
-                      --jq ".[] | select(.name == \"${asset_name}\") | .id" \
-                      | head -n 1)"
-                    if [ -n "${asset_id}" ]; then
-                      gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
-                    fi
-                    gh api --method POST "${upload_url}?name=${asset_name}" \
-                      --header "Content-Type: ${content_type}" \
-                      --input "${asset_path}" \
-                      --silent
-                  }
-
-                  upload_asset "${archive_name}" "application/zip" "${FRAMEKIT_RELEASE_DIR}/${archive_name}"
-                  upload_asset "${checksum_name}" "text/plain" "${FRAMEKIT_RELEASE_DIR}/${checksum_name}"
-
     milestone-report:
         if: needs.tagpr.outputs.release-tag != ''
         needs: tagpr
@@ -272,7 +182,6 @@ jobs:
         needs:
             - tagpr
             - validate-codex-plugin
-            - native-release-assets
             - milestone-report
         runs-on: ubuntu-latest
         permissions:
@@ -346,6 +255,7 @@ jobs:
                     cat "${error_log}" >&2
                     exit 1
                   fi
+
             - name: Publish npm package
               if: steps.npm-status.outputs.published != 'true'
               env:
@@ -398,31 +308,6 @@ jobs:
                   cat "${error_log}" >&2
                   exit 1
 
-            - name: Verify native release assets
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  expected_version="${RELEASE_TAG#v}"
-                  archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
-                  checksum_name="${archive_name}.sha256"
-                  native_dir="${RUNNER_TEMP}/framekit-native-release"
-                  mkdir -p "${native_dir}"
-                  gh release download "${RELEASE_TAG}" \
-                    --repo "${GITHUB_REPOSITORY}" \
-                    --pattern "${archive_name}" \
-                    --pattern "${checksum_name}" \
-                    --dir "${native_dir}"
-                  test -s "${native_dir}/${archive_name}"
-                  test -s "${native_dir}/${checksum_name}"
-                  (
-                    cd "${native_dir}"
-                    shasum -a 256 -c "${checksum_name}"
-                  )
-
             - name: Publish GitHub release
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -441,14 +326,6 @@ jobs:
                   else
                     gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
                   fi
-
-            - name: Verify complete release provenance
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
-                  RELEASE_PROVENANCE_OUTPUT_DIR: artifacts/release-gate/${{ github.run_id }}
-              run: pnpm run verify-release-provenance
 
     validate-codex-plugin:
         if: needs.tagpr.outputs.release-tag != ''
