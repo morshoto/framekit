@@ -167,7 +167,12 @@ function renderResource(
   name: string,
 ): string {
   const source = resource.source!;
-  const src = source.startsWith("file://") ? new URL(source).toString() : pathToFileURL(source).toString();
+  let src: string;
+  try {
+    src = source.startsWith("file://") ? new URL(source).toString() : pathToFileURL(source).toString();
+  } catch (error) {
+    throw new Error(`FCPXML_RESOURCE_SOURCE_UNSUPPORTED: resource ${resource.id} has an invalid file URL: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const mediaAttributes = resource.mediaKind === "video"
     ? ' hasVideo="1" hasAudio="0"'
     : ' hasVideo="0" hasAudio="1"';
@@ -176,7 +181,7 @@ function renderResource(
 
 function renderableElements(timeline: TimelineIr, resourceIds: Map<string, string>): RenderableElement[] {
   const occurrenceIds = new Set(timeline.sequence.occurrences.map(({ id }) => id));
-  const elements: RenderableElement[] = timeline.sequence.occurrences.map((occurrence) => renderOccurrence(occurrence, resourceIds, occurrenceIds));
+  const elements: RenderableElement[] = timeline.sequence.occurrences.map((occurrence) => renderOccurrence(occurrence, timeline, resourceIds, occurrenceIds));
   for (const element of timeline.sequence.storyElements) {
     if (occurrenceIds.has(element.id) || element.occurrenceId !== undefined && occurrenceIds.has(element.occurrenceId)) continue;
     if (element.kind !== "gap") throw new Error(`FCPXML_UNSUPPORTED_STORY_ELEMENT: ${element.kind}`);
@@ -197,6 +202,7 @@ function renderableElements(timeline: TimelineIr, resourceIds: Map<string, strin
 
 function renderOccurrence(
   occurrence: TimelineIrOccurrence,
+  timeline: TimelineIr,
   resourceIds: Map<string, string>,
   occurrenceIds: Set<string>,
 ): RenderableElement {
@@ -206,6 +212,13 @@ function renderOccurrence(
   }
   const resource = occurrence.mediaId === undefined ? undefined : resourceIds.get(occurrence.mediaId);
   if (!resource) throw new Error(`FCPXML_MEDIA_BINDING_NOT_FOUND: occurrence ${occurrence.id} has no compiled resource`);
+  const resourceDefinition = occurrence.mediaId === undefined
+    ? undefined
+    : timeline.resources.find(({ id }) => id === occurrence.mediaId);
+  if (resourceDefinition && (occurrence.role === "video" && resourceDefinition.mediaKind !== "video"
+    || (occurrence.role === "audio" || occurrence.role === "music") && resourceDefinition.mediaKind !== "audio")) {
+    throw new Error(`FCPXML_MEDIA_ROLE_MISMATCH: occurrence ${occurrence.id} cannot use ${resourceDefinition.mediaKind} resource as ${occurrence.role}`);
+  }
   if (occurrence.attachedTo !== undefined && !occurrenceIds.has(occurrence.attachedTo)) {
     throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${occurrence.id} -> ${occurrence.attachedTo}`);
   }
@@ -227,7 +240,9 @@ function renderOccurrence(
 
 function renderElements(elements: RenderableElement[]): string[] {
   const byParent = new Map<string | undefined, RenderableElement[]>();
+  const byId = new Map<string, RenderableElement>();
   for (const element of elements) {
+    byId.set(element.id, element);
     const siblings = byParent.get(element.parentId) ?? [];
     siblings.push(element);
     byParent.set(element.parentId, siblings);
@@ -240,12 +255,17 @@ function renderElements(elements: RenderableElement[]): string[] {
       if (rendered.has(element.id)) throw new Error(`FCPXML_CYCLIC_ATTACHMENT: ${element.id}`);
       rendered.add(element.id);
       const children = byParent.get(element.id) ?? [];
+      const parentStartTime = element.parentId === undefined
+        ? { value: "0", timescale: "1" }
+        : byId.get(element.parentId)?.startTime;
+      if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
+      const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
       const attributes = element.kind === "asset-clip"
         ? [
             `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
-            `offset="${formatRational(element.startTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
             ...(element.sourceStartTime ? [`start="${formatRational(element.sourceStartTime, `${element.id}.sourceStartTime`)}"`] : []),
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
@@ -254,7 +274,7 @@ function renderElements(elements: RenderableElement[]): string[] {
           ]
         : [
             `id="${xmlEscape(element.id)}"`,
-            `offset="${formatRational(element.startTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
           ];
@@ -297,6 +317,20 @@ function formatRational(value: { value: string; timescale: string }, field: stri
   const numerator = parsed.value / divisor;
   const denominator = parsed.timescale / divisor;
   return denominator === 1n ? `${numerator}s` : `${numerator}/${denominator}s`;
+}
+
+function subtractRational(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+  field: string,
+): { value: string; timescale: string } {
+  const leftParts = parseExactRational(left);
+  const rightParts = parseExactRational(right);
+  const numerator = leftParts.value * rightParts.timescale - rightParts.value * leftParts.timescale;
+  if (numerator < 0n) throw new Error(`FCPXML_INVALID_TIME: ${field} precedes its attachment target`);
+  const denominator = leftParts.timescale * rightParts.timescale;
+  const divisor = greatestCommonDivisor(numerator, denominator);
+  return { value: String(numerator / divisor), timescale: String(denominator / divisor) };
 }
 
 function formatDb(value: number, id: string): string {

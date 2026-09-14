@@ -83,6 +83,27 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.deepEqual(first.resourceIds, { "media-1": "resource-media-1" });
 });
 
+test("emits connected elements with parent-relative exact offsets", () => {
+  const value = timeline();
+  value.sequence.occurrences.push({
+    id: "occurrence-child",
+    name: "Connected",
+    startTime: { value: "2002", timescale: "24000" },
+    durationTime: { value: "1001", timescale: "24000" },
+    track: 1,
+    role: "video",
+    mediaId: "media-1",
+    attachedTo: "occurrence-1",
+    gainDb: -1,
+  });
+
+  const xml = compileTimelineIrToFcpxml(value, { target }).xml;
+  const parentStart = xml.indexOf('id="occurrence-1"');
+  const childStart = xml.indexOf('id="occurrence-child"');
+  assert.ok(parentStart >= 0 && childStart > parentStart);
+  assert.equal(xml.slice(childStart).match(/offset="([^"]+)"/)?.[1], "1001/24000s");
+});
+
 test("requires an explicit Final Cut target and fails closed for unsupported IR", () => {
   assert.throws(
     () => compileTimelineIrToFcpxml(timeline(), { target: { ...target, projectUid: "" } }),
