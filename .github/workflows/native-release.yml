@@ -1,0 +1,139 @@
+name: Native release assets
+
+on:
+    workflow_dispatch:
+        inputs:
+            release_tag:
+                description: Existing published release tag (for example, v0.1.10)
+                required: true
+                type: string
+
+concurrency:
+    group: native-release-${{ inputs.release_tag }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    validate-release:
+        runs-on: ubuntu-latest
+        outputs:
+            release-tag: ${{ steps.validate.outputs.tag }}
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - id: validate
+              name: Validate release tag
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ inputs.release_tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if ! git check-ref-format "refs/tags/${RELEASE_TAG}" \
+                    || ! git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null; then
+                    echo "Requested release tag does not exist: ${RELEASE_TAG}" >&2
+                    exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "refs/tags/${RELEASE_TAG}^{commit}" origin/main; then
+                    echo "Requested release tag is not reachable from main: ${RELEASE_TAG}" >&2
+                    exit 1
+                  fi
+                  gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+                  echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+    package-native-assets:
+        needs: validate-release
+        runs-on: [self-hosted, macOS, framekit-release]
+        permissions:
+            contents: write
+        steps:
+            - name: Check out release tag
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ needs.validate-release.outputs.release-tag }}
+                  persist-credentials: false
+
+            - name: Package signed native release assets
+              env:
+                  FRAMEKIT_CODESIGN_IDENTITY: ${{ secrets.FRAMEKIT_CODESIGN_IDENTITY }}
+                  FRAMEKIT_NOTARY_PROFILE: ${{ vars.FRAMEKIT_NOTARY_PROFILE }}
+                  FRAMEKIT_RELEASE_DIR: ${{ runner.temp }}/framekit-native-release
+                  RELEASE_TAG: ${{ needs.validate-release.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  export FRAMEKIT_RELEASE_VERSION="${RELEASE_TAG#v}"
+                  bash scripts/package-final-cut-release.sh
+
+            - name: Upload native release assets
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  FRAMEKIT_RELEASE_DIR: ${{ runner.temp }}/framekit-native-release
+                  RELEASE_TAG: ${{ needs.validate-release.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  expected_version="${RELEASE_TAG#v}"
+                  archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
+                  checksum_name="${archive_name}.sha256"
+                  test -s "${FRAMEKIT_RELEASE_DIR}/${archive_name}"
+                  test -s "${FRAMEKIT_RELEASE_DIR}/${checksum_name}"
+                  gh release upload "${RELEASE_TAG}" \
+                    "${FRAMEKIT_RELEASE_DIR}/${archive_name}" \
+                    "${FRAMEKIT_RELEASE_DIR}/${checksum_name}" \
+                    --repo "${GITHUB_REPOSITORY}" \
+                    --clobber
+
+    verify-release-provenance:
+        needs:
+            - validate-release
+            - package-native-assets
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out release tag
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ needs.validate-release.outputs.release-tag }}
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+              with:
+                  node-version: 24.21.0
+                  registry-url: https://registry.npmjs.org
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Verify complete release provenance
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ needs.validate-release.outputs.release-tag }}
+                  RELEASE_PROVENANCE_OUTPUT_DIR: artifacts/release-provenance/${{ github.run_id }}
+              run: pnpm run verify-release-provenance
+
+            - name: Upload provenance evidence
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: release-provenance-${{ github.run_id }}
+                  path: artifacts/release-provenance/${{ github.run_id }}
+                  if-no-files-found: warn
