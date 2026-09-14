@@ -79,6 +79,10 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.match(first.xml, /start="1001\/48000s"/);
   assert.match(first.xml, /value="Review &amp; approve"/);
   assert.match(first.xml, /text="Hello &lt;world&gt;"/);
+  assert.match(first.xml, /<project uid="project-1-framekit-[a-f0-9]{10}" name="Project \(Framekit [a-f0-9]{10}\)">/);
+  assert.match(first.xml, /<sequence uid="sequence-1-framekit-[a-f0-9]{10}" name="Main \(Framekit [a-f0-9]{10}\)"/);
+  assert.equal(first.destination.mode, "versioned");
+  assert.notEqual(first.destination.projectUid, target.projectUid);
   assert.deepEqual(first.target, target);
   assert.deepEqual(first.resourceIds, { "media-1": "resource-media-1" });
 });
@@ -130,6 +134,16 @@ test("requires an explicit Final Cut target and fails closed for unsupported IR"
   );
 });
 
+test("requires explicit opt-in before reusing the supplied project identity", () => {
+  const artifact = compileTimelineIrToFcpxml(timeline(), {
+    target: { ...target, materialization: "reuse-existing" },
+  });
+
+  assert.equal(artifact.destination.mode, "reuse-existing");
+  assert.match(artifact.xml, /<project uid="project-1" name="Project">/);
+  assert.match(artifact.xml, /<sequence uid="sequence-1" name="Main"/);
+});
+
 test("round-trips compiled FCPXML through the existing document adapter", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-timeline-ir-fcpxml-"));
   const path = join(directory, "compiled.fcpxml");
@@ -139,8 +153,8 @@ test("round-trips compiled FCPXML through the existing document adapter", async 
 
     const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
 
-    assert.equal(snapshot.projectName, "Project");
-    assert.equal(snapshot.timeline.name, "Main");
+    assert.equal(snapshot.projectName, artifact.destination.projectName);
+    assert.equal(snapshot.timeline.name, artifact.destination.sequenceName);
     assert.deepEqual(snapshot.timeline.frameDuration, { value: "1001", timescale: "24000" });
     assert.deepEqual(snapshot.timeline.clips[0]?.startTime, { value: "1001", timescale: "24000" });
     assert.deepEqual(snapshot.timeline.clips[0]?.durationTime, { value: "1001", timescale: "12000" });

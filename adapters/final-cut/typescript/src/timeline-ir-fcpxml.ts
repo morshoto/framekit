@@ -6,7 +6,7 @@ import type {
   TimelineIrOccurrence,
   TimelineIrStoryElement,
 } from "@framekit/runtime";
-import { validateTimelineIr } from "@framekit/runtime";
+import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
 
@@ -17,6 +17,8 @@ export interface TimelineIrToFcpxmlTarget {
   sequenceUid: string;
   eventUid?: string;
   eventName?: string;
+  /** Reusing an existing project is opt-in; versioned is the safe default. */
+  materialization?: "versioned" | "reuse-existing";
 }
 
 export interface TimelineIrToFcpxmlOptions {
@@ -30,6 +32,13 @@ export interface TimelineIrToFcpxmlResult {
   xml: string;
   digest: string;
   target: TimelineIrToFcpxmlTarget;
+  destination: {
+    mode: "versioned" | "reuse-existing";
+    projectUid: string;
+    sequenceUid: string;
+    projectName: string;
+    sequenceName: string;
+  };
   resourceIds: Record<string, string>;
 }
 
@@ -63,6 +72,7 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);
   }
   validateTarget(options.target);
+  const destination = resolveDestination(timeline, options.target);
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
@@ -88,8 +98,8 @@ export function compileTimelineIrToFcpxml(
     "  </resources>",
     "  <library>",
     `    <event${options.target.eventUid ? ` uid="${xmlEscape(options.target.eventUid)}"` : ""} name="${xmlEscape(options.target.eventName ?? "Framekit Event")}">`,
-    `      <project uid="${xmlEscape(options.target.projectUid)}" name="${xmlEscape(timeline.project.name)}">`,
-    `        <sequence uid="${xmlEscape(options.target.sequenceUid)}" name="${xmlEscape(timeline.sequence.name)}" format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
+    `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
+    `        <sequence uid="${xmlEscape(destination.sequenceUid)}" name="${xmlEscape(destination.sequenceName)}" format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
     "          <spine>",
     ...renderElements(elements),
     ...timeline.sequence.markers
@@ -115,6 +125,7 @@ export function compileTimelineIrToFcpxml(
     xml,
     digest: createHash("sha256").update(xml).digest("hex"),
     target: structuredClone(options.target),
+    destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
   };
 }
@@ -125,6 +136,33 @@ function validateTarget(target: TimelineIrToFcpxmlTarget): void {
   requireText(target.sequenceUid, "sequenceUid");
   if (target.eventUid !== undefined) requireText(target.eventUid, "eventUid");
   if (target.eventName !== undefined) requireText(target.eventName, "eventName");
+  if (target.materialization !== undefined && !["versioned", "reuse-existing"].includes(target.materialization)) {
+    throw new Error(`FCPXML_TARGET_BINDING_INVALID: unsupported materialization ${target.materialization}`);
+  }
+}
+
+function resolveDestination(
+  timeline: TimelineIr,
+  target: TimelineIrToFcpxmlTarget,
+): TimelineIrToFcpxmlResult["destination"] {
+  if (target.materialization === "reuse-existing") {
+    return {
+      mode: "reuse-existing",
+      projectUid: target.projectUid,
+      sequenceUid: target.sequenceUid,
+      projectName: timeline.project.name,
+      sequenceName: timeline.sequence.name,
+    };
+  }
+
+  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timelineIrDigest(timeline)}`);
+  return {
+    mode: "versioned",
+    projectUid: `${safeId(target.projectUid)}-framekit-${revisionKey}`,
+    sequenceUid: `${safeId(target.sequenceUid)}-framekit-${revisionKey}`,
+    projectName: `${timeline.project.name} (Framekit ${revisionKey})`,
+    sequenceName: `${timeline.sequence.name} (Framekit ${revisionKey})`,
+  };
 }
 
 function createResourceIds(timeline: TimelineIr): Map<string, string> {
