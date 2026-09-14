@@ -4,6 +4,7 @@ import {
   EditingSession,
   reconcileTimelineIr,
   type TimelineIr,
+  validateTimelineIr,
 } from "@framekit/runtime";
 
 function timeline(): TimelineIr {
@@ -182,4 +183,11 @@ test("removing an occurrence preserves unrelated story elements with the same ID
   session.apply([{ type: "remove-occurrence", occurrenceId: "a" }]);
 
   assert.deepEqual(session.desired().sequence.storyElements, base.sequence.storyElements);
+});
+
+test("rejects unsupported timeline binding kinds", () => {
+  const invalid = copy(timeline());
+  invalid.project.binding = { provider: "provider", kind: "clip", identity: "project-1" } as never;
+
+  assert.throws(() => validateTimelineIr(invalid), /project\.binding\.kind is unsupported/);
 });

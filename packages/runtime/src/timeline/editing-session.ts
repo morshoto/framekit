@@ -534,6 +534,13 @@ function validateBinding(binding: TimelineIrBinding | undefined, field: string):
   if (!binding) return;
   requireText(binding.provider, `${field}.provider`);
   requireText(binding.kind, `${field}.kind`);
+  if (![
+    "project",
+    "sequence",
+    "resource",
+    "occurrence",
+    "story-element",
+  ].includes(binding.kind)) throw new Error(`TIMELINE_IR_INVALID: ${field}.kind is unsupported`);
   requireText(binding.identity, `${field}.identity`);
 }
 
