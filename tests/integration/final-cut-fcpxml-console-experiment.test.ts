@@ -80,6 +80,11 @@ test("read-only experiment runner records artifact and environment evidence with
 
   assert.equal(packageJson.scripts["test:final-cut-fcpxml-console-experiment"], "node --import tsx scripts/final-cut-fcpxml-console-experiment.mjs");
   assert.match(runner, /FRAMEKIT_FCPXML_PATH/);
+  assert.match(runner, /--execute/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_EXPERIMENT_CONFIRM/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_LIBRARY_PATH/);
+  assert.match(runner, /FinalCutProjectPublisher/);
+  assert.match(runner, /createFinalCutLiveAdapter/);
   assert.match(runner, /FcpxmlDocumentAdapter/);
   assert.match(runner, /pgrep/);
   assert.match(runner, /IOConsoleLocked/);

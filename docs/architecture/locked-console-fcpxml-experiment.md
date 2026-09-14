@@ -7,12 +7,29 @@ Final Cut process/frontmost state, reads the supported macOS console-lock
 signal, and optionally records whether a library directory and log file are
 observable. It never imports, mutates, replaces, or overwrites a project.
 
-Run it with a staged artifact:
+Run the read-only preflight with a staged artifact:
 
 ```sh
 FRAMEKIT_FCPXML_PATH=/absolute/path/to/artifact.fcpxml \
   pnpm run test:final-cut-fcpxml-console-experiment
 ```
+
+An explicit-consent disposable import/readback scenario is available for an
+unlocked experiment. It requires a pre-created disposable library and never
+runs by default:
+
+```sh
+FRAMEKIT_FCPXML_PATH=/absolute/path/to/artifact.fcpxml \
+FRAMEKIT_FINAL_CUT_LIBRARY_PATH=/absolute/path/to/disposable-library \
+FRAMEKIT_FINAL_CUT_EXPERIMENT_CONFIRM=1 \
+  pnpm run test:final-cut-fcpxml-console-experiment -- --execute
+```
+
+The execute mode records sanitized before/after project and sequence
+identities. A background/unlocked run exercises the same import path and
+records the frontmost or activation blocker if Final Cut cannot accept the
+request without becoming frontmost. A locked or unknown console state stops
+before import.
 
 The JSON result is classified as:
 
