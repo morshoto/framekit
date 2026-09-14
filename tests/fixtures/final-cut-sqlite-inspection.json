@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "schemaVersion": 18,
+  "userVersion": 0,
+  "tables": [
+    { "name": "ZCATALOGROOT", "sql": "CREATE TABLE ZCATALOGROOT ( Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, Z_OPT INTEGER, ZMETADATA INTEGER, ZIDENTIFIER VARCHAR, ZNAME VARCHAR )", "columns": [{ "name": "Z_PK", "type": "INTEGER", "primaryKey": 1 }] },
+    { "name": "ZCATALOGROOTMD", "sql": "CREATE TABLE ZCATALOGROOTMD ( Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, Z_OPT INTEGER, ZCATALOG INTEGER, ZIDENTIFIER VARCHAR, ZDICTIONARYDATA BLOB )", "columns": [{ "name": "Z_PK", "type": "INTEGER", "primaryKey": 1 }] },
+    { "name": "ZCOLLECTION", "sql": "CREATE TABLE ZCOLLECTION ( Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, Z_OPT INTEGER, ZFLAGS INTEGER, ZCATALOG INTEGER, ZMETADATA INTEGER, ZIDENTIFIER VARCHAR, ZNAME VARCHAR, ZTYPE VARCHAR )", "columns": [{ "name": "Z_PK", "type": "INTEGER", "primaryKey": 1 }, { "name": "Z_OPT", "type": "INTEGER", "primaryKey": 0 }, { "name": "ZIDENTIFIER", "type": "VARCHAR", "primaryKey": 0 }, { "name": "ZTYPE", "type": "VARCHAR", "primaryKey": 0 }] },
+    { "name": "ZCOLLECTIONMD", "sql": "CREATE TABLE ZCOLLECTIONMD ( Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, Z_OPT INTEGER, ZCOLLECTION INTEGER, ZIDENTIFIER VARCHAR, ZDICTIONARYDATA BLOB )", "columns": [{ "name": "Z_PK", "type": "INTEGER", "primaryKey": 1 }, { "name": "ZCOLLECTION", "type": "INTEGER", "primaryKey": 0 }, { "name": "ZDICTIONARYDATA", "type": "BLOB", "primaryKey": 0 }] },
+    { "name": "Z_3CHILDCOLLECTIONS", "sql": "CREATE TABLE Z_3CHILDCOLLECTIONS ( Z_3PARENTCOLLECTIONS INTEGER, Z_3CHILDCOLLECTIONS INTEGER, PRIMARY KEY (Z_3PARENTCOLLECTIONS, Z_3CHILDCOLLECTIONS) )", "columns": [{ "name": "Z_3PARENTCOLLECTIONS", "type": "INTEGER", "primaryKey": 1 }, { "name": "Z_3CHILDCOLLECTIONS", "type": "INTEGER", "primaryKey": 2 }] },
+    { "name": "Z_METADATA", "sql": "CREATE TABLE Z_METADATA ( Z_VERSION INTEGER PRIMARY KEY, Z_UUID VARCHAR(255), Z_PLIST BLOB )", "columns": [{ "name": "Z_VERSION", "type": "INTEGER", "primaryKey": 1 }] },
+    { "name": "Z_MODELCACHE", "sql": "CREATE TABLE Z_MODELCACHE ( Z_CONTENT BLOB )", "columns": [{ "name": "Z_CONTENT", "type": "BLOB", "primaryKey": 0 }] },
+    { "name": "Z_PRIMARYKEY", "sql": "CREATE TABLE Z_PRIMARYKEY ( Z_ENT INTEGER PRIMARY KEY, Z_NAME VARCHAR, Z_SUPER INTEGER, Z_MAX INTEGER )", "columns": [{ "name": "Z_ENT", "type": "INTEGER", "primaryKey": 1 }] }
+  ],
+  "rowCounts": {
+    "ZCATALOGROOT": 1,
+    "ZCATALOGROOTMD": 1,
+    "ZCOLLECTION": 6661,
+    "ZCOLLECTIONMD": 2727,
+    "Z_3CHILDCOLLECTIONS": 8172,
+    "Z_METADATA": 1,
+    "Z_MODELCACHE": 1,
+    "Z_PRIMARYKEY": 4
+  },
+  "collectionTypes": [
+    { "type": "FFAnchoredClip", "count": 4 },
+    { "type": "FFAnchoredSequence", "count": 304 },
+    { "type": "FFMediaEventProject", "count": 1 },
+    { "type": "FFMediaEventProjectData", "count": 1 },
+    { "type": "FFAsset", "count": 301 },
+    { "type": "FFMediaRep", "count": 301 },
+    { "type": "NSSet", "count": 3332 }
+  ],
+  "collectionRows": [
+    { "primaryKey": 4, "type": "FFMediaEventProject", "optimisticVersion": 102, "catalogId": 1, "metadataId": 2 },
+    { "primaryKey": 60, "type": "FFAnchoredSequence", "optimisticVersion": 1, "catalogId": 13, "metadataId": 23 },
+    { "primaryKey": 65, "type": "FFAnchoredClip", "optimisticVersion": 1, "catalogId": 0, "metadataId": 25 }
+  ],
+  "metadataRows": [
+    { "primaryKey": 2, "collectionId": 4, "bytes": 19282, "archive": "NSKeyedArchiver" },
+    { "primaryKey": 3, "collectionId": 3, "bytes": 389, "archive": "NSKeyedArchiver" }
+  ]
+}
