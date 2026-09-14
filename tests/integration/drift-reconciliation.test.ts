@@ -168,3 +168,18 @@ test("surfaces invalid merged references as a structured conflict", () => {
   assert.equal(result.conflicts[0]?.id, "a");
   assert.equal(result.conflicts[0]?.path, "sequence.occurrences[a].mediaId");
 });
+
+test("removing an occurrence preserves unrelated story elements with the same ID", () => {
+  const base = timeline();
+  base.sequence.storyElements = [{
+    id: "a",
+    kind: "title",
+    startTime: { value: "0", timescale: "30" },
+    durationTime: { value: "30", timescale: "30" },
+  }];
+  const session = EditingSession.create({ base });
+
+  session.apply([{ type: "remove-occurrence", occurrenceId: "a" }]);
+
+  assert.deepEqual(session.desired().sequence.storyElements, base.sequence.storyElements);
+});

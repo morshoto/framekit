@@ -482,7 +482,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       return;
     case "remove-occurrence":
       timeline.sequence.occurrences = timeline.sequence.occurrences.filter(({ id }) => id !== operation.occurrenceId);
-      timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ id, occurrenceId }) => id !== operation.occurrenceId && occurrenceId !== operation.occurrenceId);
+      timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ occurrenceId }) => occurrenceId !== operation.occurrenceId);
       return;
     case "add-marker":
       validateMarker(operation.marker);
