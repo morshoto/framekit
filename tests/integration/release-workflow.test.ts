@@ -180,109 +180,75 @@ test('release workflow validates the package before publishing', async () => {
 	assert.match(workflow, /releases\/\$\{release_id\}/);
 });
 
-test('release workflow gates publication on v0.1.6 evidence and native checksums', async () => {
+test('automatic release keeps native packaging off the publication critical path', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
 		'utf8',
 	);
-	const nativePackaging = workflow.indexOf('native-release-assets:');
+	const nativeWorkflow = await readFile(
+		resolve(repository, '.github/workflows/native-release.yml'),
+		'utf8',
+	);
 	const gate = workflow.indexOf('pnpm run release-gate --output-dir');
 	const npmPublish = workflow.indexOf('npm publish --access public');
-	const npmVerification = workflow.indexOf('name: Verify npm publication');
-	const assetVerification = workflow.indexOf(
-		'name: Verify native release assets',
-	);
 	const githubRelease = workflow.indexOf('name: Publish GitHub release');
-	const finalProvenance = workflow.indexOf(
-		'name: Verify complete release provenance',
-	);
 
 	assert.notEqual(gate, -1);
-	assert.notEqual(nativePackaging, -1);
-	assert.ok(
-		gate < npmPublish,
-		'release gate must run before npm publication',
-	);
-	assert.match(
-		workflow,
-		/native-release-assets:[\s\S]*?runs-on:\s*\[self-hosted, macOS, framekit-release\][\s\S]*?scripts\/package-final-cut-release\.sh[\s\S]*?upload_url[\s\S]*?gh api --method POST/,
-	);
-	assert.notEqual(assetVerification, -1);
-	assert.notEqual(npmVerification, -1);
-	assert.ok(
-		npmVerification < assetVerification,
-		'native assets follow npm verification',
-	);
-	assert.ok(
-		assetVerification < githubRelease,
-		'native assets must precede public release',
-	);
-	assert.ok(
-		githubRelease < finalProvenance,
-		'complete provenance follows public release',
-	);
-	assert.match(
-		workflow,
-		/FramekitFinalCutWorkflow-\$\{expected_version\}\.zip/,
-	);
-	assert.match(workflow, /gh release download "\$\{RELEASE_TAG\}"/);
-	assert.match(workflow, /shasum -a 256 -c/);
+	assert.notEqual(npmPublish, -1);
+	assert.notEqual(githubRelease, -1);
+	assert.ok(gate < npmPublish, 'release gate must run before npm publication');
+	assert.ok(npmPublish < githubRelease, 'npm publication must precede GitHub release');
+
+	assert.doesNotMatch(workflow, /release-runner-preflight:/);
+	assert.doesNotMatch(workflow, /native-release-assets:/);
+	assert.doesNotMatch(workflow, /framekit-release/);
+	assert.doesNotMatch(workflow, /scripts\/package-final-cut-release\.sh/);
+	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
+	assert.doesNotMatch(workflow, /node scripts\/check-release-runner\.mjs/);
 	assert.match(workflow, /pnpm run test:codex-plugin/);
 	assert.match(
 		workflow,
-		/validate-codex-plugin:[\s\S]*?permissions:\s+contents: read[\s\S]*?pnpm install --frozen-lockfile[\s\S]*?pnpm run test:codex-plugin/,
+		/publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin\n\s+- milestone-report/,
+	);
+
+	assert.match(
+		nativeWorkflow,
+		/workflow_dispatch:[\s\S]*?release_tag:[\s\S]*?required: true[\s\S]*?type: string/,
 	);
 	assert.match(
-		workflow,
-		/publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin/,
+		nativeWorkflow,
+		/runs-on:\s*\[self-hosted, macOS, framekit-release\]/,
 	);
-	assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
-	assert.match(
-		workflow,
-		/RELEASE_PROVENANCE_OUTPUT_DIR: artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/,
-	);
-	assert.match(
-		workflow,
-		/publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin\n\s+- native-release-assets/,
-	);
+	assert.match(nativeWorkflow, /scripts\/package-final-cut-release\.sh/);
+	assert.match(nativeWorkflow, /gh release upload "\$\{RELEASE_TAG\}"/);
+	assert.match(nativeWorkflow, /--clobber/);
+	assert.match(nativeWorkflow, /name: Verify complete release provenance/);
+	assert.match(nativeWorkflow, /pnpm run verify-release-provenance/);
 });
 
-test('release workflow preflights the required native runner', async () => {
+test('native release is an explicit retry without runner preflight', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
 		'utf8',
 	);
-	const preflight = workflow.indexOf('release-runner-preflight:');
-	const nativePackaging = workflow.indexOf('native-release-assets:');
-	const publication = workflow.indexOf('publish-npm:');
-
-	assert.notEqual(preflight, -1);
-	assert.ok(
-		preflight < nativePackaging,
-		'runner preflight must precede native packaging',
-	);
-	assert.ok(
-		nativePackaging < publication,
-		'native packaging must precede publication',
+	const nativeWorkflow = await readFile(
+		resolve(repository, '.github/workflows/native-release.yml'),
+		'utf8',
 	);
 
-	const preflightJob = workflow.slice(preflight, nativePackaging);
-	assert.match(preflightJob, /runs-on: ubuntu-latest/);
-	assert.match(preflightJob, /contents: read/);
+	assert.doesNotMatch(workflow, /release-runner-preflight:/);
+	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
+	assert.doesNotMatch(nativeWorkflow, /actions\/runners\?per_page=100/);
+	assert.doesNotMatch(nativeWorkflow, /check-release-runner\.mjs/);
 	assert.match(
-		preflightJob,
-		/actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)/,
+		nativeWorkflow,
+		/concurrency:\s+group: native-release-\$\{\{ inputs\.release_tag \}\}\s+cancel-in-progress: false/,
 	);
-	assert.match(preflightJob, /GH_TOKEN: \$\{\{ secrets\.TAGPR_TOKEN \}\}/);
-	assert.doesNotMatch(preflightJob, /GH_TOKEN: \$\{\{ github\.token \}\}/);
-	assert.match(preflightJob, /actions\/runners\?per_page=100/);
-	assert.match(preflightJob, /gh api --paginate --slurp/);
-	assert.match(preflightJob, /node scripts\/check-release-runner\.mjs/);
-
-	const nativeJob = workflow.slice(nativePackaging, publication);
+	assert.match(nativeWorkflow, /name: Validate release tag/);
+	assert.match(nativeWorkflow, /gh release view "\$\{RELEASE_TAG\}"/);
 	assert.match(
-		nativeJob,
-		/needs:\s*\n\s+- tagpr\s*\n\s+- release-runner-preflight/,
+		nativeWorkflow,
+		/git merge-base --is-ancestor "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}" origin\/main/,
 	);
 });
 
@@ -342,14 +308,8 @@ test('release retries do not republish an existing npm version', async () => {
 	const verification = workflow.indexOf('name: Verify npm publication');
 
 	assert.notEqual(statusCheck, -1);
-	assert.ok(
-		statusCheck < publication,
-		'npm status must be checked before publishing',
-	);
-	assert.ok(
-		publication < verification,
-		'npm publication must precede verification',
-	);
+	assert.ok(statusCheck < publication, 'npm status must be checked before publishing');
+	assert.ok(publication < verification, 'npm publication must precede verification');
 
 	const statusStep = workflow.slice(
 		workflow.lastIndexOf('- id: npm-status', statusCheck),
@@ -441,14 +401,8 @@ test('release workflow validates the built MCP server version before publishing'
 		-1,
 		'release workflow must validate MCP server provenance',
 	);
-	assert.ok(
-		build < validation,
-		'MCP validation must inspect the built package',
-	);
-	assert.ok(
-		validation < publication,
-		'MCP validation must run before npm publish',
-	);
+	assert.ok(build < validation, 'MCP validation must inspect the built package');
+	assert.ok(validation < publication, 'MCP validation must run before npm publish');
 
 	const documentation = await readFile(
 		resolve(repository, 'docs/releasing.md'),
@@ -472,18 +426,18 @@ test('release documentation provides the exact npm trust command', async () => {
 	assert.match(documentation, /--yes/);
 });
 
-test('release documentation explains native runner preflight recovery', async () => {
+test('release documentation explains manual native asset recovery', async () => {
 	const documentation = await readFile(
 		resolve(repository, 'docs/releasing.md'),
 		'utf8',
 	);
 
-	assert.match(documentation, /preflight/i);
-	assert.match(documentation, /online and idle/i);
+	assert.match(documentation, /Native release assets/);
+	assert.match(documentation, /release_tag/);
 	assert.match(documentation, /self-hosted.*macOS.*framekit-release/s);
-	assert.match(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
-	assert.match(documentation, /actions\/runners\?per_page=100/);
-	assert.match(documentation, /retry the existing release tag/i);
+	assert.match(documentation, /does not block/i);
+	assert.match(documentation, /verify-release-provenance/);
+	assert.doesNotMatch(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
 });
 
 test('release notes classify representative v0.1.7 changes by label', async () => {
