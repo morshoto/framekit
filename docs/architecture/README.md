@@ -11,6 +11,7 @@ contracts separate from MCP transport and editor adapters.
 - [Drift detection and reconciliation](./drift-reconciliation.md)
 - [Timeline IR to versioned FCPXML](./timeline-ir-fcpxml.md)
 - [Locked-console FCPXML experiment](./locked-console-fcpxml-experiment.md)
+- [Unattended editing workflow](./unattended-editing.md)
 - [Capability model](./capability-model.md)
 - [Background render and export investigation](../final-cut/background-render-export-investigation.md)
 - [Skill requirements](./skill-requirements.md)
