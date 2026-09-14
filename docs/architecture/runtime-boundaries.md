@@ -21,6 +21,7 @@ Within the runtime package, responsibilities are organized by ownership:
   context, media, editing, diff, capability, port, and verification concerns.
 - `context/` assembles snapshots and live editor changes.
 - `editing/` owns intent, transaction, music, and filler-removal workflows.
-- `timeline/` owns rational-time helpers, snapshot diffs, and snapshot digests.
+- `timeline/` owns rational-time helpers, snapshot diffs, snapshot digests, and
+  the provider-neutral editing session/Timeline IR.
 - `application/` contains shared workflow dependencies such as project and
   media services; `runtime.ts` remains the stable façade used by MCP.
