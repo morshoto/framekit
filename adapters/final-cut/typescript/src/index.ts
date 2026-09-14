@@ -12,5 +12,6 @@ export * from "./publisher.js";
 export * from "./export.js";
 export * from "./background-export.js";
 export * from "./library-inspection.js";
+export * from "./sqlite-inspection.js";
 export * from "./native-operation.js";
 export * from "./native-session.js";
