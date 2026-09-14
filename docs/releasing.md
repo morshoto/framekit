@@ -34,63 +34,74 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 2. The `tagpr` job creates the version tag and a draft GitHub release with
    generated notes. If the merge already placed the release tag on `HEAD`,
    the workflow reuses that tag instead of trying to create it again.
-3. A hosted preflight checks that a repository-scoped runner is online and idle
-   with the `self-hosted`, `macOS`, and `framekit-release` labels.
-4. The `native-release-assets` job runs on that macOS runner, builds and signs
-   the Final Cut Workflow Extension, and uploads
-   `FramekitFinalCutWorkflow-<version>.zip` plus its checksum to the draft
-   release.
-5. The `publish-npm` job installs npm 11.5.1, runs the v0.1.6 repository gate,
-   publishes the matching package, and verifies the version on the public
-   registry. It waits for the native assets to be uploaded.
-6. The workflow verifies the native archive and checksum, then publishes the
-   GitHub release and its notes.
-7. A final provenance gate verifies package, MCP server, plugin, tag, workflow,
-   GitHub release, npm, native archive, and checksum alignment before the
-   workflow can succeed.
+3. Hosted jobs validate package/plugin alignment and, for milestone releases,
+   generate the milestone report.
+4. The `publish-npm` job installs npm 11.5.1, runs the repository release gate,
+   publishes the matching package, verifies the version on the public registry,
+   and publishes the GitHub release.
+5. Native Final Cut assets are deliberately outside this publication critical
+   path. Run the separate `Native release assets` workflow for the published
+   tag when a trusted Final Cut-capable Mac is available.
+6. The native workflow builds and signs
+   `FramekitFinalCutWorkflow-<version>.zip`, uploads it with its checksum to the
+   existing GitHub release, and then runs `verify-release-provenance`.
 
-The `framekit-release` runner must be a trusted macOS runner with Final Cut Pro
-installed, Xcode command-line tools, and a Developer ID signing identity
-available to `codesign`. Configure the `FRAMEKIT_CODESIGN_IDENTITY` secret and
-the optional `FRAMEKIT_NOTARY_PROFILE` repository variable before merging a
-release PR. The runner must be registered with the `framekit-release` label.
-The repository self-hosted-runner API requires repository Administration read
-access, so the preflight authenticates with the existing `TAGPR_TOKEN` secret;
-that token must be able to read the repository's runners.
+The automatic npm/GitHub release therefore does not block on a self-hosted
+macOS runner. A missing or offline native runner can delay the Final Cut binary,
+but it cannot leave package publication waiting in the release workflow.
 
-The hosted runner preflight fails with `RELEASE_RUNNER_UNAVAILABLE` when no
-online and idle runner has all three required labels. This keeps the release
-draft from waiting indefinitely for a native job that cannot be scheduled.
+## Native release assets
 
-### Recovering an unavailable release runner
-
-Restore or register the repository-scoped macOS runner, then verify that GitHub
-sees it online and idle with the required labels:
+The `Native release assets` workflow is an explicit follow-up operation. Run it
+from GitHub Actions with the exact published tag in the `release_tag` input, or
+from the CLI:
 
 ```sh
-gh api 'repos/morshoto/framekit/actions/runners?per_page=100' \
-  --jq '.runners[] | select(.status == "online" and .busy == false) | [.name, (.labels | map(.name) | join(","))] | @tsv'
+gh workflow run native-release.yml \
+  --repo morshoto/framekit \
+  --ref main \
+  -f release_tag=v0.1.10
 ```
 
-The output must include `self-hosted`, `macOS`, and `framekit-release` on the
-same runner. After the preflight succeeds, retry the existing release tag using
-the command below; the workflow will rebuild and upload the native assets
-before npm or GitHub publication.
+The workflow first validates on a GitHub-hosted runner that the requested tag
+exists, is reachable from `main`, and has a GitHub release. Only then does the
+packaging job target the trusted self-hosted macOS runner carrying the
+`framekit-release` label.
 
-If npm publishing fails, the GitHub release remains a draft so the failure can
-be repaired without presenting an incomplete release as public.
+That runner must have Final Cut Pro installed, Xcode command-line tools, and a
+Developer ID signing identity available to `codesign`. Configure the
+`FRAMEKIT_CODESIGN_IDENTITY` secret and the optional
+`FRAMEKIT_NOTARY_PROFILE` repository variable. The runner must expose all three
+labels: `self-hosted`, `macOS`, and `framekit-release`.
 
-If a retry finds a draft release whose tag is shown as `untagged-*`, the
-workflow associates that draft with the release tag before publishing it.
+There is intentionally no runner-enumeration preflight. If this dedicated
+workflow is queued because the Mac is offline, start or restore the runner and
+retry the native workflow. This queue does not block npm publication or the
+GitHub release.
 
-After repairing the runner and, if needed, the npm Trusted Publisher
-relationship, retry an existing tag without creating a new commit or version:
+After packaging, the workflow uploads
+`FramekitFinalCutWorkflow-<version>.zip` and
+`FramekitFinalCutWorkflow-<version>.zip.sha256` with `--clobber`, so rerunning
+an exact tag safely replaces a partial or stale native upload. It then runs:
+
+```sh
+pnpm run verify-release-provenance
+```
+
+That post-upload check verifies package, MCP server, plugin, tag, workflow,
+GitHub release, npm, native archive, and checksum alignment.
+
+## Retrying npm/GitHub publication
+
+If npm publishing fails, repair the npm Trusted Publisher relationship or the
+underlying release problem and retry the exact existing tag without creating a
+new version:
 
 ```sh
 gh workflow run release.yml \
   --repo morshoto/framekit \
   --ref main \
-  -f release_tag=v0.1.3
+  -f release_tag=v0.1.10
 ```
 
 The manual run verifies that the tag exists and points to a commit reachable
@@ -98,9 +109,11 @@ from `main`, checks out that exact tag, and skips `npm publish` if the matching
 version is already present. After a publish, registry visibility is retried
 with bounded backoff. If a retry races with an earlier successful publish and
 npm reports that the version already exists, the workflow proceeds to that
-same verification path. The native release job also rebuilds and uploads the
-assets before verification. Registry errors other than a missing version or an
+same verification path. Registry errors other than a missing version or an
 immutable-version conflict fail closed.
+
+If a retry finds a draft release whose tag is shown as `untagged-*`, the
+workflow associates that draft with the release tag before publishing it.
 
 The npm Trusted Publisher relationship is configured in npm account settings;
 repository permissions alone cannot create or repair that relationship. The
@@ -157,22 +170,23 @@ pnpm run test
 pnpm run check:boundaries
 npm pack --dry-run
 pnpm run release-gate --output-dir artifacts/release-gate/local-run
-RELEASE_TAG=v0.1.6 GITHUB_REPOSITORY=morshoto/framekit \
+```
+
+After the native assets exist on a published release, the authenticated
+provenance check can also be run locally:
+
+```sh
+RELEASE_TAG=v0.1.10 GITHUB_REPOSITORY=morshoto/framekit \
   pnpm run verify-release-provenance
 ```
 
-For the v0.1.6 release, attach the release gate `report.json` and
-`manifest.json` as evidence. The deterministic, FCPXML artifact,
-metadata-only, canonical-live, and opt-in headed-native tiers must be reported
-separately. Fixture success does not establish autonomous open-project Final
-Cut support; that claim requires the documented disposable headed run.
-
-The native release assets must be named
-`FramekitFinalCutWorkflow-<version>.zip` and
-`FramekitFinalCutWorkflow-<version>.zip.sha256`. The checksum must match the
-archive before the GitHub release is made public. Missing assets or a malformed
-checksum keep release completion blocked.
+For the v0.1.6 release gate, attach `report.json` and `manifest.json` as
+evidence. The deterministic, FCPXML artifact, metadata-only, canonical-live,
+and opt-in headed-native tiers must be reported separately. Fixture success
+does not establish autonomous open-project Final Cut support; that claim
+requires the documented disposable headed run.
 
 The release workflow performs the registry and GitHub release steps on GitHub's
-hosted runner; OIDC authentication cannot be fully reproduced locally. The
-final provenance command is therefore an authenticated post-publication check.
+hosted runner; OIDC authentication cannot be fully reproduced locally. Native
+binary production and the complete post-upload provenance verification remain
+separate because they require the Final Cut-capable macOS environment.
