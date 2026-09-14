@@ -18,11 +18,10 @@ commits while leaving different pull requests independent.
 Pull requests first run the lightweight `Detect CodeQL paths` job on
 `ubuntu-latest`. The JavaScript/TypeScript analysis runs when a JavaScript or
 TypeScript source, its package or TypeScript configuration, the CodeQL
-configuration, or this workflow changes. The Swift job always starts so its
-required check remains present. When the detector succeeds and no Swift bridge,
-CodeQL configuration, or workflow file changed, the job runs a successful
-no-op step and skips checkout and Swift CodeQL analysis. Otherwise, the Swift
-analysis runs normally.
+configuration, or this workflow changes. The Swift job always performs its
+checked-in-shim extraction and publishes `/language:swift`, even when no Swift
+source changed, so the code-scanning comparison has the configuration present
+on `main`.
 
 Pushes to `main`, scheduled scans, and manual scans analyze both languages so
 that path filtering does not reduce default-branch coverage. The Swift job uses
