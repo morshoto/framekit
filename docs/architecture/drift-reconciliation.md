@@ -21,4 +21,8 @@ an occurrence identity and never applies last-writer-wins behavior.
 `EditingSession.assertMaterializationReady()` rejects a provider revision that
 differs from the session base and records `possibly_stale` until reconciliation
 has happened. A successful rebase records `rebased`; callers can explicitly
-mark the session clean after verification.
+call `markClean()` after verification, but it compares the desired content with
+the current base. Because reconciliation preserves agent edits, the session
+remains `dirty` when those edits have not yet been materialized. After native
+materialization is verified, callers must refresh the base from the provider
+before `markClean()` can record `clean`.
