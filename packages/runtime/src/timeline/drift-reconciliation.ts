@@ -113,7 +113,11 @@ export function reconcileTimelineIr(input: TimelineReconciliationInput): Timelin
     resources: resources as TimelineIrResource[],
     revision: structuredClone(theirs.revision),
   };
-  validateTimelineIr(merged);
+  try {
+    validateTimelineIr(merged);
+  } catch (error) {
+    return { status: "conflicted", ...common, conflicts: [validationConflict("merged", merged, error)] };
+  }
   return { status: "rebased", ...common, merged, conflicts: [] };
 }
 

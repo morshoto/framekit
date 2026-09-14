@@ -147,3 +147,24 @@ test("keeps validation conflicts bound to the invalid entity", () => {
   assert.equal(ambiguous.conflicts[0]?.id, "resource-1");
   assert.equal(ambiguous.conflicts[0]?.path, "resources");
 });
+
+test("surfaces invalid merged references as a structured conflict", () => {
+  const base = timeline();
+  base.resources = [
+    { id: "resource-1", name: "One", mediaKind: "video" },
+    { id: "resource-2", name: "Two", mediaKind: "video" },
+  ];
+  base.sequence.occurrences[0]!.mediaId = "resource-1";
+
+  const ours = copy(base);
+  ours.sequence.occurrences[0]!.mediaId = "resource-2";
+  const theirs = copy(base);
+  theirs.resources = theirs.resources.filter(({ id }) => id !== "resource-2");
+
+  const result = reconcileTimelineIr({ base, ours, theirs });
+  assert.equal(result.status, "conflicted");
+  assert.equal(result.conflicts[0]?.kind, "invalid-state");
+  assert.equal(result.conflicts[0]?.entity, "occurrence");
+  assert.equal(result.conflicts[0]?.id, "a");
+  assert.equal(result.conflicts[0]?.path, "sequence.occurrences[a].mediaId");
+});
