@@ -8,6 +8,7 @@ contracts separate from MCP transport and editor adapters.
 - [Backend selection](./backend-selection.md)
 - [Final Cut provider boundaries](./final-cut-provider-boundaries.md)
 - [Provider-neutral editing session](./editing-session.md)
+- [Drift detection and reconciliation](./drift-reconciliation.md)
 - [Capability model](./capability-model.md)
 - [Background render and export investigation](../final-cut/background-render-export-investigation.md)
 - [Skill requirements](./skill-requirements.md)
