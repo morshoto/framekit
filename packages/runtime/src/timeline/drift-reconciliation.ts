@@ -50,6 +50,7 @@ type TimelineEntity =
   | TimelineIrMarker
   | TimelineIrCaption;
 type JsonRecord = Record<string, unknown>;
+type TimelineValidationSource = "base" | "ours" | "theirs" | "merged";
 
 /**
  * Three-way merge for the provider-neutral timeline. BASE is never written;
@@ -64,22 +65,12 @@ export function reconcileTimelineIr(input: TimelineReconciliationInput): Timelin
     oursRevision: structuredClone(ours.revision),
     theirsRevision: structuredClone(theirs.revision),
   };
-  try {
-    validateTimelineIr(base);
-    validateTimelineIr(ours);
-    validateTimelineIr(theirs);
-  } catch (error) {
-    return {
-      status: "conflicted",
-      ...common,
-      conflicts: [{
-        kind: /duplicate occurrence/i.test(error instanceof Error ? error.message : String(error)) ? "ambiguous-identity" : "invalid-state",
-        entity: "occurrence",
-        id: "unknown",
-        path: "timeline",
-        message: error instanceof Error ? error.message : String(error),
-      }],
-    };
+  for (const [source, timeline] of [["base", base], ["ours", ours], ["theirs", theirs]] as const) {
+    try {
+      validateTimelineIr(timeline);
+    } catch (error) {
+      return { status: "conflicted", ...common, conflicts: [validationConflict(source, timeline, error)] };
+    }
   }
   const conflicts: TimelineReconciliationConflict[] = [];
   if (base.project.id !== ours.project.id || base.project.id !== theirs.project.id
@@ -240,6 +231,94 @@ function uniqueEntityMap<T extends TimelineEntity>(
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence;
+}
+
+function validationConflict(source: TimelineValidationSource, timeline: TimelineIr, error: unknown): TimelineReconciliationConflict {
+  const message = error instanceof Error ? error.message : String(error);
+  const detail = message.replace(/^TIMELINE_IR_INVALID:\s*/, "");
+  const duplicate = detail.match(/^duplicate (resource|occurrence|story element|marker|caption) id (.+)$/i);
+  if (duplicate) {
+    const entity = entityForLabel(duplicate[1]!);
+    return {
+      kind: "ambiguous-identity",
+      entity,
+      id: duplicate[2]!,
+      path: collectionPath(entity),
+      message: `${source} timeline validation failed: ${detail}`,
+    };
+  }
+
+  const location = validationLocation(detail, timeline);
+  return {
+    kind: "invalid-state",
+    ...location,
+    message: `${source} timeline validation failed: ${detail}`,
+  };
+}
+
+function validationLocation(detail: string, timeline: TimelineIr): Pick<TimelineReconciliationConflict, "entity" | "id" | "path"> {
+  const topLevelField = detail.match(/^(project|sequence)\.(.+)$/);
+  if (topLevelField) {
+    const entity = entityForLabel(topLevelField[1]!);
+    return { entity, id: timelineEntityId(timeline, entity), path: topLevelField[0]! };
+  }
+  if (detail === "project is required") return { entity: "project", id: "unknown", path: "project" };
+  if (detail === "sequence is required") return { entity: "sequence", id: "unknown", path: "sequence" };
+
+  const entityField = detail.match(/^(resource|occurrence|story element|marker|caption) (.+)\.([^. ]+)(?: .*)?$/);
+  if (entityField) {
+    const entity = entityForLabel(entityField[1]!);
+    return { entity, id: entityField[2]!, path: `${collectionPath(entity)}[${entityField[2]}].${entityField[3]}` };
+  }
+  const unsupportedMediaKind = detail.match(/^resource (.+) has unsupported mediaKind$/);
+  if (unsupportedMediaKind) return { entity: "resource", id: unsupportedMediaKind[1]!, path: `resources[${unsupportedMediaKind[1]}].mediaKind` };
+  const occurrenceReference = detail.match(/^occurrence (.+) references unknown (resource|attachment)(?: .+)?$/);
+  if (occurrenceReference) {
+    const field = occurrenceReference[2] === "resource" ? "mediaId" : "attachedTo";
+    return { entity: "occurrence", id: occurrenceReference[1]!, path: `sequence.occurrences[${occurrenceReference[1]}].${field}` };
+  }
+  const storyReference = detail.match(/^story element (.+) references unknown occurrence$/);
+  if (storyReference) return { entity: "story-element", id: storyReference[1]!, path: `sequence.storyElements[${storyReference[1]}].occurrenceId` };
+
+  const collection = detail.match(/^(resources|occurrences|storyElements|markers|captions) must be an array$/);
+  if (collection) {
+    const entity = entityForCollection(collection[1]!);
+    return { entity, id: "unknown", path: collection[1]! };
+  }
+  if (detail.startsWith("revision.")) return { entity: "sequence", id: timelineEntityId(timeline, "sequence"), path: detail };
+  return { entity: "sequence", id: timelineEntityId(timeline, "sequence"), path: "timeline" };
+}
+
+function entityForLabel(label: string): TimelineReconciliationEntity {
+  return label === "story element" ? "story-element" : label as TimelineReconciliationEntity;
+}
+
+function entityForCollection(collection: string): TimelineReconciliationEntity {
+  switch (collection) {
+    case "resources": return "resource";
+    case "occurrences": return "occurrence";
+    case "storyElements": return "story-element";
+    case "markers": return "marker";
+    case "captions": return "caption";
+    default: return "sequence";
+  }
+}
+
+function collectionPath(entity: TimelineReconciliationEntity): string {
+  switch (entity) {
+    case "resource": return "resources";
+    case "occurrence": return "sequence.occurrences";
+    case "story-element": return "sequence.storyElements";
+    case "marker": return "sequence.markers";
+    case "caption": return "sequence.captions";
+    case "project": return "project";
+    case "sequence": return "sequence";
+  }
+}
+
+function timelineEntityId(timeline: TimelineIr, entity: TimelineReconciliationEntity): string {
+  if (entity === "project") return typeof timeline?.project?.id === "string" ? timeline.project.id : "unknown";
+  return typeof timeline?.sequence?.id === "string" ? timeline.sequence.id : "unknown";
 }
 
 function deepEqual(left: unknown, right: unknown): boolean {

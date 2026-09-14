@@ -122,3 +122,28 @@ test("turns ambiguous duplicate identities into explicit conflicts", () => {
   assert.equal(result.status, "conflicted");
   assert.equal(result.conflicts[0]?.kind, "ambiguous-identity");
 });
+
+test("keeps validation conflicts bound to the invalid entity", () => {
+  const base = timeline();
+  const malformed = copy(base);
+  malformed.resources.push({ id: "resource-1", name: "", mediaKind: "video" });
+
+  const invalid = reconcileTimelineIr({ base, ours: malformed, theirs: base });
+  assert.equal(invalid.status, "conflicted");
+  assert.equal(invalid.conflicts[0]?.kind, "invalid-state");
+  assert.equal(invalid.conflicts[0]?.entity, "resource");
+  assert.equal(invalid.conflicts[0]?.id, "resource-1");
+  assert.equal(invalid.conflicts[0]?.path, "resources[resource-1].name");
+
+  const duplicate = copy(base);
+  duplicate.resources = [
+    { id: "resource-1", name: "One", mediaKind: "video" },
+    { id: "resource-1", name: "Two", mediaKind: "video" },
+  ];
+  const ambiguous = reconcileTimelineIr({ base, ours: duplicate, theirs: base });
+  assert.equal(ambiguous.status, "conflicted");
+  assert.equal(ambiguous.conflicts[0]?.kind, "ambiguous-identity");
+  assert.equal(ambiguous.conflicts[0]?.entity, "resource");
+  assert.equal(ambiguous.conflicts[0]?.id, "resource-1");
+  assert.equal(ambiguous.conflicts[0]?.path, "resources");
+});
