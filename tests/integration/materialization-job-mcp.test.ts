@@ -102,13 +102,26 @@ test("previews without mutation and resumes a blocked immutable materialization 
 
     await first.client.close();
     await first.server.close();
-    const second = await connect(directory);
+    const resumedRequests: string[] = [];
+    const second = await connect(directory, {
+      publish: async (request) => {
+        resumedRequests.push(request.jobId);
+        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+      },
+    });
     const restored = payload(await second.client.callTool({
       name: "session.materialize.status",
       arguments: { jobId: executed.jobId },
     }));
     assert.equal(restored.state, "blocked");
     assert.equal(restored.artifactDigest, executed.artifactDigest);
+    const resumed = payload(await second.client.callTool({
+      name: "session.materialize.retry",
+      arguments: { jobId: executed.jobId },
+    }));
+    assert.equal(resumed.state, "completed");
+    assert.equal(resumed.jobId, executed.jobId);
+    assert.deepEqual(resumedRequests, [executed.jobId]);
     await second.client.close();
     await second.server.close();
   } finally {
