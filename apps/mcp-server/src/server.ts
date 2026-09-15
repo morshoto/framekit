@@ -19,6 +19,8 @@ import {
   type EditTarget,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
+  type TimelineIr,
+  type TimelineIrEditOperation,
 } from "@framekit/runtime";
 import {
   type BackgroundRenderExportProvider,
@@ -44,6 +46,7 @@ import {
   FRAMEKIT_VERSION,
   type FramekitBuildFingerprint,
 } from "./version.js";
+import { EditingSessionRepository } from "./headless-sessions.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -709,6 +712,21 @@ function jsonResult(value: unknown) {
   };
 }
 
+async function sessionResult(action: () => Promise<unknown>) {
+  try {
+    return jsonResult(await action());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      isError: true,
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message }),
+      }],
+    };
+  }
+}
+
 function capabilityErrorResult(operation: string, capabilityName: string, capability: CapabilityDescriptor) {
   return {
     isError: true,
@@ -880,6 +898,7 @@ export interface McpServerOptions {
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
+  sessionDirectory?: string;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -889,6 +908,58 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
+  const sessions = options.sessionDirectory ? new EditingSessionRepository(options.sessionDirectory) : undefined;
+
+  const requireSessions = (): EditingSessionRepository => {
+    if (!sessions) throw new Error("SESSION_STORAGE_UNAVAILABLE: configure a session directory");
+    return sessions;
+  };
+
+  const sessionOperationSchema = z.array(z.unknown());
+
+  server.registerTool("session.create", {
+    description: "Create and atomically persist a provider-neutral editing session without mutating Final Cut.",
+    inputSchema: {
+      sessionId: z.string().min(1).optional(),
+      provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }).optional(),
+      base: z.unknown(),
+    },
+  }, async ({ sessionId, provider, base }) => sessionResult(async () => requireSessions().create({
+    ...(sessionId ? { sessionId } : {}),
+    ...(provider ? { provider } : {}),
+    base: base as TimelineIr,
+  })));
+
+  server.registerTool("session.inspect", {
+    description: "Inspect a persisted editing session and its exact base and desired Timeline IR.",
+    inputSchema: { sessionId: z.string().min(1) },
+  }, async ({ sessionId }) => sessionResult(async () => requireSessions().inspect(sessionId)));
+
+  server.registerTool("session.edit.preview", {
+    description: "Preview provider-neutral session edits without persisting or mutating Final Cut.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().preview(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
+
+  server.registerTool("session.edit.execute", {
+    description: "Apply edits only to a persisted session's desired Timeline IR.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().execute(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
