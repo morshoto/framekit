@@ -1029,6 +1029,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().min(1) },
   }, async ({ jobId }) => sessionResult(async () => requireMaterializations().status(jobId)));
 
+  server.registerTool("session.materialize.retry", {
+    description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
+    inputSchema: { jobId: z.string().min(1) },
+  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
+
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},

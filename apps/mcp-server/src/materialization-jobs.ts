@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { timelineIrDigest, type TimelineIr } from "@framekit/runtime";
@@ -165,6 +165,79 @@ export class SessionMaterializationJobs {
       }
       throw error;
     }
+  }
+
+  public async retry(jobId: string): Promise<SessionMaterializationJob> {
+    const job = await this.status(jobId);
+    if (job.state === "completed" || job.state === "failed") return job;
+    if (!job.error?.retryable) throw new Error(`MATERIALIZATION_NOT_RETRYABLE: job ${jobId} cannot be retried`);
+    if (!this.publisher) return job;
+
+    const artifact = await readFile(job.artifactPath, "utf8");
+    const digest = createHash("sha256").update(artifact).digest("hex");
+    if (digest !== job.artifactDigest) {
+      const failed: SessionMaterializationJob = {
+        ...job,
+        state: "failed",
+        nextAction: "none",
+        error: {
+          code: "MATERIALIZATION_ARTIFACT_CHANGED",
+          message: "The staged FCPXML artifact no longer matches its immutable digest",
+          retryable: false,
+        },
+      };
+      await this.save(failed);
+      return failed;
+    }
+
+    const session = await this.sessions.loadForMaterialization(job.sessionId);
+    const desired = session.desired();
+    const result = await this.publisher.publish({
+      jobId: job.jobId,
+      artifactPath: job.artifactPath,
+      artifactDigest: job.artifactDigest,
+      target: job.target,
+      destination: job.destination,
+      desired,
+    });
+    if (result.state === "blocked") {
+      const blocked: SessionMaterializationJob = {
+        ...job,
+        evidence: { ...job.evidence, providerRequested: true },
+        error: { code: result.code, message: result.message, retryable: result.retryable },
+      };
+      await this.save(blocked);
+      return blocked;
+    }
+    if (timelineIrDigest(result.canonicalReadback) !== timelineIrDigest(desired)) {
+      const failed: SessionMaterializationJob = {
+        ...job,
+        state: "failed",
+        nextAction: "none",
+        evidence: { ...job.evidence, providerRequested: true },
+        error: {
+          code: "MATERIALIZATION_READBACK_MISMATCH",
+          message: "Canonical provider readback does not match the desired Timeline IR",
+          retryable: false,
+        },
+      };
+      await this.save(failed);
+      return failed;
+    }
+    const completed: SessionMaterializationJob = {
+      ...job,
+      state: "completed",
+      nextAction: "none",
+      evidence: {
+        ...job.evidence,
+        providerRequested: true,
+        canonicalReadback: true,
+        headedNative: result.headedNativeVerified,
+      },
+      error: undefined,
+    };
+    await this.save(completed);
+    return completed;
   }
 
   private async save(job: SessionMaterializationJob): Promise<void> {
