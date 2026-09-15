@@ -1,8 +1,11 @@
 # TDD Plan: Headless editing sessions and materialization (#324-#326)
 
-**Type:** Feature  
-**Issues:** #324, #325, #326  
-**Complexity:** High  
+**Type:** Feature
+
+**Issues:** #324, #325, #326
+
+**Complexity:** High
+
 **TDD entry point:** an MCP contract test that cannot discover `session.create`.
 
 ## Goal and scope
