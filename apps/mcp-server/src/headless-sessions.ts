@@ -107,6 +107,14 @@ export class EditingSessionRepository {
     return { ...stored, observation, change };
   }
 
+  public loadForMaterialization(sessionId: string): Promise<EditingSession> {
+    return this.load(sessionId);
+  }
+
+  public checkpoint(sessionId: string, session: EditingSession): Promise<StoredEditingSession> {
+    return this.save(sessionId, session);
+  }
+
   private async load(sessionId: string): Promise<EditingSession> {
     try {
       return EditingSession.fromJSON(await readFile(this.path(sessionId), "utf8"));

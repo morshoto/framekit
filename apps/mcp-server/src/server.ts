@@ -48,6 +48,12 @@ import {
   type FramekitBuildFingerprint,
 } from "./version.js";
 import { EditingSessionRepository } from "./headless-sessions.js";
+import {
+  SessionMaterializationJobs,
+  type SessionMaterializationPublisher,
+} from "./materialization-jobs.js";
+
+export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -901,6 +907,8 @@ export interface McpServerOptions {
   buildFingerprint?: FramekitBuildFingerprint;
   sessionDirectory?: string;
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
+  materializationDirectory?: string;
+  sessionMaterializationPublisher?: SessionMaterializationPublisher;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -911,10 +919,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
   const sessions = options.sessionDirectory ? new EditingSessionRepository(options.sessionDirectory) : undefined;
+  const materializations = sessions && options.materializationDirectory
+    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+    : undefined;
 
   const requireSessions = (): EditingSessionRepository => {
     if (!sessions) throw new Error("SESSION_STORAGE_UNAVAILABLE: configure a session directory");
     return sessions;
+  };
+  const requireMaterializations = (): SessionMaterializationJobs => {
+    if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
+    return materializations;
   };
 
   const sessionOperationSchema = z.array(z.unknown());
@@ -990,6 +1005,29 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
     return requireSessions().observe(sessionId, sourcePath, options.sqliteObservationProvider);
   }));
+
+  const sessionMaterializationTargetSchema = z.object({
+    provider: z.literal("final-cut"),
+    projectUid: z.string().min(1),
+    sequenceUid: z.string().min(1),
+    eventName: z.string().min(1).optional(),
+    materialization: z.literal("versioned").optional(),
+  }).strict();
+
+  server.registerTool("session.materialize.preview", {
+    description: "Preview deterministic versioned FCPXML materialization without staging or publishing it.",
+    inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema },
+  }, async ({ sessionId, target }) => sessionResult(async () => requireMaterializations().preview(sessionId, target)));
+
+  server.registerTool("session.materialize.execute", {
+    description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
+    inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
+  }, async ({ sessionId, target, confirm }) => sessionResult(async () => requireMaterializations().execute(sessionId, target, confirm)));
+
+  server.registerTool("session.materialize.status", {
+    description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
+    inputSchema: { jobId: z.string().min(1) },
+  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().status(jobId)));
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
