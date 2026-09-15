@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import type { FinalCutSqliteInspectionProvider } from "@framekit/final-cut";
 
 function timeline(): TimelineIr {
   return {
@@ -54,8 +55,8 @@ function payload(result: unknown): any {
   return JSON.parse(content?.[0]?.text ?? "null");
 }
 
-async function connect(sessionDirectory: string) {
-  const server = createMcpServer(runtime(), { sessionDirectory });
+async function connect(sessionDirectory: string, sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">) {
+  const server = createMcpServer(runtime(), { sessionDirectory, sqliteObservationProvider });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "headless-session-test", version: "0.1.0" });
   await server.connect(serverTransport);
@@ -106,6 +107,84 @@ test("creates previews executes and reloads a provider-neutral session", async (
     assert.equal(restored.document.desired.sequence.occurrences[0].durationTime.value, "1001");
     await second.client.close();
     await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("binds read-only SQLite evidence and invalidates only session freshness", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-sqlite-"));
+  let digest = "a".repeat(64);
+  const sqliteObservationProvider = {
+    inspect: async (sourcePath: string) => ({
+      status: "partial" as const,
+      observation: {
+        backend: "final-cut-sqlite-read-only" as const,
+        sourcePath,
+        databaseKind: "fcpevent" as const,
+        digest,
+        schemaVersion: 18,
+        userVersion: 0,
+        tables: [],
+        rowCounts: {},
+        collectionTypes: [],
+        collectionRows: [],
+        metadataRows: [],
+        revision: { id: digest, sequence: 1, timestamp: "2026-09-15T00:00:00.000Z" },
+        canonical: false as const,
+        coverage: {
+          complete: false as const,
+          projectIdentity: "partial" as const,
+          sequenceIdentity: "unknown" as const,
+          clipOccurrences: "unknown" as const,
+          mediaIdentity: "partial" as const,
+          rationalTiming: "unknown" as const,
+          roles: "unknown" as const,
+          storylineRelationships: "unknown" as const,
+          markersCaptions: "unknown" as const,
+          revision: "partial" as const,
+        },
+      },
+      issues: [],
+    }),
+  };
+  try {
+    const connected = await connect(directory, sqliteObservationProvider);
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-observed", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const first = payload(await connected.client.callTool({
+      name: "session.observe",
+      arguments: { sessionId: "session-observed", sourcePath: "/private/library/CurrentVersion.fcpevent" },
+    }));
+    assert.equal(first.observation.canonical, false);
+    assert.equal(first.observation.digest, digest);
+    assert.equal(first.observation.sourcePath, undefined);
+    assert.equal(first.change, "observed");
+    assert.equal(first.document.state, "clean");
+
+    const unchanged = payload(await connected.client.callTool({
+      name: "session.observe",
+      arguments: { sessionId: "session-observed", sourcePath: "/private/library/CurrentVersion.fcpevent" },
+    }));
+    assert.equal(unchanged.change, "unchanged");
+    assert.equal(unchanged.document.state, "clean");
+
+    digest = "b".repeat(64);
+    const changed = payload(await connected.client.callTool({
+      name: "session.observe",
+      arguments: { sessionId: "session-observed", sourcePath: "/private/library/CurrentVersion.fcpevent" },
+    }));
+    assert.equal(changed.change, "changed");
+    assert.equal(changed.document.state, "possibly_stale");
+    assert.equal(changed.document.desired.sequence.occurrences[0].name, "Opening");
+
+    const status = payload(await connected.client.callTool({ name: "session.status", arguments: { sessionId: "session-observed" } }));
+    assert.equal(status.readyToMaterialize, false);
+    assert.equal(status.observation.canonical, false);
+    await connected.client.close();
+    await connected.server.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
