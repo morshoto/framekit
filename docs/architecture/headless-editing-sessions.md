@@ -41,3 +41,11 @@ Without a publication provider, execution checkpoints a retryable blocked job.
 After a server restart, `session.materialize.status` reports the same job and
 `session.materialize.retry` verifies the staged digest before requesting the
 provider again.
+
+Set `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` only to an explicit
+non-UI Final Cut publisher. Framekit sends that command one JSON request on
+standard input containing the immutable artifact path, digest, target, and
+desired Timeline IR; it must return the materialization result as JSON on
+standard output. The command must perform target-bound readback itself.
+Framekit never substitutes the headed AppleScript publisher when this command
+is absent or fails.
