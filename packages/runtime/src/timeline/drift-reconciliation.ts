@@ -269,17 +269,17 @@ function validationLocation(detail: string, timeline: TimelineIr): Pick<Timeline
   if (detail === "project is required") return { entity: "project", id: "unknown", path: "project" };
   if (detail === "sequence is required") return { entity: "sequence", id: "unknown", path: "sequence" };
 
-  const entityField = detail.match(/^(resource|occurrence|story element|marker|caption) (.+)\.([^. ]+)(?: .*)?$/);
+  const entityField = parseEntityField(detail);
   if (entityField) {
-    const entity = entityForLabel(entityField[1]!);
-    return { entity, id: entityField[2]!, path: `${collectionPath(entity)}[${entityField[2]}].${entityField[3]}` };
+    const entity = entityForLabel(entityField.label);
+    return { entity, id: entityField.id, path: `${collectionPath(entity)}[${entityField.id}].${entityField.field}` };
   }
   const unsupportedMediaKind = detail.match(/^resource (.+) has unsupported mediaKind$/);
   if (unsupportedMediaKind) return { entity: "resource", id: unsupportedMediaKind[1]!, path: `resources[${unsupportedMediaKind[1]}].mediaKind` };
-  const occurrenceReference = detail.match(/^occurrence (.+) references unknown (resource|attachment)(?: .+)?$/);
+  const occurrenceReference = parseOccurrenceReference(detail);
   if (occurrenceReference) {
-    const field = occurrenceReference[2] === "resource" ? "mediaId" : "attachedTo";
-    return { entity: "occurrence", id: occurrenceReference[1]!, path: `sequence.occurrences[${occurrenceReference[1]}].${field}` };
+    const field = occurrenceReference.kind === "resource" ? "mediaId" : "attachedTo";
+    return { entity: "occurrence", id: occurrenceReference.id, path: `sequence.occurrences[${occurrenceReference.id}].${field}` };
   }
   const storyReference = detail.match(/^story element (.+) references unknown occurrence$/);
   if (storyReference) return { entity: "story-element", id: storyReference[1]!, path: `sequence.storyElements[${storyReference[1]}].occurrenceId` };
@@ -291,6 +291,35 @@ function validationLocation(detail: string, timeline: TimelineIr): Pick<Timeline
   }
   if (detail.startsWith("revision.")) return { entity: "sequence", id: timelineEntityId(timeline, "sequence"), path: detail };
   return { entity: "sequence", id: timelineEntityId(timeline, "sequence"), path: "timeline" };
+}
+
+function parseEntityField(detail: string): { label: string; id: string; field: string } | undefined {
+  for (const label of ["resource", "occurrence", "story element", "marker", "caption"]) {
+    const prefix = `${label} `;
+    if (!detail.startsWith(prefix)) continue;
+    const remainder = detail.slice(prefix.length);
+    const separator = remainder.lastIndexOf(".");
+    if (separator <= 0 || separator === remainder.length - 1) continue;
+    const fieldEnd = remainder.indexOf(" ", separator + 1);
+    const field = remainder.slice(separator + 1, fieldEnd === -1 ? remainder.length : fieldEnd);
+    if (!field) continue;
+    return { label, id: remainder.slice(0, separator), field };
+  }
+  return undefined;
+}
+
+function parseOccurrenceReference(detail: string): { id: string; kind: "resource" | "attachment" } | undefined {
+  const prefix = "occurrence ";
+  const marker = " references unknown ";
+  if (!detail.startsWith(prefix)) return undefined;
+  const remainder = detail.slice(prefix.length);
+  const separator = remainder.lastIndexOf(marker);
+  if (separator <= 0) return undefined;
+  const target = remainder.slice(separator + marker.length);
+  const targetEnd = target.indexOf(" ");
+  const kind = target.slice(0, targetEnd === -1 ? target.length : targetEnd);
+  if (kind !== "resource" && kind !== "attachment") return undefined;
+  return { id: remainder.slice(0, separator), kind };
 }
 
 function entityForLabel(label: string): TimelineReconciliationEntity {
