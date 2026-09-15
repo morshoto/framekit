@@ -15,3 +15,4 @@ export * from "./library-inspection.js";
 export * from "./sqlite-inspection.js";
 export * from "./native-operation.js";
 export * from "./native-session.js";
+export * from "./timeline-ir-fcpxml.js";
