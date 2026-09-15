@@ -466,3 +466,23 @@ optional semantic version, and an argument object containing the inspected base
 revision; execute accepts only the runtime-issued preview token. See
 [Generic MCP Skills](./skills.md) for the full contract. Skills use runtime
 capabilities and never embed Final Cut-specific commands.
+
+## Headless editing sessions
+
+The `session.create`, `session.inspect`, and `session.status` tools manage a
+provider-neutral Timeline IR session on disk. `session.edit.preview` is
+non-mutating; `session.edit.execute` changes only the session's desired state.
+Use `session.reconcile` with a fresh provider Timeline IR before materializing
+any session that is possibly stale or conflicted.
+
+`session.observe` binds read-only Final Cut SQLite evidence to session
+freshness. Its digest is explicitly non-canonical and can invalidate a session,
+but it cannot make the session ready or authorize a write.
+
+Use `session.materialize.preview` to inspect the versioned destination and
+artifact digest without staging files. `session.materialize.execute` requires
+`confirm: true`, stages an immutable FCPXML artifact, and creates a persistent
+job. `session.materialize.status` reads a job after server restart, and
+`session.materialize.retry` resubmits a retryable blocker using the same
+digest-verified artifact. A provider request is not completion: canonical
+readback must match the desired Timeline IR.
