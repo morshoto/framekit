@@ -961,6 +961,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     expectedRevision,
   )));
 
+  server.registerTool("session.status", {
+    description: "Read editing-session readiness, provider binding, and revisions.",
+    inputSchema: { sessionId: z.string().min(1) },
+  }, async ({ sessionId }) => sessionResult(async () => requireSessions().status(sessionId)));
+
+  server.registerTool("session.reconcile", {
+    description: "Reconcile a fresh provider Timeline IR with the session base and desired state.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }),
+      providerState: z.unknown(),
+    },
+  }, async ({ sessionId, provider, providerState }) => sessionResult(async () => requireSessions().reconcile(
+    sessionId,
+    provider,
+    providerState as TimelineIr,
+  )));
+
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},

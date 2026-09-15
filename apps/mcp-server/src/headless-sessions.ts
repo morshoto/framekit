@@ -53,6 +53,33 @@ export class EditingSessionRepository {
     return this.save(sessionId, session);
   }
 
+  public async status(sessionId: string) {
+    const { document } = await this.inspect(sessionId);
+    return {
+      sessionId,
+      state: document.state,
+      ...(document.provider ? { provider: document.provider } : {}),
+      baseRevision: document.base.revision,
+      desiredRevision: document.desired.revision,
+      readyToMaterialize: document.state === "clean" || document.state === "dirty" || document.state === "rebased",
+    };
+  }
+
+  public async reconcile(
+    sessionId: string,
+    provider: TimelineIrProvider,
+    providerState: TimelineIr,
+  ) {
+    const session = await this.load(sessionId);
+    const boundProvider = session.document().provider;
+    if (boundProvider && boundProvider.id !== provider.id) {
+      throw new Error(`SESSION_PROVIDER_MISMATCH: expected ${boundProvider.id}, received ${provider.id}`);
+    }
+    const reconciliation = session.reconcile(providerState);
+    const stored = await this.save(sessionId, session);
+    return { ...stored, reconciliation };
+  }
+
   private async load(sessionId: string): Promise<EditingSession> {
     try {
       return EditingSession.fromJSON(await readFile(this.path(sessionId), "utf8"));
