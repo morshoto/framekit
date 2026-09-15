@@ -110,3 +110,51 @@ test("creates previews executes and reloads a provider-neutral session", async (
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("fails closed on stale revisions and provider mismatch before reconciliation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-reconcile-"));
+  try {
+    const connected = await connect(directory);
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-safe", provider: { id: "final-cut" }, base: timeline() },
+    });
+
+    const stale = await connected.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-safe",
+        expectedRevision: { id: "wrong", sequence: 99, timestamp: "2026-09-15T00:00:00.000Z" },
+        operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Unsafe" }],
+      },
+    });
+    assert.equal(stale.isError, true);
+    assert.equal(payload(stale).code, "STALE_CONTEXT");
+
+    const providerMismatch = await connected.client.callTool({
+      name: "session.reconcile",
+      arguments: { sessionId: "session-safe", provider: { id: "resolve" }, providerState: timeline() },
+    });
+    assert.equal(providerMismatch.isError, true);
+    assert.equal(payload(providerMismatch).code, "SESSION_PROVIDER_MISMATCH");
+
+    const providerState = timeline();
+    providerState.sequence.occurrences[0]!.gainDb = -6;
+    providerState.revision = { id: "revision-2", sequence: 5, timestamp: "2026-09-15T00:02:00.000Z" };
+    const reconciled = payload(await connected.client.callTool({
+      name: "session.reconcile",
+      arguments: { sessionId: "session-safe", provider: { id: "final-cut" }, providerState },
+    }));
+    assert.equal(reconciled.reconciliation.status, "rebased");
+    assert.equal(reconciled.document.state, "rebased");
+    assert.equal(reconciled.document.desired.sequence.occurrences[0].gainDb, -6);
+
+    const status = payload(await connected.client.callTool({ name: "session.status", arguments: { sessionId: "session-safe" } }));
+    assert.equal(status.state, "rebased");
+    assert.equal(status.provider.id, "final-cut");
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
