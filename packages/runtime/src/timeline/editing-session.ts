@@ -120,6 +120,18 @@ export interface EditingSessionDocument {
   base: TimelineIr;
   desired: TimelineIr;
   state: EditingSessionState;
+  observation?: EditingSessionObservation;
+}
+
+export interface EditingSessionObservation {
+  backend: string;
+  sourceId: string;
+  databaseKind: string;
+  digest: string;
+  schemaVersion: number;
+  observedAt: string;
+  canonical: false;
+  coverageComplete: false;
 }
 
 export interface EditingSessionCreateOptions {
@@ -266,6 +278,18 @@ export class EditingSession {
 
   public markPossiblyStale(): void {
     this.value.state = "possibly_stale";
+  }
+
+  public bindObservation(observation: EditingSessionObservation): "observed" | "unchanged" | "changed" {
+    const previous = this.value.observation;
+    if (previous && previous.sourceId !== observation.sourceId) {
+      throw new Error("SESSION_OBSERVATION_SOURCE_MISMATCH: observation source changed");
+    }
+    this.value.observation = structuredClone(observation);
+    if (!previous) return "observed";
+    if (previous.digest === observation.digest && previous.schemaVersion === observation.schemaVersion) return "unchanged";
+    this.value.state = "possibly_stale";
+    return "changed";
   }
 
   public markConflicted(): void {
@@ -445,6 +469,19 @@ export function validateEditingSessionDocument(document: EditingSessionDocument)
   }
   if (!["clean", "dirty", "possibly_stale", "conflicted", "rebased", "waiting_for_materialization"].includes(document.state)) {
     throw new Error("TIMELINE_IR_INVALID: unsupported session state");
+  }
+  if (document.observation) validateEditingSessionObservation(document.observation);
+}
+
+function validateEditingSessionObservation(observation: EditingSessionObservation): void {
+  if (!observation.backend || !observation.sourceId || !observation.databaseKind || !observation.digest) {
+    throw new Error("TIMELINE_IR_INVALID: session observation identity is incomplete");
+  }
+  if (!Number.isInteger(observation.schemaVersion) || observation.schemaVersion < 0) {
+    throw new Error("TIMELINE_IR_INVALID: session observation schemaVersion must be non-negative");
+  }
+  if (observation.canonical !== false || observation.coverageComplete !== false) {
+    throw new Error("TIMELINE_IR_INVALID: storage observation cannot be canonical or complete");
   }
 }
 

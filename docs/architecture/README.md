@@ -12,6 +12,7 @@ contracts separate from MCP transport and editor adapters.
 - [Timeline IR to versioned FCPXML](./timeline-ir-fcpxml.md)
 - [Locked-console FCPXML experiment](./locked-console-fcpxml-experiment.md)
 - [Unattended editing workflow](./unattended-editing.md)
+- [Headless editing sessions](./headless-editing-sessions.md)
 - [Capability model](./capability-model.md)
 - [Background render and export investigation](../final-cut/background-render-export-investigation.md)
 - [Skill requirements](./skill-requirements.md)

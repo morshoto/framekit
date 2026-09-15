@@ -1,4 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
   createCommandAnalyzers,
@@ -15,6 +17,7 @@ import {
   createFinalCutNativeTargetResolver,
   DisposableNativeEditWorkflow,
   FinalCutProjectPublisher,
+  FinalCutSqliteInspectionProvider,
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
   createNativeOperationLease,
@@ -172,6 +175,8 @@ const analyzers = liveMode
     };
 
 const runtime = new AgentVideoRuntime(editor, analyzers);
+const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
+const sqliteObservationProvider = new FinalCutSqliteInspectionProvider();
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
       native: nativeEditor,
@@ -208,6 +213,9 @@ const server = createMcpServer(runtime, {
   nativeOperationSession,
   projectPublisher,
   videoExporter,
+  sessionDirectory: join(framekitStateDirectory, "sessions"),
+  materializationDirectory: join(framekitStateDirectory, "materializations"),
+  sqliteObservationProvider,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

@@ -19,6 +19,8 @@ import {
   type EditTarget,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
+  type TimelineIr,
+  type TimelineIrEditOperation,
 } from "@framekit/runtime";
 import {
   type BackgroundRenderExportProvider,
@@ -27,6 +29,7 @@ import {
   serializeNativeFinalCutMediaImportError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublisher,
+  type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
@@ -44,6 +47,13 @@ import {
   FRAMEKIT_VERSION,
   type FramekitBuildFingerprint,
 } from "./version.js";
+import { EditingSessionRepository } from "./headless-sessions.js";
+import {
+  SessionMaterializationJobs,
+  type SessionMaterializationPublisher,
+} from "./materialization-jobs.js";
+
+export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -709,6 +719,21 @@ function jsonResult(value: unknown) {
   };
 }
 
+async function sessionResult(action: () => Promise<unknown>) {
+  try {
+    return jsonResult(await action());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      isError: true,
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message }),
+      }],
+    };
+  }
+}
+
 function capabilityErrorResult(operation: string, capabilityName: string, capability: CapabilityDescriptor) {
   return {
     isError: true,
@@ -880,6 +905,10 @@ export interface McpServerOptions {
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
+  sessionDirectory?: string;
+  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
+  materializationDirectory?: string;
+  sessionMaterializationPublisher?: SessionMaterializationPublisher;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -889,6 +918,121 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
+  const sessions = options.sessionDirectory ? new EditingSessionRepository(options.sessionDirectory) : undefined;
+  const materializations = sessions && options.materializationDirectory
+    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+    : undefined;
+
+  const requireSessions = (): EditingSessionRepository => {
+    if (!sessions) throw new Error("SESSION_STORAGE_UNAVAILABLE: configure a session directory");
+    return sessions;
+  };
+  const requireMaterializations = (): SessionMaterializationJobs => {
+    if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
+    return materializations;
+  };
+
+  const sessionOperationSchema = z.array(z.unknown());
+
+  server.registerTool("session.create", {
+    description: "Create and atomically persist a provider-neutral editing session without mutating Final Cut.",
+    inputSchema: {
+      sessionId: z.string().min(1).optional(),
+      provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }).optional(),
+      base: z.unknown(),
+    },
+  }, async ({ sessionId, provider, base }) => sessionResult(async () => requireSessions().create({
+    ...(sessionId ? { sessionId } : {}),
+    ...(provider ? { provider } : {}),
+    base: base as TimelineIr,
+  })));
+
+  server.registerTool("session.inspect", {
+    description: "Inspect a persisted editing session and its exact base and desired Timeline IR.",
+    inputSchema: { sessionId: z.string().min(1) },
+  }, async ({ sessionId }) => sessionResult(async () => requireSessions().inspect(sessionId)));
+
+  server.registerTool("session.edit.preview", {
+    description: "Preview provider-neutral session edits without persisting or mutating Final Cut.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().preview(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
+
+  server.registerTool("session.edit.execute", {
+    description: "Apply edits only to a persisted session's desired Timeline IR.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().execute(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
+
+  server.registerTool("session.status", {
+    description: "Read editing-session readiness, provider binding, and revisions.",
+    inputSchema: { sessionId: z.string().min(1) },
+  }, async ({ sessionId }) => sessionResult(async () => requireSessions().status(sessionId)));
+
+  server.registerTool("session.reconcile", {
+    description: "Reconcile a fresh provider Timeline IR with the session base and desired state.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }),
+      providerState: z.unknown(),
+    },
+  }, async ({ sessionId, provider, providerState }) => sessionResult(async () => requireSessions().reconcile(
+    sessionId,
+    provider,
+    providerState as TimelineIr,
+  )));
+
+  server.registerTool("session.observe", {
+    description: "Bind read-only non-canonical Final Cut SQLite evidence to session freshness.",
+    inputSchema: { sessionId: z.string().min(1), sourcePath: z.string().min(1) },
+  }, async ({ sessionId, sourcePath }) => sessionResult(async () => {
+    if (!options.sqliteObservationProvider) {
+      throw new Error("FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE: no read-only observation provider is configured");
+    }
+    return requireSessions().observe(sessionId, sourcePath, options.sqliteObservationProvider);
+  }));
+
+  const sessionMaterializationTargetSchema = z.object({
+    provider: z.literal("final-cut"),
+    projectUid: z.string().min(1),
+    sequenceUid: z.string().min(1),
+    eventName: z.string().min(1).optional(),
+    materialization: z.literal("versioned").optional(),
+  }).strict();
+
+  server.registerTool("session.materialize.preview", {
+    description: "Preview deterministic versioned FCPXML materialization without staging or publishing it.",
+    inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema },
+  }, async ({ sessionId, target }) => sessionResult(async () => requireMaterializations().preview(sessionId, target)));
+
+  server.registerTool("session.materialize.execute", {
+    description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
+    inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
+  }, async ({ sessionId, target, confirm }) => sessionResult(async () => requireMaterializations().execute(sessionId, target, confirm)));
+
+  server.registerTool("session.materialize.status", {
+    description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
+    inputSchema: { jobId: z.string().min(1) },
+  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().status(jobId)));
+
+  server.registerTool("session.materialize.retry", {
+    description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
+    inputSchema: { jobId: z.string().min(1) },
+  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
