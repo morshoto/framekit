@@ -377,8 +377,29 @@ function formatDb(value: number, id: string): string {
 }
 
 function safeId(value: string): string {
-  const result = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return result.length > 0 ? result : `id-${shortHash(value)}`;
+  let result = "";
+  let pendingSeparator = false;
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    const isAllowed = code >= 0x30 && code <= 0x39
+      || code >= 0x41 && code <= 0x5a
+      || code >= 0x61 && code <= 0x7a
+      || character === "_"
+      || character === "-";
+    if (!isAllowed) {
+      if (result.length > 0) pendingSeparator = true;
+      continue;
+    }
+    if (pendingSeparator) result += "-";
+    result += character;
+    pendingSeparator = false;
+  }
+  let start = 0;
+  let end = result.length;
+  while (start < end && result[start] === "-") start += 1;
+  while (end > start && result[end - 1] === "-") end -= 1;
+  const trimmed = result.slice(start, end);
+  return trimmed.length > 0 ? trimmed : `id-${shortHash(value)}`;
 }
 
 function shortHash(value: string): string {

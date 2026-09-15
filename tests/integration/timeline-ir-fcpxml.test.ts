@@ -87,6 +87,19 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.deepEqual(first.resourceIds, { "media-1": "resource-media-1" });
 });
 
+test("sanitizes versioned destination IDs without regex backtracking", () => {
+  const result = compileTimelineIrToFcpxml(timeline(), {
+    target: {
+      ...target,
+      projectUid: " --project.! name-- ",
+      sequenceUid: " --sequence.! name-- ",
+    },
+  });
+
+  assert.match(result.destination.projectUid, /^project-name-framekit-[a-f0-9]{10}$/);
+  assert.match(result.destination.sequenceUid, /^sequence-name-framekit-[a-f0-9]{10}$/);
+});
+
 test("emits connected elements with parent-relative exact offsets", () => {
   const value = timeline();
   value.sequence.occurrences.push({
