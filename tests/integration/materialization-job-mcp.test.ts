@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -157,4 +157,25 @@ test("completes only after matching canonical provider readback", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("documents session tools persistence and materialization evidence boundaries", async () => {
+  const tools = await readFile("docs/mcp/tools.md", "utf8");
+  const architecture = await readFile("docs/architecture/headless-editing-sessions.md", "utf8");
+
+  for (const tool of [
+    "session.create",
+    "session.observe",
+    "session.reconcile",
+    "session.materialize.preview",
+    "session.materialize.execute",
+    "session.materialize.status",
+    "session.materialize.retry",
+  ]) {
+    assert.match(tools, new RegExp(tool.replaceAll(".", "\\.")));
+  }
+  assert.match(architecture, /FRAMEKIT_STATE_DIR/);
+  assert.match(architecture, /canonical: false/);
+  assert.match(architecture, /artifact.*provider-requested.*canonical-readback.*headed-native/s);
+  assert.match(architecture, /does not write.*SQLite/i);
 });
