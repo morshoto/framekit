@@ -17,3 +17,4 @@ export * from "./native-operation.js";
 export * from "./native-session.js";
 export * from "./timeline-ir-fcpxml.js";
 export * from "./fcpxml-console-experiment.js";
+export * from "./unattended-editing.js";
