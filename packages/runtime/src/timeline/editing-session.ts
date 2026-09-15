@@ -4,6 +4,7 @@ import type { MediaContext } from "../domain/media.js";
 import type { ProjectSnapshot, StoryElement } from "../domain/project.js";
 import { addRationalTimes } from "./rational-time.js";
 import { parseRational } from "./rational-time.js";
+import { reconcileTimelineIr, type TimelineReconciliationResult } from "./drift-reconciliation.js";
 
 export const TIMELINE_IR_SCHEMA_VERSION = 1 as const;
 
@@ -232,6 +233,37 @@ export class EditingSession {
     };
   }
 
+  public assertMaterializationReady(providerRevision: ContextRevision): void {
+    if (!sameRevision(this.value.base.revision, providerRevision)) {
+      this.value.state = "possibly_stale";
+      throw new Error("RECONCILIATION_REQUIRED: provider revision changed before materialization");
+    }
+    if (this.value.state === "possibly_stale" || this.value.state === "conflicted") {
+      throw new Error("RECONCILIATION_REQUIRED: session must be reconciled before materialization");
+    }
+  }
+
+  public reconcile(providerState: TimelineIr): TimelineReconciliationResult {
+    if (!sameRevision(this.value.base.revision, providerState.revision)) this.value.state = "possibly_stale";
+    const result = reconcileTimelineIr({ base: this.value.base, ours: this.value.desired, theirs: providerState });
+    if (result.status === "conflicted") {
+      this.value.state = "conflicted";
+      return result;
+    }
+    this.value.base = structuredClone(providerState);
+    this.value.desired = structuredClone(result.merged);
+    if (timelineIrDigest(this.value.desired) !== timelineIrDigest(this.value.base)) {
+      const previous = this.value.desired.revision.sequence >= providerState.revision.sequence
+        ? this.value.desired.revision
+        : providerState.revision;
+      this.value.desired.revision = nextRevision(this.value.desired, previous, this.clock());
+    } else {
+      this.value.desired = structuredClone(providerState);
+    }
+    this.value.state = "rebased";
+    return result;
+  }
+
   public markPossiblyStale(): void {
     this.value.state = "possibly_stale";
   }
@@ -333,6 +365,13 @@ export function validateTimelineIr(timeline: TimelineIr): void {
   if (!timeline || typeof timeline !== "object" || timeline.schemaVersion !== TIMELINE_IR_SCHEMA_VERSION) {
     throw new Error("TIMELINE_IR_INVALID: schemaVersion must be 1");
   }
+  if (!timeline.project || typeof timeline.project !== "object") throw new Error("TIMELINE_IR_INVALID: project is required");
+  if (!timeline.sequence || typeof timeline.sequence !== "object") throw new Error("TIMELINE_IR_INVALID: sequence is required");
+  if (!Array.isArray(timeline.resources)) throw new Error("TIMELINE_IR_INVALID: resources must be an array");
+  if (!Array.isArray(timeline.sequence.occurrences)) throw new Error("TIMELINE_IR_INVALID: occurrences must be an array");
+  if (!Array.isArray(timeline.sequence.storyElements)) throw new Error("TIMELINE_IR_INVALID: storyElements must be an array");
+  if (!Array.isArray(timeline.sequence.markers)) throw new Error("TIMELINE_IR_INVALID: markers must be an array");
+  if (!Array.isArray(timeline.sequence.captions)) throw new Error("TIMELINE_IR_INVALID: captions must be an array");
   requireText(timeline.project?.id, "project.id");
   requireText(timeline.project?.name, "project.name");
   requireText(timeline.sequence?.id, "sequence.id");
@@ -443,7 +482,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       return;
     case "remove-occurrence":
       timeline.sequence.occurrences = timeline.sequence.occurrences.filter(({ id }) => id !== operation.occurrenceId);
-      timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ id, occurrenceId }) => id !== operation.occurrenceId && occurrenceId !== operation.occurrenceId);
+      timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ occurrenceId }) => occurrenceId !== operation.occurrenceId);
       return;
     case "add-marker":
       validateMarker(operation.marker);
@@ -495,6 +534,13 @@ function validateBinding(binding: TimelineIrBinding | undefined, field: string):
   if (!binding) return;
   requireText(binding.provider, `${field}.provider`);
   requireText(binding.kind, `${field}.kind`);
+  if (![
+    "project",
+    "sequence",
+    "resource",
+    "occurrence",
+    "story-element",
+  ].includes(binding.kind)) throw new Error(`TIMELINE_IR_INVALID: ${field}.kind is unsupported`);
   requireText(binding.identity, `${field}.identity`);
 }
 
@@ -540,6 +586,10 @@ function nextRevision(timeline: TimelineIr, previous: ContextRevision, timestamp
 
 function assertRevision(actual: ContextRevision, expected: ContextRevision): void {
   if (actual.id !== expected.id || actual.sequence !== expected.sequence) throw new Error("STALE_CONTEXT: desired timeline revision changed before editing");
+}
+
+function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
+  return left.id === right.id && left.sequence === right.sequence;
 }
 
 function changedIds(before: TimelineIr, after: TimelineIr): Pick<TimelineIrPreview, "changedOccurrenceIds" | "changedMarkerIds"> {
