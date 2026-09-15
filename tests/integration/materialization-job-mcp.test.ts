@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -154,6 +154,50 @@ test("completes only after matching canonical provider readback", async () => {
     assert.notEqual(published[0]?.projectUid, target.projectUid);
     await connected.client.close();
     await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("retries with the immutable desired snapshot that produced its artifact", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-snapshot-"));
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-snapshot", provider: { id: "final-cut" }, base: timeline() } });
+    await first.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-snapshot",
+        expectedRevision: timeline().revision,
+        operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Staged desired" }],
+      },
+    });
+    const blocked = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-snapshot", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const sessionPath = join(directory, "sessions", "session-snapshot.json");
+    const persisted = JSON.parse(await readFile(sessionPath, "utf8"));
+    persisted.desired.sequence.occurrences[0].name = "Changed after staging";
+    await writeFile(sessionPath, `${JSON.stringify(persisted)}\n`, "utf8");
+
+    const requests: TimelineIr[] = [];
+    const second = await connect(directory, {
+      publish: async (request) => {
+        requests.push(request.desired);
+        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+      },
+    });
+    const resumed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: blocked.jobId } }));
+    assert.equal(resumed.state, "completed");
+    assert.equal(requests[0]?.sequence.occurrences[0]?.name, "Staged desired");
+    await second.client.close();
+    await second.server.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

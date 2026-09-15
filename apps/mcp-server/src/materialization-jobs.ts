@@ -16,6 +16,7 @@ export interface SessionMaterializationPublishRequest {
   target: TimelineIrToFcpxmlTarget;
   destination: TimelineIrToFcpxmlResult["destination"];
   desired: TimelineIr;
+  desiredDigest: string;
 }
 
 export interface SessionMaterializationPublisher {
@@ -35,6 +36,8 @@ export interface SessionMaterializationJob {
   artifactDigest: string;
   target: TimelineIrToFcpxmlTarget;
   destination: TimelineIrToFcpxmlResult["destination"];
+  desired: TimelineIr;
+  desiredDigest: string;
   evidence: {
     artifact: { verified: true; format: "fcpxml"; digest: string };
     providerRequested: boolean;
@@ -69,8 +72,9 @@ export class SessionMaterializationJobs {
 
   public async execute(sessionId: string, target: TimelineIrToFcpxmlTarget, confirm: boolean): Promise<SessionMaterializationJob> {
     if (!confirm) throw new Error("MATERIALIZATION_CONFIRMATION_REQUIRED: set confirm=true to stage and publish a versioned project");
-    await this.preview(sessionId, target);
     const session = await this.sessions.loadForMaterialization(sessionId);
+    this.assertProvider(session.document().provider?.id, target.provider);
+    session.assertMaterializationReady(session.base().revision);
     const desired = session.desired();
     const artifact = compileTimelineIrToFcpxml(desired, { target });
     const jobId = `materialization-${randomUUID()}`;
@@ -91,6 +95,8 @@ export class SessionMaterializationJobs {
       artifactDigest: artifact.digest,
       target: artifact.target,
       destination: artifact.destination,
+      desired: structuredClone(desired),
+      desiredDigest: timelineIrDigest(desired),
       evidence: {
         artifact: { verified: true, format: "fcpxml", digest: artifact.digest },
         providerRequested: false,
@@ -113,6 +119,7 @@ export class SessionMaterializationJobs {
       target: artifact.target,
       destination: artifact.destination,
       desired,
+      desiredDigest: job.desiredDigest,
     });
     if (result.state === "blocked") {
       job = {
@@ -172,6 +179,20 @@ export class SessionMaterializationJobs {
     if (job.state === "completed" || job.state === "failed") return job;
     if (!job.error?.retryable) throw new Error(`MATERIALIZATION_NOT_RETRYABLE: job ${jobId} cannot be retried`);
     if (!this.publisher) return job;
+    if (!job.desired || timelineIrDigest(job.desired) !== job.desiredDigest) {
+      const failed: SessionMaterializationJob = {
+        ...job,
+        state: "failed",
+        nextAction: "none",
+        error: {
+          code: "MATERIALIZATION_DESIRED_SNAPSHOT_INVALID",
+          message: "The staged desired Timeline IR is unavailable or does not match its immutable digest",
+          retryable: false,
+        },
+      };
+      await this.save(failed);
+      return failed;
+    }
 
     const artifact = await readFile(job.artifactPath, "utf8");
     const digest = createHash("sha256").update(artifact).digest("hex");
@@ -190,15 +211,14 @@ export class SessionMaterializationJobs {
       return failed;
     }
 
-    const session = await this.sessions.loadForMaterialization(job.sessionId);
-    const desired = session.desired();
     const result = await this.publisher.publish({
       jobId: job.jobId,
       artifactPath: job.artifactPath,
       artifactDigest: job.artifactDigest,
       target: job.target,
       destination: job.destination,
-      desired,
+      desired: structuredClone(job.desired),
+      desiredDigest: job.desiredDigest,
     });
     if (result.state === "blocked") {
       const blocked: SessionMaterializationJob = {
@@ -209,7 +229,7 @@ export class SessionMaterializationJobs {
       await this.save(blocked);
       return blocked;
     }
-    if (timelineIrDigest(result.canonicalReadback) !== timelineIrDigest(desired)) {
+    if (timelineIrDigest(result.canonicalReadback) !== job.desiredDigest) {
       const failed: SessionMaterializationJob = {
         ...job,
         state: "failed",
