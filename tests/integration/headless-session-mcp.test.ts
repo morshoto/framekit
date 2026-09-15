@@ -56,7 +56,10 @@ function payload(result: unknown): any {
 }
 
 async function connect(sessionDirectory: string, sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">) {
-  const server = createMcpServer(runtime(), { sessionDirectory, sqliteObservationProvider });
+  const server = createMcpServer(runtime(), {
+    sessionDirectory,
+    ...(sqliteObservationProvider ? { sqliteObservationProvider } : {}),
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "headless-session-test", version: "0.1.0" });
   await server.connect(serverTransport);
@@ -119,6 +122,7 @@ test("binds read-only SQLite evidence and invalidates only session freshness", a
     inspect: async (sourcePath: string) => ({
       status: "partial" as const,
       observation: {
+        version: 1 as const,
         backend: "final-cut-sqlite-read-only" as const,
         sourcePath,
         databaseKind: "fcpevent" as const,

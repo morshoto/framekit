@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { dirname, join, resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 import {
   EditingSession,
   type ContextRevision,
@@ -9,6 +9,7 @@ import {
   type TimelineIrEditOperation,
   type TimelineIrProvider,
 } from "@framekit/runtime";
+import type { FinalCutSqliteInspectionProvider } from "@framekit/final-cut";
 
 export interface StoredEditingSession {
   sessionId: string;
@@ -61,6 +62,7 @@ export class EditingSessionRepository {
       ...(document.provider ? { provider: document.provider } : {}),
       baseRevision: document.base.revision,
       desiredRevision: document.desired.revision,
+      ...(document.observation ? { observation: document.observation } : {}),
       readyToMaterialize: document.state === "clean" || document.state === "dirty" || document.state === "rebased",
     };
   }
@@ -78,6 +80,31 @@ export class EditingSessionRepository {
     const reconciliation = session.reconcile(providerState);
     const stored = await this.save(sessionId, session);
     return { ...stored, reconciliation };
+  }
+
+  public async observe(
+    sessionId: string,
+    sourcePath: string,
+    provider: Pick<FinalCutSqliteInspectionProvider, "inspect">,
+  ) {
+    const result = await provider.inspect(sourcePath);
+    if (result.status !== "partial") {
+      throw new Error(`${result.error.code}: ${result.error.message.replaceAll(sourcePath, "[redacted]")}`);
+    }
+    const session = await this.load(sessionId);
+    const observation = {
+      backend: result.observation.backend,
+      sourceId: createHash("sha256").update(resolve(sourcePath)).digest("hex"),
+      databaseKind: result.observation.databaseKind,
+      digest: result.observation.digest,
+      schemaVersion: result.observation.schemaVersion,
+      observedAt: result.observation.revision.timestamp,
+      canonical: false as const,
+      coverageComplete: false as const,
+    };
+    const change = session.bindObservation(observation);
+    const stored = await this.save(sessionId, session);
+    return { ...stored, observation, change };
   }
 
   private async load(sessionId: string): Promise<EditingSession> {

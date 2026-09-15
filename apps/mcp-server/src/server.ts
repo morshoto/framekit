@@ -29,6 +29,7 @@ import {
   serializeNativeFinalCutMediaImportError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublisher,
+  type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
@@ -899,6 +900,7 @@ export interface McpServerOptions {
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
   sessionDirectory?: string;
+  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -978,6 +980,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     provider,
     providerState as TimelineIr,
   )));
+
+  server.registerTool("session.observe", {
+    description: "Bind read-only non-canonical Final Cut SQLite evidence to session freshness.",
+    inputSchema: { sessionId: z.string().min(1), sourcePath: z.string().min(1) },
+  }, async ({ sessionId, sourcePath }) => sessionResult(async () => {
+    if (!options.sqliteObservationProvider) {
+      throw new Error("FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE: no read-only observation provider is configured");
+    }
+    return requireSessions().observe(sessionId, sourcePath, options.sqliteObservationProvider);
+  }));
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",

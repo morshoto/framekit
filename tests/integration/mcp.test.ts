@@ -111,6 +111,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "session.edit.execute",
         "session.edit.preview",
         "session.inspect",
+        "session.observe",
         "session.reconcile",
         "session.status",
         "speech.analyze",
