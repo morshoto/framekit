@@ -11,6 +11,7 @@ import {
   canonicalSnapshotDigest,
   createCapabilityPreflight,
   withCapabilityFamilies,
+  type ContextRevision,
   type AudioAnalyzer,
   type RuntimeOptions,
   type SpeechAnalyzer,
@@ -90,8 +91,15 @@ export interface ReleaseGateWorkflowEvidence {
     status: string;
     revisionSequence: number;
     verificationPassed?: boolean;
+    verificationChecks?: Array<{
+      name: string;
+      passed: boolean;
+      status?: string;
+      observed?: unknown;
+    }>;
     diff?: unknown;
   };
+  revisions?: { before: ContextRevision; after: ContextRevision };
   failure?: string;
 }
 
@@ -877,6 +885,12 @@ async function runWorkflow(workflow: ReleaseGateWorkflow): Promise<ReleaseGateWo
     reObserved: after !== undefined,
     beforeDigest,
     afterDigest,
+    ...(before && after ? {
+      revisions: {
+        before: structuredClone(before.revision),
+        after: structuredClone(after.revision),
+      },
+    } : {}),
     ...(previewEvidence !== undefined ? { preview: previewEvidence } : {}),
     ...(finalEvidence ? { final: finalEvidence } : {}),
     ...(!passed ? { failure: failure ?? "release gate postcondition failed" } : {}),
@@ -1065,8 +1079,44 @@ function sanitizeTransaction(transaction: Record<string, any>): ReleaseGateWorkf
     status: transaction.status,
     revisionSequence: transaction.after?.revision?.sequence ?? -1,
     ...(transaction.verification?.passed !== undefined ? { verificationPassed: transaction.verification.passed } : {}),
+    ...(Array.isArray(transaction.verification?.checks) ? {
+      verificationChecks: transaction.verification.checks.map((check: Record<string, any>) => ({
+        name: String(check.name),
+        passed: Boolean(check.passed),
+        ...(typeof check.status === "string" ? { status: check.status } : {}),
+        ...(check.observed !== undefined ? { observed: sanitizeVerificationObserved(check.observed) } : {}),
+      })),
+    } : {}),
     ...(transaction.diff !== undefined ? { diff: transaction.diff } : {}),
   };
+}
+
+function sanitizeVerificationObserved(value: unknown): unknown {
+  if (typeof value === "number" || typeof value === "string" || typeof value === "boolean" || value === null) return value;
+  if (Array.isArray(value)) return { itemCount: value.length };
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const observed: Record<string, unknown> = {};
+  for (const key of [
+    "mediaId", "occurrenceId", "integratedLufs", "truePeakDb", "silenceMs",
+    "analyzedDurationSeconds", "valid", "requestedRange", "measuredRange", "revision", "provider",
+  ]) {
+    if (raw[key] === undefined) continue;
+    if (key === "provider" && raw[key] && typeof raw[key] === "object") {
+      const provider = raw[key] as Record<string, unknown>;
+      observed.provider = Object.fromEntries(["id", "provider", "version"]
+        .filter((field) => provider[field] !== undefined)
+        .map((field) => [field, provider[field]]));
+    } else if (key === "revision" && raw[key] && typeof raw[key] === "object") {
+      const revision = raw[key] as Record<string, unknown>;
+      observed.revision = Object.fromEntries(["id", "sequence", "timestamp"]
+        .filter((field) => revision[field] !== undefined)
+        .map((field) => [field, revision[field]]));
+    } else {
+      observed[key] = raw[key];
+    }
+  }
+  return observed;
 }
 
 function isExpectedSkipFailure(message: string): boolean {
