@@ -291,7 +291,7 @@ test("fails closed when the persisted session changes after staging", async () =
 
 test("atomically claims a retry so concurrent attempts publish once", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-claim-"));
-  let release!: () => void;
+  let release: () => void = () => undefined;
   let calls = 0;
   try {
     const first = await connect(directory, {
@@ -317,7 +317,11 @@ test("atomically claims a retry so concurrent attempts publish once", async () =
     const left = await connect(directory, publisher);
     const right = await connect(directory, publisher);
     const leftRetry = left.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } });
-    while (calls === 0) await new Promise((resolve) => setImmediate(resolve));
+    const deadline = Date.now() + 5_000;
+    while (calls === 0) {
+      assert.ok(Date.now() < deadline, "publisher.publish was not called");
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     const rightRetry = payload(await right.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
     assert.equal(rightRetry.state, "publishing");
     assert.equal(calls, 1);
