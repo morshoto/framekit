@@ -168,7 +168,7 @@ export class SessionMaterializationJobs {
         const blocked: SessionMaterializationJob = {
           ...claimed,
           state: "blocked",
-          nextAction: "retry",
+          nextAction: result.retryable ? "retry" : "none",
           claim: undefined,
           evidence: { ...claimed.evidence, providerRequested: true },
           error: { code: result.code, message: result.message, retryable: result.retryable },
