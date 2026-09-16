@@ -84,6 +84,9 @@ interface StatusPatch {
   lastError?: { code: string; message: string };
 }
 
+type FinalCutProbeResult = { identity: EditorIdentity; capabilities: RuntimeCapabilities };
+type FinalCutProbeAttempt = { result?: FinalCutProbeResult; error?: unknown };
+
 const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
 /**
  * Owns the user-facing lifecycle around the native Workflow Extension.
@@ -183,7 +186,8 @@ export class FinalCutConnectionManager {
     try {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
-      if (existing) return this.ready(existing);
+      this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
+      if (existing.result) return this.ready(existing.result);
 
       if (this.canonicalProviderRequired) {
         return this.fail(
@@ -194,11 +198,11 @@ export class FinalCutConnectionManager {
       }
 
       if (this.headless) {
-        return this.fail(
-          "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE",
-          `Headless mode only probes the existing Workflow Extension socket at ${this.socketPath}; it does not launch or activate Final Cut Pro`,
-          "unavailable",
-        );
+        this.update({ state: "waiting-for-socket" });
+        const waiting = await this.waitForHeadlessBridge(existing.error);
+        if (waiting.result) return this.ready(waiting.result);
+        const failure = headlessProbeFailure(waiting.error, this.socketPath);
+        return this.fail(failure.code, failure.message, "unavailable");
       }
 
       const editorDetected = await this.detectFinalCut();
@@ -254,7 +258,7 @@ export class FinalCutConnectionManager {
       let nextActivationAt = Date.now() + this.activationRetryIntervalMs;
       while (Date.now() < deadline) {
         const result = await this.tryProbe();
-        if (result) return this.ready(result);
+        if (result.result) return this.ready(result.result);
         if (Date.now() >= nextActivationAt) {
           try {
             await this.activateWithDeadline(deadline);
@@ -282,12 +286,24 @@ export class FinalCutConnectionManager {
     }
   }
 
-  private async tryProbe(): Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities } | undefined> {
+  private async tryProbe(): Promise<FinalCutProbeAttempt> {
     try {
-      return await this.probe();
-    } catch {
-      return undefined;
+      return { result: await this.probe() };
+    } catch (error) {
+      return { error };
     }
+  }
+
+  private async waitForHeadlessBridge(initialError: unknown): Promise<FinalCutProbeAttempt> {
+    const deadline = Date.now() + this.startupTimeoutMs;
+    let attempt: FinalCutProbeAttempt = { error: initialError };
+    while (Date.now() < deadline) {
+      if (isIncompatibleProbeError(attempt.error)) return attempt;
+      await this.sleep(Math.min(this.pollIntervalMs, Math.max(1, deadline - Date.now())));
+      attempt = await this.tryProbe();
+      if (attempt.result) return attempt;
+    }
+    return attempt;
   }
 
   private ready(result: { identity: EditorIdentity; capabilities: RuntimeCapabilities }): FinalCutConnectionStatus {
@@ -305,16 +321,20 @@ export class FinalCutConnectionManager {
     this.update({
       state: "ready",
       editorDetected: true,
-      extensionInstalled: true,
       identity: result.identity,
       capabilities,
       lastError: undefined,
-    });
+      });
     return this.getStatus();
   }
 
   private fail(code: string, message: string, state: FinalCutConnectionState): FinalCutConnectionStatus {
-    this.update({ state, lastError: { code, message } });
+    this.update({
+      state,
+      identity: undefined,
+      capabilities: undefined,
+      lastError: { code, message },
+    });
     return this.getStatus();
   }
 
@@ -401,10 +421,7 @@ export class FinalCutConnectionManager {
 
 function defaultProbe(socketPath: string): () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }> {
   const adapter = createFinalCutLiveAdapter(socketPath);
-  return async () => ({
-    identity: await adapter.getIdentity(),
-    capabilities: await adapter.getCapabilities(),
-  });
+  return () => adapter.inspect();
 }
 
 async function defaultDetectFinalCut(appPath: string): Promise<boolean> {
@@ -502,4 +519,24 @@ function isPermissionError(error: unknown): boolean {
 function isActivationTimeout(error: unknown): boolean {
   const message = String(error);
   return message.includes("-1712") || message.includes("ETIMEDOUT") || message.includes("timed out");
+}
+
+function isIncompatibleProbeError(error: unknown): boolean {
+  return String(error).includes("FINAL_CUT_LIVE_PROTOCOL")
+    || String(error).includes("UNSUPPORTED_METHOD")
+    || String(error).includes("CAPABILITY_UNAVAILABLE");
+}
+
+function headlessProbeFailure(error: unknown, socketPath: string): { code: string; message: string } {
+  const detail = error instanceof Error ? error.message : String(error ?? "unknown probe failure");
+  if (isIncompatibleProbeError(error)) {
+    return {
+      code: "FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE",
+      message: `The Workflow Extension endpoint at ${socketPath} is incompatible with Framekit's live protocol: ${detail}`,
+    };
+  }
+  return {
+    code: "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE",
+    message: `Headless mode could not connect to the Workflow Extension socket at ${socketPath}: ${detail}. It does not launch or activate Final Cut Pro`,
+  };
 }

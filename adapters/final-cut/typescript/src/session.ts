@@ -58,6 +58,10 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
       }
     }
     if (this.options.snapshot) return this.options.snapshot.getIdentity();
+    const liveOnly = this.pureLiveProvider();
+    if (liveOnly) {
+      return liveOnly.getIdentity();
+    }
     if (this.options.live) {
       try {
         return await this.options.live.getIdentity();
@@ -80,7 +84,10 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
     const snapshot = await this.options.snapshot?.getCapabilities(options);
     const mutation = await this.options.mutation?.getCapabilities(options);
-    const live = await optionalCapabilities(this.options.live, options);
+    const liveOnly = this.pureLiveProvider();
+    const live = liveOnly
+      ? withCanonicalTimelineMode(await liveOnly.getCapabilities(options))
+      : await optionalCapabilities(this.options.live, options);
     const hasExplicitDocumentPair = Boolean(this.options.snapshot && this.options.mutation);
     const useLiveCanonical = !this.options.snapshot && !this.options.mutation;
     const liveSnapshot = Boolean(
@@ -403,6 +410,20 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   public async liveChangesSince(revision: ContextRevision, waitMs = 0): Promise<EditorChange[]> {
     if (!this.options.live) throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut editor state");
     return this.options.live.liveChangesSince(revision, waitMs);
+  }
+
+  private pureLiveProvider(): NonNullable<FinalCutSessionOptions["live"]> | undefined {
+    if (
+      !this.options.live
+      || this.options.snapshot
+      || this.options.mutation
+      || this.options.assets
+      || this.options.media
+      || this.options.backgroundCatalog
+    ) {
+      return undefined;
+    }
+    return this.options.live;
   }
 
   private async routedTransactionProvider(): Promise<Partial<Pick<EditorPort, "previewTransaction" | "applyTransaction">> | undefined> {

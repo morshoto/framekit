@@ -30,7 +30,8 @@ graceful quit/reopen before activation. From a repository checkout, invoke it
 as `pnpm run framekit -- connect finalcut`.
 
 The registration above uses headless mode, so it skips that lifecycle recovery
-and only probes the existing socket.
+and performs bounded readiness probes against the existing socket. It never
+launches or activates Final Cut to make the socket available.
 
 The bundled Workflow Extension connection is metadata-only. Check setup progress with the MCP
 tool `connection.status` or:
@@ -133,11 +134,14 @@ live server with:
 pnpm run framekit -- mcp --editor final-cut-live --headless
 ```
 
-Headless mode only probes the existing Workflow Extension socket. It does not
-launch or activate Final Cut, minimize or raise windows, request Accessibility
-focus, or enable native UI writes. If the socket is not already available,
+Headless mode performs bounded readiness probes against the existing Workflow
+Extension socket. It does not launch or activate Final Cut, minimize or raise
+windows, request Accessibility focus, or enable native UI writes. If the
+socket does not become available before the connection deadline,
 `connection.status` reports `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` rather than
-trying to recover by opening Final Cut.
+trying to recover by opening Final Cut. An endpoint that responds with an
+unsupported live protocol reports `FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE`
+with the endpoint's error detail.
 
 This mode can read live project/sequence metadata and can use FCPXML artifact
 operations when `FRAMEKIT_FCPXML_PATH` is configured. It cannot mutate the open
