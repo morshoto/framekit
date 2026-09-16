@@ -114,6 +114,8 @@ test("headless connection probes an existing bridge without launching or activat
   const events: string[] = [];
   const manager = new FinalCutConnectionManager({
     headless: true,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
     detectFinalCut: async () => { events.push("detect"); return false; },
     launchFinalCut: async () => { events.push("launch"); },
     activateExtension: async () => { events.push("activate"); },
@@ -195,10 +197,13 @@ test("headless connection fails closed when the existing bridge is unavailable",
   const events: string[] = [];
   const manager = new FinalCutConnectionManager({
     headless: true,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
     detectFinalCut: async () => { events.push("detect"); return true; },
     launchFinalCut: async () => { events.push("launch"); },
     activateExtension: async () => { events.push("activate"); },
     probe: async () => { throw new Error("socket missing"); },
+    sleep: async () => {},
   });
 
   const status = await manager.ensureConnected();
