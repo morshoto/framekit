@@ -1008,6 +1008,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   const sessionMaterializationTargetSchema = z.object({
     provider: z.literal("final-cut"),
+    libraryUid: z.string().min(1),
+    eventUid: z.string().min(1),
     projectUid: z.string().min(1),
     sequenceUid: z.string().min(1),
     eventName: z.string().min(1).optional(),

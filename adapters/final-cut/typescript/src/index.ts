@@ -11,6 +11,7 @@ export * from "./disposable-native.js";
 export * from "./publisher.js";
 export * from "./export.js";
 export * from "./background-export.js";
+export * from "./background-materialization.js";
 export * from "./library-inspection.js";
 export * from "./sqlite-inspection.js";
 export * from "./shadow-mutation.js";
