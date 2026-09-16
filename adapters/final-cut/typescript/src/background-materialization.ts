@@ -13,6 +13,7 @@ export interface FinalCutBackgroundMaterializationRequest {
   jobId: string;
   artifactPath: string;
   artifactDigest: string;
+  claim: { id: string; claimedAt: string; leaseExpiresAt: string };
   target: TimelineIrToFcpxmlTarget;
   destination: TimelineIrToFcpxmlResult["destination"];
   collisionPolicy: "create-only";
@@ -29,9 +30,16 @@ export type FinalCutBackgroundMaterializationResult =
     }
   | { state: "blocked"; code: string; message: string; retryable: boolean };
 
+export type FinalCutBackgroundMaterializationReconciliationResult =
+  | Extract<FinalCutBackgroundMaterializationResult, { state: "completed" }>
+  | { state: "not-found" }
+  | { state: "unknown"; code: string; message: string; retryable: false };
+
 export interface FinalCutBackgroundMaterializationPublisherOptions {
   executor?: (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult>;
+  reconcile?: (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationReconciliationResult>;
   command?: string;
+  timeoutMs?: number;
 }
 
 /**
@@ -40,7 +48,14 @@ export interface FinalCutBackgroundMaterializationPublisherOptions {
  * readback; this adapter never activates Final Cut or falls back to UI calls.
  */
 export class FinalCutBackgroundMaterializationPublisher {
-  public constructor(private readonly options: FinalCutBackgroundMaterializationPublisherOptions = {}) {}
+  private readonly timeoutMs: number;
+
+  public constructor(private readonly options: FinalCutBackgroundMaterializationPublisherOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? 120_000;
+    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new Error("MATERIALIZATION_REQUEST_INVALID: timeoutMs must be a positive finite number");
+    }
+  }
 
   public isAvailable(): boolean {
     return this.options.executor !== undefined || Boolean(this.options.command?.trim());
@@ -49,7 +64,7 @@ export class FinalCutBackgroundMaterializationPublisher {
   public async publish(request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationResult> {
     validateRequest(request);
     const executor = this.options.executor ?? (this.options.command?.trim()
-      ? commandExecutor(this.options.command.trim())
+      ? commandExecutor(this.options.command.trim(), this.timeoutMs)
       : undefined);
     if (!executor) {
       return {
@@ -70,12 +85,31 @@ export class FinalCutBackgroundMaterializationPublisher {
     const result = await executor({ ...request, desired: structuredClone(request.desired) });
     return validateResult(result);
   }
+
+  public async reconcile(request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationReconciliationResult> {
+    validateRequest(request);
+    const reconciler = this.options.reconcile ?? (this.options.command?.trim()
+      ? reconciliationCommandExecutor(this.options.command.trim(), this.timeoutMs)
+      : undefined);
+    if (!reconciler) {
+      return {
+        state: "unknown",
+        code: "FINAL_CUT_BACKGROUND_MATERIALIZATION_RECONCILIATION_UNAVAILABLE",
+        message: "No target-bound reconciliation capability is configured for the uncertain publication",
+        retryable: false,
+      };
+    }
+    return validateReconciliationResult(await reconciler({ ...request, desired: structuredClone(request.desired) }));
+  }
 }
 
 function validateRequest(request: FinalCutBackgroundMaterializationRequest): void {
   if (!request.jobId.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: jobId is required");
   if (!request.artifactPath.trim() || !request.artifactDigest.trim()) {
     throw new Error("MATERIALIZATION_REQUEST_INVALID: immutable artifact path and digest are required");
+  }
+  if (!request.claim?.id?.trim() || !request.claim.claimedAt.trim() || !request.claim.leaseExpiresAt.trim()) {
+    throw new Error("MATERIALIZATION_REQUEST_INVALID: publication claim fencing is required");
   }
   if (!request.desiredDigest.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: desired digest is required");
   if (request.collisionPolicy !== "create-only") throw new Error("MATERIALIZATION_REQUEST_INVALID: publication must be create-only");
@@ -110,35 +144,88 @@ function validateResult(result: FinalCutBackgroundMaterializationResult): FinalC
   return result;
 }
 
+function validateReconciliationResult(
+  result: FinalCutBackgroundMaterializationReconciliationResult,
+): FinalCutBackgroundMaterializationReconciliationResult {
+  if (!result || (result.state !== "completed" && result.state !== "not-found" && result.state !== "unknown")) {
+    throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: reconciliation returned an invalid result");
+  }
+  if (result.state === "completed") {
+    validateResult(result);
+    return result;
+  }
+  if (result.state === "not-found") return result;
+  if (typeof result.code !== "string" || typeof result.message !== "string" || result.retryable !== false || !result.code.trim() || !result.message.trim()) {
+    throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: reconciliation result is incomplete");
+  }
+  return result;
+}
+
 function validateTargetIdentity(target: FinalCutTargetIdentity): void {
   if (!target || !target.libraryUid?.trim() || !target.eventUid?.trim() || !target.projectUid?.trim() || !target.sequenceUid?.trim()) {
     throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: canonical target identity is incomplete");
   }
 }
 
-function commandExecutor(command: string): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult> {
+function commandExecutor(command: string, timeoutMs: number): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult> {
   return async (request) => {
-    const output = await new Promise<string>((resolvePromise, reject) => {
-      const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-      child.once("error", reject);
-      child.once("close", (code) => {
-        if (code === 0) resolvePromise(stdout);
-        else reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: command exited ${code}: ${stderr.trim()}`));
-      });
-      child.stdin.end(`${JSON.stringify(request)}\n`);
-    });
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(output);
-    } catch (error) {
-      throw new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return validateResult(parsed as FinalCutBackgroundMaterializationResult);
+    const parsed = await runCommand<FinalCutBackgroundMaterializationResult>(command, request, "publish", timeoutMs);
+    return validateResult(parsed);
   };
+}
+
+function reconciliationCommandExecutor(
+  command: string,
+  timeoutMs: number,
+): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationReconciliationResult> {
+  return async (request) => validateReconciliationResult(await runCommand<FinalCutBackgroundMaterializationReconciliationResult>(command, request, "reconcile", timeoutMs));
+}
+
+async function runCommand<T>(
+  command: string,
+  request: FinalCutBackgroundMaterializationRequest,
+  operation: "publish" | "reconcile",
+  timeoutMs: number,
+): Promise<T> {
+  return new Promise<T>((resolvePromise, reject) => {
+    const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    const timeoutTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+      forceKillTimer.unref?.();
+      reject(new Error(`MATERIALIZATION_${operation === "publish" ? "PUBLISH" : "RECONCILIATION"}_TIMEOUT: ${operation} command exceeded ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: ${String(error)}`));
+    });
+    child.once("close", (code) => {
+      clearTimeout(timeoutTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: command exited ${code}: ${stderr.trim()}`));
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(stdout) as T);
+      } catch (error) {
+        reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    });
+    child.stdin.end(`${JSON.stringify({ ...request, operation })}\n`);
+  });
 }

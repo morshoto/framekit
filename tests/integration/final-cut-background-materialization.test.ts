@@ -29,6 +29,11 @@ function request(artifactPath: string, artifact: string) {
     jobId: "materialization-1",
     artifactPath,
     artifactDigest: createHash("sha256").update(artifact).digest("hex"),
+    claim: {
+      id: "claim-1",
+      claimedAt: "2026-09-15T00:00:00.000Z",
+      leaseExpiresAt: "2026-09-15T00:02:00.000Z",
+    },
     target: {
       provider: "final-cut",
       libraryUid: "library-1",
@@ -201,11 +206,27 @@ test("bounds a hung background command before returning", async () => {
     await writeFile(artifactPath, artifact, "utf8");
     await writeFile(commandPath, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do :; done\n", "utf8");
     await chmod(commandPath, 0o755);
-    const publisher = new FinalCutBackgroundMaterializationPublisher({ command: commandPath, timeoutMs: 25 } as never);
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ command: commandPath, timeoutMs: 25 });
     await assert.rejects(
       publisher.publish(request(artifactPath, artifact)),
       /MATERIALIZATION_PUBLISH_TIMEOUT/,
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("uses the command protocol to reconcile an uncertain publication", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-reconcile-"));
+  try {
+    const artifact = "<fcpxml/>";
+    const artifactPath = join(directory, "staged.fcpxml");
+    const commandPath = join(directory, "publisher.sh");
+    await writeFile(artifactPath, artifact, "utf8");
+    await writeFile(commandPath, "#!/bin/sh\ninput=$(cat)\ncase \"$input\" in\n  *'\"operation\":\"reconcile\"'*) printf '%s\\n' '{\"state\":\"not-found\"}' ;;\n  *) printf '%s\\n' '{\"state\":\"blocked\",\"code\":\"UNEXPECTED\",\"message\":\"publish operation\",\"retryable\":false}' ;;\nesac\n", "utf8");
+    await chmod(commandPath, 0o755);
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ command: commandPath, timeoutMs: 1_000 });
+    assert.deepEqual(await publisher.reconcile(request(artifactPath, artifact)), { state: "not-found" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
