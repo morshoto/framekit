@@ -11,6 +11,7 @@ import {
   FinalCutSessionAdapter,
   type FinalCutBackgroundCatalogProvider,
   type CanonicalNativeTargetResolver,
+  type CanonicalNativeMutationPort,
 } from "@framekit/final-cut";
 import type {
   ContextRevision,
@@ -66,6 +67,14 @@ function snapshot(name: string): ProjectSnapshot {
   };
 }
 
+function gainSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
+  const before = snapshot("Dialogue");
+  before.timeline.clips[0] = { ...before.timeline.clips[0]!, gainDb: 0 };
+  const after = structuredClone(before);
+  after.timeline.clips[0] = { ...after.timeline.clips[0]!, gainDb: 3 };
+  return { before, after };
+}
+
 function liveState(): EditorLiveState {
   return {
     project: { id: "final-cut:project:project-1", name: "Canonical E2E" },
@@ -103,6 +112,7 @@ function providerFor(
   resolveTarget: CanonicalNativeTargetResolver = async () => {},
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
+  nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -113,6 +123,7 @@ function providerFor(
       calls.push("undo");
       return { undone: true, verification: { verified: true, detail: "restored" } };
     },
+    ...nativeOverrides,
   };
   const live = {
     getIdentity: async () => identity,
@@ -281,6 +292,43 @@ test("canonical native provider previews and applies its supported timeline tran
   await provider.applyTransaction([operation], before.revision);
 
   assert.deepEqual(calls, ["edit"]);
+});
+
+test("canonical native provider previews and applies a revision-guarded gain", async () => {
+  const { before: original, after: gained } = gainSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, original, original, gained, gained, gained, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      setSelectedClipGain: async (gainDb) => {
+        calls.push(`gain:${gainDb}`);
+        return { operationId: "native-gain-1", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "set-gain" as const,
+    clipId: before.timeline.clips[0]!.id,
+    gainDb: 3,
+    baseRevision: before.revision,
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.clips[0]?.gainDb, 3);
+  assert.deepEqual(await provider.readProject(), before);
+  assert.deepEqual(calls, []);
+
+  await provider.applyTransaction([operation], before.revision);
+
+  assert.deepEqual(calls, ["gain:3"]);
+  await provider.restore(before, (await provider.readProject()).revision);
+  assert.deepEqual(calls, ["gain:3", "undo"]);
 });
 
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {

@@ -41,6 +41,7 @@ const execFile = promisify(execFileCallback);
 
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
+  setSelectedClipGain?(gainDb: number): Promise<{ operationId: string; undoAvailable: boolean }>;
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
 
@@ -320,6 +321,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectSelectionMode: "unavailable",
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
+        semanticOperations: {
+          "rename-clip": snapshotProbe.available,
+          "set-gain": snapshotProbe.available && Boolean(this.native.setSelectedClipGain),
+        },
       },
       analyzers: {
         speechTranscribe: false,
@@ -388,12 +393,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const operation = supportedCanonicalOperation(operations);
-    const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
-    if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
-    const preview = structuredClone(before);
-    preview.timeline.clips = preview.timeline.clips.map((candidate) => (
-      candidate.id === operation.clipId ? { ...candidate, name: operation.name } : candidate
-    ));
+    const preview = projectCanonicalOperation(before, operation);
     preview.revision = previewRevision(preview, before.revision);
     return preview;
   }
@@ -409,12 +409,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
-    if (operation.type !== "rename-clip") {
-      throw new Error(`CAPABILITY_UNAVAILABLE: final-cut native canonical provider does not support ${operation.type}`);
-    }
-    validateCanonicalRename(operation);
-    const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
-    if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+    const supported = supportedCanonicalOperation([operation]);
+    const clip = canonicalTargetForOperation(before, supported);
 
     const timelineTarget = createTimelineTarget(before, {
       occurrenceId: clip.id,
@@ -422,9 +418,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
     resolveTimelineTarget(before, timelineTarget);
     await this.resolveTarget(clip, before);
-    const nativeResult = await this.native.renameSelectedClip(operation.name);
+    const nativeResult = supported.type === "rename-clip"
+      ? await this.native.renameSelectedClip(supported.name)
+      : await this.native.setSelectedClipGain!(supported.gainDb);
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native rename did not expose Undo");
+      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
     this.pending = {
       operationId: nativeResult.operationId,
@@ -435,9 +433,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
     try {
       const after = await this.readProject();
-      const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
-      if (!afterClip || afterClip.name !== operation.name) {
+      const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
+      if (!afterClip) throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: edited occurrence was not read back from Final Cut");
+      if (supported.type === "rename-clip" && afterClip.name !== supported.name) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+      }
+      if (supported.type === "set-gain" && (afterClip.gainDb ?? 0) !== supported.gainDb) {
+        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: gain was not read back from Final Cut");
       }
       if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
@@ -583,17 +585,52 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 }
 
-function supportedCanonicalOperation(operations: WorkflowOperation[]): Extract<WorkflowOperation, { type: "rename-clip" }> {
-  if (operations.length !== 1 || operations[0]?.type !== "rename-clip") {
-    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip transaction");
+type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "set-gain" }>;
+
+function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
+  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "set-gain")) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip or set-gain transaction");
   }
-  return validateCanonicalRename(operations[0]);
+  return operations[0].type === "rename-clip"
+    ? validateCanonicalRename(operations[0])
+    : validateCanonicalGain(operations[0]);
+}
+
+function canonicalTargetForOperation(
+  snapshot: ProjectSnapshot,
+  operation: Extract<CanonicalOperation, { type: "rename-clip" | "set-gain" }>,
+): ProjectSnapshot["timeline"]["clips"][number] {
+  const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
+  if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+  return clip;
+}
+
+function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: CanonicalOperation): ProjectSnapshot {
+  const clip = canonicalTargetForOperation(snapshot, operation);
+  return {
+    ...structuredClone(snapshot),
+    timeline: {
+      ...structuredClone(snapshot.timeline),
+      clips: snapshot.timeline.clips.map((candidate) => candidate.id !== clip.id
+        ? candidate
+        : operation.type === "rename-clip"
+          ? { ...candidate, name: operation.name }
+          : { ...candidate, gainDb: operation.gainDb }),
+    },
+  };
 }
 
 function validateCanonicalRename(
   operation: Extract<EditOperation, { type: "rename-clip" }>,
 ): Extract<EditOperation, { type: "rename-clip" }> {
   if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
+  return operation;
+}
+
+function validateCanonicalGain(
+  operation: Extract<EditOperation, { type: "set-gain" }>,
+): Extract<EditOperation, { type: "set-gain" }> {
+  if (!Number.isFinite(operation.gainDb)) throw new Error("INVALID_OPERATION: gain must be finite");
   return operation;
 }
 
