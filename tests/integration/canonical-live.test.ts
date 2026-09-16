@@ -153,6 +153,23 @@ test("sessions hide live canonical reads without a snapshot provider", async () 
   await assert.rejects(session.readProject(), /CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider/);
 });
 
+test("unavailable live-only sessions do not synthesize editor capabilities", async () => {
+  const unavailable = async () => {
+    throw new Error("FINAL_CUT_LIVE_UNAVAILABLE: Workflow Extension socket is unavailable");
+  };
+  const session = new FinalCutSessionAdapter({
+    live: {
+      getIdentity: unavailable,
+      getCapabilities: unavailable,
+      readLiveState: unavailable,
+      liveChangesSince: unavailable,
+    },
+  });
+
+  await assert.rejects(session.getIdentity(), /FINAL_CUT_LIVE_UNAVAILABLE/);
+  await assert.rejects(session.getCapabilities(), /FINAL_CUT_LIVE_UNAVAILABLE/);
+});
+
 test("mutation-only sessions do not route live canonical snapshot reads", async () => {
   let readCalls = 0;
   const live = {
