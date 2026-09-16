@@ -122,6 +122,7 @@ test("filler Skill preview returns decisions and evidence without mutation", asy
     candidates: Array<{ id: string; word: { text: string } }>;
     decisions: Array<{ candidateId: string; status: string; evidence: unknown }>;
     candidateProvenance: Array<{ candidateId: string; operationIndex: number }>;
+    analysisProvenance: Array<{ mediaId: string; occurrenceId: string; sourceRange: { start: number; end: number }; revision: { id: string }; provider: { id: string; provider: string } }>;
   };
 
   assert.equal(details.candidates.length, 2);
@@ -131,6 +132,13 @@ test("filler Skill preview returns decisions and evidence without mutation", asy
   assert.equal(preview.plan.operations.length, 1);
   assert.equal((preview.plan.operations[0] as { candidateId?: string }).candidateId, details.candidates[0]?.id);
   assert.equal(details.candidateProvenance.length, 1);
+  assert.deepEqual(details.analysisProvenance, [{
+    mediaId: "filler-media",
+    occurrenceId: "filler-occurrence",
+    sourceRange: { start: 0, end: 5 },
+    revision: before.revision,
+    provider: { id: "framekit.speech", provider: "unknown" },
+  }]);
   assert.deepEqual(await adapter.readProject(), before);
 });
 

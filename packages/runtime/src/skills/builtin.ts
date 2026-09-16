@@ -86,6 +86,13 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
   const candidates: FillerCandidate[] = [];
   const decisions: SafeCutDecision[] = [];
   const operations: Array<Extract<import("../domain/editing.js").WorkflowOperation, { type: "ripple-delete" }>> = [];
+  const analysisProvenance: Array<{
+    mediaId: string;
+    occurrenceId: string;
+    sourceRange: TimeRange;
+    revision: import("../domain/primitives.js").ContextRevision;
+    provider: import("../domain/media.js").AnalyzerDescriptor;
+  }> = [];
   for (const clip of context.project.timeline.clips.filter((candidate) =>
     Boolean(candidate.mediaId)
       && candidate.start < selectedRange.end
@@ -103,6 +110,13 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
       end: sourceStart + localRange.end,
     };
     const speech = await context.analyzeSpeech(mediaId, sourceRange);
+    analysisProvenance.push({
+      mediaId,
+      occurrenceId: clip.id,
+      sourceRange: structuredClone(sourceRange),
+      revision: structuredClone(speech.revision ?? context.baseRevision),
+      provider: structuredClone(speech.provider ?? { id: "framekit.speech", provider: "unknown" }),
+    });
     const occurrence = {
       occurrenceId: clip.id,
       mediaId,
@@ -151,6 +165,7 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
       range: structuredClone(selectedRange),
       candidates: structuredClone(candidates),
       decisions: structuredClone(decisions),
+      analysisProvenance: structuredClone(analysisProvenance),
       selectedCandidateIds: [...selectedCandidateIds],
       candidateProvenance: operations.map((operation, operationIndex) => ({
         candidateId: operation.candidateId!,
@@ -182,6 +197,13 @@ function resolveSequenceFrameDuration(frameDuration: RationalTime | undefined): 
 interface FillerSkillDetails {
   candidates: FillerCandidate[];
   decisions: SafeCutDecision[];
+  analysisProvenance?: Array<{
+    mediaId: string;
+    occurrenceId: string;
+    sourceRange: TimeRange;
+    revision: import("../domain/primitives.js").ContextRevision;
+    provider: import("../domain/media.js").AnalyzerDescriptor;
+  }>;
   candidateProvenance: Array<{
     candidateId: string;
     occurrenceId?: string;
