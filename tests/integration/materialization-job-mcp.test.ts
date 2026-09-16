@@ -6,6 +6,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
+import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -154,6 +155,37 @@ test("completes only after matching canonical provider readback", async () => {
     assert.notEqual(published[0]?.projectUid, target.projectUid);
     await connected.client.close();
     await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("persists a retryable blocker when the configured publisher command fails", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-command-failure-"));
+  try {
+    const first = await connect(directory, new FinalCutBackgroundMaterializationPublisher({
+      command: join(directory, "missing-publisher"),
+    }));
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-command-failure", provider: { id: "final-cut" }, base: timeline() } });
+
+    const executed = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-command-failure", target, confirm: true },
+    }));
+
+    assert.equal(executed.state, "blocked");
+    assert.equal(executed.error.code, "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_UNAVAILABLE");
+    assert.equal(executed.error.retryable, true);
+    assert.equal(executed.evidence.providerRequested, true);
+
+    const restored = payload(await first.client.callTool({
+      name: "session.materialize.status",
+      arguments: { jobId: executed.jobId },
+    }));
+    assert.equal(restored.error.code, executed.error.code);
+    assert.equal(restored.error.retryable, true);
+    await first.client.close();
+    await first.server.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

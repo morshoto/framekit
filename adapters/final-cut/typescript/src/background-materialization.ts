@@ -54,21 +54,32 @@ export class FinalCutBackgroundMaterializationPublisher {
 
 function commandExecutor(command: string) {
   return async (request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationResult> => {
-    const output = await new Promise<string>((resolvePromise, reject) => {
-      const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-      child.once("error", reject);
-      child.once("close", (code) => {
-        if (code === 0) resolvePromise(stdout);
-        else reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: command exited ${code}: ${stderr.trim()}`));
+    let output: string;
+    try {
+      output = await new Promise<string>((resolvePromise, reject) => {
+        const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+        child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+        child.once("error", reject);
+        child.once("close", (code) => {
+          if (code === 0) resolvePromise(stdout);
+          else reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: command exited ${code}: ${stderr.trim()}`));
+        });
+        child.stdin.end(`${JSON.stringify(request)}\n`);
       });
-      child.stdin.end(`${JSON.stringify(request)}\n`);
-    });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        state: "blocked",
+        code: "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_UNAVAILABLE",
+        message: `The configured non-UI Final Cut materialization command could not complete: ${detail}`,
+        retryable: true,
+      };
+    }
     const result = JSON.parse(output) as FinalCutBackgroundMaterializationResult;
     if (!result || (result.state !== "completed" && result.state !== "blocked")) {
       throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: command returned an invalid result");
