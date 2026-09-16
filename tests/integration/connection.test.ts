@@ -250,6 +250,32 @@ test("headless connection reports an installed extension before socket failure",
   assert.equal(status.lastError?.code, "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE");
 });
 
+test("connection manager clears stale capabilities after a ready bridge disconnects", async () => {
+  let available = true;
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
+    probe: async () => {
+      if (!available) throw new Error("socket missing");
+      return {
+        identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+        capabilities,
+      };
+    },
+    sleep: async () => {},
+  });
+
+  const ready = await manager.ensureConnected();
+  available = false;
+  const disconnected = await manager.ensureConnected();
+
+  assert.equal(ready.state, "ready");
+  assert.equal(disconnected.state, "unavailable");
+  assert.equal(disconnected.identity, undefined);
+  assert.equal(disconnected.capabilities, undefined);
+});
+
 test("connection manager remains actionable when the extension is missing", async () => {
   const manager = new FinalCutConnectionManager({
     headless: false,
