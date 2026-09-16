@@ -95,7 +95,7 @@ test("runs unattended edit, reconciliation, artifact compilation, and native cla
     base: timeline(),
     providerState: changedProviderState(),
     operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Opening revised" }],
-    target: { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1" },
+    target: { provider: "final-cut", libraryUid: "library-1", eventUid: "event-1", projectUid: "project-1", sequenceUid: "sequence-1" },
     environment: environment(),
     sqlite: { before, after },
   });
@@ -128,7 +128,7 @@ test("stops before FCPXML materialization when reconciliation has an explicit co
     base: timeline(),
     providerState: provider,
     operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Agent rename" }],
-    target: { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1" },
+    target: { provider: "final-cut", libraryUid: "library-1", eventUid: "event-1", projectUid: "project-1", sequenceUid: "sequence-1" },
     environment: environment({ console: { state: "unlocked", source: "IOConsoleLocked", retryable: false } }),
   });
 
@@ -146,7 +146,7 @@ test("stops before materialization when SQLite changes without a fresh provider 
     base: timeline(),
     providerState: timeline(),
     operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Opening revised" }],
-    target: { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1" },
+    target: { provider: "final-cut", libraryUid: "library-1", eventUid: "event-1", projectUid: "project-1", sequenceUid: "sequence-1" },
     environment: environment({ console: { state: "unlocked", source: "IOConsoleLocked", retryable: false } }),
     sqlite: { before, after },
   });
