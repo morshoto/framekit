@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
   createProjectSelectionResult,
-  assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
   resolveTimelineTarget,
   reconcileProjectCatalog,
@@ -35,6 +34,7 @@ import {
 import type {
   NativeFinalCutEditor,
 } from "./native.js";
+import { verifyCanonicalReadback } from "./canonical-verification.js";
 import { FcpxmlDocumentAdapter } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
@@ -435,14 +435,18 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
     try {
       const after = await this.readProject();
-      const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
-      if (!afterClip || afterClip.name !== operation.name) {
-        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+      const readback = verifyCanonicalReadback(before, after, timelineTarget, {
+        validateDiff: (diff) => {
+          const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
+          const changed = diff.modified.filter(({ itemId }) => itemId === operation.clipId);
+          if (!afterClip || afterClip.name !== operation.name || changed.length !== 1) {
+            throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+          }
+        },
+      });
+      if (readback.beforeDigest !== this.pending.beforeDigest) {
+        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: canonical before digest changed during verification");
       }
-      if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
-        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
-      }
-      assertTimelineTargetReadAfterWrite(timelineTarget, before, after);
       this.pending.afterRevision = after.revision;
       return after.revision;
     } catch (error) {

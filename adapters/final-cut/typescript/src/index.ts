@@ -2,6 +2,7 @@ export * from "./fcpxml.js";
 export * from "./live.js";
 export * from "./connection.js";
 export * from "./canonical.js";
+export * from "./canonical-verification.js";
 export * from "./session.js";
 export * from "./analyzers.js";
 export * from "./assets.js";
