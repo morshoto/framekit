@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -440,6 +440,99 @@ test("retries only after reconciliation proves no publication completed", async 
     assert.equal(recovered.state, "completed");
     assert.equal(reconcileCalls, 1);
     assert.equal(publishCalls, 1);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("keeps an uncertain publication recovery-required when reconciliation is unknown", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-unknown-recovery-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-unknown-recovery", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-unknown-recovery", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const jobPath = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+    const persisted = JSON.parse(await readFile(jobPath, "utf8"));
+    persisted.state = "publishing";
+    persisted.nextAction = "status";
+    persisted.claim = {
+      id: "unknown-claim",
+      claimedAt: "2026-09-15T00:00:00.000Z",
+      leaseExpiresAt: "2026-09-15T00:01:00.000Z",
+    };
+    delete persisted.error;
+    await writeFile(jobPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    await writeFile(`${jobPath}.claim`, `${JSON.stringify({ jobId: staged.jobId, ...persisted.claim })}\n`, "utf8");
+
+    let publishCalls = 0;
+    const second = await connect(directory, {
+      publish: async () => {
+        publishCalls += 1;
+        return { state: "blocked", code: "UNEXPECTED", message: "publication should not run", retryable: false };
+      },
+      reconcile: async () => ({ state: "unknown", code: "PROVIDER_UNCERTAIN", message: "the provider cannot determine publication state", retryable: false }),
+    });
+    const recovered = payload(await second.client.callTool({
+      name: "session.materialize.retry",
+      arguments: { jobId: staged.jobId },
+    }));
+    assert.equal(recovered.state, "blocked");
+    assert.equal(recovered.nextAction, "status");
+    assert.equal(recovered.error.recovery, "required");
+    assert.equal(recovered.error.retryable, false);
+    assert.equal(publishCalls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("does not persist a completion after the publication claim is fenced", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-fenced-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-fenced", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-fenced", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const jobPath = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+    let publishCalls = 0;
+    const second = await connect(directory, {
+      publish: async (request) => {
+        publishCalls += 1;
+        await unlink(`${jobPath}.claim`);
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+      reconcile: async () => ({ state: "unknown", code: "PROVIDER_UNCERTAIN", message: "the provider cannot determine publication state", retryable: false }),
+    });
+    const result = payload(await second.client.callTool({
+      name: "session.materialize.retry",
+      arguments: { jobId: staged.jobId },
+    }));
+    assert.equal(publishCalls, 1);
+    assert.equal(result.state, "blocked");
+    assert.equal(result.nextAction, "status");
+    assert.equal(result.error.recovery, "required");
+    assert.equal(result.error.code, "MATERIALIZATION_CLAIM_FENCED");
     await second.client.close();
     await second.server.close();
   } finally {

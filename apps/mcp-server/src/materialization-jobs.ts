@@ -184,6 +184,7 @@ export class SessionMaterializationJobs {
         desired: structuredClone(claimed.desired),
         desiredDigest: claimed.desiredDigest,
       });
+      await this.assertClaimOwnership(claimed.jobId, claimed.claim!.id);
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
           ...claimed,
@@ -200,6 +201,16 @@ export class SessionMaterializationJobs {
       if (completionFailure) return this.fail(claimed, completionFailure);
       return this.complete(claimed, result);
     } catch (error) {
+      if (claimWasReplaced(error)) return this.status(claimed.jobId);
+      if (claimWasFenced(error)) {
+        return this.persistRecovery(claimed, {
+          code: "MATERIALIZATION_CLAIM_FENCED",
+          message: "The publication claim was fenced before its result could be persisted; reconcile before retrying",
+          retryable: false,
+          providerRequested: true,
+          recovery: "required",
+        });
+      }
       return this.fail(claimed, materializationFailure(error, true));
     } finally {
       await this.release(claimed.jobId, claimed.claim!.id);
@@ -509,6 +520,14 @@ function materializationFailure(error: unknown, providerRequested: boolean): Mat
   const message = error instanceof Error ? error.message : String(error);
   const code = message.match(/^([A-Z][A-Z0-9_]*):/)?.[1] ?? "MATERIALIZATION_PUBLISH_FAILED";
   return { code, message, retryable: false, providerRequested, ...(providerRequested ? { recovery: "required" as const } : {}) };
+}
+
+function claimWasFenced(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).startsWith("MATERIALIZATION_CLAIM_FENCED:");
+}
+
+function claimWasReplaced(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).includes("another publisher owns this materialization claim");
 }
 
 function completionValidation(
