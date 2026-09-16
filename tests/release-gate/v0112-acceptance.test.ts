@@ -31,7 +31,7 @@ test("v0.1.12 acceptance report retains tier and revision evidence", async () =>
   assert.ok(report.results.every((result) => result.evidenceTier === "deterministic"));
   assert.ok(report.results.every((result) => result.sourceRevision.length > 0));
   assert.ok(report.results.some((result) => result.expectedOutcome === "rolled-back" && result.recovery === "restored"));
-  assert.equal(report.canonicalLive.status, "unrun");
+  assert.equal(report.canonicalLive.status, "unsupported");
   assert.equal(report.headedNative.status, "unrun");
   assert.match(renderV0112AcceptanceReport(report), /v0\.1\.12 acceptance/);
   assert.match(renderV0112AcceptanceReport(report), /headed_native=unrun/);
