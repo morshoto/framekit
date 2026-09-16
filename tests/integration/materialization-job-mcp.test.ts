@@ -148,6 +148,41 @@ test("previews without mutation and resumes a blocked immutable materialization 
   }
 });
 
+test("does not advertise retry for non-retryable provider blockers", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-nonretryable-"));
+  try {
+    const connected = await connect(directory, {
+      publish: async () => ({
+        state: "blocked",
+        code: "FINAL_CUT_TARGET_UNAVAILABLE",
+        message: "The requested target is unavailable",
+        retryable: false,
+      }),
+    });
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-nonretryable", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const blocked = payload(await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-nonretryable", target, confirm: true },
+    }));
+    assert.equal(blocked.state, "blocked");
+    assert.equal(blocked.nextAction, "none");
+    assert.equal(blocked.error.retryable, false);
+    const retry = await connected.client.callTool({
+      name: "session.materialize.retry",
+      arguments: { jobId: blocked.jobId },
+    });
+    assert.equal(retry.isError, true);
+    assert.equal(payload(retry).code, "MATERIALIZATION_NOT_RETRYABLE");
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("completes only after matching canonical provider readback", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-"));
   const published: Array<{ artifactPath: string; projectUid: string }> = [];
