@@ -332,7 +332,12 @@ export class FinalCutConnectionManager {
   }
 
   private fail(code: string, message: string, state: FinalCutConnectionState): FinalCutConnectionStatus {
-    this.update({ state, lastError: { code, message } });
+    this.update({
+      state,
+      identity: undefined,
+      capabilities: undefined,
+      lastError: { code, message },
+    });
     return this.getStatus();
   }
 
