@@ -488,11 +488,18 @@ persistent job. `session.materialize.status` reads a job after server restart,
 and `session.materialize.retry` resubmits a retryable blocker using the same
 digest-verified artifact. A provider request is not completion: canonical
 readback must match the desired Timeline IR and identify the exact created
-library/event/project/sequence target.
+library/event/project/sequence target. A publishing claim has a bounded lease;
+an expired or uncertain claim is reconciled before any new publication. A
+matching readback completes the job, while provider-confirmed `not-found` is
+the only result that permits a fresh claim. Unknown reconciliation remains a
+`recovery-required` blocker and is never blindly retried.
 
 When `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured in
 live mode, it receives the staged request through stdin as an explicit non-UI
-provider contract. The command must create a new versioned project without
-overwriting an existing one and must return sanitized canonical readback. If
-the capability is absent or the console is locked, the job remains a structured
-retryable blocker; Framekit does not activate Final Cut or write SQLite.
+provider contract. The request identifies whether the operation is `publish` or
+`reconcile` and includes the durable job and claim identities. The command must
+create a new versioned project without overwriting an existing one and must
+return sanitized canonical readback for completion. If the capability is absent
+or the console is locked, the job remains a structured retryable blocker; a
+timeout or unknown outcome requires reconciliation before retry, and Framekit
+does not activate Final Cut or write SQLite.

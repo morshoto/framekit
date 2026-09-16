@@ -42,8 +42,14 @@ After a server restart, `session.materialize.status` reports the same job and
 `session.materialize.retry` verifies the staged digest before requesting the
 provider again. A retry first claims the job with an atomic claim file and
 persists `publishing`; concurrent retries return that in-progress state and do
-not call the provider a second time. The staged session digest is also checked
-before publication. A changed session fails closed and must be reconciled.
+not call the provider a second time. Claims carry a 120-second lease and a
+fenced claim identity into the provider request. If a claim expires or a
+provider request becomes uncertain, retry first reconciles the original job
+identity. Matching canonical readback completes the job; `not-found` proves
+that a fresh claim and publication are safe; unknown status remains
+`recovery-required` and never triggers a blind retry. The staged session digest
+is also checked before publication. A changed session fails closed and must be
+reconciled.
 
 ## Background Final Cut publication
 
@@ -51,16 +57,21 @@ Production MCP wiring exposes a background publisher only when
 `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured while
 `FRAMEKIT_EDITOR=final-cut-live`. The command is an explicit non-UI capability:
 Framekit sends one JSON request on stdin and expects one JSON result on stdout.
-The request contains the digest-verified artifact, the explicit target, the
-versioned destination, `collisionPolicy: "create-only"`, and the desired
-Timeline IR snapshot. The command must not activate or focus Final Cut, write
-SQLite or `.fcpbundle` internals, or replace an existing project.
+The request contains `operation: "publish"` or `operation: "reconcile"`, the
+durable job and fenced claim identities, the digest-verified artifact, the
+explicit target, the versioned destination, `collisionPolicy: "create-only"`,
+and the desired Timeline IR snapshot. The command must not activate or focus
+Final Cut, write SQLite or `.fcpbundle` internals, or replace an existing
+project. Commands are bounded to 120 seconds; a timeout terminates the child
+and persists `recovery-required` until reconciliation resolves the outcome.
 
 A completed command result must contain `canonicalReadback`, the exact created
-`canonicalTarget` identity, and `headedNativeVerified: false`. Framekit checks
-both the Timeline IR digest and the target identity before completing the job.
-Locked-console or unavailable-capability responses remain structured retryable
-blockers; a provider request alone is never success.
+`canonicalTarget` identity, and `headedNativeVerified: false`. A reconciliation
+result is either that same verified completion, `not-found`, or an explicit
+unknown status. Framekit checks both the Timeline IR digest and the target
+identity before completing the job. Locked-console or unavailable-capability
+responses remain structured retryable blockers; a provider request alone is
+never success.
 
 The disposable-library experiment matrix is separate from deterministic tests:
 
