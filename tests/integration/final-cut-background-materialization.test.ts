@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -172,4 +172,11 @@ test("rejects a background response that claims headed-native verification", asy
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("production MCP wiring requires an explicit background capability", async () => {
+  const main = await readFile("apps/mcp-server/src/main.ts", "utf8");
+  assert.match(main, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
+  assert.match(main, /FinalCutBackgroundMaterializationPublisher/);
+  assert.match(main, /sessionMaterializationPublisher\?\.isAvailable\(\)/);
 });
