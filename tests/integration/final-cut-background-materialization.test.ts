@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -143,6 +143,28 @@ test("preserves a locked-console blocker and never reports headed proof", async 
     const result = await publisher.publish(request(artifactPath, artifact));
     assert.equal(result.state, "blocked");
     assert.equal(result.code, "FINAL_CUT_CONSOLE_LOCKED");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("invokes the configured command through its stdin and stdout contract", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-command-"));
+  try {
+    const artifact = "<fcpxml/>";
+    const artifactPath = join(directory, "staged.fcpxml");
+    const commandPath = join(directory, "publisher.sh");
+    await writeFile(artifactPath, artifact, "utf8");
+    await writeFile(commandPath, "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"state\":\"blocked\",\"code\":\"FINAL_CUT_CONSOLE_LOCKED\",\"message\":\"locked\",\"retryable\":true}'\n", "utf8");
+    await chmod(commandPath, 0o755);
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ command: commandPath });
+    const result = await publisher.publish(request(artifactPath, artifact));
+    assert.deepEqual(result, {
+      state: "blocked",
+      code: "FINAL_CUT_CONSOLE_LOCKED",
+      message: "locked",
+      retryable: true,
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

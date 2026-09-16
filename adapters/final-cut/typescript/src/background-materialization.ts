@@ -97,7 +97,7 @@ function validateResult(result: FinalCutBackgroundMaterializationResult): FinalC
     throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: capability returned an invalid result");
   }
   if (result.state === "blocked") {
-    if (!result.code.trim() || !result.message.trim()) {
+    if (typeof result.code !== "string" || typeof result.message !== "string" || !result.code.trim() || !result.message.trim()) {
       throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: blocked result is missing code or message");
     }
     return result;
