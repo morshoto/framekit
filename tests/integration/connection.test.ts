@@ -130,6 +130,23 @@ test("headless connection probes an existing bridge without launching or activat
   assert.deepEqual(events, []);
 });
 
+test("headless ready status preserves the checked extension installation state", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-headless-ready-extension-test-"));
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    extensionInstallPath: join(directory, "FramekitFinalCutWorkflow.app"),
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.extensionInstalled, false);
+});
+
 test("headless connection waits for an existing bridge to become ready", async () => {
   let probes = 0;
   const sleeps: number[] = [];
