@@ -70,10 +70,8 @@ function snapshot(name: string): ProjectSnapshot {
 function gainSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
   const before = snapshot("Dialogue");
   before.timeline.clips[0] = { ...before.timeline.clips[0]!, gainDb: 0 };
-  before.timeline.storyElements[0] = { ...before.timeline.storyElements[0]!, gainDb: 0 };
   const after = structuredClone(before);
   after.timeline.clips[0] = { ...after.timeline.clips[0]!, gainDb: 3 };
-  after.timeline.storyElements[0] = { ...after.timeline.storyElements[0]!, gainDb: 3 };
   return { before, after };
 }
 
@@ -300,7 +298,7 @@ test("canonical native provider previews and applies a revision-guarded gain", a
   const { before: original, after: gained } = gainSnapshots();
   const calls: string[] = [];
   const provider = providerFor(
-    [original, original, original, gained, gained, gained, original],
+    [original, original, original, original, gained, gained, gained, original],
     calls,
     undefined,
     liveState(),

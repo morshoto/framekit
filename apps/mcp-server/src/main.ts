@@ -111,6 +111,7 @@ const nativeEditor = liveMode
 const canonicalNativeMutationEditor = canonicalNativeProviderEnabled
   ? new FinalCutNativeAutomationAdapter({
       enabled: true,
+      liveState: () => liveAdapter!.readLiveState(),
       nativeOperationLease,
     })
   : nativeEditor;
@@ -121,6 +122,10 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
       native: {
         renameSelectedClip: async (name) => {
           const result = await canonicalNativeMutationEditor!.edit({ type: "rename-selected-clip", name });
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
+        setSelectedClipGain: async (gainDb) => {
+          const result = await canonicalNativeMutationEditor!.edit({ type: "set-selected-clip-gain", gainDb });
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
         undo: async (operationId) => {
