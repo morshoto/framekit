@@ -8,9 +8,9 @@ representation.
 ## Contract
 
 The compiler accepts a validated `TimelineIr` and a mandatory
-`TimelineIrToFcpxmlTarget`. The target contains the Final Cut project and
-sequence UIDs. Names are descriptive only and are never used as target
-identity. The current output version is FCPXML `1.11`.
+`TimelineIrToFcpxmlTarget`. The target contains stable Final Cut library,
+event, project, and sequence UIDs. Names are descriptive only and are never
+used as target identity. The current output version is FCPXML `1.11`.
 
 Compilation is deterministic: resources are ordered by logical ID, generated
 resource IDs are stable, duplicate resource names receive deterministic
@@ -30,9 +30,12 @@ media bindings, and invalid target bindings fail closed with a structured
 `FCPXML_*` error instead of being silently dropped.
 
 The output is a new artifact string. It does not overwrite a managed file and
-does not claim that the open Final Cut timeline changed. Consumers must stage
-and verify the artifact, then use the separate explicit headed publishing
-handoff when a native Final Cut project is intended.
+does not claim that the open Final Cut timeline changed. Session materialization
+jobs force the versioned destination and pass a `create-only` collision policy
+to the explicit background publisher. A background provider must return the
+created target identity and canonical Timeline IR before the job can complete.
+The separate headed publishing handoff remains distinct and cannot be used as
+background evidence.
 
 ## Verification
 

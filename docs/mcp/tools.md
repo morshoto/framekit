@@ -480,9 +480,19 @@ freshness. Its digest is explicitly non-canonical and can invalidate a session,
 but it cannot make the session ready or authorize a write.
 
 Use `session.materialize.preview` to inspect the versioned destination and
-artifact digest without staging files. `session.materialize.execute` requires
-`confirm: true`, stages an immutable FCPXML artifact, and creates a persistent
-job. `session.materialize.status` reads a job after server restart, and
-`session.materialize.retry` resubmits a retryable blocker using the same
+artifact digest without staging files. Its `target` requires explicit
+`libraryUid`, `eventUid`, `projectUid`, and `sequenceUid` identities; the
+materialization surface is always create-only and versioned. `session.materialize.execute`
+requires `confirm: true`, stages an immutable FCPXML artifact, and creates a
+persistent job. `session.materialize.status` reads a job after server restart,
+and `session.materialize.retry` resubmits a retryable blocker using the same
 digest-verified artifact. A provider request is not completion: canonical
-readback must match the desired Timeline IR.
+readback must match the desired Timeline IR and identify the exact created
+library/event/project/sequence target.
+
+When `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured in
+live mode, it receives the staged request through stdin as an explicit non-UI
+provider contract. The command must create a new versioned project without
+overwriting an existing one and must return sanitized canonical readback. If
+the capability is absent or the console is locked, the job remains a structured
+retryable blocker; Framekit does not activate Final Cut or write SQLite.

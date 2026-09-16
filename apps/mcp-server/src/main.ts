@@ -7,7 +7,6 @@ import {
   createFinalCutLiveAdapter,
   FcpxmlDocumentAdapter,
   FinalCutAssetRegistry,
-  FinalCutBackgroundMaterializationPublisher,
   FinalCutMediaRegistry,
   FinalCutConnectionManager,
   assertCanonicalProviderConfiguration,
@@ -17,6 +16,7 @@ import {
   FinalCutNativeAutomationAdapter,
   createFinalCutNativeTargetResolver,
   DisposableNativeEditWorkflow,
+  FinalCutBackgroundMaterializationPublisher,
   FinalCutProjectPublisher,
   FinalCutSqliteInspectionProvider,
   FinalCutVideoExporter,
@@ -198,7 +198,7 @@ const projectPublisher = liveMode && fcpxmlPath
 const backgroundMaterializationCommand = liveMode
   ? process.env.FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND
   : undefined;
-const sessionMaterializationPublisher = backgroundMaterializationCommand
+const sessionMaterializationPublisher = backgroundMaterializationCommand?.trim()
   ? new FinalCutBackgroundMaterializationPublisher({ command: backgroundMaterializationCommand })
   : undefined;
 const videoExportProbeAvailable = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
@@ -214,14 +214,12 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
   : undefined;
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
-  connectionStatus: () => connection?.getStatus(),
+  connectionStatus: () => connection?.ensureConnected(),
   nativeEditor,
   disposableNative,
   nativeOperationSession,
   projectPublisher,
-  ...(sessionMaterializationPublisher?.isAvailable()
-    ? { sessionMaterializationPublisher }
-    : {}),
+  ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
   sessionDirectory: join(framekitStateDirectory, "sessions"),
   materializationDirectory: join(framekitStateDirectory, "materializations"),

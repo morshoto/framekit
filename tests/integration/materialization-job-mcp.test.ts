@@ -60,7 +60,26 @@ async function connect(directory: string, publisher?: SessionMaterializationPubl
   return { client, server };
 }
 
-const target = { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1", eventName: "Framekit" };
+const target = {
+  provider: "final-cut",
+  libraryUid: "library-1",
+  eventUid: "event-1",
+  projectUid: "project-1",
+  sequenceUid: "sequence-1",
+  eventName: "Framekit",
+};
+
+function canonicalTarget(request: {
+  target: Pick<typeof target, "libraryUid" | "eventUid" | "projectUid" | "sequenceUid">;
+  destination: { projectUid: string; sequenceUid: string };
+}) {
+  return {
+    libraryUid: request.target.libraryUid,
+    eventUid: request.target.eventUid,
+    projectUid: request.destination.projectUid,
+    sequenceUid: request.destination.sequenceUid,
+  };
+}
 
 test("previews without mutation and resumes a blocked immutable materialization job", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-"));
@@ -107,7 +126,7 @@ test("previews without mutation and resumes a blocked immutable materialization 
     const second = await connect(directory, {
       publish: async (request) => {
         resumedRequests.push(request.jobId);
-        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
       },
     });
     const restored = payload(await second.client.callTool({
@@ -136,7 +155,7 @@ test("completes only after matching canonical provider readback", async () => {
   const publisher: SessionMaterializationPublisher = {
     publish: async (request) => {
       published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid });
-      return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+      return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
     },
   };
   try {
@@ -191,7 +210,38 @@ test("persists a retryable blocker when the configured publisher command fails",
   }
 });
 
-test("retries with the immutable desired snapshot that produced its artifact", async () => {
+test("requires canonical readback to identify the created target", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-target-"));
+  try {
+    const connected = await connect(directory, {
+      publish: async (request) => ({
+        state: "completed",
+        canonicalReadback: request.desired,
+        canonicalTarget: {
+          libraryUid: request.target.libraryUid,
+          eventUid: request.target.eventUid,
+          projectUid: "wrong-project",
+          sequenceUid: request.destination.sequenceUid,
+        },
+        headedNativeVerified: false,
+      } as any),
+    });
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-target", provider: { id: "final-cut" }, base: timeline() } });
+    const failed = payload(await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-target", target, confirm: true },
+    }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_TARGET_READBACK_MISMATCH");
+    assert.equal(failed.evidence.canonicalReadback, false);
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the persisted session changes after staging", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-snapshot-"));
   try {
     const first = await connect(directory, {
@@ -222,12 +272,168 @@ test("retries with the immutable desired snapshot that produced its artifact", a
     const second = await connect(directory, {
       publish: async (request) => {
         requests.push(request.desired);
-        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
       },
     });
     const resumed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: blocked.jobId } }));
-    assert.equal(resumed.state, "completed");
-    assert.equal(requests[0]?.sequence.occurrences[0]?.name, "Staged desired");
+    assert.equal(resumed.state, "failed");
+    assert.equal(resumed.error.code, "MATERIALIZATION_SESSION_CHANGED");
+    assert.equal(requests.length, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("atomically claims a retry so concurrent attempts publish once", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-claim-"));
+  let release!: () => void;
+  let calls = 0;
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-claim", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-claim", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const publisher = {
+      publish: async (request: Parameters<SessionMaterializationPublisher["publish"]>[0]) => {
+        calls += 1;
+        if (calls === 1) {
+          await new Promise<void>((resolve) => { release = resolve; });
+        }
+        return { state: "completed" as const, canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+    } satisfies SessionMaterializationPublisher;
+    const left = await connect(directory, publisher);
+    const right = await connect(directory, publisher);
+    const leftRetry = left.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } });
+    while (calls === 0) await new Promise((resolve) => setImmediate(resolve));
+    const rightRetry = payload(await right.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(rightRetry.state, "publishing");
+    assert.equal(calls, 1);
+    release();
+    const completed = payload(await leftRetry);
+    assert.equal(completed.state, "completed");
+    assert.equal(payload(await right.client.callTool({ name: "session.materialize.status", arguments: { jobId: staged.jobId } })).state, "completed");
+    await left.client.close();
+    await left.server.close();
+    await right.client.close();
+    await right.server.close();
+  } finally {
+    release();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the session changes after staging", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-session-drift-"));
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-drift", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-drift", target, confirm: true },
+    }));
+    const changed = payload(await first.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-drift",
+        operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Changed after staging" }],
+      },
+    }));
+    assert.equal(changed.document.desired.sequence.occurrences[0]?.name, "Changed after staging");
+    await first.client.close();
+    await first.server.close();
+
+    let calls = 0;
+    const second = await connect(directory, {
+      publish: async (request) => {
+        calls += 1;
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+    });
+    const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_SESSION_CHANGED");
+    assert.equal(calls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects a changed staged artifact before retry publication", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-artifact-drift-"));
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-artifact-drift", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-artifact-drift", target, confirm: true },
+    }));
+    await writeFile(staged.artifactPath, "changed", "utf8");
+    await first.client.close();
+    await first.server.close();
+
+    let calls = 0;
+    const second = await connect(directory, {
+      publish: async (request) => {
+        calls += 1;
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+    });
+    const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_ARTIFACT_CHANGED");
+    assert.equal(calls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects a tampered persisted desired snapshot before retry publication", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-desired-drift-"));
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-desired-drift", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-desired-drift", target, confirm: true },
+    }));
+    const jobPath = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+    const persisted = JSON.parse(await readFile(jobPath, "utf8"));
+    persisted.desired.project.name = "Tampered desired";
+    await writeFile(jobPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    await first.client.close();
+    await first.server.close();
+
+    let calls = 0;
+    const second = await connect(directory, {
+      publish: async (request) => {
+        calls += 1;
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+    });
+    const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_DESIRED_SNAPSHOT_INVALID");
+    assert.equal(calls, 0);
     await second.client.close();
     await second.server.close();
   } finally {
@@ -254,4 +460,7 @@ test("documents session tools persistence and materialization evidence boundarie
   assert.match(architecture, /canonical: false/);
   assert.match(architecture, /artifact.*provider-requested.*canonical-readback.*headed-native/s);
   assert.match(architecture, /does not write.*SQLite/i);
+  assert.match(architecture, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
+  assert.match(architecture, /publishing/);
+  assert.match(tools, /libraryUid.*eventUid.*projectUid.*sequenceUid/s);
 });
