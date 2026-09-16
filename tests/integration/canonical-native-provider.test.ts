@@ -11,6 +11,7 @@ import {
   FinalCutSessionAdapter,
   type FinalCutBackgroundCatalogProvider,
   type CanonicalNativeTargetResolver,
+  type CanonicalNativeMutationPort,
 } from "@framekit/final-cut";
 import type {
   ContextRevision,
@@ -66,6 +67,20 @@ function snapshot(name: string): ProjectSnapshot {
   };
 }
 
+function markerSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
+  const before = snapshot("Interview");
+  const after = structuredClone(before);
+  after.timeline.markers = [{
+    id: "marker-1",
+    start: 1,
+    duration: 0.5,
+    name: "Review",
+    startTime: { value: "24", timescale: "24" },
+    durationTime: { value: "12", timescale: "24" },
+  }];
+  return { before, after };
+}
+
 function liveState(): EditorLiveState {
   return {
     project: { id: "final-cut:project:project-1", name: "Canonical E2E" },
@@ -103,6 +118,7 @@ function providerFor(
   resolveTarget: CanonicalNativeTargetResolver = async () => {},
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
+  nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -113,6 +129,7 @@ function providerFor(
       calls.push("undo");
       return { undone: true, verification: { verified: true, detail: "restored" } };
     },
+    ...nativeOverrides,
   };
   const live = {
     getIdentity: async () => identity,
@@ -281,6 +298,50 @@ test("canonical native provider previews and applies its supported timeline tran
   await provider.applyTransaction([operation], before.revision);
 
   assert.deepEqual(calls, ["edit"]);
+});
+
+test("canonical native provider previews and applies a revision-guarded marker", async () => {
+  const { before: original, after: marked } = markerSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, original, original, marked, marked, marked, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      addMarkerAtTime: async (marker) => {
+        calls.push(`marker:${marker.start.value}/${marker.start.timescale}:${marker.duration.value}/${marker.duration.timescale}`);
+        return { operationId: "native-marker-1", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "add-marker" as const,
+    timelineId: before.timeline.id,
+    marker: {
+      id: "marker-1",
+      start: 1,
+      duration: 0.5,
+      name: "Review",
+      startTime: { value: "24", timescale: "24" },
+      durationTime: { value: "12", timescale: "24" },
+    },
+    baseRevision: before.revision,
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.markers[0]?.name, "Review");
+  assert.deepEqual(await provider.readProject(), before);
+  assert.deepEqual(calls, []);
+
+  await provider.applyTransaction([operation], before.revision);
+
+  assert.deepEqual(calls, ["marker:24/24:12/24"]);
+  await provider.restore(before, (await provider.readProject()).revision);
+  assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
 });
 
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
