@@ -19,7 +19,12 @@ const canonicalWrite: RuntimeCapabilities = {
     projectCatalogRead: true,
     projectSelection: true,
   },
-  analyzers: {},
+  analyzers: {
+    speechTranscribe: false,
+    speechVad: false,
+    audioLoudness: false,
+    visualTrack: false,
+  },
 };
 
 test("canonical provider readiness accepts complete live read/write guarantees", () => {
