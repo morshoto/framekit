@@ -15,7 +15,7 @@
     "start": "tsx src/main.ts"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
+    "@types/node": "24.13.4",
     "tsx": "4.23.13",
     "typescript": "7.0.2"
   }
