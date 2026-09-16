@@ -15,6 +15,7 @@ export interface SessionMaterializationPublishRequest {
   artifactDigest: string;
   target: TimelineIrToFcpxmlTarget;
   destination: TimelineIrToFcpxmlResult["destination"];
+  collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
 }
@@ -65,13 +66,14 @@ export class SessionMaterializationJobs {
     const session = await this.sessions.loadForMaterialization(sessionId);
     this.assertProvider(session.document().provider?.id, target.provider);
     session.assertMaterializationReady(session.base().revision);
-    const artifact = compileTimelineIrToFcpxml(session.desired(), { target });
+    const artifact = compileTimelineIrToFcxmlVersioned(session.desired(), target);
     return {
       sessionId,
       mutating: false,
       sessionState: session.state(),
       target: artifact.target,
       destination: artifact.destination,
+      collisionPolicy: "create-only",
       artifactDigest: artifact.digest,
       evidence: { artifact: { verified: true, format: "fcpxml" as const, digest: artifact.digest } },
     };
@@ -83,7 +85,7 @@ export class SessionMaterializationJobs {
     this.assertProvider(session.document().provider?.id, target.provider);
     session.assertMaterializationReady(session.base().revision);
     const desired = session.desired();
-    const artifact = compileTimelineIrToFcpxml(desired, { target });
+    const artifact = compileTimelineIrToFcxmlVersioned(desired, target);
     const jobId = `materialization-${randomUUID()}`;
     const artifactPath = join(this.directory, "artifacts", `${jobId}.fcpxml`);
     await mkdir(dirname(artifactPath), { recursive: true });
@@ -158,6 +160,7 @@ export class SessionMaterializationJobs {
         artifactDigest: claimed.artifactDigest,
         target: claimed.target,
         destination: claimed.destination,
+        collisionPolicy: "create-only",
         desired: structuredClone(claimed.desired),
         desiredDigest: claimed.desiredDigest,
       });
@@ -355,6 +358,16 @@ interface MaterializationFailure {
 
 function digestSession(session: { serialize(): string }): string {
   return createHash("sha256").update(session.serialize()).digest("hex");
+}
+
+function compileTimelineIrToFcxmlVersioned(
+  desired: TimelineIr,
+  target: TimelineIrToFcpxmlTarget,
+): TimelineIrToFcpxmlResult {
+  if (target.materialization === "reuse-existing") {
+    throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_REUSE_FORBIDDEN: materialization jobs are create-only");
+  }
+  return compileTimelineIrToFcpxml(desired, { target: { ...target, materialization: "versioned" } });
 }
 
 function materializationFailure(error: unknown, providerRequested: boolean): MaterializationFailure {

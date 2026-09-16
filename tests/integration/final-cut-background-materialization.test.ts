@@ -43,6 +43,7 @@ function request(artifactPath: string, artifact: string) {
       projectName: "Project (Framekit abc123)",
       sequenceName: "Main (Framekit abc123)",
     },
+    collisionPolicy: "create-only",
     desired,
     desiredDigest: timelineIrDigest(desired),
   } as never;
@@ -77,6 +78,7 @@ test("publishes a verified artifact with an explicit target and canonical readba
     assert.equal(result.state, "completed");
     assert.equal(received.target.libraryUid, "library-1");
     assert.equal(received.destination.mode, "versioned");
+    assert.equal(received.collisionPolicy, "create-only");
     assert.equal(received.desired.project.id, "project-1");
   } finally {
     await rm(directory, { recursive: true, force: true });

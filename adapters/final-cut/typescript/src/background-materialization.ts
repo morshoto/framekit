@@ -15,6 +15,7 @@ export interface FinalCutBackgroundMaterializationRequest {
   artifactDigest: string;
   target: TimelineIrToFcpxmlTarget;
   destination: TimelineIrToFcpxmlResult["destination"];
+  collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
 }
@@ -77,6 +78,7 @@ function validateRequest(request: FinalCutBackgroundMaterializationRequest): voi
     throw new Error("MATERIALIZATION_REQUEST_INVALID: immutable artifact path and digest are required");
   }
   if (!request.desiredDigest.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: desired digest is required");
+  if (request.collisionPolicy !== "create-only") throw new Error("MATERIALIZATION_REQUEST_INVALID: publication must be create-only");
   const { target } = request;
   if (target.provider !== "final-cut" || !target.libraryUid.trim() || !target.eventUid.trim() || !target.projectUid.trim() || !target.sequenceUid.trim()) {
     throw new Error("FCPXML_TARGET_BINDING_INVALID: library, event, project, and sequence identities are required");
