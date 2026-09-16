@@ -67,6 +67,11 @@ export interface FinalCutLiveTransport {
   request(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse>;
 }
 
+export interface FinalCutLiveInspection {
+  identity: EditorIdentity;
+  capabilities: RuntimeCapabilities;
+}
+
 /** Newline-delimited JSON transport for the local Workflow Extension socket. */
 export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
   public constructor(
@@ -128,14 +133,22 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     private readonly socketPath = "configured-socket",
   ) {}
 
-  public async getIdentity(): Promise<EditorIdentity> {
+  public async inspect(): Promise<FinalCutLiveInspection> {
     const response = await this.request({ method: "capabilities" });
-    return response.identity;
+    return {
+      identity: response.identity,
+      capabilities: withCanonicalTimelineMode(withCapabilityFamilies(response.capabilities, {
+        backend: response.identity.backend,
+      })),
+    };
+  }
+
+  public async getIdentity(): Promise<EditorIdentity> {
+    return (await this.inspect()).identity;
   }
 
   public async getCapabilities(): Promise<RuntimeCapabilities> {
-    const response = await this.request({ method: "capabilities" });
-    return withCanonicalTimelineMode(withCapabilityFamilies(response.capabilities, { backend: response.identity.backend }));
+    return (await this.inspect()).capabilities;
   }
 
   public async read(): Promise<ProjectSnapshot> {

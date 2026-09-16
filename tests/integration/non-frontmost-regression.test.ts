@@ -280,9 +280,12 @@ test("absent Final Cut returns bounded structured native blockers", async () => 
   const events: string[] = [];
   const manager = new FinalCutConnectionManager({
     headless: true,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
     detectFinalCut: async () => { events.push("detect"); return false; },
     launchFinalCut: async () => { events.push("launch"); },
     probe: async () => { throw new Error("socket missing"); },
+    sleep: async () => {},
   });
   const startedAt = Date.now();
   const status = await manager.ensureConnected();

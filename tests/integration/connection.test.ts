@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import { mkdtemp, mkdir } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -113,6 +114,8 @@ test("headless connection probes an existing bridge without launching or activat
   const events: string[] = [];
   const manager = new FinalCutConnectionManager({
     headless: true,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
     detectFinalCut: async () => { events.push("detect"); return false; },
     launchFinalCut: async () => { events.push("launch"); },
     activateExtension: async () => { events.push("activate"); },
@@ -127,20 +130,124 @@ test("headless connection probes an existing bridge without launching or activat
   assert.deepEqual(events, []);
 });
 
+test("headless connection waits for an existing bridge to become ready", async () => {
+  let probes = 0;
+  const sleeps: number[] = [];
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    startupTimeoutMs: 100,
+    pollIntervalMs: 10,
+    probe: async () => {
+      probes += 1;
+      if (probes === 1) throw new Error("socket is still starting");
+      return {
+        identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+        capabilities,
+      };
+    },
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); },
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(probes, 2);
+  assert.deepEqual(sleeps, [10]);
+});
+
+test("headless connection uses one coherent socket capability response", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-headless-socket-test-"));
+  const socketPath = join(directory, "bridge.sock");
+  let requests = 0;
+  const server = createServer((socket) => {
+    socket.setEncoding("utf8");
+    socket.once("data", (chunk) => {
+      requests += 1;
+      const request = JSON.parse(String(chunk).trim()) as { id: string; version: number };
+      socket.end(`${JSON.stringify({
+        version: request.version,
+        id: request.id,
+        ok: true,
+        result: {
+          identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+          capabilities,
+        },
+      })}\n`);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+  try {
+    const manager = new FinalCutConnectionManager({
+      headless: true,
+      socketPath,
+      startupTimeoutMs: 100,
+    });
+    const status = await manager.ensureConnected();
+
+    assert.equal(status.state, "ready");
+    assert.equal(status.identity?.backend, "workflow-extension-ipc");
+    assert.equal(requests, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("headless connection fails closed when the existing bridge is unavailable", async () => {
   const events: string[] = [];
   const manager = new FinalCutConnectionManager({
     headless: true,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
     detectFinalCut: async () => { events.push("detect"); return true; },
     launchFinalCut: async () => { events.push("launch"); },
     activateExtension: async () => { events.push("activate"); },
     probe: async () => { throw new Error("socket missing"); },
+    sleep: async () => {},
   });
 
   const status = await manager.ensureConnected();
   assert.equal(status.state, "unavailable");
   assert.equal(status.lastError?.code, "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE");
   assert.deepEqual(events, []);
+});
+
+test("headless connection reports incompatible bridge protocols", async () => {
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    socketPath: "/tmp/framekit-incompatible.sock",
+    startupTimeoutMs: 100,
+    probe: async () => {
+      throw new Error("FINAL_CUT_LIVE_PROTOCOL: unsupported request version");
+    },
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "unavailable");
+  assert.equal(status.lastError?.code, "FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE");
+  assert.match(status.lastError?.message ?? "", /unsupported request version/);
+  assert.match(status.lastError?.message ?? "", /incompatible/);
+});
+
+test("headless connection reports an installed extension before socket failure", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-headless-extension-test-"));
+  const extensionPath = join(directory, "FramekitFinalCutWorkflow.app");
+  await mkdir(extensionPath);
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    extensionInstallPath: extensionPath,
+    startupTimeoutMs: 30,
+    pollIntervalMs: 1,
+    probe: async () => { throw new Error("socket missing"); },
+    sleep: async () => {},
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "unavailable");
+  assert.equal(status.extensionInstalled, true);
+  assert.equal(status.lastError?.code, "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE");
 });
 
 test("connection manager remains actionable when the extension is missing", async () => {
