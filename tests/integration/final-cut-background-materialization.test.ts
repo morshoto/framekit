@@ -148,6 +148,28 @@ test("preserves a locked-console blocker and never reports headed proof", async 
   }
 });
 
+test("rejects a blocked response without a boolean retryability", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-response-"));
+  try {
+    const artifact = "<fcpxml/>";
+    const artifactPath = join(directory, "staged.fcpxml");
+    await writeFile(artifactPath, artifact, "utf8");
+    const publisher = new FinalCutBackgroundMaterializationPublisher({
+      executor: async () => ({
+        state: "blocked",
+        code: "FINAL_CUT_TARGET_UNAVAILABLE",
+        message: "The requested target is unavailable",
+      } as never),
+    });
+    await assert.rejects(
+      publisher.publish(request(artifactPath, artifact)),
+      /FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("invokes the configured command through its stdin and stdout contract", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-command-"));
   try {
