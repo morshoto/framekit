@@ -359,4 +359,7 @@ test("documents session tools persistence and materialization evidence boundarie
   assert.match(architecture, /canonical: false/);
   assert.match(architecture, /artifact.*provider-requested.*canonical-readback.*headed-native/s);
   assert.match(architecture, /does not write.*SQLite/i);
+  assert.match(architecture, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
+  assert.match(architecture, /publishing/);
+  assert.match(tools, /libraryUid.*eventUid.*projectUid.*sequenceUid/s);
 });
