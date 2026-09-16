@@ -9,6 +9,8 @@ import type {
   TimelineIrToFcpxmlTarget,
 } from "./timeline-ir-fcpxml.js";
 
+const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+
 export interface FinalCutBackgroundMaterializationRequest {
   jobId: string;
   artifactPath: string;
@@ -32,6 +34,7 @@ export type FinalCutBackgroundMaterializationResult =
 export interface FinalCutBackgroundMaterializationPublisherOptions {
   executor?: (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult>;
   command?: string;
+  commandTimeoutMs?: number;
 }
 
 /**
@@ -40,7 +43,14 @@ export interface FinalCutBackgroundMaterializationPublisherOptions {
  * readback; this adapter never activates Final Cut or falls back to UI calls.
  */
 export class FinalCutBackgroundMaterializationPublisher {
-  public constructor(private readonly options: FinalCutBackgroundMaterializationPublisherOptions = {}) {}
+  private readonly commandTimeoutMs: number;
+
+  public constructor(private readonly options: FinalCutBackgroundMaterializationPublisherOptions = {}) {
+    if (options.commandTimeoutMs !== undefined && (!Number.isFinite(options.commandTimeoutMs) || options.commandTimeoutMs <= 0)) {
+      throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_TIMEOUT_INVALID: command timeout must be greater than zero");
+    }
+    this.commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+  }
 
   public isAvailable(): boolean {
     return this.options.executor !== undefined || Boolean(this.options.command?.trim());
@@ -49,7 +59,7 @@ export class FinalCutBackgroundMaterializationPublisher {
   public async publish(request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationResult> {
     validateRequest(request);
     const executor = this.options.executor ?? (this.options.command?.trim()
-      ? commandExecutor(this.options.command.trim())
+      ? commandExecutor(this.options.command.trim(), this.commandTimeoutMs)
       : undefined);
     if (!executor) {
       return {
@@ -116,23 +126,23 @@ function validateTargetIdentity(target: FinalCutTargetIdentity): void {
   }
 }
 
-function commandExecutor(command: string): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult> {
+function commandExecutor(command: string, timeoutMs: number): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult> {
   return async (request) => {
-    const output = await new Promise<string>((resolvePromise, reject) => {
-      const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-      child.once("error", reject);
-      child.once("close", (code) => {
-        if (code === 0) resolvePromise(stdout);
-        else reject(new Error(`FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: command exited ${code}: ${stderr.trim()}`));
-      });
-      child.stdin.end(`${JSON.stringify(request)}\n`);
-    });
+    let output: string;
+    try {
+      output = await runCommand(command, request, timeoutMs);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const timedOut = detail.startsWith("FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT");
+      return {
+        state: "blocked",
+        code: timedOut
+          ? "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT"
+          : "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_UNAVAILABLE",
+        message: detail,
+        retryable: true,
+      };
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(output);
@@ -141,4 +151,64 @@ function commandExecutor(command: string): (request: FinalCutBackgroundMateriali
     }
     return validateResult(parsed as FinalCutBackgroundMaterializationResult);
   };
+}
+
+function runCommand(
+  command: string,
+  request: FinalCutBackgroundMaterializationRequest,
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let closed = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let forceKillHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      if (forceKillHandle !== undefined) clearTimeout(forceKillHandle);
+    };
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.once("error", (error) => settle(() => reject(error)));
+    child.once("close", (code) => {
+      closed = true;
+      if (settled) {
+        cleanup();
+        return;
+      }
+      if (code === 0) {
+        settle(() => resolve(stdout));
+      } else {
+        settle(() => reject(new Error(
+          `FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_FAILED: command exited ${code}: ${stderr.trim()}`,
+        )));
+      }
+    });
+    timeoutHandle = setTimeout(() => {
+      if (settled) return;
+      child.kill("SIGTERM");
+      forceKillHandle = setTimeout(() => {
+        if (!closed) child.kill("SIGKILL");
+      }, 1_000);
+      settled = true;
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      reject(new Error(
+        `FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT: command exceeded ${timeoutMs}ms`,
+      ));
+    }, timeoutMs);
+    child.stdin.end(`${JSON.stringify(request)}\n`);
+  });
 }

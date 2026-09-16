@@ -61,6 +61,9 @@ A completed command result must contain `canonicalReadback`, the exact created
 both the Timeline IR digest and the target identity before completing the job.
 Locked-console or unavailable-capability responses remain structured retryable
 blockers; a provider request alone is never success.
+Configured publisher commands are bounded by a 30-second deadline by default;
+unavailable, failed, or timed-out commands remain retryable structured blockers
+rather than leaving materialization pending.
 
 The disposable-library experiment matrix is separate from deterministic tests:
 
