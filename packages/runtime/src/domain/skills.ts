@@ -179,6 +179,7 @@ export interface SkillVerificationContext {
   plan: SkillPlan;
   expectedDiff?: TimelineDiff;
   transaction: EditTransaction;
+  measureAudio?: (mediaId: string, occurrenceId: string) => Promise<AudioMeasurement>;
 }
 
 export interface SkillHandler<Input extends Record<string, unknown> = Record<string, unknown>> {
