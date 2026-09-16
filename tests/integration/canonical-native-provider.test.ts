@@ -283,6 +283,69 @@ test("canonical native provider previews and applies its supported timeline tran
   assert.deepEqual(calls, ["edit"]);
 });
 
+test("canonical native provider previews and applies a revision-guarded trim", async () => {
+  const calls: string[] = [];
+  const original = snapshot("Original");
+  const trimmed = structuredClone(original);
+  trimmed.timeline.duration = 3;
+  trimmed.timeline.durationTime = { value: "72", timescale: "24" };
+  trimmed.timeline.clips[0] = {
+    ...trimmed.timeline.clips[0]!,
+    duration: 3,
+    durationTime: { value: "72", timescale: "24" },
+  };
+  trimmed.timeline.storyElements[0] = {
+    ...trimmed.timeline.storyElements[0]!,
+    duration: 3,
+    durationTime: { value: "72", timescale: "24" },
+  };
+  const native = {
+    renameSelectedClip: async () => ({ operationId: "unused", undoAvailable: true }),
+    trimSelectedClipToRange: async (range: { start: { value: string; timescale: string }; end: { value: string; timescale: string } }) => {
+      calls.push(`trim:${range.start.value}/${range.start.timescale}-${range.end.value}/${range.end.timescale}`);
+      return { operationId: "native-trim-1", undoAvailable: true };
+    },
+    undo: async () => {
+      calls.push("undo");
+      return { undone: true, verification: { verified: true } };
+    },
+  };
+  const snapshots: ProjectSnapshot[] = [original, original, original, trimmed, trimmed, original];
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(liveState()),
+      liveChangesSince: async () => [],
+    },
+    native,
+    readSnapshot: async () => {
+      const next = snapshots.shift();
+      if (!next) throw new Error("snapshot queue exhausted");
+      return structuredClone(next);
+      },
+    resolveTarget: async () => undefined,
+  });
+  const before = await provider.readProject();
+  const operation = {
+    type: "trim-clip" as const,
+    clipId: before.timeline.clips[0]!.id,
+    duration: 3,
+    durationTime: { value: "72", timescale: "24" },
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.clips[0]?.duration, 3);
+  assert.deepEqual(preview.timeline.clips[0]?.durationTime, operation.durationTime);
+  assert.deepEqual(calls, []);
+
+  const afterRevision = await provider.apply(operation, before.revision);
+
+  assert.deepEqual(calls, ["trim:0/24-72/24"]);
+  await provider.restore(before, afterRevision);
+  assert.deepEqual(calls, ["trim:0/24-72/24", "undo"]);
+});
+
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
   const calls: string[] = [];
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);
