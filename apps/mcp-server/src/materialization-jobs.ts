@@ -21,7 +21,12 @@ export interface SessionMaterializationPublishRequest {
 
 export interface SessionMaterializationPublisher {
   publish(request: SessionMaterializationPublishRequest): Promise<
-    | { state: "completed"; canonicalReadback: TimelineIr; headedNativeVerified: boolean }
+    | {
+        state: "completed";
+        canonicalReadback: TimelineIr;
+        canonicalTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
+        headedNativeVerified: boolean;
+      }
     | { state: "blocked"; code: string; message: string; retryable: boolean }
   >;
 }
@@ -172,6 +177,20 @@ export class SessionMaterializationJobs {
         return this.fail(claimed, {
           code: "MATERIALIZATION_READBACK_MISMATCH",
           message: "Canonical provider readback does not match the desired Timeline IR",
+          retryable: false,
+          providerRequested: true,
+        });
+      }
+      const expectedTarget = {
+        libraryUid: claimed.target.libraryUid,
+        eventUid: claimed.target.eventUid,
+        projectUid: claimed.destination.projectUid,
+        sequenceUid: claimed.destination.sequenceUid,
+      };
+      if (!sameTarget(result.canonicalTarget, expectedTarget)) {
+        return this.fail(claimed, {
+          code: "MATERIALIZATION_TARGET_READBACK_MISMATCH",
+          message: "Canonical provider readback does not identify the staged versioned target",
           retryable: false,
           providerRequested: true,
         });
@@ -342,4 +361,14 @@ function materializationFailure(error: unknown, providerRequested: boolean): Mat
   const message = error instanceof Error ? error.message : String(error);
   const code = message.match(/^([A-Z][A-Z0-9_]*):/)?.[1] ?? "MATERIALIZATION_PUBLISH_FAILED";
   return { code, message, retryable: false, providerRequested };
+}
+
+function sameTarget(
+  actual: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string } | undefined,
+  expected: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string },
+): boolean {
+  return actual?.libraryUid === expected.libraryUid
+    && actual.eventUid === expected.eventUid
+    && actual.projectUid === expected.projectUid
+    && actual.sequenceUid === expected.sequenceUid;
 }

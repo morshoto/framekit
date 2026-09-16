@@ -61,6 +61,8 @@ function timeline(): TimelineIr {
 
 const target: TimelineIrToFcpxmlTarget = {
   provider: "final-cut",
+  libraryUid: "library-1",
+  eventUid: "event-1",
   projectUid: "project-1",
   sequenceUid: "sequence-1",
   eventName: "Framekit Event",

@@ -10,12 +10,17 @@ import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
 
-/** The provider identity that owns the destination project and sequence. */
-export interface TimelineIrToFcpxmlTarget {
-  provider: "final-cut";
+/** Stable Final Cut identities required for target-bound publication. */
+export interface FinalCutTargetIdentity {
+  libraryUid: string;
+  eventUid: string;
   projectUid: string;
   sequenceUid: string;
-  eventUid?: string;
+}
+
+/** The provider identity that owns the destination project and sequence. */
+export interface TimelineIrToFcpxmlTarget extends FinalCutTargetIdentity {
+  provider: "final-cut";
   eventName?: string;
   /** Reusing an existing project is opt-in; versioned is the safe default. */
   materialization?: "versioned" | "reuse-existing";
@@ -97,7 +102,7 @@ export function compileTimelineIrToFcpxml(
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
-    `    <event${options.target.eventUid ? ` uid="${xmlEscape(options.target.eventUid)}"` : ""} name="${xmlEscape(options.target.eventName ?? "Framekit Event")}">`,
+    `    <event uid="${xmlEscape(options.target.eventUid)}" name="${xmlEscape(options.target.eventName ?? "Framekit Event")}">`,
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
     `        <sequence uid="${xmlEscape(destination.sequenceUid)}" name="${xmlEscape(destination.sequenceName)}" format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
     "          <spine>",
@@ -132,9 +137,10 @@ export function compileTimelineIrToFcpxml(
 
 function validateTarget(target: TimelineIrToFcpxmlTarget): void {
   if (!target || target.provider !== "final-cut") throw new Error("FCPXML_TARGET_BINDING_INVALID: provider must be final-cut");
+  requireText(target.libraryUid, "libraryUid");
+  requireText(target.eventUid, "eventUid");
   requireText(target.projectUid, "projectUid");
   requireText(target.sequenceUid, "sequenceUid");
-  if (target.eventUid !== undefined) requireText(target.eventUid, "eventUid");
   if (target.eventName !== undefined) requireText(target.eventName, "eventName");
   if (target.materialization !== undefined && !["versioned", "reuse-existing"].includes(target.materialization)) {
     throw new Error(`FCPXML_TARGET_BINDING_INVALID: unsupported materialization ${target.materialization}`);

@@ -59,7 +59,26 @@ async function connect(directory: string, publisher?: SessionMaterializationPubl
   return { client, server };
 }
 
-const target = { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1", eventName: "Framekit" };
+const target = {
+  provider: "final-cut",
+  libraryUid: "library-1",
+  eventUid: "event-1",
+  projectUid: "project-1",
+  sequenceUid: "sequence-1",
+  eventName: "Framekit",
+};
+
+function canonicalTarget(request: {
+  target: Pick<typeof target, "libraryUid" | "eventUid" | "projectUid" | "sequenceUid">;
+  destination: { projectUid: string; sequenceUid: string };
+}) {
+  return {
+    libraryUid: request.target.libraryUid,
+    eventUid: request.target.eventUid,
+    projectUid: request.destination.projectUid,
+    sequenceUid: request.destination.sequenceUid,
+  };
+}
 
 test("previews without mutation and resumes a blocked immutable materialization job", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-"));
@@ -106,7 +125,7 @@ test("previews without mutation and resumes a blocked immutable materialization 
     const second = await connect(directory, {
       publish: async (request) => {
         resumedRequests.push(request.jobId);
-        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
       },
     });
     const restored = payload(await second.client.callTool({
@@ -135,7 +154,7 @@ test("completes only after matching canonical provider readback", async () => {
   const publisher: SessionMaterializationPublisher = {
     publish: async (request) => {
       published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid });
-      return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+      return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
     },
   };
   try {
@@ -152,6 +171,37 @@ test("completes only after matching canonical provider readback", async () => {
     assert.equal(completed.evidence.headedNative, false);
     assert.equal(published.length, 1);
     assert.notEqual(published[0]?.projectUid, target.projectUid);
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("requires canonical readback to identify the created target", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-target-"));
+  try {
+    const connected = await connect(directory, {
+      publish: async (request) => ({
+        state: "completed",
+        canonicalReadback: request.desired,
+        canonicalTarget: {
+          libraryUid: request.target.libraryUid,
+          eventUid: request.target.eventUid,
+          projectUid: "wrong-project",
+          sequenceUid: request.destination.sequenceUid,
+        },
+        headedNativeVerified: false,
+      } as any),
+    });
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-target", provider: { id: "final-cut" }, base: timeline() } });
+    const failed = payload(await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-target", target, confirm: true },
+    }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_TARGET_READBACK_MISMATCH");
+    assert.equal(failed.evidence.canonicalReadback, false);
     await connected.client.close();
     await connected.server.close();
   } finally {
@@ -190,7 +240,7 @@ test("fails closed when the persisted session changes after staging", async () =
     const second = await connect(directory, {
       publish: async (request) => {
         requests.push(request.desired);
-        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
       },
     });
     const resumed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: blocked.jobId } }));
@@ -226,7 +276,7 @@ test("atomically claims a retry so concurrent attempts publish once", async () =
         if (calls === 1) {
           await new Promise<void>((resolve) => { release = resolve; });
         }
-        return { state: "completed" as const, canonicalReadback: request.desired, headedNativeVerified: false };
+        return { state: "completed" as const, canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
       },
     } satisfies SessionMaterializationPublisher;
     const left = await connect(directory, publisher);
@@ -276,7 +326,7 @@ test("fails closed when the session changes after staging", async () => {
     const second = await connect(directory, {
       publish: async (request) => {
         calls += 1;
-        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
       },
     });
     const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));

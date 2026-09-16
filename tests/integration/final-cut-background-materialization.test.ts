@@ -5,6 +5,7 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
+import { timelineIrDigest } from "@framekit/runtime";
 
 const desired = {
   schemaVersion: 1 as const,
@@ -43,7 +44,7 @@ function request(artifactPath: string, artifact: string) {
       sequenceName: "Main (Framekit abc123)",
     },
     desired,
-    desiredDigest: "desired-digest",
+    desiredDigest: timelineIrDigest(desired),
   } as never;
 }
 
