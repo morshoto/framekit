@@ -13,6 +13,7 @@ contracts separate from MCP transport and editor adapters.
 - [Locked-console FCPXML experiment](./locked-console-fcpxml-experiment.md)
 - [Unattended editing workflow](./unattended-editing.md)
 - [Headless editing sessions](./headless-editing-sessions.md)
+- [`.fcpevent` shadow materialization research](./fcpevent-shadow-materialization-research.md)
 - [Capability model](./capability-model.md)
 - [Background render and export investigation](../final-cut/background-render-export-investigation.md)
 - [Skill requirements](./skill-requirements.md)
