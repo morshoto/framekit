@@ -111,7 +111,7 @@ test("user documentation leads with plugin installation and explains first-run b
     assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
   }
   assert.match(installation, /npx -y @morshoto\/framekit doctor finalcut/);
-  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready live session may expose metadata while rejecting unsupported operations/i);
+  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready\s+live session may expose metadata while rejecting unsupported operations/i);
   assert.match(gettingStarted, /permissions are required only for an explicit\s+headed native-write setup/i);
 });
 

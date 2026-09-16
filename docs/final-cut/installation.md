@@ -50,11 +50,13 @@ Extension before asking Codex to connect.
 Start troubleshooting with `connection.status`. A missing application,
 extension, or socket must remain an actionable non-ready state;
 `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE`,
-`FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE`, and `CAPABILITY_UNAVAILABLE` are
-not successful connections. Live metadata access also does not imply canonical
-timeline snapshot or write capability: inspect the active backend's capability
-flags before using project, timeline, or edit tools. When ready, its effective
-capabilities and `preflight` fingerprint match `editor.inspect`.
+and `FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE` are headless connection
+failures. `CAPABILITY_UNAVAILABLE` is an operation-level diagnostic: a ready
+live session may expose metadata while rejecting unsupported operations. Live
+metadata access also does not imply canonical timeline snapshot or write
+capability: inspect the active backend's capability flags before using project,
+timeline, or edit tools. When ready, its effective capabilities and `preflight`
+fingerprint match `editor.inspect`.
 
 Call `editor.inspect` after connecting to read the actionable `preflight` report.
 It identifies the active `mode`, `documentMode`, headed/headless `processMode`,
