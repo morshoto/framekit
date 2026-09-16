@@ -35,6 +35,7 @@ import {
 import type {
   NativeFinalCutEditor,
 } from "./native.js";
+import { recoverCanonicalNativeMutation } from "./canonical-recovery.js";
 import { FcpxmlDocumentAdapter } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
@@ -447,14 +448,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       return after.revision;
     } catch (error) {
       try {
-        const undone = await this.native.undo(nativeResult.operationId);
-        if (!undone.undone || undone.verification?.verified !== true) {
-          throw new Error("native Undo did not verify restoration");
-        }
-        const restored = await this.readProject();
-        if (canonicalSnapshotDigest(restored) !== this.pending.beforeDigest) {
-          throw new Error("restored canonical digest does not match the pre-edit state");
-        }
+        await recoverCanonicalNativeMutation({
+          operationId: nativeResult.operationId,
+          before,
+          target: timelineTarget,
+          undo: this.native.undo,
+          readSnapshot: () => this.readProject(),
+        });
       } catch (rollbackError) {
         const original = error instanceof Error ? error.message : String(error);
         const rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
