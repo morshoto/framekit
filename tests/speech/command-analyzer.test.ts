@@ -83,6 +83,48 @@ test("command speech analyzer keeps transcription-only output distinct", async (
   assert.equal(result.vadSegments, undefined);
 });
 
+test("configured local speech analyzer requires VAD and reports provider version", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-vad-provider-"));
+  const mediaPath = join(directory, "interview.wav");
+  await writeFile(mediaPath, "media");
+  const wrapper = await createWrapper(directory, {
+    words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+    vadSegments: [{ start: 0, end: 1, kind: "speech" }],
+    sourceTimebase: { value: "1", timescale: "1000" },
+  });
+
+  const analyzer = new CommandSpeechAnalyzer({
+    command: wrapper,
+    providerVersion: "local-whisper-vad@1",
+    requireVad: true,
+  });
+  const result = await analyzer.analyze(createInput(mediaPath));
+
+  assert.deepEqual(analyzer.descriptor, {
+    id: "command.speech",
+    provider: "command",
+    version: "local-whisper-vad@1",
+  });
+  assert.deepEqual(analyzer.capabilities, { transcription: true, vad: true });
+  assert.equal(result.provider?.version, "local-whisper-vad@1");
+  assert.equal(result.capability, "transcription-plus-vad");
+});
+
+test("configured local speech analyzer rejects transcript-only output", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-vad-required-"));
+  const mediaPath = join(directory, "interview.wav");
+  await writeFile(mediaPath, "media");
+  const wrapper = await createWrapper(directory, {
+    words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+    sourceTimebase: { value: "1", timescale: "1000" },
+  });
+
+  await assert.rejects(
+    new CommandSpeechAnalyzer({ command: wrapper, requireVad: true }).analyze(createInput(mediaPath)),
+    /ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence/,
+  );
+});
+
 test("command speech analyzer advertises only guaranteed capabilities", async () => {
   const analyzer = new CommandSpeechAnalyzer({ command: "/usr/bin/true" });
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
