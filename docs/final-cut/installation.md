@@ -41,16 +41,17 @@ starts the published package as:
 npx -y @morshoto/framekit mcp --editor final-cut-live --headless
 ```
 
-Headless mode only probes an existing Workflow Extension bridge. It does not
-install the extension, launch or activate Final Cut Pro, focus its windows,
-request Accessibility or Automation access, or perform native destructive
-edits. Open Final Cut and its Framekit Workflow Extension before asking Codex to
-connect.
+Headless mode performs bounded readiness probes against an existing Workflow
+Extension bridge. It does not install the extension, launch or activate Final
+Cut Pro, focus its windows, request Accessibility or Automation access, or
+perform native destructive edits. Open Final Cut and its Framekit Workflow
+Extension before asking Codex to connect.
 
 Start troubleshooting with `connection.status`. A missing application,
 extension, or socket must remain an actionable non-ready state;
-`FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` and `CAPABILITY_UNAVAILABLE` are not
-successful connections. Live metadata access also does not imply canonical
+`FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE`,
+`FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE`, and `CAPABILITY_UNAVAILABLE` are
+not successful connections. Live metadata access also does not imply canonical
 timeline snapshot or write capability: inspect the active backend's capability
 flags before using project, timeline, or edit tools. When ready, its effective
 capabilities and `preflight` fingerprint match `editor.inspect`.
