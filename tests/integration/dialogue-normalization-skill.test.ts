@@ -202,8 +202,9 @@ test("dialogue execution remeasures after writing and verifies the new result", 
   assert.equal(result.status, "ROLLED_BACK");
   assert.equal(result.rollback.succeeded, true);
   const measurementCheck = result.verification?.checks.find((check) => check.name === "dialogue-measurement");
-  assert.equal(measurementCheck?.passed, false);
+  assert.equal(measurementCheck?.passed, true);
   assert.equal((measurementCheck?.observed as { occurrenceId?: string } | undefined)?.occurrenceId, "dialogue-occurrence");
+  assert.equal(result.verification?.checks.find((check) => check.name === "dialogue-loudness")?.passed, false);
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });
 
