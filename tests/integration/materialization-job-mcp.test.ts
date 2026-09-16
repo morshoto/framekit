@@ -203,6 +203,92 @@ test("retries with the immutable desired snapshot that produced its artifact", a
   }
 });
 
+test("atomically claims a retry so concurrent attempts publish once", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-claim-"));
+  let release!: () => void;
+  let calls = 0;
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-claim", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-claim", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const publisher = {
+      publish: async (request: Parameters<SessionMaterializationPublisher["publish"]>[0]) => {
+        calls += 1;
+        if (calls === 1) {
+          await new Promise<void>((resolve) => { release = resolve; });
+        }
+        return { state: "completed" as const, canonicalReadback: request.desired, headedNativeVerified: false };
+      },
+    } satisfies SessionMaterializationPublisher;
+    const left = await connect(directory, publisher);
+    const right = await connect(directory, publisher);
+    const leftRetry = left.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } });
+    while (calls === 0) await new Promise((resolve) => setImmediate(resolve));
+    const rightRetry = payload(await right.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(rightRetry.state, "publishing");
+    assert.equal(calls, 1);
+    release();
+    const completed = payload(await leftRetry);
+    assert.equal(completed.state, "completed");
+    assert.equal(payload(await right.client.callTool({ name: "session.materialize.status", arguments: { jobId: staged.jobId } })).state, "completed");
+    await left.client.close();
+    await left.server.close();
+    await right.client.close();
+    await right.server.close();
+  } finally {
+    release();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the session changes after staging", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-session-drift-"));
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-drift", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-drift", target, confirm: true },
+    }));
+    const changed = payload(await first.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-drift",
+        operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Changed after staging" }],
+      },
+    }));
+    assert.equal(changed.document.desired.sequence.occurrences[0]?.name, "Changed after staging");
+    await first.client.close();
+    await first.server.close();
+
+    let calls = 0;
+    const second = await connect(directory, {
+      publish: async (request) => {
+        calls += 1;
+        return { state: "completed", canonicalReadback: request.desired, headedNativeVerified: false };
+      },
+    });
+    const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_SESSION_CHANGED");
+    assert.equal(calls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("documents session tools persistence and materialization evidence boundaries", async () => {
   const tools = await readFile("docs/mcp/tools.md", "utf8");
   const architecture = await readFile("docs/architecture/headless-editing-sessions.md", "utf8");
