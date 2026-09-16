@@ -184,6 +184,7 @@ export class SkillRuntime {
         plan: session.preview.plan,
         ...(session.preview.expectedDiff ? { expectedDiff: session.preview.expectedDiff } : {}),
         transaction,
+        measureAudio: (mediaId: string, occurrenceId: string) => this.analysis.measureAudio(mediaId, occurrenceId),
       } satisfies SkillVerificationContext);
       verification = {
         passed: Boolean(verification?.passed) && checks.every((check) => check.passed),
