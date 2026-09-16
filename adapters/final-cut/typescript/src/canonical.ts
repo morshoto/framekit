@@ -30,6 +30,7 @@ import {
   type RuntimeCapabilities,
   type CapabilityDescriptor,
   type CapabilityInspectionOptions,
+  type RationalTime,
   type WorkflowOperation,
 } from "@framekit/runtime";
 import type {
@@ -41,6 +42,7 @@ const execFile = promisify(execFileCallback);
 
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
+  trimSelectedClipToRange?(range: { start: RationalTime; end: RationalTime }): Promise<{ operationId: string; undoAvailable: boolean }>;
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
 
@@ -320,6 +322,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectSelectionMode: "unavailable",
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
+        semanticOperations: {
+          "rename-clip": snapshotProbe.available,
+          "trim-clip": snapshotProbe.available && Boolean(this.native.trimSelectedClipToRange),
+        },
       },
       analyzers: {
         speechTranscribe: false,
@@ -390,10 +396,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const operation = supportedCanonicalOperation(operations);
     const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
-    const preview = structuredClone(before);
-    preview.timeline.clips = preview.timeline.clips.map((candidate) => (
-      candidate.id === operation.clipId ? { ...candidate, name: operation.name } : candidate
-    ));
+    assertCanonicalOperationAvailable(this.native, operation);
+    const preview = projectCanonicalOperation(before, operation);
     preview.revision = previewRevision(preview, before.revision);
     return preview;
   }
@@ -410,11 +414,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     if (operation.type !== "rename-clip") {
-      throw new Error(`CAPABILITY_UNAVAILABLE: final-cut native canonical provider does not support ${operation.type}`);
+      if (operation.type !== "trim-clip") {
+        throw new Error(`CAPABILITY_UNAVAILABLE: final-cut native canonical provider does not support ${operation.type}`);
+      }
     }
-    validateCanonicalRename(operation);
     const clip = before.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+    const trimDuration = validateCanonicalOperation(operation, clip, before);
 
     const timelineTarget = createTimelineTarget(before, {
       occurrenceId: clip.id,
@@ -422,9 +428,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
     resolveTimelineTarget(before, timelineTarget);
     await this.resolveTarget(clip, before);
-    const nativeResult = await this.native.renameSelectedClip(operation.name);
+    assertCanonicalOperationAvailable(this.native, operation);
+    const nativeResult = operation.type === "rename-clip"
+      ? await this.native.renameSelectedClip(operation.name)
+      : await this.native.trimSelectedClipToRange!({
+        start: structuredClone(clip.startTime),
+        end: addRational(clip.startTime, trimDuration!),
+      });
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native rename did not expose Undo");
+      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
     this.pending = {
       operationId: nativeResult.operationId,
@@ -436,8 +448,17 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     try {
       const after = await this.readProject();
       const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
-      if (!afterClip || afterClip.name !== operation.name) {
+      if (!afterClip) {
+        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: edited occurrence was not read back from Final Cut");
+      }
+      if (operation.type === "rename-clip" && afterClip.name !== operation.name) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+      }
+      if (operation.type === "trim-clip" && (
+        !sameRational(afterClip.startTime, clip.startTime)
+        || !sameRational(afterClip.durationTime, trimDuration!)
+      )) {
+        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: trimmed occurrence range was not read back from Final Cut");
       }
       if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
@@ -583,11 +604,84 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 }
 
-function supportedCanonicalOperation(operations: WorkflowOperation[]): Extract<WorkflowOperation, { type: "rename-clip" }> {
-  if (operations.length !== 1 || operations[0]?.type !== "rename-clip") {
-    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip transaction");
+type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "trim-clip" }>;
+
+function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
+  const operation = operations.length === 1 ? operations[0] : undefined;
+  if (operation?.type !== "rename-clip" && operation?.type !== "trim-clip") {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename or trim transaction");
   }
-  return validateCanonicalRename(operations[0]);
+  return operation;
+}
+
+function assertCanonicalOperationAvailable(
+  native: CanonicalNativeMutationPort,
+  operation: CanonicalOperation,
+): void {
+  if (operation.type === "trim-clip" && !native.trimSelectedClipToRange) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical trim");
+  }
+}
+
+function validateCanonicalOperation(
+  operation: CanonicalOperation,
+  clip: ProjectSnapshot["timeline"]["clips"][number],
+  snapshot: ProjectSnapshot,
+): RationalTime | undefined {
+  if (operation.type === "rename-clip") return validateCanonicalRename(operation), undefined;
+  if (!operation.durationTime) {
+    throw new Error("INVALID_OPERATION: native trim requires an exact durationTime");
+  }
+  const duration = parseRationalTime(operation.durationTime, "INVALID_OPERATION: trim durationTime");
+  const currentDuration = parseRationalTime(clip.durationTime, "INVALID_PROJECT_STATE: clip durationTime");
+  if (duration.value <= 0n || compareRational(operation.durationTime, clip.durationTime) >= 0) {
+    throw new Error("INVALID_OPERATION: native trim duration must be shorter than the current occurrence");
+  }
+  if (!Number.isFinite(operation.duration)
+    || Math.abs(operation.duration - Number(duration.value) / Number(duration.timescale)) > 1e-9) {
+    throw new Error("INVALID_OPERATION: trim duration and durationTime must agree");
+  }
+  const frame = snapshot.timeline.frameDuration;
+  if (!frame || !isFrameAligned(operation.durationTime, frame)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: native trim duration must align to the sequence frame duration");
+  }
+  if (currentDuration.value <= 0n) throw new Error("INVALID_PROJECT_STATE: clip durationTime must be positive");
+  return structuredClone(operation.durationTime);
+}
+
+function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: CanonicalOperation): ProjectSnapshot {
+  const preview = structuredClone(snapshot);
+  const clip = preview.timeline.clips.find(({ id }) => id === operation.clipId);
+  if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
+  const trimDuration = validateCanonicalOperation(operation, clip, preview);
+  if (operation.type === "rename-clip") {
+    preview.timeline.clips = preview.timeline.clips.map((candidate) => (
+      candidate.id === operation.clipId ? { ...candidate, name: operation.name } : candidate
+    ));
+    return preview;
+  }
+  const updatedClip = {
+    ...clip,
+    duration: rationalSeconds(trimDuration!),
+    durationTime: trimDuration!,
+  };
+  preview.timeline.clips = preview.timeline.clips.map((candidate) => (
+    candidate.id === operation.clipId ? updatedClip : candidate
+  ));
+  preview.timeline.storyElements = preview.timeline.storyElements.map((element) => (
+    element.id === operation.clipId
+      ? { ...element, duration: updatedClip.duration, durationTime: updatedClip.durationTime }
+      : element
+  ));
+  const oldTimelineEnd = snapshot.timeline.durationTime
+    ? addRational(clip.startTime, clip.durationTime)
+    : undefined;
+  if (oldTimelineEnd && snapshot.timeline.durationTime && sameRational(oldTimelineEnd, snapshot.timeline.durationTime)) {
+    const nextTimelineEnd = addRational(clip.startTime, trimDuration!);
+    preview.timeline.durationTime = nextTimelineEnd;
+    preview.timeline.duration = rationalSeconds(nextTimelineEnd);
+  }
+  return preview;
 }
 
 function validateCanonicalRename(
@@ -595,6 +689,56 @@ function validateCanonicalRename(
 ): Extract<EditOperation, { type: "rename-clip" }> {
   if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
   return operation;
+}
+
+function parseRationalTime(value: RationalTime, label: string): { value: bigint; timescale: bigint } {
+  if (!value || !/^-?\d+$/.test(value.value) || !/^\d+$/.test(value.timescale) || value.timescale === "0") {
+    throw new Error(`${label} must be an integer rational`);
+  }
+  return { value: BigInt(value.value), timescale: BigInt(value.timescale) };
+}
+
+function compareRational(left: RationalTime, right: RationalTime): number {
+  const leftValue = BigInt(left.value) * BigInt(right.timescale);
+  const rightValue = BigInt(right.value) * BigInt(left.timescale);
+  return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
+}
+
+function sameRational(left: RationalTime, right: RationalTime): boolean {
+  return compareRational(left, right) === 0;
+}
+
+function addRational(left: RationalTime, right: RationalTime): RationalTime {
+  return normalizeRational(
+    BigInt(left.value) * BigInt(right.timescale) + BigInt(right.value) * BigInt(left.timescale),
+    BigInt(left.timescale) * BigInt(right.timescale),
+  );
+}
+
+function normalizeRational(value: bigint, timescale: bigint): RationalTime {
+  const divisor = gcd(value < 0n ? -value : value, timescale);
+  return { value: (value / divisor).toString(), timescale: (timescale / divisor).toString() };
+}
+
+function gcd(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
+}
+
+function isFrameAligned(value: RationalTime, frame: RationalTime): boolean {
+  const numerator = BigInt(value.value) * BigInt(frame.timescale);
+  const denominator = BigInt(value.timescale) * BigInt(frame.value);
+  return denominator > 0n && numerator % denominator === 0n;
+}
+
+function rationalSeconds(value: RationalTime): number {
+  return Number(value.value) / Number(value.timescale);
 }
 
 function unavailableCanonicalSnapshot(reason: string): CapabilityDescriptor {
