@@ -648,6 +648,7 @@ export interface NativeFinalCutEditor {
   inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   edit(operation: NativeFinalCutEdit, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutEditResult>;
+  addMarkerAtTime(marker: { start: RationalTime; duration: RationalTime; name: string }, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutEditResult>;
   undo(operationId: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutUndoResult>;
   importMedia(sourcePath: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportResult>;
   previewImportMediaDirectory(directoryPath: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportDirectoryPreview>;
@@ -899,6 +900,41 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async edit(operation: NativeFinalCutEdit, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutEditResult> {
     return this.withNativeUi(() => this.editNative(operation), options.signal);
+  }
+
+  public async addMarkerAtTime(
+    marker: { start: RationalTime; duration: RationalTime; name: string },
+    options: NativeFinalCutRequestOptions = {},
+  ): Promise<NativeFinalCutEditResult> {
+    return this.withNativeUi(async () => {
+      this.assertEnabled();
+      const live = await this.requireLiveState();
+      const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+      const sequenceDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+      const frameDuration = live.sequence?.frameDuration;
+      if (!sequenceStart || !sequenceDuration || !frameDuration) {
+        throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence timing is unavailable");
+      }
+      validateNativeMarkerRange(marker, sequenceStart, sequenceDuration, frameDuration);
+      await this.requireNativeWriteContext();
+
+      const startTimecode = this.toTimecode(marker.start, live);
+      await this.executeNativeScript(setPlayheadScript(startTimecode));
+      await this.waitForPlayhead(marker.start, live.sequence?.id);
+      if (compareRational(marker.duration, zeroRational()) > 0) {
+        const end = addRational(marker.start, marker.duration);
+        const endTimecode = this.toTimecode(end, live);
+        await this.executeNativeScript(markRangeStartScript());
+        await this.executeNativeScript(setPlayheadScript(endTimecode));
+        await this.waitForPlayhead(end, live.sequence?.id);
+        await this.executeNativeScript(markRangeEndScript());
+      }
+      return this.editNative({
+        type: "add-marker-at-playhead",
+        name: marker.name,
+        duration: rationalSeconds(marker.duration),
+      });
+    }, options.signal);
   }
 
   private async editNative(operation: NativeFinalCutEdit): Promise<NativeFinalCutEditResult> {
@@ -6112,6 +6148,17 @@ tell application "System Events"
 end tell`;
 }
 
+function markRangeEndScript(): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    keystroke "o"
+    delay 0.2
+  end tell
+end tell`;
+}
+
 function markRangeEndAndDeleteScript(): string {
   return `
 tell application "System Events"
@@ -6454,6 +6501,11 @@ function zeroRational(): RationalTime {
   return { value: "0", timescale: "1" };
 }
 
+function rationalSeconds(value: RationalTime): number {
+  const [numerator, denominator] = rationalParts(value);
+  return Number(numerator) / Number(denominator);
+}
+
 function rationalParts(value: RationalTime): [bigint, bigint] {
   const numerator = BigInt(value.value);
   const denominator = BigInt(value.timescale);
@@ -6684,6 +6736,26 @@ function verifyNativeEdit(operation: NativeFinalCutEdit, before: NativeFinalCutC
     return { verified: false, level: "native-command-accepted", detail: "Final Cut changed focus during the native edit" };
   }
   return { verified: true, level: "native-command-accepted", detail: "Final Cut accepted the native menu command" };
+}
+
+function validateNativeMarkerRange(
+  marker: { start: RationalTime; duration: RationalTime; name: string },
+  sequenceStart: RationalTime,
+  sequenceDuration: RationalTime,
+  frameDuration: RationalTime,
+): void {
+  if (!marker.name.trim()) throw new Error("INVALID_OPERATION: marker name cannot be empty");
+  if (compareRational(marker.duration, zeroRational()) < 0) {
+    throw new Error("INVALID_OPERATION: marker duration must be non-negative");
+  }
+  if (!isFrameAligned(marker.start, sequenceStart, frameDuration)
+    || !isFrameAligned(marker.duration, zeroRational(), frameDuration)) {
+    throw new Error("INVALID_OPERATION: marker position and duration must be frame-aligned");
+  }
+  if (compareRational(marker.start, sequenceStart) < 0
+    || compareRational(addRational(marker.start, marker.duration), addRational(sequenceStart, sequenceDuration)) > 0) {
+    throw new Error("INVALID_OPERATION: marker range must fit inside the active sequence");
+  }
 }
 
 function requiresClip(operation: NativeFinalCutEdit): boolean {
