@@ -159,7 +159,7 @@ test("completes only after matching canonical provider readback", async () => {
   }
 });
 
-test("retries with the immutable desired snapshot that produced its artifact", async () => {
+test("fails closed when the persisted session changes after staging", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-snapshot-"));
   try {
     const first = await connect(directory, {
@@ -194,8 +194,9 @@ test("retries with the immutable desired snapshot that produced its artifact", a
       },
     });
     const resumed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: blocked.jobId } }));
-    assert.equal(resumed.state, "completed");
-    assert.equal(requests[0]?.sequence.occurrences[0]?.name, "Staged desired");
+    assert.equal(resumed.state, "failed");
+    assert.equal(resumed.error.code, "MATERIALIZATION_SESSION_CHANGED");
+    assert.equal(requests.length, 0);
     await second.client.close();
     await second.server.close();
   } finally {
