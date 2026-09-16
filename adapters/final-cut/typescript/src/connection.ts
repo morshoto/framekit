@@ -186,6 +186,7 @@ export class FinalCutConnectionManager {
     try {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
+      this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
       if (existing.result) return this.ready(existing.result);
 
       if (this.canonicalProviderRequired) {
@@ -197,10 +198,7 @@ export class FinalCutConnectionManager {
       }
 
       if (this.headless) {
-        this.update({
-          extensionInstalled: await pathExists(this.extensionInstallPath),
-          state: "waiting-for-socket",
-        });
+        this.update({ state: "waiting-for-socket" });
         const waiting = await this.waitForHeadlessBridge(existing.error);
         if (waiting.result) return this.ready(waiting.result);
         const failure = headlessProbeFailure(waiting.error, this.socketPath);
@@ -323,11 +321,10 @@ export class FinalCutConnectionManager {
     this.update({
       state: "ready",
       editorDetected: true,
-      extensionInstalled: true,
       identity: result.identity,
       capabilities,
       lastError: undefined,
-    });
+      });
     return this.getStatus();
   }
 
