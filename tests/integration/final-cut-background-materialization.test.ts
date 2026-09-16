@@ -192,6 +192,25 @@ test("invokes the configured command through its stdin and stdout contract", asy
   }
 });
 
+test("bounds a hung background command before returning", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-timeout-"));
+  try {
+    const artifact = "<fcpxml/>";
+    const artifactPath = join(directory, "staged.fcpxml");
+    const commandPath = join(directory, "publisher.sh");
+    await writeFile(artifactPath, artifact, "utf8");
+    await writeFile(commandPath, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do :; done\n", "utf8");
+    await chmod(commandPath, 0o755);
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ command: commandPath, timeoutMs: 25 } as never);
+    await assert.rejects(
+      publisher.publish(request(artifactPath, artifact)),
+      /MATERIALIZATION_PUBLISH_TIMEOUT/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects a background response that claims headed-native verification", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-evidence-"));
   try {

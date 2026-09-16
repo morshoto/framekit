@@ -339,6 +339,114 @@ test("atomically claims a retry so concurrent attempts publish once", async () =
   }
 });
 
+test("reconciles an abandoned claim before retrying publication", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-recovery-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-recovery", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-recovery", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const jobPath = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+    const persisted = JSON.parse(await readFile(jobPath, "utf8"));
+    persisted.state = "publishing";
+    persisted.nextAction = "status";
+    persisted.claim = {
+      id: "stale-claim",
+      claimedAt: "2026-09-15T00:00:00.000Z",
+      leaseExpiresAt: "2026-09-15T00:01:00.000Z",
+    };
+    delete persisted.error;
+    await writeFile(jobPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    await writeFile(`${jobPath}.claim`, `${JSON.stringify({ jobId: staged.jobId, ...persisted.claim })}\n`, "utf8");
+
+    let reconcileCalls = 0;
+    let publishCalls = 0;
+    const second = await connect(directory, {
+      publish: async () => {
+        publishCalls += 1;
+        return { state: "blocked", code: "UNEXPECTED", message: "publication should not run", retryable: false };
+      },
+      reconcile: async (request) => {
+        reconcileCalls += 1;
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false } as never;
+      },
+    });
+    const recovered = payload(await second.client.callTool({
+      name: "session.materialize.retry",
+      arguments: { jobId: staged.jobId },
+    }));
+    assert.equal(recovered.state, "completed");
+    assert.equal(reconcileCalls, 1);
+    assert.equal(publishCalls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("retries only after reconciliation proves no publication completed", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-retry-recovery-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-retry-recovery", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-retry-recovery", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const jobPath = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+    const persisted = JSON.parse(await readFile(jobPath, "utf8"));
+    persisted.state = "publishing";
+    persisted.nextAction = "status";
+    persisted.claim = {
+      id: "expired-claim",
+      claimedAt: "2026-09-15T00:00:00.000Z",
+      leaseExpiresAt: "2026-09-15T00:01:00.000Z",
+    };
+    delete persisted.error;
+    await writeFile(jobPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    await writeFile(`${jobPath}.claim`, `${JSON.stringify({ jobId: staged.jobId, ...persisted.claim })}\n`, "utf8");
+
+    let reconcileCalls = 0;
+    let publishCalls = 0;
+    const second = await connect(directory, {
+      publish: async (request) => {
+        publishCalls += 1;
+        return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+      reconcile: async () => {
+        reconcileCalls += 1;
+        return { state: "not-found" } as never;
+      },
+    });
+    const recovered = payload(await second.client.callTool({
+      name: "session.materialize.retry",
+      arguments: { jobId: staged.jobId },
+    }));
+    assert.equal(recovered.state, "completed");
+    assert.equal(reconcileCalls, 1);
+    assert.equal(publishCalls, 1);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when the session changes after staging", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-session-drift-"));
   try {
