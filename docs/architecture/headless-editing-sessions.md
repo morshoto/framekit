@@ -48,4 +48,6 @@ standard input containing the immutable artifact path, digest, target, and
 desired Timeline IR; it must return the materialization result as JSON on
 standard output. The command must perform target-bound readback itself.
 Framekit never substitutes the headed AppleScript publisher when this command
-is absent or fails.
+is absent or fails. The command is bounded by a 30-second deadline by default;
+an unavailable, failed, or timed-out command remains a retryable structured
+blocker rather than leaving the materialization request pending.

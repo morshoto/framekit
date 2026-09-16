@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -54,6 +54,34 @@ test("publishes only a digest-verified staged artifact through an explicit backg
       }),
       /MATERIALIZATION_ARTIFACT_CHANGED/,
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("bounds a hanging background command as a retryable blocker", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-materialization-timeout-"));
+  try {
+    const artifactPath = join(directory, "staged.fcpxml");
+    const artifact = "<fcpxml version=\"1.11\"><library/></fcpxml>";
+    const commandPath = join(directory, "hanging-publisher");
+    await writeFile(artifactPath, artifact, "utf8");
+    await writeFile(commandPath, "#!/bin/sh\nwhile :; do :; done\n", "utf8");
+    await chmod(commandPath, 0o755);
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ command: commandPath, commandTimeoutMs: 20 });
+
+    const result = await publisher.publish({
+      jobId: "materialization-timeout",
+      artifactPath,
+      artifactDigest: createHash("sha256").update(artifact).digest("hex"),
+      target: { provider: "final-cut", projectUid: "project-1", sequenceUid: "sequence-1", eventName: "Framekit" },
+      destination: { mode: "versioned", projectUid: "project-2", sequenceUid: "sequence-2", projectName: "Project v2", sequenceName: "Main" },
+      desired,
+    });
+
+    assert.equal(result.state, "blocked");
+    assert.equal(result.code, "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT");
+    assert.equal(result.retryable, true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
