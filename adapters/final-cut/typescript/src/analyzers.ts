@@ -5,6 +5,7 @@ import type {
   AnalysisInput,
   AudioAnalysis,
   AudioAnalyzer,
+  AnalyzerDescriptor,
   MetadataAnalysis,
   MetadataAnalyzer,
   SpeechAnalysis,
@@ -18,6 +19,8 @@ import type {
 export interface CommandAnalyzerOptions {
   command: string;
   timeoutMs?: number;
+  providerVersion?: string;
+  requireVad?: boolean;
 }
 
 interface AnalyzerRequest extends AnalysisInput {
@@ -26,6 +29,8 @@ interface AnalyzerRequest extends AnalysisInput {
 
 export function createCommandAnalyzers(options: {
   speechCommand?: string;
+  speechProviderVersion?: string;
+  speechRequireVad?: boolean;
   audioCommand?: string;
   visualCommand?: string;
   metadataCommand?: string;
@@ -37,7 +42,14 @@ export function createCommandAnalyzers(options: {
   metadataAnalyzer?: MetadataAnalyzer;
 } {
   return {
-    ...(options.speechCommand ? { speechAnalyzer: new CommandSpeechAnalyzer({ command: options.speechCommand, timeoutMs: options.timeoutMs }) } : {}),
+    ...(options.speechCommand ? {
+      speechAnalyzer: new CommandSpeechAnalyzer({
+        command: options.speechCommand,
+        timeoutMs: options.timeoutMs,
+        ...(options.speechProviderVersion ? { providerVersion: options.speechProviderVersion } : {}),
+        ...(options.speechRequireVad ? { requireVad: true } : {}),
+      }),
+    } : {}),
     ...(options.audioCommand ? { audioAnalyzer: new CommandAudioAnalyzer({ command: options.audioCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.visualCommand ? { visualAnalyzer: new CommandVisualAnalyzer({ command: options.visualCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.metadataCommand ? { metadataAnalyzer: new CommandMetadataAnalyzer({ command: options.metadataCommand, timeoutMs: options.timeoutMs }) } : {}),
@@ -45,15 +57,26 @@ export function createCommandAnalyzers(options: {
 }
 
 export class CommandSpeechAnalyzer implements SpeechAnalyzer {
-  public readonly descriptor = { id: "command.speech", provider: "command" };
-  public readonly capabilities = { transcription: true, vad: false };
+  public readonly descriptor: AnalyzerDescriptor;
+  public readonly capabilities: { transcription: true; vad: boolean };
 
-  public constructor(private readonly options: CommandAnalyzerOptions) {}
+  public constructor(private readonly options: CommandAnalyzerOptions) {
+    this.descriptor = {
+      id: "command.speech",
+      provider: "command",
+      ...(options.providerVersion ? { version: options.providerVersion } : {}),
+    };
+    this.capabilities = { transcription: true, vad: options.requireVad === true };
+  }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
     const result = await runCommand<unknown>(this.options, { ...input, range }, "speech");
     try {
-      return bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
+      const analysis = bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
+      if (this.options.requireVad && analysis.capability !== "transcription-plus-vad") {
+        throw new Error("ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence");
+      }
+      return analysis;
     } catch (error) {
       throw new Error(`ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema: ${String(error)}`);
     }
