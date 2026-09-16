@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "releaseVersion": "0.1.12",
+  "corpusVersion": "2026-09-17",
+  "runtimeContract": "v0.1.12",
+  "projectPolicy": {
+    "disposable": true,
+    "privateMediaAllowed": false,
+    "headedConsentRequired": true
+  },
+  "thresholds": {
+    "fillerVerificationRate": 0.95
+  },
+  "negativeCases": [
+    "provider-unavailable",
+    "stale-revision",
+    "ambiguous-target",
+    "verification-failure",
+    "recovery"
+  ],
+  "scenarios": [
+    { "id": "filler.obvious", "family": "filler-removal", "sourceScenario": "obvious", "expectedOutcome": "verified" },
+    { "id": "filler.low-confidence", "family": "filler-removal", "sourceScenario": "low-confidence", "expectedOutcome": "verified" },
+    { "id": "filler.unsafe-boundary", "family": "filler-removal", "sourceScenario": "unsafe-boundary", "expectedOutcome": "skipped" },
+    { "id": "filler.overlapping-speech", "family": "filler-removal", "sourceScenario": "overlapping-speech", "expectedOutcome": "skipped" },
+    { "id": "filler.protected-segment", "family": "filler-removal", "sourceScenario": "protected-segment", "expectedOutcome": "skipped" },
+    { "id": "filler.multi-filler", "family": "filler-removal", "sourceScenario": "multi-filler", "expectedOutcome": "verified" },
+    { "id": "filler.verification-rollback", "family": "filler-removal", "sourceScenario": "verification-rollback", "expectedOutcome": "rolled-back" },
+    { "id": "dialogue.quiet", "family": "dialogue-normalization", "sourceScenario": "quiet", "expectedOutcome": "verified" },
+    { "id": "dialogue.loud", "family": "dialogue-normalization", "sourceScenario": "loud", "expectedOutcome": "verified" },
+    { "id": "dialogue.already-normalized", "family": "dialogue-normalization", "sourceScenario": "already-normalized", "expectedOutcome": "verified" },
+    { "id": "dialogue.silent", "family": "dialogue-normalization", "sourceScenario": "silent", "expectedOutcome": "skipped" },
+    { "id": "dialogue.no-dialogue", "family": "dialogue-normalization", "sourceScenario": "no-dialogue", "expectedOutcome": "skipped" },
+    { "id": "dialogue.peak-risk", "family": "dialogue-normalization", "sourceScenario": "peak-risk", "expectedOutcome": "skipped" },
+    { "id": "dialogue.gain-clamp", "family": "dialogue-normalization", "sourceScenario": "gain-clamp", "expectedOutcome": "skipped" },
+    { "id": "dialogue.verification-rollback", "family": "dialogue-normalization", "sourceScenario": "verification-rollback", "expectedOutcome": "rolled-back" }
+  ]
+}
