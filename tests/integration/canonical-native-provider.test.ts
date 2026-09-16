@@ -338,7 +338,7 @@ test("canonical native provider previews and applies a revision-guarded ripple d
   const { before: original, after: deleted } = rippleSnapshots();
   const calls: string[] = [];
   const provider = providerFor(
-    [original, original, deleted, deleted, original],
+    [original, original, original, original, deleted, deleted, deleted, original],
     calls,
     undefined,
     liveState(),
@@ -374,9 +374,9 @@ test("canonical native provider previews and applies a revision-guarded ripple d
 
   await provider.applyTransaction([operation], before.revision);
 
-  assert.deepEqual(calls, ["delete:48/24-96/24"]);
+  assert.deepEqual(calls, ["delete:48/24-4/1"]);
   await provider.restore(before, (await provider.readProject()).revision);
-  assert.deepEqual(calls, ["delete:48/24-96/24", "undo"]);
+  assert.deepEqual(calls, ["delete:48/24-4/1", "undo"]);
 });
 
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
