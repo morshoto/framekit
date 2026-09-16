@@ -139,9 +139,34 @@ test("dialogue preview resolves defaults and targets one complete occurrence ran
   assert.equal(preview.plan.operations[0]?.type, "set-gain");
   assert.equal(preview.plan.operations[0]?.type === "set-gain" ? preview.plan.operations[0].clipId : undefined, "dialogue-occurrence");
   assert.deepEqual(ranges, [{ start: 5, end: 8 }]);
+  const measurement = preview.plan.details?.measurement as Record<string, unknown>;
+  assert.deepEqual(measurement.requestedRange, { start: 5, end: 8 });
+  assert.deepEqual(measurement.measuredRange, { start: 5, end: 8 });
+  assert.equal((measurement.revision as { id: string }).id, before.revision.id);
+  assert.deepEqual(measurement.provider, { id: "fixture.dialogue", provider: "fixture", version: "1" });
   assert.equal(preview.previewToken.startsWith("skill-preview-"), true);
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
   assert.equal(analyzer.descriptor?.provider, "fixture");
+});
+
+test("dialogue measurement rejects provider provenance drift", async () => {
+  const { runtime } = createFixture({
+    analyze: async () => ({
+      integratedLufs: -20,
+      truePeakDb: -6,
+      silenceMs: 100,
+      analyzedDurationSeconds: 3,
+      dialoguePresent: true,
+      requestedRange: { start: 0, end: 3 },
+      revision: { id: "stale", sequence: 0, timestamp: new Date(0).toISOString() },
+    }),
+  });
+  runtime.registerBuiltinSkills();
+
+  await assert.rejects(
+    previewDialogue(runtime, { occurrenceId: "dialogue-occurrence" }),
+    /ANALYSIS_INVALID: audio requested range does not match the runtime request/,
+  );
 });
 
 test("dialogue normalization converts the planned delta to an absolute gain", async () => {
