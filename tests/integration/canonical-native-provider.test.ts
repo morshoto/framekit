@@ -341,9 +341,9 @@ test("canonical native provider previews and applies a revision-guarded trim", a
 
   const afterRevision = await provider.apply(operation, before.revision);
 
-  assert.deepEqual(calls, ["trim:0/24-72/24"]);
+  assert.deepEqual(calls, ["trim:0/24-3/1"]);
   await provider.restore(before, afterRevision);
-  assert.deepEqual(calls, ["trim:0/24-72/24", "undo"]);
+  assert.deepEqual(calls, ["trim:0/24-3/1", "undo"]);
 });
 
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
