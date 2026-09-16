@@ -224,6 +224,7 @@ test("native Final Cut adapter positions and ranges a canonical marker", async (
     executor: async (script) => {
       scripts.push(script);
       if (script.includes("00:00:01:00")) pendingPlayhead = 1;
+      if (script.includes("00:00:01:12")) pendingPlayhead = 1.5;
       if (script.includes('click menu item "Add Marker"')) markerAdded = true;
       if (script.includes("entire contents") || script.includes("timelineWindowAvailable")) {
         return context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, markerAdded ? "Undo Add Marker" : "Undo");
