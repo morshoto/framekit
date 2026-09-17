@@ -168,7 +168,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(supports-color@7.2.0)(zod@3.25.76)
+        version: 1.30.0(supports-color@7.2.0)(zod@4.6.5)
       commitizen:
         specifier: ^4.3.1
         version: 4.3.2(@types/node@24.13.4)(typescript@7.0.2)
@@ -179,8 +179,8 @@ importers:
         specifier: ^4.9.0
         version: 4.9.0
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.0.0
+        version: 4.6.5
     devDependencies:
       '@openai/codex':
         specifier: 0.154.0
@@ -230,10 +230,10 @@ importers:
         version: link:../../packages/testkit
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(supports-color@7.2.0)(zod@3.25.76)
+        version: 1.30.0(supports-color@7.2.0)(zod@4.6.5)
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.0.0
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: 24.13.4
@@ -1831,8 +1831,8 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
 
 snapshots:
 
@@ -1997,7 +1997,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@modelcontextprotocol/sdk@1.30.0(supports-color@7.2.0)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.30.0(supports-color@7.2.0)(zod@4.6.5)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.7)
       ajv: 8.20.0
@@ -2014,8 +2014,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.6.5
+      zod-to-json-schema: 3.25.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
 
@@ -3356,8 +3356,8 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.6.5):
     dependencies:
-      zod: 3.25.76
+      zod: 4.6.5
 
-  zod@3.25.76: {}
+  zod@4.6.5: {}
