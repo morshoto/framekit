@@ -824,7 +824,7 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const match = script.match(/set value of text field 1 of pathSheet to "([^"]+)"/);
+      const match = script.match(/set value of pathField to "([^"]+)"/);
       assert.ok(match?.[1]);
       const exportPath = match[1];
       const partialDocument = completeDocument.slice(0, Math.floor(completeDocument.length / 2));
