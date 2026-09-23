@@ -804,6 +804,19 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
 });
 
+test("canonical Final Cut export discovers nested save controls", () => {
+  const script = buildFinalCutCanonicalExportScript("/tmp/framekit-canonical.fcpxml");
+
+  assert.match(script, /on findDescendantByRole\(container, expectedRole, timeoutSeconds, timeoutMessage\)/);
+  assert.match(script, /entire contents of container/);
+  assert.match(script, /my findDescendantByRole\(saveWindow, "AXSheet", 5, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: save path sheet did not appear"\)/);
+  assert.match(script, /my findDescendantByRole\(pathSheet, "AXTextField", 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
+  assert.match(script, /my pressDescendantButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.match(script, /my pressDescendantButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
+  assert.doesNotMatch(script, /exists sheet 1 of saveWindow/);
+  assert.doesNotMatch(script, /text field 1 of pathSheet/);
+});
+
 test("canonical Final Cut export waits for a complete FCPXML file", async () => {
   const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-export\" name=\"Exported\"><sequence uid=\"sequence-export\" name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
   let finishExport: Promise<void> | undefined;
