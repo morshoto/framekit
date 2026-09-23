@@ -81,6 +81,14 @@ function markerSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } 
   return { before, after };
 }
 
+function gainSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
+  const before = snapshot("Dialogue");
+  before.timeline.clips[0] = { ...before.timeline.clips[0]!, gainDb: 0 };
+  const after = structuredClone(before);
+  after.timeline.clips[0] = { ...after.timeline.clips[0]!, gainDb: 3 };
+  return { before, after };
+}
+
 function liveState(): EditorLiveState {
   return {
     project: { id: "final-cut:project:project-1", name: "Canonical E2E" },
@@ -347,6 +355,76 @@ test("canonical native provider previews and applies a revision-guarded marker",
   assert.deepEqual(calls, ["marker:24/24:12/24"]);
   await provider.restore(before, (await provider.readProject()).revision);
   assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
+});
+
+test("canonical native provider previews and applies a revision-guarded gain", async () => {
+  const { before: original, after: gained } = gainSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, original, original, gained, gained, gained, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      setSelectedClipGain: async (gainDb) => {
+        calls.push(`gain:${gainDb}`);
+        return { operationId: "native-gain-1", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "set-gain" as const,
+    clipId: before.timeline.clips[0]!.id,
+    gainDb: 3,
+    baseRevision: before.revision,
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.clips[0]?.gainDb, 3);
+  assert.deepEqual(await provider.readProject(), before);
+  assert.deepEqual(calls, []);
+
+  await provider.applyTransaction([operation], before.revision);
+
+  assert.deepEqual(calls, ["gain:3"]);
+  await provider.restore(before, (await provider.readProject()).revision);
+  assert.deepEqual(calls, ["gain:3", "undo"]);
+});
+
+test("canonical native provider rejects unbounded gains before native mutation", async () => {
+  for (const gainDb of [-7, 7, Number.POSITIVE_INFINITY]) {
+    const calls: string[] = [];
+    const provider = providerFor(
+      [snapshot("Dialogue"), snapshot("Dialogue")],
+      calls,
+      undefined,
+      liveState(),
+      undefined,
+      {
+        setSelectedClipGain: async (gain) => {
+          calls.push(`gain:${gain}`);
+          return { operationId: "unexpected-gain", undoAvailable: true };
+        },
+      },
+    );
+    const before = await provider.readProject();
+
+    await assert.rejects(
+      provider.apply({
+        type: "set-gain",
+        clipId: before.timeline.clips[0]!.id,
+        gainDb,
+        baseRevision: before.revision,
+      }, before.revision),
+      gainDb === Number.POSITIVE_INFINITY
+        ? /INVALID_OPERATION: gain must be finite/
+        : /INVALID_OPERATION: gain must be between -6 and 6 dB/,
+    );
+    assert.deepEqual(calls, []);
+  }
 });
 
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {

@@ -44,6 +44,7 @@ const execFile = promisify(execFileCallback);
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
   addMarkerAtTime?(marker: { start: RationalTime; duration: RationalTime; name: string }): Promise<{ operationId: string; undoAvailable: boolean }>;
+  setSelectedClipGain?(gainDb: number): Promise<{ operationId: string; undoAvailable: boolean }>;
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
 
@@ -348,6 +349,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         semanticOperations: {
           "rename-clip": snapshotProbe.available,
           "add-marker": snapshotProbe.available && Boolean(this.native.addMarkerAtTime),
+          "set-gain": snapshotProbe.available && Boolean(this.native.setSelectedClipGain),
         },
       },
       analyzers: {
@@ -449,7 +451,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
     const markerRange = supported.type === "add-marker" ? canonicalMarkerRange(before, supported.marker) : undefined;
-    const clip = supported.type === "rename-clip" ? canonicalTargetForOperation(before, supported) : undefined;
+    const clip = supported.type === "rename-clip" || supported.type === "set-gain"
+      ? canonicalTargetForOperation(before, supported)
+      : undefined;
 
     const timelineTarget = createTimelineTarget(before, {
       ...(clip ? { occurrenceId: clip.id, mediaId: clip.mediaId } : {}),
@@ -461,11 +465,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (clip) await this.resolveTarget(clip, before);
     const nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
-      : await this.native.addMarkerAtTime!({
-        start: markerRange!.start,
-        duration: markerRange!.duration,
-        name: supported.marker.name,
-      });
+      : supported.type === "set-gain"
+        ? await this.native.setSelectedClipGain!(supported.gainDb)
+        : await this.native.addMarkerAtTime!({
+          start: markerRange!.start,
+          duration: markerRange!.duration,
+          name: supported.marker.name,
+        });
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
       throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
@@ -482,6 +488,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
         if (!afterClip || afterClip.name !== supported.name) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+        }
+      } else if (supported.type === "set-gain") {
+        const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
+        if (!afterClip || (afterClip.gainDb ?? 0) !== supported.gainDb) {
+          throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: gain was not read back from Final Cut");
         }
       } else {
         assertMarkerReadback(before, after, supported.marker, markerRange!);
@@ -630,20 +641,22 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 }
 
-type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "add-marker" }>;
+type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "add-marker" | "set-gain" }>;
 
 function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
-  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "add-marker")) {
-    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip or add-marker transaction");
+  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "set-gain")) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip, add-marker, or set-gain transaction");
   }
   return operations[0].type === "rename-clip"
     ? validateCanonicalRename(operations[0])
-    : validateCanonicalMarker(operations[0]);
+    : operations[0].type === "add-marker"
+      ? validateCanonicalMarker(operations[0])
+      : validateCanonicalGain(operations[0]);
 }
 
 function canonicalTargetForOperation(
   snapshot: ProjectSnapshot,
-  operation: Extract<CanonicalOperation, { type: "rename-clip" }>,
+  operation: Extract<CanonicalOperation, { type: "rename-clip" | "set-gain" }>,
 ): ProjectSnapshot["timeline"]["clips"][number] {
   const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
   if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
@@ -651,15 +664,18 @@ function canonicalTargetForOperation(
 }
 
 function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: CanonicalOperation): ProjectSnapshot {
-  if (operation.type === "rename-clip") {
+  if (operation.type === "rename-clip" || operation.type === "set-gain") {
     const clip = canonicalTargetForOperation(snapshot, operation);
     return {
       ...structuredClone(snapshot),
       timeline: {
         ...structuredClone(snapshot.timeline),
-        clips: snapshot.timeline.clips.map((candidate) => (
-          candidate.id === clip.id ? { ...candidate, name: operation.name } : candidate
-        )),
+        clips: snapshot.timeline.clips.map((candidate) => {
+          if (candidate.id !== clip.id) return candidate;
+          return operation.type === "rename-clip"
+            ? { ...candidate, name: operation.name }
+            : { ...candidate, gainDb: operation.gainDb };
+        }),
       },
     };
   }
@@ -732,6 +748,16 @@ function validateCanonicalRename(
 function validateCanonicalMarker(
   operation: Extract<EditOperation, { type: "add-marker" }>,
 ): Extract<EditOperation, { type: "add-marker" }> {
+  return operation;
+}
+
+function validateCanonicalGain(
+  operation: Extract<EditOperation, { type: "set-gain" }>,
+): Extract<EditOperation, { type: "set-gain" }> {
+  if (!Number.isFinite(operation.gainDb)) throw new Error("INVALID_OPERATION: gain must be finite");
+  if (operation.gainDb < -6 || operation.gainDb > 6) {
+    throw new Error("INVALID_OPERATION: gain must be between -6 and 6 dB");
+  }
   return operation;
 }
 

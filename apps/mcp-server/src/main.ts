@@ -127,6 +127,10 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           const result = await canonicalNativeMutationEditor!.addMarkerAtTime(marker);
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
+        setSelectedClipGain: async (gainDb) => {
+          const result = await canonicalNativeMutationEditor!.edit({ type: "set-selected-clip-gain", gainDb });
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
         undo: async (operationId) => {
           const result = await canonicalNativeMutationEditor!.undo(operationId);
           return { undone: result.undone, verification: result.verification };
