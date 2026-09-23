@@ -38,6 +38,21 @@ export interface EditorRoutingContext {
     capabilities: RuntimeCapabilities;
   };
   native?: Record<string, boolean>;
+  nativeReadiness?: NativeRoutingReadiness;
+}
+
+export interface NativeRoutingReadiness {
+  state: "ready" | "unavailable" | "timeout" | "cancelled" | "stale";
+  nextAction: "none" | "retry" | "queue" | "unavailable";
+  retryable: boolean;
+  firstMissing?: string;
+  frontmost: boolean;
+  timelineFocus: boolean;
+  selectedTarget: boolean;
+  overlay: "clear" | "blocked" | "unknown";
+  permission: "granted" | "required" | "unknown";
+  guidance: string;
+  undo: "available" | "unavailable" | "unknown";
 }
 
 export interface EditingRouteProvider {
@@ -69,6 +84,7 @@ export interface EditingRoute {
   requiredCapabilities: string[];
   missingCapabilities: string[];
   provider?: EditingRouteProvider;
+  readiness?: Pick<NativeRoutingReadiness, "state" | "nextAction" | "retryable" | "firstMissing" | "guidance">;
   editor?: EditorIdentity;
   workflow: string[];
   reason: EditingRouteReason;
@@ -154,6 +170,7 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     nativeRequirement("selectionEdit"),
     nativeRequirement("timelineFocus"),
     nativeRequirement("undo"),
+    nativeUndoReadinessRequirement(),
   ],
   "editor.native.picture-in-picture": [
     nativeRequirement("pictureInPicture"),
@@ -161,6 +178,7 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     nativeRequirement("timelineOccurrenceLocate"),
     nativeRequirement("timelineFocus"),
     nativeRequirement("undo"),
+    nativeUndoReadinessRequirement(),
   ],
   "artifact.edit": [
     editorRequirement("projectRead"),
@@ -193,6 +211,7 @@ export function resolveEditingRoute(
   const missingRequirements = requirements.filter((requirement) => !requirement.satisfied(context));
   const missingCapabilities = missingRequirements.map((requirement) => requirement.label);
   const editor = context.editor?.identity;
+  const readiness = routingReadiness(context);
   const workflow = request.operation === "artifact.edit"
     ? BACKGROUND_ARTIFACT_WORKFLOW
     : request.operation === "project.list"
@@ -208,6 +227,7 @@ export function resolveEditingRoute(
       requiredCapabilities,
       missingCapabilities,
       ...(editor ? { editor } : {}),
+      ...(readiness ? { readiness } : {}),
       workflow: [...workflow],
       reason: {
         code: "EXTERNAL_FALLBACK_SELECTED",
@@ -231,6 +251,7 @@ export function resolveEditingRoute(
       requiredCapabilities,
       missingCapabilities,
       ...(editor ? { editor } : {}),
+      ...(readiness ? { readiness } : {}),
       workflow: [...workflow],
       reason: editorUnavailableReason(context, missingRequirements),
     };
@@ -244,6 +265,7 @@ export function resolveEditingRoute(
       requiredCapabilities,
       missingCapabilities,
       ...(editor ? { editor } : {}),
+      ...(readiness ? { readiness } : {}),
       workflow: [...workflow],
       reason: capabilityUnavailableReason(context, missingRequirements, request.operation),
     };
@@ -257,6 +279,7 @@ export function resolveEditingRoute(
     requiredCapabilities,
     missingCapabilities: [],
     ...(provider ? { provider } : {}),
+    ...(readiness ? { readiness } : {}),
     editor,
     workflow: [...workflow],
     reason: {
@@ -264,6 +287,30 @@ export function resolveEditingRoute(
       message: selectedMessage(request.operation),
       connectionState: context.connection.state,
     },
+  };
+}
+
+function nativeUndoReadinessRequirement(): Requirement {
+  return {
+    name: "native.undo.ready",
+    label: "native.undo.ready",
+    category: "native-ui",
+    satisfied: (context) => context.nativeReadiness === undefined || context.nativeReadiness.undo === "available",
+    descriptor: () => undefined,
+  };
+}
+
+function routingReadiness(
+  context: EditorRoutingContext,
+): EditingRoute["readiness"] {
+  const readiness = context.nativeReadiness;
+  if (!readiness) return undefined;
+  return {
+    state: readiness.state,
+    nextAction: readiness.nextAction,
+    retryable: readiness.retryable,
+    ...(readiness.firstMissing ? { firstMissing: readiness.firstMissing } : {}),
+    guidance: readiness.guidance,
   };
 }
 

@@ -2346,6 +2346,14 @@ async function editingRouteContext(
   options: McpServerOptions,
 ): Promise<EditorRoutingContext> {
   const connection = await effectiveConnectionStatus(runtime, options);
+  let nativeReadiness: Awaited<ReturnType<NativeFinalCutEditor["inspect"]>>["readiness"] | undefined;
+  if (options.nativeEditor && typeof options.nativeEditor.inspect === "function") {
+    try {
+      nativeReadiness = (await options.nativeEditor.inspect()).readiness;
+    } catch {
+      nativeReadiness = undefined;
+    }
+  }
   let editor: Awaited<ReturnType<typeof inspectMcpEditor>> | undefined;
   try {
     editor = await inspectMcpEditor(runtime, options);
@@ -2356,5 +2364,6 @@ async function editingRouteContext(
     connection,
     ...(editor ? { editor } : {}),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
+    ...(nativeReadiness ? { nativeReadiness } : {}),
   };
 }
