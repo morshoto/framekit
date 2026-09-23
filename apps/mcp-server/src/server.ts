@@ -49,6 +49,7 @@ import {
   type EditingRouteEditType,
   type EditingRouteOperation,
 } from "./routing.js";
+import { assessBuildAlignment, type BuildAlignmentReport } from "./build-alignment.js";
 import {
   FRAMEKIT_BUILD_FINGERPRINT,
   FRAMEKIT_VERSION,
@@ -938,6 +939,7 @@ export interface McpConnectionStatus {
 
 export interface McpCapabilityPreflight extends CapabilityPreflight {
   fingerprint: FramekitBuildFingerprint;
+  buildAlignment: BuildAlignmentReport;
 }
 
 export interface McpServerOptions {
@@ -950,6 +952,8 @@ export interface McpServerOptions {
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
+  requireBuildAlignment?: boolean;
+  validationCommit?: string;
   sessionDirectory?: string;
   sessionChangeSource?: EditingSessionChangeSource;
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
@@ -2550,7 +2554,7 @@ async function effectiveConnectionStatus(
       ...status,
       state: "unavailable",
       lastError: {
-        code: "CAPABILITY_UNAVAILABLE",
+        code: message.match(/\bFRAMEKIT_[A-Z_]+\b/)?.[0] ?? "CAPABILITY_UNAVAILABLE",
         message: `effective runtime capability inspection failed: ${message}`,
       },
       identity: undefined,
@@ -2562,6 +2566,15 @@ async function effectiveConnectionStatus(
 
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  const buildAlignment = assessBuildAlignment(
+    fingerprint,
+    inspected.identity.buildFingerprint,
+    options.validationCommit,
+  );
+  if (options.requireBuildAlignment && buildAlignment.status !== "matched") {
+    throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${buildAlignment.message}`);
+  }
   const native = options.nativeEditor?.capabilities();
   const publishingAvailable = Boolean(options.projectPublisher && (
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
@@ -2646,7 +2659,8 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
         processMode: options.processMode ?? (native ? "headed" : "headless"),
         nativeWrite: Boolean(native?.selectionEdit),
       }),
-      fingerprint: options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT,
+      fingerprint,
+      buildAlignment,
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
