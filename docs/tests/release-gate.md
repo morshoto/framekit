@@ -38,7 +38,7 @@ the gate; no headed UI mutation occurs by default.
 
 ### Required headed-native evidence bundle
 
-The headed-native tier claims exactly five workflows. Run each command against
+The headed-native tier claims exactly six workflows. Run each command against
 its own disposable Final Cut project, redirecting stdout to a fresh JSON file:
 
 ```sh
@@ -49,6 +49,7 @@ pnpm run test:final-cut-pip-headed > artifacts/final-cut-headed/picture-in-pictu
 pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title-discovery.json
 pnpm run test:final-cut-masking-headed > artifacts/final-cut-headed/masking.json
 pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
+pnpm run test:final-cut-dialogue-headed > artifacts/final-cut-headed/dialogue-normalization.json
 ```
 
 Supply the workflow-specific disposable project, query, range, and explicit
@@ -69,7 +70,9 @@ pnpm run release-gate \
 
 Completion requires the summary to report both
 `headed-native=verified` and `headed_native_status=verified`. Missing, failed,
-or unavailable workflows keep the tier failed or unrun. `dialogue-normalization` remains explicitly non-native because no headed runner is registered for it.
+or unavailable workflows keep the tier failed or unrun. Filler removal and
+dialogue normalization both require their complete declared Skill capability
+sets before their headed runners can emit evidence.
 
 ## Evidence tiers
 

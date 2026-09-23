@@ -3,10 +3,10 @@
 This runner proves the complete issue #69 workflow against a disposable live
 Final Cut target:
 
-1. inspect canonical-write capabilities and live project/sequence identity;
+1. inspect the `filler-removal` Skill requirements, canonical-write capabilities, and live project/sequence identity;
 2. inspect the canonical timeline at the requested range;
-3. analyze speech and preview high-confidence filler ranges;
-4. execute revision-guarded native timeline writes;
+3. call `skill.preview` to analyze speech without mutation and return high-confidence filler ranges;
+4. call `skill.execute` for revision-guarded native timeline writes;
 5. re-analyze the affected clip and verify adjacent transcript continuity;
 6. inspect the diff and restore the original timeline with `edit.undo`; and
 7. emit an allowlisted evidence summary.
@@ -20,7 +20,8 @@ snapshots.
 
 Use a disposable project and a canonical live bridge that advertises
 `canonical-write`, complete timeline snapshots, project/sequence identity,
-read-after-write, rollback, and speech analysis. The bundled Workflow
+read-after-write, rollback, composite transactions, speech transcription and
+VAD, and `ripple-delete`. The bundled Workflow
 Extension is currently metadata-only, so this runner must fail closed with
 `CAPABILITY_UNAVAILABLE` until a canonical bridge is installed.
 

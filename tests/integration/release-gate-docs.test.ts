@@ -34,6 +34,7 @@ test("release gate documentation lists every required headed-native runner", asy
     "test:final-cut-title-headed",
     "test:final-cut-masking-headed",
     "test:final-cut-filler-headed",
+    "test:final-cut-dialogue-headed",
   ]) {
     assert.match(documentation, new RegExp(command.replaceAll(".", "\\.")));
   }
@@ -41,7 +42,7 @@ test("release gate documentation lists every required headed-native runner", asy
   assert.match(documentation, /mkdir -p artifacts\/final-cut-headed/);
   assert.match(documentation, /sanitized/i);
   assert.match(documentation, /disposable project/i);
-  assert.match(documentation, /dialogue-normalization.*non-native|non-native.*dialogue-normalization/i);
+  assert.match(documentation, /dialogue normalization.*complete declared Skill capability/i);
 });
 
 test("Skill documentation describes only the generic MCP workflow", async () => {

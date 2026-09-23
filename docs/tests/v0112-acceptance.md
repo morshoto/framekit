@@ -30,3 +30,14 @@ pnpm run acceptance:v0112 \
 The headed directory is an operator-local input. The report never upgrades an
 unsupported or unrun tier to native proof, and the disposable-project policy
 requires explicit headed consent and forbids private media.
+
+Capture both Skill workflows using the dedicated disposable runners before
+supplying that directory:
+
+```sh
+pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
+pnpm run test:final-cut-dialogue-headed > artifacts/final-cut-headed/dialogue-normalization.json
+```
+
+The report continues to record canonical-live and headed-native status
+independently; deterministic or artifact evidence cannot promote either tier.
