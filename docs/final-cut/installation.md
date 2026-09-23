@@ -127,11 +127,14 @@ pnpm run framekit -- mcp --editor final-cut-live --development
 The local command is headed and requires the same Accessibility, Automation,
 disposable-project, preview, readback, revision, and Undo safeguards as any
 other native-write validation. It does not publish a package. The development
-extension embeds the checkout's package version and `FRAMEKIT_BUILD_COMMIT`
-metadata in its bridge identity; `connection.status` and `editor.inspect`
+extension embeds the checkout's package version and commit metadata in its
+bridge identity; `connection.status` and `editor.inspect`
 expose the MCP `preflight.fingerprint`, extension
 `identity.buildFingerprint`, and `preflight.buildAlignment` report. Continue
-only when `preflight.buildAlignment.status` is `matched`.
+only when `preflight.buildAlignment.status` is `matched`. The MCP process may
+override its own source fingerprint with `FRAMEKIT_BUILD_COMMIT` for a
+reproducible external target; the extension records the checkout commit as
+`FramekitBuildCommit` in its bundle metadata.
 
 For a clean Codex session, register the checkout as a separate MCP server:
 
