@@ -7,13 +7,20 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { hasNativeChanges, isNativePath } from "../../scripts/staged-native-changes.mjs";
 import { installHooks } from "../../scripts/install-git-hooks.mjs";
 import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
 
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const cleanGitEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+);
+
+function git(directory: string, args: string[]) {
+  return exec("git", args, { cwd: directory, env: cleanGitEnvironment });
+}
 
 test("native staged-path detection covers Swift, Xcode, and toolchain files only", () => {
   assert.equal(isNativePath("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension.swift"), true);
@@ -31,13 +38,13 @@ test("hook installer configures a temporary repository idempotently", async () =
   const hookPath = join(directory, ".githooks", "pre-commit");
   await writeFile(hookPath, "#!/bin/sh\nexit 0\n");
   await chmod(hookPath, 0o755);
-  await exec("git", ["init", "--quiet", directory]);
+  await git(directory, ["init", "--quiet"]);
 
   const first = installHooks(directory);
   const second = installHooks(directory);
   assert.equal(first.hooksPath, ".githooks");
   assert.equal(second.hookPath, hookPath);
-  assert.equal((await exec("git", ["-C", directory, "config", "--get", "core.hooksPath"])).stdout.trim(), ".githooks");
+  assert.equal((await git(directory, ["config", "--get", "core.hooksPath"])).stdout.trim(), ".githooks");
   await access(hookPath, constants.X_OK);
   assert.notEqual((await stat(hookPath)).mode & 0o111, 0);
 });
@@ -48,38 +55,39 @@ test("hook installer isolates Git config for linked worktrees", async () => {
   const hookPath = join(directory, ".githooks", "pre-commit");
   await writeFile(hookPath, "#!/bin/sh\nexit 0\n");
   await chmod(hookPath, 0o755);
-  await exec("git", ["init", "--quiet", directory]);
-  await exec("git", ["-C", directory, "config", "user.email", "test@example.com"]);
-  await exec("git", ["-C", directory, "config", "user.name", "Framekit Test"]);
+  await git(directory, ["init", "--quiet"]);
+  await git(directory, ["config", "user.email", "test@example.com"]);
+  await git(directory, ["config", "user.name", "Framekit Test"]);
   await writeFile(join(directory, "README.md"), "test\n");
-  await exec("git", ["-C", directory, "add", "README.md"]);
-  await exec("git", ["-C", directory, "commit", "--quiet", "-m", "init"]);
+  await git(directory, ["add", "README.md"]);
+  await git(directory, ["commit", "--quiet", "-m", "init"]);
 
   installHooks(directory);
 
   assert.equal(
-    (await exec("git", ["-C", directory, "config", "--get", "extensions.worktreeConfig"])).stdout.trim(),
+    (await git(directory, ["config", "--get", "extensions.worktreeConfig"])).stdout.trim(),
     "true",
   );
   assert.equal(
-    (await exec("git", ["-C", directory, "config", "--worktree", "--get", "core.bare"])).stdout.trim(),
+    (await git(directory, ["config", "--worktree", "--get", "core.bare"])).stdout.trim(),
     "false",
   );
   assert.equal(
-    (await exec("git", ["-C", directory, "config", "--worktree", "--get", "core.hooksPath"])).stdout.trim(),
+    (await git(directory, ["config", "--worktree", "--get", "core.hooksPath"])).stdout.trim(),
     ".githooks",
   );
 
   const linkedWorktree = `${directory}-linked`;
-  await exec("git", ["-C", directory, "worktree", "add", "--quiet", linkedWorktree, "-b", "linked"]);
+  const linkedBranch = `linked-${basename(directory)}`;
+  await git(directory, ["worktree", "add", "--quiet", linkedWorktree, "-b", linkedBranch]);
   try {
-    await exec("git", ["-C", linkedWorktree, "config", "--worktree", "core.bare", "true"]);
+    await git(linkedWorktree, ["config", "--worktree", "core.bare", "true"]);
     assert.equal(
-      (await exec("git", ["-C", directory, "rev-parse", "--is-bare-repository"])).stdout.trim(),
+      (await git(directory, ["rev-parse", "--is-bare-repository"])).stdout.trim(),
       "false",
     );
   } finally {
-    await exec("git", ["-C", directory, "worktree", "remove", "--force", linkedWorktree]);
+    await git(directory, ["worktree", "remove", "--force", linkedWorktree]);
   }
 });
 
