@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import { bindSpeechAnalysis } from "@framekit/runtime";
+import { bindSpeechAnalysis, sameMediaSourceIdentity } from "@framekit/runtime";
 import type {
   AnalysisInput,
   AudioAnalysis,
@@ -72,6 +72,9 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
     const result = await runCommand<unknown>(this.options, { ...input, range }, "speech");
     try {
+      if (this.options.requireVad) {
+        requireStrictSpeechProvenance(result, input, range, this.descriptor);
+      }
       const analysis = bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
       if (this.options.requireVad && analysis.capability !== "transcription-plus-vad") {
         throw new Error("ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence");
@@ -183,6 +186,52 @@ function sourceIdentityOf(media: AnalysisInput["media"]): MediaSourceIdentity {
     ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
     ...(media.duration !== undefined ? { duration: media.duration } : {}),
   };
+}
+
+function requireStrictSpeechProvenance(
+  value: unknown,
+  input: AnalysisInput,
+  range: TimeRange | undefined,
+  provider: AnalyzerDescriptor,
+): void {
+  if (!value || typeof value !== "object") {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response must include complete trusted provenance");
+  }
+  const record = value as Record<string, unknown>;
+  const required = ["schemaVersion", "mediaId", "sourceIdentity", "requestedRange", "revision", "provider"];
+  const missing = required.filter((field) => record[field] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`ANALYZER_INVALID_OUTPUT: speech response is missing provenance: ${missing.join(", ")}`);
+  }
+  if (!sameAnalyzerDescriptor(record.provider, provider)) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response provider provenance does not match the configured provider");
+  }
+  const sourceIdentity = sourceIdentityOf(input.media);
+  if (record.mediaId !== sourceIdentity.mediaId
+    || !sameMediaSourceIdentity(record.sourceIdentity as MediaSourceIdentity, sourceIdentity)) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response source identity does not match the requested media");
+  }
+  if (record.schemaVersion !== 1) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response schema version is not supported");
+  }
+  const expectedRange = range ?? (input.media.duration === undefined ? undefined : { start: 0, end: input.media.duration });
+  if (expectedRange && !sameRange(record.requestedRange, expectedRange)) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response range does not match the runtime request");
+  }
+}
+
+function sameAnalyzerDescriptor(value: unknown, expected: AnalyzerDescriptor): boolean {
+  if (!value || typeof value !== "object") return false;
+  const descriptor = value as Record<string, unknown>;
+  return descriptor.id === expected.id
+    && descriptor.provider === expected.provider
+    && descriptor.version === expected.version;
+}
+
+function sameRange(value: unknown, expected: TimeRange): boolean {
+  if (!value || typeof value !== "object") return false;
+  const range = value as Record<string, unknown>;
+  return range.start === expected.start && range.end === expected.end;
 }
 
 function validateResult(value: unknown, kind: string): void {

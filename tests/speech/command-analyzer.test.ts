@@ -87,7 +87,15 @@ test("configured local speech analyzer requires VAD and reports provider version
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-vad-provider-"));
   const mediaPath = join(directory, "interview.wav");
   await writeFile(mediaPath, "media");
+  const input = createInput(mediaPath);
   const wrapper = await createWrapper(directory, {
+    schemaVersion: 1,
+    mediaId: "media-1",
+    sourceIdentity: input.media,
+    requestedRange: { start: 0, end: 12 },
+    observedRange: { start: 0, end: 12 },
+    revision: input.project.revision,
+    provider: { id: "command.speech", provider: "command", version: "local-whisper-vad@1" },
     words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
     vadSegments: [{ start: 0, end: 1, kind: "speech" }],
     sourceTimebase: { value: "1", timescale: "1000" },
@@ -98,7 +106,7 @@ test("configured local speech analyzer requires VAD and reports provider version
     providerVersion: "local-whisper-vad@1",
     requireVad: true,
   });
-  const result = await analyzer.analyze(createInput(mediaPath));
+  const result = await analyzer.analyze(input);
 
   assert.deepEqual(analyzer.descriptor, {
     id: "command.speech",
@@ -114,14 +122,61 @@ test("configured local speech analyzer rejects transcript-only output", async ()
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-vad-required-"));
   const mediaPath = join(directory, "interview.wav");
   await writeFile(mediaPath, "media");
+  const input = createInput(mediaPath);
   const wrapper = await createWrapper(directory, {
+    schemaVersion: 1,
+    mediaId: "media-1",
+    sourceIdentity: input.media,
+    requestedRange: { start: 0, end: 12 },
+    observedRange: { start: 0, end: 12 },
+    revision: input.project.revision,
+    provider: { id: "command.speech", provider: "command", version: "local-whisper-vad@1" },
     words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
     sourceTimebase: { value: "1", timescale: "1000" },
   });
 
   await assert.rejects(
-    new CommandSpeechAnalyzer({ command: wrapper, requireVad: true }).analyze(createInput(mediaPath)),
+    new CommandSpeechAnalyzer({ command: wrapper, providerVersion: "local-whisper-vad@1", requireVad: true }).analyze(input),
     /ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence/,
+  );
+});
+
+test("configured local speech analyzer rejects missing response provenance", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-provenance-required-"));
+  const mediaPath = join(directory, "interview.wav");
+  await writeFile(mediaPath, "media");
+  const wrapper = await createWrapper(directory, {
+    words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+    vadSegments: [{ start: 0, end: 1, kind: "speech" }],
+    sourceTimebase: { value: "1", timescale: "1000" },
+  });
+
+  await assert.rejects(
+    new CommandSpeechAnalyzer({ command: wrapper, providerVersion: "local-whisper-vad@1", requireVad: true }).analyze(createInput(mediaPath)),
+    /ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema: Error: ANALYZER_INVALID_OUTPUT: speech response is missing provenance:/,
+  );
+});
+
+test("configured local speech analyzer rejects mismatched provider provenance", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-provenance-mismatch-"));
+  const mediaPath = join(directory, "interview.wav");
+  await writeFile(mediaPath, "media");
+  const input = createInput(mediaPath);
+  const wrapper = await createWrapper(directory, {
+    schemaVersion: 1,
+    mediaId: "media-1",
+    sourceIdentity: input.media,
+    requestedRange: { start: 0, end: 12 },
+    revision: input.project.revision,
+    provider: { id: "other.speech", provider: "other", version: "1" },
+    words: [{ text: "hello", start: 0, end: 1, confidence: 0.98 }],
+    vadSegments: [{ start: 0, end: 1, kind: "speech" }],
+    sourceTimebase: { value: "1", timescale: "1000" },
+  });
+
+  await assert.rejects(
+    new CommandSpeechAnalyzer({ command: wrapper, providerVersion: "local-whisper-vad@1", requireVad: true }).analyze(input),
+    /ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema: Error: ANALYZER_INVALID_OUTPUT: speech response provider provenance does not match the configured provider/,
   );
 });
 
