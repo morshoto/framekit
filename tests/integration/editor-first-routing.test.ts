@@ -94,14 +94,20 @@ test("routing selects native picture-in-picture only with native placement guara
   assert.ok(route.requiredCapabilities.includes("native.pictureInPicture"));
 });
 
-test("routing fails closed when native Undo readiness cannot be observed", () => {
+test("routing permits a first native mutation without pre-existing Undo", () => {
   const route = resolveEditingRoute({ operation: "editor.native.edit" }, context({
     native: { selectionEdit: true, timelineFocus: true, undo: true },
+    nativeReadiness: {
+      ...readyNativeReadiness,
+      undo: "unavailable",
+    },
   }));
 
-  assert.equal(route.status, "unavailable");
-  assert.equal(route.selectedPath, "none");
-  assert.ok(route.missingCapabilities.includes("native.undo.ready"));
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "native");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.ok(route.requiredCapabilities.includes("native.undo"));
+  assert.equal(route.requiredCapabilities.includes("native.undo.ready"), false);
 });
 
 test("routing fails closed when native picture-in-picture is unavailable", () => {
@@ -113,34 +119,32 @@ test("routing fails closed when native picture-in-picture is unavailable", () =>
   assert.ok(route.missingCapabilities.includes("native.pictureInPicture"));
 });
 
-test("routing separates native Undo capability from current readiness", () => {
+test("routing reports Undo observation without blocking native mutation", () => {
   const route = resolveEditingRoute({ operation: "editor.native.edit" }, context({
     native: { selectionEdit: true, timelineFocus: true, undo: true },
     nativeReadiness: {
-      state: "unavailable",
-      nextAction: "retry",
-      retryable: true,
-      firstMissing: "undo",
+      state: "ready",
+      nextAction: "none",
+      retryable: false,
       frontmost: true,
       timelineFocus: true,
       selectedTarget: true,
       overlay: "clear",
       permission: "granted",
       undo: "unavailable",
-      guidance: "Enable an Undo command in Final Cut Pro and retry",
+      guidance: "Native edit will verify operation-specific Undo after mutation",
     },
   }));
 
-  assert.equal(route.status, "unavailable");
-  assert.equal(route.selectedPath, "none");
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "native");
   assert.ok(route.requiredCapabilities.includes("native.undo"));
-  assert.ok(route.missingCapabilities.includes("native.undo.ready"));
+  assert.equal(route.missingCapabilities.includes("native.undo.ready"), false);
   assert.deepEqual(route.readiness, {
-    state: "unavailable",
-    nextAction: "retry",
-    retryable: true,
-    firstMissing: "undo",
-    guidance: "Enable an Undo command in Final Cut Pro and retry",
+    state: "ready",
+    nextAction: "none",
+    retryable: false,
+    guidance: "Native edit will verify operation-specific Undo after mutation",
   });
 });
 
