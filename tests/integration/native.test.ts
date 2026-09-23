@@ -250,6 +250,62 @@ test("native Final Cut adapter adds markers through the Markers submenu and undo
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Add Marker" of menu "Edit"')), true);
 });
 
+test("native Final Cut adapter positions and ranges a canonical marker", async () => {
+  const scripts: string[] = [];
+  let playhead = 0;
+  let pendingPlayhead: number | undefined;
+  let markerAdded = false;
+  const liveState = async () => {
+    if (pendingPlayhead !== undefined) {
+      playhead = pendingPlayhead;
+      pendingPlayhead = undefined;
+    }
+    const position = { value: String(Math.round(playhead * 24)), timescale: "24" };
+    return {
+      project: { id: "project-1", name: "Edit" },
+      sequence: {
+        id: "sequence-1",
+        name: "Edit",
+        startTime: { value: "0", timescale: "24" },
+        duration: { value: "96", timescale: "24" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      playheadTime: position,
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "24" },
+        duration: { value: "96", timescale: "24" },
+      },
+      revision: { id: `rev-${playhead}-${markerAdded}`, sequence: 1, timestamp: new Date(0).toISOString() },
+    };
+  };
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:01:00")) pendingPlayhead = 1;
+      if (script.includes("00:00:01:12")) pendingPlayhead = 1.5;
+      if (script.includes('click menu item "Add Marker"')) markerAdded = true;
+      if (script.includes("entire contents") || script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, markerAdded ? "Undo Add Marker" : "Undo");
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.addMarkerAtTime({
+    start: { value: "24", timescale: "24" },
+    duration: { value: "12", timescale: "24" },
+    name: "Review",
+  });
+
+  assert.equal(result.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "i"')), true);
+  assert.equal(scripts.some((script) => script.includes('keystroke "o"')), true);
+  assert.equal(scripts.some((script) => script.includes("00:00:01:00")), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Add Marker" of menu 1 of menu item "Markers"')), true);
+});
+
 test("native Final Cut adapter previews and inserts a title at the playhead with text and placement verification", async () => {
   const scripts: string[] = [];
   let revision = 1;

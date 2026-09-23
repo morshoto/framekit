@@ -14,6 +14,7 @@ export * from "./background-export.js";
 export * from "./background-materialization.js";
 export * from "./library-inspection.js";
 export * from "./sqlite-inspection.js";
+export * from "./sqlite-experiment.js";
 export * from "./shadow-mutation.js";
 export * from "./native-operation.js";
 export * from "./native-session.js";
