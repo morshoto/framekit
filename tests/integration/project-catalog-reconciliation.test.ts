@@ -151,20 +151,22 @@ test("ambiguous sequence names remain unresolved with candidate identities", () 
     after: state,
     provenance,
   });
-  const reconciliation = reconciled.provenance?.reconciliation as typeof reconciled.provenance.reconciliation & {
+  const reconciliation = reconciled.provenance?.reconciliation;
+  assert.ok(reconciliation);
+  const detailedReconciliation = reconciliation as typeof reconciliation & {
     diagnostics?: unknown[];
   };
 
   assert.equal(reconciled.activeProjectId, undefined);
   assert.equal(reconciled.activeSequenceId, undefined);
-  assert.equal(reconciliation.status, "unresolved");
-  assert.equal(reconciliation.project.method, "stable-id");
-  assert.equal(reconciliation.sequence.method, "ambiguous-name");
-  assert.deepEqual(reconciliation.sequence.candidateCatalogIds, [
+  assert.equal(detailedReconciliation.status, "unresolved");
+  assert.equal(detailedReconciliation.project.method, "stable-id");
+  assert.equal(detailedReconciliation.sequence.method, "ambiguous-name");
+  assert.deepEqual(detailedReconciliation.sequence.candidateCatalogIds, [
     "library-sequence-main",
     "library-sequence-copy",
   ]);
-  assert.deepEqual(reconciliation.diagnostics, [{
+  assert.deepEqual(detailedReconciliation.diagnostics, [{
     scope: "sequence",
     code: "ambiguous-name",
     liveId: "socket-sequence",
@@ -201,18 +203,20 @@ test("ambiguous project names remain unresolved before sequence matching", () =>
     after: state,
     provenance,
   });
-  const reconciliation = reconciled.provenance?.reconciliation as typeof reconciled.provenance.reconciliation & {
+  const reconciliation = reconciled.provenance?.reconciliation;
+  assert.ok(reconciliation);
+  const detailedReconciliation = reconciliation as typeof reconciliation & {
     diagnostics?: unknown[];
   };
 
   assert.equal(reconciled.activeProjectId, undefined);
   assert.equal(reconciled.activeSequenceId, undefined);
-  assert.equal(reconciliation.project.method, "ambiguous-name");
-  assert.deepEqual(reconciliation.project.candidateCatalogIds, [
+  assert.equal(detailedReconciliation.project.method, "ambiguous-name");
+  assert.deepEqual(detailedReconciliation.project.candidateCatalogIds, [
     "library-project-one",
     "library-project-two",
   ]);
-  assert.deepEqual(reconciliation.diagnostics, [{
+  assert.deepEqual(detailedReconciliation.diagnostics, [{
     scope: "project",
     code: "ambiguous-name",
     liveId: "socket-project",

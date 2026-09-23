@@ -2,6 +2,7 @@ import { parseRational } from "../timeline/rational-time.js";
 import type {
   EditorLiveState,
   ProjectCatalog,
+  ProjectCatalogIdentityDiagnostic,
   ProjectCatalogIdentityMatch,
   ProjectCatalogLiveSource,
   ProjectCatalogProvenance,
@@ -44,12 +45,22 @@ export function reconcileProjectCatalog(
         (candidate) => candidate.name,
       )
     : unresolvedIdentity(state?.sequence?.id);
+  const diagnostics = [
+    identityDiagnostic("project", project, state?.project?.name),
+    ...(state?.sequence && projectDescriptor
+      ? [identityDiagnostic("sequence", sequence, state.sequence.name)]
+      : []),
+  ].filter((diagnostic): diagnostic is ProjectCatalogIdentityDiagnostic => diagnostic !== undefined);
 
   let status: NonNullable<ProjectCatalogProvenance["reconciliation"]>["status"] = project.method === "stable-id"
     && sequence.method === "stable-id"
     ? "matched"
     : "unresolved";
-  let reason = status === "unresolved" ? "stable project and sequence IDs could not be reconciled" : undefined;
+  let reason = diagnostics.length > 0
+    ? diagnostics.map(formatDiagnostic).join("; ")
+    : status === "unresolved"
+      ? "stable project and sequence IDs could not be reconciled"
+      : undefined;
 
   if (
     status === "matched"
@@ -92,6 +103,7 @@ export function reconcileProjectCatalog(
       sequence,
       ...(beforeRevision ? { beforeRevision: { ...beforeRevision } } : {}),
       ...(afterRevision ? { afterRevision: { ...afterRevision } } : {}),
+      ...(diagnostics.length > 0 ? { diagnostics } : {}),
       ...(reason ? { reason } : {}),
     },
     selection: { ...options.provenance.selection },
@@ -110,6 +122,13 @@ function matchIdentity<T>(
   if (stable) return { method: "stable-id", catalogId: id(stable), liveId };
   const named = values.filter((value) => name(value) === liveName);
   if (named.length === 1) return { method: "name-only", catalogId: id(named[0]!), liveId };
+  if (named.length > 1) {
+    return {
+      method: "ambiguous-name",
+      liveId,
+      candidateCatalogIds: named.map((value) => id(value)),
+    };
+  }
   return unresolvedIdentity(liveId);
 }
 
@@ -124,6 +143,38 @@ function sameTarget(left: EditorLiveState, right: EditorLiveState): boolean {
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence;
+}
+
+function identityDiagnostic(
+  scope: ProjectCatalogIdentityDiagnostic["scope"],
+  match: ProjectCatalogIdentityMatch,
+  liveName: string | undefined,
+): ProjectCatalogIdentityDiagnostic | undefined {
+  if (match.method === "stable-id") return undefined;
+  const diagnostic: ProjectCatalogIdentityDiagnostic = {
+    scope,
+    code: match.method === "ambiguous-name"
+      ? "ambiguous-name"
+      : match.liveId
+        ? "stable-id-mismatch"
+        : "identity-unresolved",
+    ...(match.liveId ? { liveId: match.liveId } : {}),
+    ...(liveName ? { liveName } : {}),
+    ...(match.catalogId ? { catalogId: match.catalogId } : {}),
+    ...(match.candidateCatalogIds ? { candidateCatalogIds: [...match.candidateCatalogIds] } : {}),
+  };
+  return diagnostic;
+}
+
+function formatDiagnostic(diagnostic: ProjectCatalogIdentityDiagnostic): string {
+  const label = diagnostic.scope;
+  if (diagnostic.code === "ambiguous-name") {
+    return `${label} name is ambiguous across catalog IDs ${diagnostic.candidateCatalogIds?.join(", ") ?? "<none>"}`;
+  }
+  if (diagnostic.code === "stable-id-mismatch") {
+    return `${label} stable ID ${diagnostic.liveId ?? "<unavailable>"} did not match catalog ID ${diagnostic.catalogId ?? "<none>"}; name-only evidence is not canonical`;
+  }
+  return `${label} stable identity is unavailable for reconciliation`;
 }
 
 export function validateProjectCatalog(catalog: ProjectCatalog): void {
