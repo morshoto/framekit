@@ -42,6 +42,47 @@ test("hook installer configures a temporary repository idempotently", async () =
   assert.notEqual((await stat(hookPath)).mode & 0o111, 0);
 });
 
+test("hook installer isolates Git config for linked worktrees", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-worktree-config-"));
+  await mkdir(join(directory, ".githooks"), { recursive: true });
+  const hookPath = join(directory, ".githooks", "pre-commit");
+  await writeFile(hookPath, "#!/bin/sh\nexit 0\n");
+  await chmod(hookPath, 0o755);
+  await exec("git", ["init", "--quiet", directory]);
+  await exec("git", ["-C", directory, "config", "user.email", "test@example.com"]);
+  await exec("git", ["-C", directory, "config", "user.name", "Framekit Test"]);
+  await writeFile(join(directory, "README.md"), "test\n");
+  await exec("git", ["-C", directory, "add", "README.md"]);
+  await exec("git", ["-C", directory, "commit", "--quiet", "-m", "init"]);
+
+  installHooks(directory);
+
+  assert.equal(
+    (await exec("git", ["-C", directory, "config", "--get", "extensions.worktreeConfig"])).stdout.trim(),
+    "true",
+  );
+  assert.equal(
+    (await exec("git", ["-C", directory, "config", "--worktree", "--get", "core.bare"])).stdout.trim(),
+    "false",
+  );
+  assert.equal(
+    (await exec("git", ["-C", directory, "config", "--worktree", "--get", "core.hooksPath"])).stdout.trim(),
+    ".githooks",
+  );
+
+  const linkedWorktree = `${directory}-linked`;
+  await exec("git", ["-C", directory, "worktree", "add", "--quiet", linkedWorktree, "-b", "linked"]);
+  try {
+    await exec("git", ["-C", linkedWorktree, "config", "--worktree", "core.bare", "true"]);
+    assert.equal(
+      (await exec("git", ["-C", directory, "rev-parse", "--is-bare-repository"])).stdout.trim(),
+      "false",
+    );
+  } finally {
+    await exec("git", ["-C", directory, "worktree", "remove", "--force", linkedWorktree]);
+  }
+});
+
 test("pre-commit hook is executable and shell-valid", async () => {
   const hookPath = join(repository, ".githooks", "pre-commit");
   await access(hookPath, constants.X_OK);
