@@ -56,6 +56,24 @@ try {
   const beforeDigest = canonicalDigest(before);
   const name = `${target.name} [Framekit Disposable E2E]`;
 
+  const focused = await callJson("editor.native.focus");
+  toolResults.push({ name: "editor.native.focus", status: "passed" });
+  if (
+    !focused.available
+    || !focused.frontmost
+    || !focused.timelineWindowAvailable
+    || !focused.timelineFocused
+    || focused.target?.kind !== "selected-clip"
+    || focused.readiness?.targetKind !== "selected-clip"
+    || focused.readiness?.targetBound !== true
+    || !focused.target?.identity
+    || focused.target.projectId !== before.projectId
+    || focused.target.sequenceId !== before.timeline.id
+    || focused.target.revision?.id !== before.revision?.id
+  ) {
+    throw new Error("FINAL_CUT_E2E_TARGET_RESOLUTION_FAILED: headed focus did not resolve a bound selected occurrence");
+  }
+
   const preview = await callJson("editor.native.disposable.preview", {
     clipId,
     name,
