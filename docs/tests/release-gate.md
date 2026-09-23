@@ -1,55 +1,121 @@
-# v0.0.3 Closed-Loop Speech Editing Release Gate
+# v0.1.6 Native-Editing Release Gate
 
-The release gate exercises the `filler-removal` and
-`dialogue-normalization` Skills through the generic MCP surface. Its controlled
-corpus is repository-owned and contains no private media.
+The repository-owned v0.1.6 gate records native-editing evidence without
+confusing deterministic fixtures, FCPXML artifacts, metadata-only bridge
+observations, canonical live edits, and headed Final Cut proof. Its versioned
+manifest is [`tests/release-gate/manifest.json`](../../tests/release-gate/manifest.json).
 
 ## Local commands
 
-Run the focused tests with:
+Run the focused contract tests with:
 
 ```sh
 pnpm run test:release-gate
 ```
 
-Run the executable gate and retain an immutable evidence bundle with:
+Run the reproducible gate and retain an immutable evidence bundle with:
 
 ```sh
 pnpm run release-gate --output-dir artifacts/release-gate/local-run
 ```
 
-The output contains `report.json` with sanitized workflow results, plans,
-operations, canonical diffs, digests, and capability boundaries, plus
-`manifest.json` with the corpus version, report hash, workflow count, and gate
-status. Reusing an evidence directory is rejected.
+This command runs `pnpm install --frozen-lockfile`, `pnpm run build`,
+`pnpm run test`, the deterministic MCP evaluation (`pnpm run evaluate`), and
+`pnpm run check:boundaries` as separate repository checks. Reusing an evidence
+directory is rejected.
 
-## Controlled corpus
+Headed native evidence is opt-in and must target a disposable project:
 
-Filler-removal cases cover obvious and multi-filler speech, low confidence,
-unsafe and overlapping boundaries, protected segments, and induced verification
-rollback. Dialogue-normalization cases cover quiet, loud, already-normalized,
-silent, no-dialogue, peak-risk, gain-clamp, and induced verification rollback.
+```sh
+pnpm run release-gate \
+  --output-dir artifacts/release-gate/headed-run \
+  --headed-evidence-dir artifacts/final-cut-headed
+```
 
-Safe filler cases are measured against the 95% successful-verification target.
-Skipped and rolled-back cases remain in the attempted report and must preserve
-the original canonical digest.
+The headed runners must be invoked separately with the required disposable
+project and consent configuration. Their JSON output can then be supplied to
+the gate; no headed UI mutation occurs by default.
 
-## Capability evidence
+### Required headed-native evidence bundle
 
-The deterministic fixture result is separate from adapter and live evidence.
-The current report marks the FCPXML closed-loop path unsupported because the
-adapter does not advertise both Skill write guarantees. It also marks live
-Final Cut unsupported unless a documented opt-in headed run is requested; the
-bundled Workflow Extension is metadata-only and never supplies fixture data.
-An unsupported capability is not a passing proof of autonomous open-project
-Final Cut support.
+The headed-native tier claims exactly five workflows. Run each command against
+its own disposable Final Cut project, redirecting stdout to a fresh JSON file:
 
-The CI report keeps deterministic correctness, adapter coverage, live Final Cut
-evidence, and unsupported capabilities in separate fields.
+```sh
+mkdir -p artifacts/final-cut-headed
 
-The Basic Final Cut Editing MVP has a separate executable fixture gate. Run it
-with `pnpm exec tsx --test tests/integration/basic-editing-mvp.test.ts` to
-verify import, placement, preview, execute, verification, transaction-bound
-export evidence, and Undo without Final Cut. CI reports this gate separately
-from the broad unit/integration suite; its fixture results do not promote live
-Final Cut capability.
+pnpm run test:final-cut-canonical-headed > artifacts/final-cut-headed/canonical-live.json
+pnpm run test:final-cut-pip-headed > artifacts/final-cut-headed/picture-in-picture.json
+pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title-discovery.json
+pnpm run test:final-cut-masking-headed > artifacts/final-cut-headed/masking.json
+pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
+```
+
+Supply the workflow-specific disposable project, query, range, and explicit
+mutation-consent variables documented in [Final Cut live E2E](./final-cut-live-e2e.md).
+Every runner emits an allowlisted sanitized record containing its exact project,
+sequence, and occurrence target, Framekit
+and Final Cut versions, the full Git commit, before/after/restored revisions,
+verification, and native Undo or rollback. The record omits private paths,
+credentials, native handles, transaction IDs, raw snapshots, and diagnostics.
+
+Then run the gate with that directory:
+
+```sh
+pnpm run release-gate \
+  --output-dir artifacts/release-gate/headed-run \
+  --headed-evidence-dir artifacts/final-cut-headed
+```
+
+Completion requires the summary to report both
+`headed-native=verified` and `headed_native_status=verified`. Missing, failed,
+or unavailable workflows keep the tier failed or unrun. `dialogue-normalization` remains explicitly non-native because no headed runner is registered for it.
+
+## Evidence tiers
+
+| Tier | Mode | Guarantee | Default status |
+| --- | --- | --- | --- |
+| deterministic | headless | verified fixture preview, execute, readback, and Undo | verified |
+| FCPXML artifact | headless | verified artifact write and restoration | verified when supported |
+| metadata-only | headless | observed bridge identity and capability payload | verified observation |
+| canonical-live | headless | canonical timeline read/write contract | unsupported for the bundled bridge |
+| headed-native | headed | disposable Final Cut readback and native Undo | unrun unless opted in |
+
+Each tier has an independent status: `verified`, `failed`, `unsupported`, or
+`unrun`. An unsupported capability is not treated as a successful native edit,
+and an unrun headed tier is not treated as headed proof.
+
+The workflow matrix covers canonical live editing, picture-in-picture, built-in
+title discovery and placement, masking, filler removal, and dialogue
+normalization. The deterministic corpus retains the filler-removal cases
+`obvious`, `low-confidence`, `unsafe-boundary`, `overlapping-speech`,
+`protected-segment`, `multi-filler`, and `verification-rollback`, plus the
+dialogue cases `quiet`, `loud`, `already-normalized`, `silent`, `no-dialogue`,
+`peak-risk`, `gain-clamp`, and `verification-rollback`.
+
+Canonical live Final Cut support remains distinct from metadata-only bridge
+observations and requires a provider that advertises complete timeline
+read/write guarantees.
+
+## Artifacts and provenance
+
+`report.json` contains the sanitized workflow matrix, tier records, capability
+preflight payloads, revisions, verification and restoration results, repository
+check statuses, and release provenance. `manifest.json` contains the report
+hash, v0.1.6 manifest and release versions, tier summaries, workflow coverage,
+repository-check statuses, and provenance status.
+
+Headed records must include the disposable target identity, Final Cut and
+Framekit versions, the before/after/restored revisions, and verified execute and
+Undo results. Published summaries omit private paths, credentials, native
+handles, operation IDs, source identities, and diagnostic details. Raw machine
+evidence remains an operator-local input rather than a committed artifact.
+
+Release provenance keeps package, MCP server, plugin, tag, GitHub release,
+workflow, npm, and native archive/checksum checks separate. Missing external
+state is `unrun`; release completion is not reported until every required
+provenance check is verified.
+
+The Basic Final Cut Editing MVP remains a separate executable fixture gate. Its
+results do not promote metadata-only or fixture evidence into headed Final Cut
+support.

@@ -64,8 +64,20 @@ complete clip/media enumeration API, so Framekit fails closed instead of
 fabricating an empty canonical timeline.
 
 Project catalog and selection requests are not advertised by this bridge. The
-public host API exposes only the active sequence, so callers receive
-`CAPABILITY_UNAVAILABLE` rather than an inferred project browser.
+public host API exposes only the active sequence and its container chain; it
+does not expose an immutable sequence UID, library-wide enumeration, or project
+activation. Callers receive `CAPABILITY_UNAVAILABLE` rather than an inferred
+project browser.
+
+The capability payload explicitly reports
+`editor.projectSelectionMode: "unavailable"`. This is a current public-API
+decision, not a headed-only fallback: the bridge never activates Final Cut or
+uses Accessibility UI to satisfy `select-project`. See
+[`ADR-0009`](../../../../docs/adr/0009-non-ui-project-selection.md) for the
+evidence and future provider contract.
+
+The current-version native write and Undo investigation is recorded in
+[Native write and Undo investigation](../../../../docs/final-cut/native-write-undo-investigation.md).
 
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`

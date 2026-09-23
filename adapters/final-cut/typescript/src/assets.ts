@@ -1,7 +1,9 @@
-import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import type { AssetSearchQuery, EditorAsset } from "@framekit/runtime";
+import type { NativeFinalCutTitleMatch, NativeFinalCutTransitionMatch } from "./native.js";
 
 const CATEGORY_BY_DIRECTORY: Record<string, EditorAsset["kind"]> = {
   "Audio Effects.localized": "audio-effect",
@@ -16,6 +18,16 @@ const BUNDLE_SUFFIXES = new Set([".moef", ".moti", ".motn", ".motr"]);
 
 export interface FinalCutAssetRegistryOptions {
   roots?: string[];
+  nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
+  nativeTransitionProvider?: Pick<NativeTransitionProvider, "searchTransitions">;
+}
+
+export interface NativeTitleProvider {
+  searchTitles(query: string): Promise<NativeFinalCutTitleMatch[]>;
+}
+
+export interface NativeTransitionProvider {
+  searchTransitions(query: string): Promise<NativeFinalCutTransitionMatch[]>;
 }
 
 export function defaultFinalCutAssetRoots(): string[] {
@@ -28,33 +40,101 @@ export function defaultFinalCutAssetRoots(): string[] {
 
 export class FinalCutAssetRegistry {
   private readonly roots: string[];
-  private cached?: EditorAsset[];
+  private readonly nativeTitleProvider?: Pick<NativeTitleProvider, "searchTitles">;
+  private readonly nativeTransitionProvider?: Pick<NativeTransitionProvider, "searchTransitions">;
+  private cached?: { signature: string; assets: EditorAsset[] };
 
   public constructor(options: FinalCutAssetRegistryOptions = {}) {
     this.roots = (options.roots ?? defaultFinalCutAssetRoots()).map((root) => resolve(root));
+    this.nativeTitleProvider = options.nativeTitleProvider;
+    this.nativeTransitionProvider = options.nativeTransitionProvider;
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {
-    if (!this.cached) this.cached = await this.scan();
-    return filterAssets(this.cached, query);
+    const scanned = await this.scan();
+    if (!this.cached || this.cached.signature !== scanned.signature) this.cached = scanned;
+    const discovery = query?.discovery ?? "background";
+    const filesystemAssets = discovery === "native" ? [] : filterAssets(this.cached.assets, query);
+    if (discovery === "background") return filesystemAssets;
+    if (discovery === "native" && query?.kind === "title" && !this.nativeTitleProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native title discovery is not configured");
+    }
+    if (discovery === "native" && query?.kind === "transition" && !this.nativeTransitionProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native transition discovery is not configured");
+    }
+    if (discovery === "native" && !query?.kind && !this.nativeTitleProvider && !this.nativeTransitionProvider) {
+      throw new Error("CAPABILITY_UNAVAILABLE: native asset discovery is not configured");
+    }
+    let nativeTitleAssets: EditorAsset[] = [];
+    let nativeTransitionAssets: EditorAsset[] = [];
+    let nativeTitleError: unknown;
+    let nativeTransitionError: unknown;
+    if (this.nativeTitleProvider && (!query?.kind || query.kind === "title")) {
+      let nativeTitles: NativeFinalCutTitleMatch[];
+      try {
+        nativeTitles = await this.nativeTitleProvider.searchTitles(query?.query ?? "");
+        if (nativeTitles.length === 0) {
+          throw new Error("FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY: native title provider returned no title assets");
+        }
+      } catch (error) {
+        nativeTitleError = error;
+        nativeTitles = [];
+      }
+      nativeTitleAssets = nativeTitles.map(nativeTitleAsset);
+    }
+
+    const nativeTransitionProvider = this.nativeTransitionProvider;
+    const shouldSearchNativeTransitions = nativeTransitionProvider
+      && (!query?.kind || query.kind === "transition");
+    if (shouldSearchNativeTransitions) {
+      let nativeTransitions: NativeFinalCutTransitionMatch[];
+      try {
+        nativeTransitions = await nativeTransitionProvider.searchTransitions(query?.query ?? "");
+      } catch (error) {
+        nativeTransitionError = error;
+        nativeTransitions = [];
+      }
+      nativeTransitionAssets = nativeTransitions.map(nativeTransitionAsset);
+    }
+
+    const nativeError = nativeTransitionError ?? nativeTitleError;
+    const filesystemResults = nativeError && filesystemAssets.length > 0
+      ? withNativeDiscoveryDiagnostic(filesystemAssets, nativeError)
+      : filesystemAssets;
+    const assets = filterAssets(dedupeAssets([
+      ...filesystemResults,
+      ...nativeTitleAssets,
+      ...nativeTransitionAssets,
+    ]), query);
+    if (assets.length === 0 && nativeError) throw nativeError;
+    return assets;
   }
 
   public refresh(): void {
     this.cached = undefined;
   }
 
-  private async scan(): Promise<EditorAsset[]> {
+  private async scan(): Promise<{ signature: string; assets: EditorAsset[] }> {
     const assets: EditorAsset[] = [];
+    const signatures: string[] = [];
     for (const root of this.roots) {
-      await scanDirectory(root, assets);
+      await scanDirectory(root, assets, signatures, root);
     }
-    return assets
-      .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
-      .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
+    return {
+      signature: signatures.sort().join("\n"),
+      assets: assets
+        .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
+        .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id)),
+    };
   }
 }
 
-async function scanDirectory(directory: string, assets: EditorAsset[]): Promise<void> {
+async function scanDirectory(
+  directory: string,
+  assets: EditorAsset[],
+  signatures: string[],
+  root: string,
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -64,14 +144,20 @@ async function scanDirectory(directory: string, assets: EditorAsset[]): Promise<
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory() && CATEGORY_BY_DIRECTORY[entry.name]) {
-      await scanCategory(path, CATEGORY_BY_DIRECTORY[entry.name], assets);
+      await scanCategory(path, CATEGORY_BY_DIRECTORY[entry.name], assets, signatures, root);
     } else if (entry.isDirectory()) {
-      await scanDirectory(path, assets);
+      await scanDirectory(path, assets, signatures, root);
     }
   }
 }
 
-async function scanCategory(directory: string, kind: EditorAsset["kind"], assets: EditorAsset[]): Promise<void> {
+async function scanCategory(
+  directory: string,
+  kind: EditorAsset["kind"],
+  assets: EditorAsset[],
+  signatures: string[],
+  root: string,
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -81,15 +167,163 @@ async function scanCategory(directory: string, kind: EditorAsset["kind"], assets
   for (const entry of entries) {
     if (!entry.isDirectory() || !BUNDLE_SUFFIXES.has(extension(entry.name))) continue;
     const path = join(directory, entry.name);
+    const fingerprint = await bundleFingerprint(path);
+    signatures.push(fingerprint.signature);
     const metadata = await readMetadata(path);
     assets.push({
-      id: path,
+      id: `filesystem:${kind}:${path}`,
       kind,
       name: metadata.name ?? basename(entry.name, extension(entry.name)),
       vendor: metadata.vendor ?? "Unknown",
-      metadata: { path, ...metadata },
+      metadata: {
+        path,
+        ...metadata,
+        identity: path,
+        sourceDigest: fingerprint.sourceDigest,
+        provider: "filesystem-motion-template",
+        source: "filesystem",
+        discovery: {
+          backend: "filesystem-motion-template",
+          guarantee: "observed",
+        },
+        installation: {
+          path,
+          root,
+          relativePath: relative(root, path),
+        },
+      },
     });
   }
+}
+
+interface BundleFile {
+  path: string;
+  size: number;
+  modifiedAt: number;
+}
+
+async function bundleFingerprint(path: string): Promise<{ signature: string; sourceDigest: string }> {
+  const files: BundleFile[] = [];
+  await collectBundleFiles(path, files);
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  const digest = createHash("sha256");
+  for (const file of files) {
+    digest.update(file.path).update("\0");
+    try {
+      digest.update(await readFile(file.path));
+    } catch {
+      digest.update("missing");
+    }
+  }
+  return {
+    signature: files.map((file) => `${file.path}:${file.size}:${file.modifiedAt}`).join("\n"),
+    sourceDigest: `sha256:${digest.digest("hex")}`,
+  };
+}
+
+async function collectBundleFiles(path: string, files: BundleFile[]): Promise<void> {
+  let details;
+  try {
+    details = await stat(path);
+  } catch {
+    return;
+  }
+  if (details.isFile()) {
+    files.push({ path, size: details.size, modifiedAt: details.mtimeMs });
+    return;
+  }
+  if (!details.isDirectory()) return;
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) await collectBundleFiles(join(path, entry.name), files);
+  }
+  for (const entry of entries) {
+    if (entry.isFile()) await collectBundleFiles(join(path, entry.name), files);
+  }
+}
+
+function nativeTitleAsset(match: NativeFinalCutTitleMatch): EditorAsset {
+  if (!match.id.startsWith("final-cut:title:") || !match.identity.trim() || !match.name.trim()) {
+    throw new Error("FINAL_CUT_NATIVE_TITLE_ID_UNAVAILABLE: native title provider returned an unstable identity");
+  }
+  return {
+    id: match.id,
+    kind: "title",
+    name: match.name,
+    vendor: match.vendor,
+    metadata: {
+      identity: match.identity,
+      provider: "final-cut-accessibility",
+      source: "final-cut-titles-browser",
+      discovery: {
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      placement: {
+        backend: "final-cut-accessibility",
+        guarantee: "native-verified",
+        operation: "editor.native.title.add",
+      },
+    },
+  };
+}
+
+function nativeTransitionAsset(match: NativeFinalCutTransitionMatch): EditorAsset {
+  if (!match.id.startsWith("final-cut:transition:") || !match.identity.trim() || !match.name.trim()) {
+    throw new Error("FINAL_CUT_NATIVE_TRANSITION_ID_UNAVAILABLE: native transition provider returned an unstable identity");
+  }
+  return {
+    id: match.id,
+    kind: "transition",
+    name: match.name,
+    vendor: match.vendor,
+    metadata: {
+      identity: match.identity,
+      provider: "final-cut-accessibility",
+      source: "final-cut-transitions-browser",
+      discovery: {
+        backend: "final-cut-accessibility",
+        guarantee: "observed",
+      },
+      placement: {
+        backend: "final-cut-accessibility",
+        guarantee: "native-verified",
+        operation: "editor.native.transition.add.preview",
+      },
+    },
+  };
+}
+
+function dedupeAssets(assets: EditorAsset[]): EditorAsset[] {
+  return assets
+    .sort((left, right) => `${left.kind}:${left.name}:${left.id}`.localeCompare(`${right.kind}:${right.name}:${right.id}`))
+    .filter((asset, index, all) => index === all.findIndex((candidate) => candidate.id === asset.id));
+}
+
+function withNativeDiscoveryDiagnostic(assets: EditorAsset[], error: unknown): EditorAsset[] {
+  const native = {
+    backend: "final-cut-accessibility",
+    guarantee: "none",
+    unavailableReason: error instanceof Error ? error.message : String(error),
+  };
+  return assets.map((asset) => {
+    const discovery = asset.metadata.discovery;
+    return {
+      ...asset,
+      metadata: {
+        ...asset.metadata,
+        discovery: {
+          ...(typeof discovery === "object" && discovery !== null ? discovery : {}),
+          native: { ...native },
+        },
+      },
+    };
+  });
 }
 
 async function readMetadata(bundlePath: string): Promise<{ name?: string; vendor?: string; [key: string]: unknown }> {

@@ -30,7 +30,8 @@ graceful quit/reopen before activation. From a repository checkout, invoke it
 as `pnpm run framekit -- connect finalcut`.
 
 The registration above uses headless mode, so it skips that lifecycle recovery
-and only probes the existing socket.
+and performs bounded readiness probes against the existing socket. It never
+launches or activates Final Cut to make the socket available.
 
 The bundled Workflow Extension connection is metadata-only. Check setup progress with the MCP
 tool `connection.status` or:
@@ -38,6 +39,93 @@ tool `connection.status` or:
 ```sh
 pnpm run framekit -- doctor finalcut --json
 ```
+
+### Canonical provider mode
+
+Canonical live mode is an explicit provider contract, not a capability inferred
+from a connected socket. Set `FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED=1` when the
+socket must provide canonical writes:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED=1 \
+FRAMEKIT_FINAL_CUT_SOCKET=/absolute/path/to/canonical-provider.sock \
+FRAMEKIT_FINAL_CUT_HEADLESS=1 \
+pnpm run framekit -- mcp --editor final-cut-live --headless
+```
+
+This mode accepts only a provider whose capability payload normalizes to
+`canonical-write`. A missing socket or a metadata-only/canonical-read provider
+returns `FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE` or
+`FINAL_CUT_CANONICAL_PROVIDER_REQUIRED` before lifecycle recovery runs. The
+bundled Workflow Extension remains metadata-only and is never upgraded by this
+flag. `FRAMEKIT_FCPXML_PATH` must be omitted; setting it with the flag returns
+`FINAL_CUT_CANONICAL_FALLBACK_CONFLICT`.
+
+The current-version investigation behind this boundary is documented in the
+[non-UI timeline snapshot investigation](../architecture/non-ui-timeline-snapshot-investigation.md).
+
+The provider must speak protocol v1 and support stable project/sequence
+catalog IDs, explicit selection, complete snapshots, apply, restore, and
+revision-bearing responses. `editor.inspect` is the first check; then use
+`project.list`, `project.select`, and `project.inspect` before a supported edit.
+Successful mutation evidence must show a target-matching before/after diff, an
+advancing revision, and a restored canonical digest after `edit.undo`.
+The adapter exposes `assessCanonicalLiveReadiness` for deterministic preflight;
+only an empty `missing` list is eligible for a canonical-write claim.
+
+### Headed native canonical provider
+
+For the bundled provider, set `FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native`
+with headed native writes enabled:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+pnpm run framekit -- mcp --editor final-cut-live
+```
+
+This provider uses the socket only for live identity/state and change events.
+Each canonical read drives Final Cut's `File > Export XML` command into a
+private temporary file, first requests Final Cut Pro to become frontmost, then
+verifies that state before opening the export flow, parses the result, and
+removes it. It never uses `FRAMEKIT_FCPXML_PATH`. The supported write is
+`rename-clip`: Framekit requires
+one exact Browser media result, one timeline occurrence, matching rational
+start/duration coordinates, native readback, an advancing canonical revision,
+and native Undo that restores the original canonical digest. Duplicate media,
+duplicate occurrences, stale coordinates, missing Accessibility identity, or
+any failed verification returns an error before claiming success.
+
+The canonical transaction port currently supports one `rename-clip` transaction.
+Call `editor.timeline.edit.preview` with the explicit project, sequence, base
+revision, and operation, confirm that the preview is non-mutating, then call
+`editor.timeline.edit.execute` with its single-use token. The execute result
+contains the read-after-write snapshot, deterministic diff, verification, and
+the transaction ID used by `edit.undo`.
+
+The headed baseline is Final Cut Pro 10.7.1 on the repository's macOS/Xcode
+16.4 environment. A different Final Cut version requires fresh headed evidence.
+Use a disposable project, open the intended sequence before connecting, and
+grant Accessibility and Automation permission to the MCP host. The bundled
+Workflow Extension exposes only the active project/sequence metadata and does
+not infer a project from an arbitrary artifact. The Node live adapter also uses
+the read-only background library provider to return a catalog while Final Cut
+is not frontmost. Its capability contract is
+`editor.backgroundLibraryInspection: true` plus
+`families.observation.library` with backend
+`final-cut-background-library` and guarantee `observed`. Framekit reconciles
+that catalog with two live socket reads;
+stable IDs are required for active IDs, while name-only matches, revision drift,
+and target changes remain unresolved or stale. The response preserves catalog
+source, observed live revision/timing provenance, and the reason that project
+selection is unavailable. This metadata-only path never invokes canonical
+`File > Export XML` and never claims a complete timeline snapshot or native UI
+access. Missing background API support, canonical snapshot support, and native
+UI access remain distinct unavailable route categories. See the
+[background library inspection contract](../final-cut/background-library-inspection.md).
 
 ## Headless mode
 
@@ -48,11 +136,14 @@ live server with:
 pnpm run framekit -- mcp --editor final-cut-live --headless
 ```
 
-Headless mode only probes the existing Workflow Extension socket. It does not
-launch or activate Final Cut, minimize or raise windows, request Accessibility
-focus, or enable native UI writes. If the socket is not already available,
+Headless mode performs bounded readiness probes against the existing Workflow
+Extension socket. It does not launch or activate Final Cut, minimize or raise
+windows, request Accessibility focus, or enable native UI writes. If the
+socket does not become available before the connection deadline,
 `connection.status` reports `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` rather than
-trying to recover by opening Final Cut.
+trying to recover by opening Final Cut. An endpoint that responds with an
+unsupported live protocol reports `FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE`
+with the endpoint's error detail.
 
 This mode can read live project/sequence metadata and can use FCPXML artifact
 operations when `FRAMEKIT_FCPXML_PATH` is configured. It cannot mutate the open
@@ -82,10 +173,14 @@ sequence range, and incremental change events. Add `FRAMEKIT_FCPXML_PATH` to
 compose canonical project/timeline reads, artifact edits, read-after-write,
 diffs, verification, and undo. These edits update the FCPXML artifact rather
 than the open Final Cut timeline.
+The artifact operation boundary is documented in the [FCPXML operation
+matrix](../final-cut/fcpxml-operation-matrix.md); those deterministic artifact
+results do not prove a live Final Cut timeline change.
 
 The socket protocol also accepts `snapshot`, `apply`, and `restore` from a live
 bridge that can prove canonical guarantees. Framekit exposes that provider
-through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`, `edit.diff`, and
+through the existing `project.list`, `project.select`, `project.inspect`, `editor.timeline.edit`,
+`editor.timeline.edit.preview`, `editor.timeline.edit.execute`, `edit.diff`, and
 `edit.undo` MCP tools only when `canonicalTimelineMode` is `canonical-read` or
 `canonical-write`. The bundled Workflow Extension cannot currently supply
 those methods and fails them with `CAPABILITY_UNAVAILABLE`.
@@ -107,20 +202,89 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 Grant Accessibility and Automation permission to the terminal or host running
-the MCP process. Framekit activates Final Cut and focuses the timeline before
-timeline-native operations. The user must open the intended project timeline
-and select the target clip before calling `editor.native.edit`; Framekit does
-not choose projects automatically. Native writes fail closed when permission,
-window, focus, selection, or menu verification is unavailable.
+the MCP process. Call `editor.native.inspect` first when checking readiness. It
+uses a bounded, passive Accessibility probe: it does not activate Final Cut,
+raise a window, minimize the Framekit overlay, click, or change selection. Its
+`readiness` object reports the state, first missing requirement, retryability,
+frontmost/timeline-focus/target status, permission and overlay diagnostics, and
+actionable guidance. A background Final Cut session therefore returns a
+structured unavailable result without blocking the MCP session.
+
+The user must open the intended project timeline and select the target clip
+before calling `editor.native.edit`; Framekit does not choose projects
+automatically. Native writes fail closed when permission, window, focus,
+selection, or menu verification is unavailable. Timeline-native previews and
+execution may activate Final Cut as part of their explicit write workflow.
 
 If focus recovery needs to be retried explicitly, call `editor.native.focus`. It
 performs a bounded Accessibility-only focus attempt and returns the same UI
 diagnostics as `editor.native.inspect`; it never selects a project, moves the
-playhead, or changes timeline content. When the visible Framekit extension
-window overlaps Final Cut, preflight detects it, minimizes it through
-Accessibility, raises the timeline window, and verifies the focused window
-after every attempt. It never clicks the Framekit close button. An overlay that
-cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
+playhead, or changes timeline content. Unlike passive inspect, this explicit
+recovery request may activate Final Cut and recover focus. When the visible
+Framekit extension window overlaps Final Cut, preflight detects it, minimizes
+it through Accessibility, raises the timeline window, and verifies the focused
+window after every attempt. It never clicks the Framekit close button. An
+overlay that cannot be minimized returns `FINAL_CUT_NATIVE_OVERLAY_BLOCKED`.
+
+## Resumable native operation sessions
+
+For a previewed disposable native rename that cannot run immediately, submit a
+resumable operation instead of waiting for Final Cut to become frontmost. The
+first implementation supports `disposable.rename-clip` and remains a headed UI
+operation; it does not turn queued work into background-native execution.
+
+Use the binding values returned by `editor.native.disposable.preview`:
+
+```json
+{
+  "operation": "disposable.rename-clip",
+  "previewToken": "disposable-native-preview-...",
+  "projectId": "project-1",
+  "sequenceId": "sequence-1",
+  "targetIdentity": "clip-1",
+  "baseRevision": {
+    "id": "revision-1",
+    "sequence": 1,
+    "timestamp": "2026-09-13T00:00:00.000Z"
+  },
+  "idempotencyKey": "rename-request-1"
+}
+```
+
+Call `editor.native.operation.submit` with that object. It returns an accepted
+job without waiting for the native readiness probe or the edit to finish. Poll
+`editor.native.operation.status` with the returned `jobId`. A missing frontmost
+Final Cut session is reported as `state: "waiting_for_final_cut"`, with the
+first missing readiness requirement, actionable guidance, and retryability.
+
+When the user has restored the required headed state, call
+`editor.native.operation.retry`. The preview, project, sequence, target
+identity, and base revision are revalidated immediately before mutation. A
+changed target or revision fails closed and does not invoke the native edit.
+The same `idempotencyKey` and binding returns the original job; reusing the key
+for different work is an error. Jobs expire with
+`NATIVE_OPERATION_SESSION_EXPIRED` and cannot be retried after expiry.
+
+Terminal and expired jobs are retained in memory for five minutes after their
+`expiresAt` for status polling and same-key idempotency lookups. The job and
+idempotency entry are then pruned together; later status calls return not-found
+and a reused key starts a new job.
+
+The lifecycle is `planned` -> `waiting_for_final_cut` -> `executing` ->
+`verifying` -> `completed`, `rolled_back`, `failed`, or `cancelled`. A pending job can be
+cancelled with `editor.native.operation.cancel`; cancellation after native
+mutation starts reports a recovery-required failure rather than claiming that
+an unverified change was safely cancelled. Terminal status keeps `accepted`,
+`completed`, `verified`, and `restored` separate and includes canonical
+readback revision, diff counts, verification checks, and native Undo/rollback
+state. Session status is sanitized and does not include raw canonical media
+paths or credentials.
+
+Jobs are process-local and do not survive MCP process restart. This first
+implementation provides status polling but does not claim a completion
+notification channel. The existing operation-specific preview/execute tools
+remain available for native title, transition, mask, range, and media
+operations until they adopt the session contract.
 
 ## Importing local media
 
@@ -133,25 +297,79 @@ Final Cut Browser with:
 }
 ```
 
-Call `editor.native.media.import` with the local file path. Framekit checks that
-the path is a readable file before opening Final Cut's import UI, waits for the
-basename to appear in Browser search, and returns `mediaHandle`, `sourcePath`,
-`name`, and an inferred `kind` (`video` or `audio`). The returned media handle
-can be passed to `editor.native.media.select` and
-`editor.native.timeline.locate`. The handle is stable for the current native
-session and does not itself insert the asset into the timeline.
+Call `editor.native.media.import` with the local file path. Framekit trims
+surrounding whitespace, expands `~` and `~/...` against the user home, and
+resolves other relative paths against the process working directory before
+checking that the path is a readable file. Other leading-tilde forms fail with
+`INVALID_OPERATION` instead of being silently interpreted relative to the
+working directory. After validation, Framekit opens Final Cut's import UI,
+waits for the basename to appear in Browser search, and returns `mediaHandle`,
+`sourcePath`, the immutable Browser `sourceIdentity`, `name`, an inferred `kind`
+(`video` or `audio`), and a `verification` record. The verification is positive
+only after one newly appearing Browser result has been matched to its immutable
+source identity. The returned media handle can be passed to
+`editor.native.media.select` and `editor.native.timeline.locate`. The handle is
+stable for the current native session and does not itself insert the asset into
+the timeline.
 
-Invalid paths fail before any import UI command. If Final Cut does not expose
-the imported asset before the bounded wait expires, Framekit returns
-`FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT`. If polling finds only pre-existing
-same-name results, it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if
-multiple newly appearing same-name results are found, it returns
+Invalid paths fail before any import UI command. A readable directory is not
+guessed as a file: the MCP response uses
+`FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT` and includes structured guidance for
+`editor.native.media.directory.preview` followed by
+`editor.native.media.directory.execute` with `confirm: true`. Import failures
+include
+`stage`, `elapsedMs`, `stageElapsedMs`, and `partialImportPossible` details in
+their error. Browser discovery failures also include bounded Accessibility
+diagnostics when available, so a caller can distinguish pre-import Browser
+discovery, native import UI, and post-import Browser discovery. If Final Cut
+does not expose the imported asset before the bounded wait expires, Framekit
+returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT` and marks that a
+partial import may exist. If polling finds only pre-existing same-name results,
+it returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_PRE_EXISTING`; if multiple newly
+appearing same-name results are found, it returns
 `FINAL_CUT_NATIVE_MEDIA_IMPORT_AMBIGUOUS`. A single newly appearing result with
 an immutable source identity is accepted even when a same-name result existed
 before import. A Browser result without an immutable source identity is never
 accepted and returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE`.
 If Final Cut does not expose a ready Media Import window, folder sheet, or import
-button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`.
+button, the bounded UI step returns `FINAL_CUT_NATIVE_MEDIA_IMPORT_UI_UNAVAILABLE`
+and marks that the import may have been partially accepted.
+
+To import all supported video files from one directory, first call
+`editor.native.media.directory.preview`:
+
+```json
+{
+  "path": "~/Desktop/video-clip"
+}
+```
+
+Framekit expands `~`, requires a readable directory, scans only that directory
+(not nested directories), and returns `.mov`, `.mp4`, and `.m4v` files sorted by
+normalized absolute path. Unsupported files and directories are not included.
+The preview only reads the filesystem; it does not focus or mutate Final Cut.
+
+After reviewing the returned `files`, call
+`editor.native.media.directory.execute` with the preview token and explicit
+confirmation:
+
+```json
+{
+  "previewToken": "media-directory-preview-...",
+  "confirm": true
+}
+```
+
+Files are imported in preview order. The result contains one entry per file with
+`status: "imported"` and a stable `media.mediaHandle`, or `status: "failed"`
+with an error code, message, and—when native import reached a staged failure—
+the same `details` object described above. Direct
+`editor.native.media.import` failures expose that structured `{ code, message,
+details }` object in the MCP error content. `status: "partial"`,
+`importedCount`, and `failedCount` make partial completion explicit; one file failure does not hide
+the results of other files. The token expires after 30 seconds and is consumed
+by a confirmed execution. This workflow imports Browser media only; it does not
+append anything to the timeline.
 
 ## Live Browser search and Blade
 
@@ -239,11 +457,19 @@ already at or beyond the current duration returns a verified no-op.
 
 ## Native title placement
 
-Native titles use the installed Motion-template registry and a guarded
-preview/execute flow:
+Native titles use the composed Motion-template registry and headed Titles
+browser with a guarded preview/execute flow:
 
-1. Call `editor.assets` with `kind: "title"` and choose one returned `assetId`.
-2. Call `editor.native.title.add.preview` with that `assetId`, title `text`,
+1. Call `editor.inspect` and require
+   `capabilities.families.native.titleDiscovery` and `titlePlacement` when
+   using a headed native title. Call `editor.assets` with `kind: "title"` and
+   choose one returned provider-qualified `id`. Native browser results use IDs
+   such as `final-cut:title:<AXIdentifier>` and identify their source under
+   `metadata.discovery`; filesystem results use
+   `filesystem:title:<absolute-path>`. If native discovery is unavailable while
+   filesystem results remain usable, inspect `metadata.discovery.native` for
+   the native backend, `guarantee: "none"`, and `unavailableReason`.
+2. Call `editor.native.title.add.preview` with that `id` as `assetId`, title `text`,
    and a positive rational `duration`. Omit `start` to use the current
    playhead; provide `start` to place the title across an explicit range.
 3. Confirm the returned title, range, sequence, and revision, then call
@@ -260,8 +486,13 @@ misaligned timing and `FINAL_CUT_NATIVE_TITLE_ASSET_AMBIGUOUS` when the Titles
 browser exposes multiple matching templates. The native adapter does
 not invent title assets or claim canonical timeline enumeration; it uses
 Accessibility automation to open Final Cut's Titles and Generators browser,
-select the discovered template, apply the text, and verify the selected title
-and live revision.
+select the discovered template by its stable AX identity, apply the text, and
+verify the selected title and live revision. Missing Accessibility permission,
+an unavailable browser, or a missing AX identity is not converted into a
+fabricated asset. An empty native browser response is reported as
+`FINAL_CUT_NATIVE_TITLE_DISCOVERY_EMPTY`; native-only queries fail explicitly,
+while filesystem Motion-template results remain usable with a native
+unavailable diagnostic when present.
 
 ## Native transition placement
 

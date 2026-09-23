@@ -24,6 +24,15 @@ export function addRationalTimes(left: RationalTime, right: RationalTime, errorC
   );
 }
 
+export function subtractRationalTimes(left: RationalTime, right: RationalTime, errorCode = "ANALYSIS_INVALID"): RationalTime {
+  const leftParts = parseRational(left, errorCode);
+  const rightParts = parseRational(right, errorCode);
+  return normalizeRational(
+    leftParts.value * rightParts.timescale - rightParts.value * leftParts.timescale,
+    leftParts.timescale * rightParts.timescale,
+  );
+}
+
 export function isWithinClip(
   position: RationalParts,
   startTime: RationalTime,

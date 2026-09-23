@@ -6,6 +6,7 @@ artifacts/
 out/
 storybook-static/
 *.tsbuildinfo
+coverage/
 .DS_Store
 
 PLAN.md

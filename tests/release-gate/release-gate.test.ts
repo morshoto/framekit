@@ -7,7 +7,7 @@ import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
-test("release corpus covers both v0.0.3 workflow families and safety cases", async () => {
+test("release corpus covers both v0.1.6 workflow families and safety cases", async () => {
   const raw = await readFile(new URL("./corpus.json", import.meta.url), "utf8");
   const corpus = JSON.parse(raw) as {
     schemaVersion: number;

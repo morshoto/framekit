@@ -23,5 +23,6 @@ Read the detailed architecture documents for the individual boundaries:
 - [Runtime boundaries](./architecture/runtime-boundaries.md)
 - [Backend selection](./architecture/backend-selection.md)
 - [Capability model](./architecture/capability-model.md)
+- [`.fcpevent` shadow materialization research](./architecture/fcpevent-shadow-materialization-research.md)
 - [Software Design Description](./SDD.md)
 - [Architecture decision records](./adr/)

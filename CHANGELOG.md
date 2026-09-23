@@ -1,5 +1,134 @@
 # Changelog
 
+## [v0.1.11](https://github.com/morshoto/framekit/compare/v0.1.10...v0.1.11) - 2026-09-16
+
+### Feature changes
+- feat: inspect Final Cut SQLite read-only by @morshoto in https://github.com/morshoto/framekit/pull/316
+- feat: reconcile editing session drift by @morshoto in https://github.com/morshoto/framekit/pull/318
+- feat: compile Timeline IR to FCPXML by @morshoto in https://github.com/morshoto/framekit/pull/319
+- feat: add locked console FCPXML experiment by @morshoto in https://github.com/morshoto/framekit/pull/320
+- feat: add unattended editing workflow by @morshoto in https://github.com/morshoto/framekit/pull/321
+- feat: add headless editing sessions by @morshoto in https://github.com/morshoto/framekit/pull/327
+- Experimental shadow bundle mutation safety by @morshoto in https://github.com/morshoto/framekit/pull/329
+- feat: publish headless materialization jobs by @morshoto in https://github.com/morshoto/framekit/pull/335
+- fix: restore headless Workflow Extension connectivity by @morshoto in https://github.com/morshoto/framekit/pull/336
+- feat: Wire background materialization publisher by @morshoto in https://github.com/morshoto/framekit/pull/330
+### Maintenance and internal
+- chore(deps): update pnpm to v12.4.1 by @renovate[bot] in https://github.com/morshoto/framekit/pull/332
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/331
+- docs: architecture update by @morshoto in https://github.com/morshoto/framekit/pull/333
+
+## [v0.1.10](https://github.com/morshoto/framekit/compare/v0.1.9...v0.1.10) - 2026-09-14
+
+### Patch changes
+- fix: restore native browser search discovery by @morshoto in https://github.com/morshoto/framekit/pull/303
+- fix: decouple native assets from release publishing by @morshoto in https://github.com/morshoto/framekit/pull/309
+### Maintenance and internal
+- fix: use Markers submenu for native add-marker by @morshoto in https://github.com/morshoto/framekit/pull/297
+- fix: keep native readiness consistent after focus recovery by @morshoto in https://github.com/morshoto/framekit/pull/298
+- fix: recognize macOS console lock state by @morshoto in https://github.com/morshoto/framekit/pull/299
+- fix: fail closed when canonical snapshot unavailable by @morshoto in https://github.com/morshoto/framekit/pull/300
+- chore: Update release.yml by @morshoto in https://github.com/morshoto/framekit/pull/296
+- chore: Update labeling-branch.yaml by @morshoto in https://github.com/morshoto/framekit/pull/302
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/304
+
+## [v0.1.9](https://github.com/morshoto/framekit/compare/v0.1.8...v0.1.9) - 2026-09-13
+
+### Feature changes
+- docs: investigate non-UI Final Cut native writes by @morshoto in https://github.com/morshoto/framekit/pull/268
+- docs: record non-UI snapshot investigation by @morshoto in https://github.com/morshoto/framekit/pull/267
+- feat: expand FCPXML artifact operation coverage by @morshoto in https://github.com/morshoto/framekit/pull/269
+- design: investigate non-UI project selection by @morshoto in https://github.com/morshoto/framekit/pull/270
+- fix: make native preflight fail fast by @morshoto in https://github.com/morshoto/framekit/pull/271
+- feat: add background-first discovery by @morshoto in https://github.com/morshoto/framekit/pull/273
+- docs: Define a non-UI artifact publishing path into Final Cut by @morshoto in https://github.com/morshoto/framekit/pull/276
+- feat: define background render export provider by @morshoto in https://github.com/morshoto/framekit/pull/275
+- feat: route and reconcile background project catalogs by @morshoto in https://github.com/morshoto/framekit/pull/278
+- feat: stabilize native timeline targets by @morshoto in https://github.com/morshoto/framekit/pull/277
+- feat: add resumable native operation sessions (#259) by @morshoto in https://github.com/morshoto/framekit/pull/280
+- feat: improve background FCPXML artifact workflow by @morshoto in https://github.com/morshoto/framekit/pull/279
+- feat: Expose separate background metadata capability contracts by @morshoto in https://github.com/morshoto/framekit/pull/286
+- feat: add non-UI Final Cut library inspection by @morshoto in https://github.com/morshoto/framekit/pull/285
+### Patch changes
+- fix: authenticate release runner preflight by @morshoto in https://github.com/morshoto/framekit/pull/272
+- fix: foreground Final Cut before canonical export by @morshoto in https://github.com/morshoto/framekit/pull/266
+- fix: apply #286 review follow-ups by @morshoto in https://github.com/morshoto/framekit/pull/287
+- fix: invoke Final Cut library collections explicitly by @morshoto in https://github.com/morshoto/framekit/pull/288
+- fix: run checkout MCP sources before stale package output by @morshoto in https://github.com/morshoto/framekit/pull/289
+- fix: invoke Final Cut library metadata accessors by @morshoto in https://github.com/morshoto/framekit/pull/290
+### Maintenance and internal
+- chore: rename generated release note categories by @morshoto in https://github.com/morshoto/framekit/pull/281
+- docs: document Final Cut provider boundaries by @morshoto in https://github.com/morshoto/framekit/pull/282
+- fix: remove headed project catalog fallback by @morshoto in https://github.com/morshoto/framekit/pull/283
+- chore: add non-frontmost MCP regression suite by @morshoto in https://github.com/morshoto/framekit/pull/284
+
+## [v0.1.8](https://github.com/morshoto/framekit/compare/v0.1.7...v0.1.8) - 2026-09-12
+
+### ✨ Features
+- test: strengthen canonical headed safety evidence by @morshoto in https://github.com/morshoto/framekit/pull/244
+- test: guard unsupported native project APIs by @morshoto in https://github.com/morshoto/framekit/pull/246
+### 🐛 Fixes
+- fix: keep Swift CodeQL check present by @morshoto in https://github.com/morshoto/framekit/pull/232
+- fix: return media-specific search unavailability by @morshoto in https://github.com/morshoto/framekit/pull/239
+- test: complete Basic Editing MVP evaluation by @morshoto in https://github.com/morshoto/framekit/pull/245
+- fix: align live MCP runtime (#234) by @morshoto in https://github.com/morshoto/framekit/pull/241
+- fix: fail fast when release runner unavailable by @morshoto in https://github.com/morshoto/framekit/pull/243
+- fix: Align metadata-only project inspection capabilities by @morshoto in https://github.com/morshoto/framekit/pull/240
+### 🧰 Maintenance & Internal
+- chore: group generated release notes by change type by @morshoto in https://github.com/morshoto/framekit/pull/238
+- chore: generate milestone release reports by @morshoto in https://github.com/morshoto/framekit/pull/242
+- chore: collapse maintenance release notes by @morshoto in https://github.com/morshoto/framekit/pull/247
+
+## [v0.1.7](https://github.com/morshoto/framekit/compare/v0.1.6...v0.1.7) - 2026-09-12
+
+- fix: build and upload native release assets by @morshoto in https://github.com/morshoto/framekit/pull/221
+- fix: fail closed on empty native title discovery by @morshoto in https://github.com/morshoto/framekit/pull/219
+- feat: import video directories via MCP by @morshoto in https://github.com/morshoto/framekit/pull/220
+- fix: preserve native Browser search failures in media targeting by @morshoto in https://github.com/morshoto/framekit/pull/225
+- fix: make native Browser search discovery reliable by @morshoto in https://github.com/morshoto/framekit/pull/222
+- fix: align generic transition discovery with native identities by @morshoto in https://github.com/morshoto/framekit/pull/218
+- feat: resolve native media import and append intents by @morshoto in https://github.com/morshoto/framekit/pull/224
+- feat: enable canonical timeline.edit in headed Final Cut by @morshoto in https://github.com/morshoto/framekit/pull/223
+- test: add headed rough-cut MCP acceptance gate (#217) by @morshoto in https://github.com/morshoto/framekit/pull/226
+- fix: reject false native timeline focus by @morshoto in https://github.com/morshoto/framekit/pull/228
+- fix: expand native media home paths by @morshoto in https://github.com/morshoto/framekit/pull/229
+- fix: make native media import diagnostics actionable by @morshoto in https://github.com/morshoto/framekit/pull/231
+- fix: guide directory media import errors by @morshoto in https://github.com/morshoto/framekit/pull/230
+
+## [v0.1.6](https://github.com/morshoto/framekit/compare/v0.1.5...v0.1.6) - 2026-09-11
+
+- fix: make tagged release retries idempotent by @morshoto in https://github.com/morshoto/framekit/pull/163
+- Implement dialogue-normalization Skill by @morshoto in https://github.com/morshoto/framekit/pull/188
+- feat: implement filler-removal Skill by @morshoto in https://github.com/morshoto/framekit/pull/189
+- Discover built-in Final Cut Motion titles by @morshoto in https://github.com/morshoto/framekit/pull/190
+- feat: add native masking capability by @morshoto in https://github.com/morshoto/framekit/pull/191
+- feat: add native picture-in-picture by @morshoto in https://github.com/morshoto/framekit/pull/192
+- [Improvement] Add the v0.1.6 native-editing release gate by @morshoto in https://github.com/morshoto/framekit/pull/193
+- feat: produce sanitized headed-native evidence by @morshoto in https://github.com/morshoto/framekit/pull/196
+- fix: sanitize staged commits and repair release gate by @morshoto in https://github.com/morshoto/framekit/pull/198
+- feat: Enable headed canonical Final Cut provider by @morshoto in https://github.com/morshoto/framekit/pull/197
+- fix: reject out-of-bounds ripple-delete ranges (#199) by @morshoto in https://github.com/morshoto/framekit/pull/201
+- test: cover canonical live MCP boundary (#194) by @morshoto in https://github.com/morshoto/framekit/pull/200
+
+## [v0.1.5](https://github.com/morshoto/framekit/compare/v0.1.4...v0.1.5) - 2026-09-11
+
+- test: align pnpm lockfile assertion by @morshoto in https://github.com/morshoto/framekit/pull/174
+- fix: exclude audio-only rough-cut shots by @morshoto in https://github.com/morshoto/framekit/pull/170
+- fix: reject non-positive rational trim durations by @morshoto in https://github.com/morshoto/framekit/pull/171
+- fix: reject inverted analysis ranges by @morshoto in https://github.com/morshoto/framekit/pull/169
+- fix: invalidate cached media understanding after edits by @morshoto in https://github.com/morshoto/framekit/pull/175
+- fix: reject stale edit.undo by @morshoto in https://github.com/morshoto/framekit/pull/168
+- perf: run CodeQL only for affected languages by @morshoto in https://github.com/morshoto/framekit/pull/177
+- fix: Expose operation-specific requirements in single-edit MCP schemas by @morshoto in https://github.com/morshoto/framekit/pull/173
+- feat: add revision-bound speech and VAD analysis by @morshoto in https://github.com/morshoto/framekit/pull/176
+- fix: align MCP server version with package by @morshoto in https://github.com/morshoto/framekit/pull/172
+- fix: decouple edits from optional analyzers by @morshoto in https://github.com/morshoto/framekit/pull/180
+- fix: preserve analyzer-provider provenance by @morshoto in https://github.com/morshoto/framekit/pull/179
+- fix: preserve media roles in canonical clips by @morshoto in https://github.com/morshoto/framekit/pull/178
+- fix: preserve routed capabilities and preflight by @morshoto in https://github.com/morshoto/framekit/pull/183
+- fix: make FCPXML publishing state-driven by @morshoto in https://github.com/morshoto/framekit/pull/182
+- perf: advertise music.add cross-field constraints by @morshoto in https://github.com/morshoto/framekit/pull/181
+
 ## [v0.1.4](https://github.com/morshoto/framekit/compare/v0.1.3...v0.1.4) - 2026-09-10
 
 - feat: add guarded native Final Cut transitions by @morshoto in https://github.com/morshoto/framekit/pull/142

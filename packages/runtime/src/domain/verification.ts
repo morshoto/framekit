@@ -20,6 +20,7 @@ export interface AudioCoverageAssertion {
 export interface AudioLoudnessAssertion {
   type: "audio-loudness";
   mediaId: string;
+  occurrenceId?: string;
   targetLufs: number;
   toleranceDb?: number;
 }

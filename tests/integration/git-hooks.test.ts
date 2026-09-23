@@ -53,6 +53,7 @@ test("pre-commit hook presents grouped validation stages and failure diagnostics
   const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
   assert.match(hook, /run_step\(\)/);
   assert.match(hook, /#%d \[%d\/%d\]/);
+  assert.match(hook, /run_step "sanitize staged content" node scripts\/check-staged-content\.mjs/);
   assert.match(hook, /--test-reporter=dot/);
   assert.match(hook, /mktemp -d/);
   assert.match(hook, /cat \"\$log_file\" >&2/);

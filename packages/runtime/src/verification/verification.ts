@@ -61,7 +61,8 @@ function validateAssertion(assertion: VerificationAssertion, index: number): voi
     return;
   }
   if (assertion.type === "audio-loudness") {
-    if (!Number.isFinite(assertion.targetLufs)
+    if ((assertion.occurrenceId !== undefined && !assertion.occurrenceId.trim())
+      || !Number.isFinite(assertion.targetLufs)
       || assertion.toleranceDb !== undefined
       && (!Number.isFinite(assertion.toleranceDb) || assertion.toleranceDb < 0)) {
       throw new Error(`INVALID_VERIFICATION_POLICY: ${path} has invalid loudness values`);
@@ -146,6 +147,14 @@ export class DefaultVerificationEngine implements VerificationEngine {
       });
     }
 
+    if (transaction.planned.some((operation) => operation.type === "timeline.mask.add")) {
+      checks.push({
+        name: "mask-state",
+        passed: maskStateIsValid(transaction),
+        detail: maskStateDetail(transaction),
+      });
+    }
+
     if (policy.requireExpectedChange !== false) {
       checks.push({
         name: "expected-change",
@@ -158,8 +167,9 @@ export class DefaultVerificationEngine implements VerificationEngine {
 
     if (policy.maxTruePeakDb !== undefined) {
       const peaks = transaction.attemptedAfter.media
+        .filter((media) => media.audio?.valid !== false)
         .map((media) => media.audio?.truePeakDb)
-        .filter((peak): peak is number => peak !== undefined);
+        .filter((peak): peak is number => peak !== undefined && Number.isFinite(peak));
       const passed = peaks.length > 0 && peaks.every((peak) => peak <= policy.maxTruePeakDb!);
       checks.push({
         name: "true-peak-limit",
@@ -173,8 +183,9 @@ export class DefaultVerificationEngine implements VerificationEngine {
     if (policy.targetLufs !== undefined) {
       const tolerance = policy.loudnessToleranceDb ?? 0.5;
       const loudness = transaction.attemptedAfter.media
+        .filter((media) => media.audio?.valid !== false)
         .map((media) => media.audio?.integratedLufs)
-        .filter((value): value is number => value !== undefined);
+        .filter((value): value is number => value !== undefined && Number.isFinite(value));
       const passed = loudness.length > 0 && loudness.every((value) => Math.abs(value - policy.targetLufs!) <= tolerance);
       checks.push({
         name: "integrated-loudness-target",
@@ -349,9 +360,26 @@ function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudn
   const toleranceDb = assertion.toleranceDb ?? 0.5;
   const expected = {
     mediaId: assertion.mediaId,
+    ...(assertion.occurrenceId ? { occurrenceId: assertion.occurrenceId } : {}),
     targetLufs: assertion.targetLufs,
     toleranceDb,
   };
+  const occurrence = assertion.occurrenceId
+    ? transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === assertion.occurrenceId)
+    : undefined;
+  if (assertion.occurrenceId && (!occurrence || occurrence.mediaId !== assertion.mediaId)) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: { mediaId: assertion.mediaId, occurrenceId: assertion.occurrenceId },
+      reason: !occurrence ? "OCCURRENCE_NOT_FOUND" : "TARGET_MISMATCH",
+      detail: !occurrence
+        ? `expected occurrence ${assertion.occurrenceId}, but it was not observed`
+        : `occurrence ${assertion.occurrenceId} does not reference media ${assertion.mediaId}`,
+    };
+  }
   const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === assertion.mediaId);
   if (!media) {
     return {
@@ -373,6 +401,19 @@ function verifyAudioLoudness(transaction: EditTransaction, assertion: AudioLoudn
       observed: { mediaId: assertion.mediaId },
       reason: "AUDIO_ANALYZER_UNAVAILABLE",
       detail: `audio analysis is unavailable for media ${assertion.mediaId}`,
+    };
+  }
+  if (media.audio.valid === false
+    || !Number.isFinite(media.audio.integratedLufs)
+    || !Number.isFinite(media.audio.truePeakDb)) {
+    return {
+      name: assertion.type,
+      passed: false,
+      status: "failed",
+      expected,
+      observed: media.audio,
+      reason: "AUDIO_MEASUREMENT_INVALID",
+      detail: `audio measurement for media ${assertion.mediaId} is invalid`,
     };
   }
   const observed = media.audio.integratedLufs;
@@ -679,9 +720,24 @@ function audioStateDetail(transaction: EditTransaction): string {
     : "music placement, duration, gain, or fades do not match the planned audio state";
 }
 
+function maskStateIsValid(transaction: EditTransaction): boolean {
+  return transaction.planned.every((operation) => {
+    if (operation.type !== "timeline.mask.add") return true;
+    const clip = transaction.after.timeline.clips.find(({ id }) => id === operation.occurrenceId);
+    return clip?.mask !== undefined && JSON.stringify(clip.mask) === JSON.stringify(operation.mask);
+  });
+}
+
+function maskStateDetail(transaction: EditTransaction): string {
+  return maskStateIsValid(transaction)
+    ? "mask target and requested configuration match the canonical timeline state"
+    : "mask target or requested configuration does not match the canonical timeline state";
+}
+
 function isConstructionOperation(operation: WorkflowOperation): boolean {
   return operation.type === "media.import"
     || operation.type === "timeline.media.add"
+    || operation.type === "timeline.picture-in-picture.add"
     || operation.type === "timeline.media.move"
     || operation.type === "timeline.media.replace"
     || operation.type === "timeline.media.remove"
@@ -701,6 +757,7 @@ function constructionStateIsValid(transaction: EditTransaction): boolean {
         && media.sourceDigest === operation.sourceDigest;
     }
     if (operation.type === "timeline.media.add"
+      || operation.type === "timeline.picture-in-picture.add"
       || operation.type === "timeline.media.move"
       || operation.type === "timeline.media.replace"
       || operation.type === "timeline.media.remove"
@@ -744,6 +801,10 @@ interface ConstructionClipState {
   duration: number;
   track: number;
   attachedTo?: string;
+  position?: { x: number; y: number };
+  scale?: number;
+  crop?: { top: number; right: number; bottom: number; left: number };
+  frame?: { style: "solid"; color: string; width: number };
 }
 
 function expectedConstructionClips(transaction: EditTransaction): Map<string, ConstructionClipState> {
@@ -753,6 +814,10 @@ function expectedConstructionClips(transaction: EditTransaction): Map<string, Co
     duration: clip.duration,
     track: clip.track,
     attachedTo: clip.attachedTo,
+    position: clip.position,
+    scale: clip.scale,
+    crop: clip.crop,
+    frame: clip.frame,
   }]));
   const media = new Map(transaction.before.media.map((item) => [item.mediaId, item]));
 
@@ -767,6 +832,20 @@ function expectedConstructionClips(transaction: EditTransaction): Map<string, Co
         start: operation.start,
         duration: operation.duration,
         track: timelineTrack(operation.targetLane, 0),
+      });
+      continue;
+    }
+    if (operation.type === "timeline.picture-in-picture.add") {
+      clips.set(operation.occurrenceId, {
+        mediaId: operation.mediaId,
+        start: operation.start,
+        duration: operation.duration,
+        track: operation.targetLane,
+        attachedTo: operation.attachedTo,
+        position: operation.position,
+        scale: operation.scale,
+        crop: operation.crop,
+        frame: operation.frame,
       });
       continue;
     }
@@ -833,12 +912,16 @@ function expectedConstructionClips(transaction: EditTransaction): Map<string, Co
   return clips;
 }
 
-function sameConstructionClip(actual: { mediaId?: string; start: number; duration: number; track: number; attachedTo?: string }, expected: ConstructionClipState): boolean {
+function sameConstructionClip(actual: ConstructionClipState, expected: ConstructionClipState): boolean {
   return actual.mediaId === expected.mediaId
     && actual.start === expected.start
     && actual.duration === expected.duration
     && actual.track === expected.track
-    && actual.attachedTo === expected.attachedTo;
+    && actual.attachedTo === expected.attachedTo
+    && JSON.stringify(actual.position) === JSON.stringify(expected.position)
+    && actual.scale === expected.scale
+    && JSON.stringify(actual.crop) === JSON.stringify(expected.crop)
+    && JSON.stringify(actual.frame) === JSON.stringify(expected.frame);
 }
 
 function applyExpectedRippleDelete(clips: Map<string, ConstructionClipState>, start: number, end: number): void {

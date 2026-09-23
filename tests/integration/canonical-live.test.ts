@@ -133,6 +133,43 @@ test("sessions fail closed when live snapshots lack canonical target guarantees"
   assert.equal(readCalls, 0);
 });
 
+test("sessions hide live canonical reads without a snapshot provider", async () => {
+  const live = {
+    getIdentity: async () => ({ name: "Final Cut Pro", version: "test", backend: "incomplete-live-ipc" }),
+    getCapabilities: async () => canonicalReadCapabilities,
+    readLiveState: async () => {
+      throw new Error("not used");
+    },
+    liveChangesSince: async () => [],
+  };
+  const session = new FinalCutSessionAdapter({ live });
+
+  const capabilities = await session.getCapabilities();
+
+  assert.equal(capabilities.editor.projectRead, false);
+  assert.equal(capabilities.editor.timelineSnapshotRead, false);
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.families?.canonicalDocument.read.available, false);
+  await assert.rejects(session.readProject(), /CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider/);
+});
+
+test("unavailable live-only sessions do not synthesize editor capabilities", async () => {
+  const unavailable = async () => {
+    throw new Error("FINAL_CUT_LIVE_UNAVAILABLE: Workflow Extension socket is unavailable");
+  };
+  const session = new FinalCutSessionAdapter({
+    live: {
+      getIdentity: unavailable,
+      getCapabilities: unavailable,
+      readLiveState: unavailable,
+      liveChangesSince: unavailable,
+    },
+  });
+
+  await assert.rejects(session.getIdentity(), /FINAL_CUT_LIVE_UNAVAILABLE/);
+  await assert.rejects(session.getCapabilities(), /FINAL_CUT_LIVE_UNAVAILABLE/);
+});
+
 test("mutation-only sessions do not route live canonical snapshot reads", async () => {
   let readCalls = 0;
   const live = {
@@ -334,6 +371,81 @@ test("live project selection fails closed on ambiguous or mismatched targets", a
   await assert.rejects(
     adapter.selectProject({ projectId: canonicalSnapshot.projectId, sequenceId: "final-cut:sequence:social" }),
     /TARGET_MISMATCH: live project selection did not activate requested target/,
+  );
+});
+
+test("live project selection returns target and revision readback", async () => {
+  const requests: FinalCutLiveRequest[] = [];
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      requests.push(request);
+      return {
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+          capabilities: canonicalReadCapabilities,
+          catalog: {
+            projects: [{
+              id: canonicalSnapshot.projectId,
+              name: canonicalSnapshot.projectName,
+              sequences: [{ id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name }],
+            }],
+            activeProjectId: canonicalSnapshot.projectId,
+            activeSequenceId: canonicalSnapshot.timeline.id,
+          },
+          revision: canonicalSnapshot.revision,
+        },
+      };
+    },
+  });
+
+  const selected = await adapter.selectProject({
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  });
+  assert.deepEqual(selected.requestedTarget, {
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  });
+  assert.deepEqual(selected.observedActiveTarget, {
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  });
+  assert.deepEqual(selected.observedRevision, canonicalSnapshot.revision);
+  assert.deepEqual(requests.map(({ method, projectId, sequenceId }) => ({ method, projectId, sequenceId })), [{
+    method: "select-project",
+    projectId: canonicalSnapshot.projectId,
+    sequenceId: canonicalSnapshot.timeline.id,
+  }]);
+});
+
+test("live project selection rejects missing revision readback", async () => {
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        catalog: {
+          projects: [{
+            id: canonicalSnapshot.projectId,
+            name: canonicalSnapshot.projectName,
+            sequences: [{ id: canonicalSnapshot.timeline.id, name: canonicalSnapshot.timeline.name }],
+          }],
+          activeProjectId: canonicalSnapshot.projectId,
+          activeSequenceId: canonicalSnapshot.timeline.id,
+        },
+      },
+    }),
+  });
+
+  await assert.rejects(
+    adapter.selectProject({ projectId: canonicalSnapshot.projectId, sequenceId: canonicalSnapshot.timeline.id }),
+    /FINAL_CUT_LIVE_PROTOCOL: project selection response revision was empty/,
   );
 });
 

@@ -9,6 +9,8 @@ rational playhead time, sequence time range, and observer-backed change events.
 
 It does not currently perform direct timeline writes, rollback, export,
 playback control, speech analysis, audio analysis, or native asset discovery.
+Native Titles-browser discovery is performed separately by the headed MCP
+Accessibility provider and is never inferred from this metadata-only bridge.
 Selection-scoped native writes are performed separately by the MCP process
 through guarded macOS Accessibility automation; the extension continues to
 provide live state and change events only.

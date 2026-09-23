@@ -36,6 +36,10 @@ const requiredToolResults = [
   ["project.list", "passed"],
   ["project.select", "passed"],
   ["project.inspect", "passed"],
+  ["editor.timeline.edit", "rejected-stale-context"],
+  ["project.inspect", "unchanged"],
+  ["editor.timeline.edit", "rejected-target-mismatch"],
+  ["project.inspect", "unchanged"],
   ["editor.timeline.edit", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
@@ -59,8 +63,22 @@ const nativeCapabilityKeys = [
   "trimToDuration",
   "mediaAppend",
   "mediaInsert",
+  "titleDiscovery",
   "titlePlacement",
   "timelineFocus",
+  "requiresAccessibility",
+  "requiresFinalCutFrontmost",
+];
+const roughCutNativeCapabilityKeys = [
+  "mediaLibrarySearch",
+  "mediaImport",
+  "mediaSelection",
+  "mediaAppend",
+  "mediaInsert",
+  "titleDiscovery",
+  "titlePlacement",
+  "timelineFocus",
+  "undo",
   "requiresAccessibility",
   "requiresFinalCutFrontmost",
 ];
@@ -253,6 +271,291 @@ export function sanitizeDisposableNativeEvidence(run, environment) {
   };
 }
 
+export function sanitizePictureInPictureEvidence(run, environment) {
+  assert(run?.passed === true, "headed picture-in-picture run did not pass");
+  assert(run.editor, "editor identity is missing");
+  assert(run.target && run.placement, "picture-in-picture target or placement is missing");
+  const target = {
+    project: requireString(run.target.project ?? run.placement.project, "picture-in-picture project"),
+    sequenceId: requireString(run.target.sequenceId, "picture-in-picture sequence id"),
+    occurrenceId: requireString(run.target.occurrenceId, "picture-in-picture occurrence id"),
+    ...(isNonEmptyString(run.target.occurrenceName) ? { occurrenceName: run.target.occurrenceName } : {}),
+    ...(isNonEmptyString(run.target.start) ? { start: run.target.start } : {}),
+    ...(isNonEmptyString(run.target.duration) ? { duration: run.target.duration } : {}),
+  };
+  const revisions = summarizeWorkflowRevisions(run.placement, "picture-in-picture");
+  assert(run.placement.observed, "picture-in-picture readback is missing");
+  assert(run.placement.undoVerified?.verified === true || run.placement.undo?.verified === true, "picture-in-picture Undo verification is missing");
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-picture-in-picture",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeBooleanCapabilities(run.capabilities, ["nativePictureInPicture", "nativeUndo", "nativeTimelineOccurrenceLocate"]),
+    target,
+    placement: {
+      requested: sanitizePictureInPictureProperties(run.placement.requested ?? run.placement),
+      observed: sanitizePictureInPictureProperties(run.placement.observed),
+    },
+    revisions,
+    verification: { execute: true, undo: true },
+    ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media sources", "native handles", "operation identifiers", "diagnostic details"],
+    },
+  };
+}
+
+export function sanitizeRoughCutEvidence(run, environment) {
+  assert(run?.passed === true, "rough-cut headed run did not pass");
+  assert(run.editor, "editor identity is missing");
+  assert(run.capabilities, "capability payload is missing");
+  assert(run.nativeCapabilities, "native capability payload is missing");
+  assert(run.project?.before && run.project?.after, "project evidence is missing");
+  assert(run.sequence?.before && run.sequence?.after, "sequence evidence is missing");
+  assert(run.media?.resolution && run.media?.imported && run.media?.occurrence, "media evidence is missing");
+  assert(run.media.resolution.status === "passed", "media resolution was not verified");
+  assert(run.media.imported.status === "passed", "media import was not verified");
+  assert(run.media.imported.kind === "video", "rough-cut media must be video");
+  assert(run.placement?.verified === true, "media placement was not verified");
+  assert(run.animation?.verified === true, "animation was not verified");
+  assert(run.verification?.import === true, "media import verification is missing");
+  assert(run.verification?.placement === true, "media placement verification is missing");
+  assert(run.verification?.animation === true, "animation verification is missing");
+  assert(run.verification?.undo === true, "Undo verification is missing");
+  assert(run.rollback?.restored === true, "rollback restoration is missing");
+
+  const nativeCapabilities = sanitizeBooleanCapabilities(run.nativeCapabilities, roughCutNativeCapabilityKeys);
+  const beforeRevision = requireSafeIdentity(run.revisions?.before, "rough-cut before revision");
+  const afterRevision = requireSafeIdentity(run.revisions?.after, "rough-cut after revision");
+  const restoredRevision = requireSafeIdentity(run.revisions?.restored, "rough-cut restored revision");
+  assert(beforeRevision !== afterRevision, "rough-cut mutation revision did not advance");
+  assert(afterRevision !== restoredRevision, "rough-cut restoration revision did not advance");
+  const steps = sanitizeToolResultList(run.stepResults ?? run.toolResults);
+  assert(steps.every((step) => step.status === "passed"), "successful rough-cut evidence contains a non-passed step");
+
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-rough-cut-acceptance",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeCapabilities(run.capabilities),
+    nativeCapabilities,
+    project: {
+      before: sanitizeNamedIdentity(run.project.before, "before project"),
+      after: sanitizeNamedIdentity(run.project.after, "after project"),
+    },
+    sequence: {
+      before: sanitizeNamedIdentity(run.sequence.before, "before sequence"),
+      after: sanitizeNamedIdentity(run.sequence.after, "after sequence"),
+    },
+    media: {
+      resolution: {
+        status: "passed",
+        name: requireSafeIdentity(run.media.resolution.name, "resolved media name"),
+        kind: "video",
+      },
+      imported: {
+        status: "passed",
+        name: requireSafeIdentity(run.media.imported.name, "imported media name"),
+        kind: "video",
+        verified: true,
+      },
+      occurrence: {
+        id: requireSafeIdentity(run.media.occurrence.id, "rough-cut occurrence id"),
+        name: requireString(run.media.occurrence.name, "rough-cut occurrence name"),
+        range: sanitizeRationalRange(run.media.occurrence, "rough-cut occurrence"),
+      },
+    },
+    placement: {
+      operation: run.placement.operation === "append" || run.placement.operation === "insert"
+        ? run.placement.operation
+        : invalidEvidence("rough-cut placement operation"),
+      range: sanitizeRationalRange(run.placement.range, "rough-cut placement range"),
+      beforeDuration: sanitizeRational(run.placement.beforeDuration, "rough-cut before duration"),
+      afterDuration: sanitizeRational(run.placement.afterDuration, "rough-cut after duration"),
+      verified: true,
+    },
+    animation: {
+      kind: run.animation.kind === "title" || run.animation.kind === "transition"
+        ? run.animation.kind
+        : invalidEvidence("rough-cut animation kind"),
+      asset: {
+        id: requireSafeIdentity(run.animation.asset?.id, "rough-cut animation asset id"),
+        name: requireString(run.animation.asset?.name, "rough-cut animation asset name"),
+        vendor: requireString(run.animation.asset?.vendor, "rough-cut animation asset vendor"),
+        backend: requireSafeIdentity(run.animation.asset?.backend, "rough-cut animation backend"),
+        guarantee: requireSafeIdentity(run.animation.asset?.guarantee, "rough-cut animation guarantee"),
+      },
+      occurrenceId: requireSafeIdentity(run.animation.occurrenceId, "rough-cut animation occurrence id"),
+      range: sanitizeRationalRange(run.animation.range, "rough-cut animation range"),
+      verified: true,
+    },
+    revisions: {
+      before: beforeRevision,
+      after: afterRevision,
+      restored: restoredRevision,
+    },
+    verification: {
+      import: true,
+      placement: true,
+      animation: true,
+      undo: true,
+    },
+    rollback: {
+      status: requireSafeIdentity(run.rollback.status, "rough-cut rollback status"),
+      restored: true,
+    },
+    steps,
+    toolResults: sanitizeToolResultList(run.toolResults),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media paths", "native handles", "operation identifiers", "raw contexts", "diagnostics"],
+    },
+  };
+}
+
+export function sanitizeNativeTitleEvidence(run, environment) {
+  assert(run?.passed === true, "headed title run did not pass");
+  assert(run.discovery && run.placement, "title discovery or placement is missing");
+  assert(run.target, "title target is missing");
+  assert(run.placement.verified === true, "native title placement was not verified");
+  assert(run.placement.undo?.verified === true, "native title Undo verification is missing");
+  const assetId = requireSafeIdentity(run.discovery.id, "native title asset id");
+  assert(assetId.startsWith("final-cut:title:"), "native title asset must be provider-qualified");
+  const target = {
+    project: requireString(run.project ?? run.target.project, "native title project"),
+    sequenceId: requireString(run.target.sequenceId, "native title sequence id"),
+    occurrenceId: requireSafeIdentity(run.target.occurrenceId, "native title occurrence id"),
+  };
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-title-discovery-and-placement",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    target,
+    discovery: {
+      assetId,
+      name: requireString(run.discovery.name, "native title name"),
+      vendor: requireString(run.discovery.vendor, "native title vendor"),
+      backend: requireString(run.discovery.backend, "native title discovery backend"),
+      guarantee: requireString(run.discovery.guarantee, "native title discovery guarantee"),
+    },
+    placement: {
+      text: requireString(run.placement.text, "native title text"),
+      target: requireString(run.placement.target, "native title placement target"),
+      start: sanitizeRational(run.placement.start, "native title start"),
+      duration: sanitizeRational(run.placement.duration, "native title duration"),
+    },
+    revisions: summarizeWorkflowRevisions(run.placement, "native title"),
+    verification: { execute: true, undo: true },
+    ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["native handles", "operation identifiers", "diagnostic details"],
+    },
+  };
+}
+
+export function sanitizeMaskEvidence(run, environment) {
+  assert(run?.passed === true, "headed masking run did not pass");
+  assert(run.target && run.mask, "mask target or configuration is missing");
+  assert(run.verification?.execute?.verified === true, "native mask placement was not verified");
+  assert(run.verification?.undo?.verified === true, "native mask Undo verification is missing");
+  const target = {
+    project: requireString(run.project ?? run.target.project, "native mask project"),
+    sequenceId: requireString(run.target.sequenceId, "native mask sequence id"),
+    occurrenceId: requireString(run.target.occurrenceId, "native mask occurrence id"),
+    ...(isNonEmptyString(run.target.occurrenceName) ? { occurrenceName: run.target.occurrenceName } : {}),
+    ...(isNonEmptyString(run.target.start) ? { start: run.target.start } : {}),
+    ...(isNonEmptyString(run.target.duration) ? { duration: run.target.duration } : {}),
+  };
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-mask-placement",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    target,
+    mask: {
+      requested: sanitizeMaskConfiguration(run.mask.requested, "requested mask"),
+      observed: sanitizeMaskConfiguration(run.mask.observed, "observed mask"),
+    },
+    revisions: summarizeWorkflowRevisions(run.revisions ?? run, "native mask"),
+    verification: { execute: true, undo: true },
+    ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["raw native contexts", "media paths", "native handles", "operation identifiers", "diagnostic details"],
+    },
+  };
+}
+
+export function sanitizeFillerRemovalEvidence(run, environment) {
+  assert(run?.passed === true, "headed filler-removal run did not pass");
+  assert(run.editor && run.project && run.removal && run.restoration, "filler-removal evidence is incomplete");
+  assert(run.removal.status === "VERIFIED", "filler-removal mutation was not verified");
+  assert(run.removal.continuityVerified === true, "filler-removal continuity was not verified");
+  assert(run.restoration.restored === true && run.restoration.status === "VERIFIED", "filler-removal Undo was not verified");
+  const project = {
+    id: requireString(run.project.id, "filler-removal project id"),
+    name: requireString(run.project.name, "filler-removal project name"),
+    sequenceId: requireString(run.project.sequenceId, "filler-removal sequence id"),
+    occurrenceId: requireSafeIdentity(
+      run.project.occurrenceId ?? run.target?.occurrenceId,
+      "filler-removal occurrence id",
+    ),
+  };
+  const revisions = {
+    before: requireString(run.removal.beforeRevision?.id, "filler-removal before revision"),
+    after: requireString(run.removal.afterRevision?.id, "filler-removal after revision"),
+    restored: requireString(run.restoration.restoredRevision?.id, "filler-removal restored revision"),
+  };
+  assert(revisions.before !== revisions.after, "filler-removal revision did not advance");
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-filler-removal",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeCapabilities(run.capabilities),
+    project,
+    target: {
+      project: project.name,
+      projectId: project.id,
+      sequenceId: project.sequenceId,
+      occurrenceId: project.occurrenceId,
+    },
+    selection: {
+      start: requireFiniteNumber(run.selection.start, "filler-removal selection start"),
+      end: requireFiniteNumber(run.selection.end, "filler-removal selection end"),
+    },
+    removal: {
+      status: run.removal.status,
+      candidateCount: requireNonNegativeInteger(run.removal.candidateCount, "filler-removal candidate count"),
+      operationCount: requireNonNegativeInteger(run.removal.operationCount, "filler-removal operation count"),
+      removedDurationSeconds: requireFiniteNumber(run.removal.removedDurationSeconds, "filler-removal duration"),
+      affectedRangeCount: requireNonNegativeInteger(run.removal.affectedRangeCount, "filler-removal affected range count"),
+      continuityVerified: run.removal.continuityVerified === true,
+    },
+    revisions,
+    restoration: { status: "VERIFIED", restored: true },
+    verification: { execute: true, undo: true },
+    toolResults: sanitizeToolResultList(run.toolResults),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostic details"],
+    },
+  };
+}
+
 export function sanitizeCanonicalReadEvidence(run, environment) {
   assert(run?.passed === true, "headed read did not pass");
   assert(run.editor, "editor identity is missing");
@@ -369,6 +672,121 @@ function validateReadSnapshot(snapshot) {
     return clip.id;
   });
   return snapshot;
+}
+
+function summarizeWorkflowRevisions(value, label) {
+  const before = requireString(revisionIdentity(value.before ?? value.beforeRevision), `${label} before revision`);
+  const after = requireString(revisionIdentity(value.after ?? value.afterRevision), `${label} after revision`);
+  const restored = requireString(revisionIdentity(value.restored ?? value.restoredRevision ?? value.undoRevision), `${label} restored revision`);
+  assert(before !== after, `${label} revision did not advance`);
+  return {
+    before,
+    after,
+    restored,
+  };
+}
+
+function revisionIdentity(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof value.id === "string") return value.id;
+  return undefined;
+}
+
+function sanitizeBooleanCapabilities(value, keys) {
+  const result = {};
+  for (const key of keys) {
+    assert(value?.[key] === true, `${key} capability is required`);
+    result[key] = true;
+  }
+  return result;
+}
+
+function sanitizePictureInPictureProperties(value) {
+  assert(value && typeof value === "object" && !Array.isArray(value), "picture-in-picture properties are missing");
+  const result = {};
+  if (value.start !== undefined) result.start = sanitizeRational(value.start, "picture-in-picture start");
+  if (value.duration !== undefined) result.duration = sanitizeRational(value.duration, "picture-in-picture duration");
+  if (value.position !== undefined) {
+    assertFiniteNumber(value.position.x, "picture-in-picture position x");
+    assertFiniteNumber(value.position.y, "picture-in-picture position y");
+    result.position = { x: value.position.x, y: value.position.y };
+  }
+  if (value.scale !== undefined) {
+    assertFiniteNumber(value.scale, "picture-in-picture scale");
+    result.scale = value.scale;
+  }
+  if (value.frame !== undefined) {
+    assert(value.frame && value.frame.style === "solid", "picture-in-picture frame style must be solid");
+    assert(typeof value.frame.color === "string" && /^#[0-9a-f]{6}$/i.test(value.frame.color), "picture-in-picture frame color is invalid");
+    assertFiniteNumber(value.frame.width, "picture-in-picture frame width");
+    result.frame = { style: "solid", color: value.frame.color.toUpperCase(), width: value.frame.width };
+  }
+  if (value.crop !== undefined) result.crop = sanitizeCrop(value.crop);
+  assert(Object.keys(result).length > 0, "picture-in-picture properties are empty");
+  return result;
+}
+
+function sanitizeMaskConfiguration(value, label) {
+  assert(value?.mode === "rectangle", `${label} mode must be rectangle`);
+  return { mode: "rectangle", bounds: sanitizeBounds(value.bounds, `${label} bounds`) };
+}
+
+function sanitizeCrop(value) {
+  assert(value && typeof value === "object", "picture-in-picture crop is missing");
+  const crop = { top: value.top, right: value.right, bottom: value.bottom, left: value.left };
+  for (const [key, child] of Object.entries(crop)) assertFiniteNumber(child, `picture-in-picture crop ${key}`);
+  return crop;
+}
+
+function sanitizeBounds(value, label) {
+  assert(value && typeof value === "object", `${label} is missing`);
+  const bounds = { x: value.x, y: value.y, width: value.width, height: value.height };
+  for (const [key, child] of Object.entries(bounds)) assertFiniteNumber(child, `${label} ${key}`);
+  return bounds;
+}
+
+function sanitizeRational(value, label) {
+  if (typeof value === "string") {
+    const match = /^(\d+)\/(\d+)$/.exec(value);
+    assert(match && BigInt(match[2]) > 0n, `${label} must use rational value/timescale form`);
+    return value;
+  }
+  assert(value && /^\d+$/.test(value.value) && /^\d+$/.test(value.timescale) && BigInt(value.timescale) > 0n, `${label} must use rational value/timescale form`);
+  return `${value.value}/${value.timescale}`;
+}
+
+function sanitizeRationalRange(value, label) {
+  assert(value && typeof value === "object", `${label} is missing`);
+  return {
+    start: sanitizeRational(value.start, `${label} start`),
+    duration: sanitizeRational(value.duration, `${label} duration`),
+  };
+}
+
+function sanitizeNamedIdentity(value, label) {
+  assert(value && typeof value === "object", `${label} is missing`);
+  return {
+    id: requireSafeIdentity(value.id, `${label} id`),
+    name: requireString(value.name, `${label} name`),
+  };
+}
+
+function sanitizeToolResultList(value) {
+  assert(Array.isArray(value) && value.length > 0, "tool results are missing");
+  return value.map((result) => ({
+    name: requireSafeIdentity(result?.name, "tool name"),
+    status: requireSafeIdentity(result?.status, "tool status"),
+  }));
+}
+
+function requireSafeIdentity(value, label) {
+  const result = requireString(value, label);
+  assert(!result.includes("/") && !result.includes("\\") && !result.startsWith("~"), `${label} must not be path-like`);
+  return result;
+}
+
+function assertFiniteNumber(value, label) {
+  assert(typeof value === "number" && Number.isFinite(value), `${label} must be a finite number`);
 }
 
 function validateReadCoordinates(value, field) {
@@ -526,4 +944,8 @@ function isNonEmptyString(value) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: ${message}`);
+}
+
+function invalidEvidence(label) {
+  assert(false, `${label} is invalid`);
 }

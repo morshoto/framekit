@@ -2,11 +2,18 @@ import type { ContextRevision, RationalTime } from "./primitives.js";
 
 import type { ProjectSnapshot } from "./project.js";
 
-import type { EditorLiveState, EditorChange, ContextChangeSet, ProjectCatalog, ProjectSelection } from "./context.js";
+import type {
+  EditorLiveState,
+  EditorChange,
+  ContextChangeSet,
+  ProjectCatalog,
+  ProjectSelection,
+  ProjectSelectionResult,
+} from "./context.js";
 
-import type { CapturedFrameSource } from "./media.js";
+import type { CapturedFrameSource, MediaContext } from "./media.js";
 
-import type { EditorIdentity, RuntimeCapabilities } from "./capabilities.js";
+import type { CapabilityInspectionOptions, EditorIdentity, RuntimeCapabilities } from "./capabilities.js";
 
 import type { WorkflowOperation, EditOperation } from "./editing.js";
 
@@ -18,16 +25,17 @@ export interface EditorAdapter {
 
 export interface EditorPort extends EditorAdapter {
   getIdentity(): Promise<EditorIdentity>;
-  getCapabilities(): Promise<RuntimeCapabilities>;
+  getCapabilities(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
   getManagedArtifact?(): Promise<ManagedArtifact>;
   getManagedArtifactDigest?(): Promise<string | undefined>;
   readProject(): Promise<ProjectSnapshot>;
   restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void>;
   listAssets?(query?: AssetSearchQuery): Promise<EditorAsset[]>;
+  listMedia?(query?: MediaSearchQuery): Promise<MediaContext[]>;
   /** Optional native change feed; absence falls back to a snapshot diff. */
   readChanges?(since: ContextRevision): Promise<ContextChangeSet>;
   listProjects?(): Promise<ProjectCatalog>;
-  selectProject?(selection: ProjectSelection): Promise<ProjectCatalog>;
+  selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   /** Capture only if the active editor target still matches the inspected revision. */
   captureFrame?(position: RationalTime, expectedRevision: ContextRevision): Promise<CapturedFrameSource>;
   previewTransaction?(operations: WorkflowOperation[], expectedRevision: ContextRevision): Promise<ProjectSnapshot>;
@@ -38,6 +46,7 @@ export interface ManagedArtifact {
   id: string;
   path: string;
   format: "fcpxml";
+  digest?: string;
 }
 
 export interface LiveEditorStatePort {
@@ -61,4 +70,10 @@ export interface AssetSearchQuery {
   query?: string;
   kind?: EditorAsset["kind"];
   vendor?: string;
+  discovery?: "background" | "native" | "all";
+}
+
+export interface MediaSearchQuery {
+  query?: string;
+  mediaKind?: "video" | "audio";
 }

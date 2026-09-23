@@ -12,6 +12,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
+test("development checkout launcher prefers source over a stale dist package", async () => {
+  const launcher = await readFile(join(repository, "bin", "framekit.mjs"), "utf8");
+
+  assert.match(launcher, /const development = existsSync\(developmentEntrypoint\);/);
+  assert.match(launcher, /const packaged = !development && existsSync\(packagedEntrypoint\);/);
+});
+
 test("published package contains the runnable Framekit CLI and MCP sources", async () => {
   const manifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     name?: string;
@@ -56,7 +63,10 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
     });
     const [packed] = JSON.parse(stdout) as Array<{ filename: string }>;
     const archive = join(directory, packed.filename);
-    await exec("npm", ["install", "--ignore-scripts", archive], { cwd: directory });
+    await exec("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
+    const installedManifest = JSON.parse(
+      await readFile(join(directory, "node_modules", "@morshoto", "framekit", "package.json"), "utf8"),
+    ) as { version?: string };
 
     const executable = join(directory, "node_modules", ".bin", "framekit");
     const help = await exec(executable, ["help"], { cwd: directory });
@@ -70,6 +80,7 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
     });
     client = new Client({ name: "framekit-package-smoke", version: "0.1.0" });
     await client.connect(transport);
+    assert.equal(client.getServerVersion()?.version, installedManifest.version);
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "connection.status"));
     assert.ok(tools.tools.some((tool) => tool.name === "editor.live.inspect"));

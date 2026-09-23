@@ -14,7 +14,14 @@ pnpm run framekit -- doctor finalcut --json
 
 The MCP server exposes the same state through `connection.status`. It reports
 whether Final Cut was detected, whether the extension is installed, whether
-activation is in progress, and the last actionable error.
+activation is in progress, and the last actionable error. Once ready, its
+effective capabilities and build fingerprint match `editor.inspect`; use that
+shared preflight to distinguish a current build from a stale MCP process.
+
+In headless mode, the manager waits for the existing socket for its bounded
+connection window and never launches or activates Final Cut. An installed
+extension with no listening socket therefore reports `extensionInstalled: true`
+alongside `FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE`.
 
 ## No socket
 
@@ -45,6 +52,11 @@ MCP process is using `FRAMEKIT_EDITOR=final-cut-live`.
 
 The live MCP server retries connection setup in the background. It does not
 fall back to the fixture backend.
+
+If the error is `FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE`, the endpoint
+responded but does not implement Framekit's live protocol. Update the installed
+Workflow Extension or point `FRAMEKIT_FINAL_CUT_SOCKET` at a compatible bridge;
+headless mode does not attempt lifecycle recovery.
 
 ## `CAPABILITY_UNAVAILABLE`
 

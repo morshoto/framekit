@@ -1,10 +1,13 @@
 import { ContextEngine } from "../context/context-engine.js";
-import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact } from "../domain/ports.js";
-import type { ProjectCatalog, ProjectSelection } from "../domain/context.js";
+import type { AssetSearchQuery, EditorAsset, EditorPort, ManagedArtifact, MediaSearchQuery } from "../domain/ports.js";
+import type { MediaContext } from "../domain/media.js";
+import type { ProjectCatalog, ProjectSelection, ProjectSelectionResult } from "../domain/context.js";
+import { CapabilityUnavailableError } from "../domain/capabilities.js";
+import type { CapabilityInspectionOptions } from "../domain/capabilities.js";
 import type { RationalTime } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineFrameCapture, VisualAnalysis } from "../domain/media.js";
-import { withCapabilityFamilies } from "../capabilities.js";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "../capabilities.js";
 import { isWithinClip, parseRational, rationalDifferenceSeconds } from "../timeline/rational-time.js";
 import type { RuntimeOptions } from "./runtime-options.js";
 
@@ -16,6 +19,14 @@ export class ProjectService {
   ) {}
 
   public async inspectProject(): Promise<ProjectSnapshot> {
+    const identity = await this.adapter.getIdentity();
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.adapter.getCapabilities(), {
+      backend: identity.backend,
+    }));
+    const projectRead = capabilities.families!.canonicalDocument.read;
+    if (!projectRead.available) {
+      throw new CapabilityUnavailableError("project.inspect", "canonicalDocument.read", projectRead);
+    }
     return this.context.inspectProject();
   }
 
@@ -28,7 +39,9 @@ export class ProjectService {
     if (!this.adapter.getManagedArtifact) {
       throw new Error("CAPABILITY_UNAVAILABLE: managed FCPXML artifact");
     }
-    return this.adapter.getManagedArtifact();
+    const artifact = await this.adapter.getManagedArtifact();
+    const digest = await this.adapter.getManagedArtifactDigest?.();
+    return digest ? { ...artifact, digest } : artifact;
   }
 
   public async captureFrame(
@@ -86,17 +99,29 @@ export class ProjectService {
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
-    const capabilities = await this.adapter.getCapabilities();
+    const capabilities = await this.adapter.getCapabilities({ probeCanonicalSnapshot: false });
     if (!capabilities.editor.projectCatalogRead || !this.adapter.listProjects) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project catalog");
+      const identity = await this.adapter.getIdentity();
+      throw new CapabilityUnavailableError("project.list", "editor.projectCatalogRead", {
+        available: false,
+        backend: identity.backend,
+        guarantee: "none",
+        unavailableReason: "project catalog is unavailable",
+      });
     }
     return this.adapter.listProjects();
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const capabilities = await this.adapter.getCapabilities();
     if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
-      throw new Error("CAPABILITY_UNAVAILABLE: editor project selection");
+      const identity = await this.adapter.getIdentity();
+      throw new CapabilityUnavailableError("project.select", "editor.projectSelection", {
+        available: false,
+        backend: identity.backend,
+        guarantee: "none",
+        unavailableReason: "project selection is unavailable",
+      });
     }
     if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
     if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
@@ -105,21 +130,40 @@ export class ProjectService {
     return this.adapter.selectProject(selection);
   }
 
-  public async inspectEditor() {
+  public async inspectEditor(options: CapabilityInspectionOptions = {}) {
     const identity = await this.adapter.getIdentity();
-    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(), { backend: identity.backend });
+    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(options), { backend: identity.backend });
+    const speechAnalyzer = this.options.speechAnalyzer;
+    const speechTranscribe = capabilities.analyzers.speechTranscribe
+      || (speechAnalyzer ? speechAnalyzer.capabilities?.transcription ?? true : false);
+    const speechVad = capabilities.analyzers.speechVad
+      || (speechAnalyzer?.capabilities?.vad ?? false);
     const analyzers = {
       ...capabilities.analyzers,
-      speechTranscribe: capabilities.analyzers.speechTranscribe || Boolean(this.options.speechAnalyzer),
+      speechTranscribe,
+      speechVad,
+      speechCapability: speechTranscribe
+        ? speechVad ? "transcription-plus-vad" as const : "transcription-only" as const
+        : "unavailable" as const,
       audioLoudness: capabilities.analyzers.audioLoudness || Boolean(this.options.audioAnalyzer),
       audioNoise: capabilities.analyzers.audioNoise || Boolean(this.options.noiseAnalyzer),
       visualTrack: capabilities.analyzers.visualTrack || Boolean(this.options.visualAnalyzer),
       metadataDescribe: capabilities.analyzers.metadataDescribe || Boolean(this.options.metadataAnalyzer),
     };
+    const analyzerBackends = {
+      speechTranscribe: speechAnalyzer?.descriptor?.provider,
+      speechVad: speechAnalyzer?.descriptor?.provider,
+      audioLoudness: this.options.audioAnalyzer?.descriptor?.provider,
+      audioNoise: this.options.noiseAnalyzer?.descriptor?.provider,
+      visualTrack: this.options.visualAnalyzer?.descriptor?.provider,
+    };
     return {
       identity,
       capabilities: {
-        ...withCapabilityFamilies({ ...capabilities, analyzers }, { backend: identity.backend }),
+        ...withCapabilityFamilies({ ...capabilities, analyzers }, {
+          backend: identity.backend,
+          analyzerBackends,
+        }),
       },
     };
   }
@@ -131,6 +175,25 @@ export class ProjectService {
     }
     const assets = await this.context.listAssets(query);
     return assets.filter((asset) => matchesAssetQuery(asset, query));
+  }
+
+  public async searchMedia(query: string): Promise<MediaContext[]> {
+    const identity = await this.adapter.getIdentity();
+    const capabilities = withCapabilityFamilies(await this.adapter.getCapabilities(), {
+      backend: identity.backend,
+    });
+    const mediaObservation = capabilities.families.observation.media;
+    if (!mediaObservation.available) {
+      throw new CapabilityUnavailableError("media.search", "observation.media", mediaObservation);
+    }
+    if (capabilities.editor.backgroundMediaDiscovery && this.adapter.listMedia) {
+      return this.adapter.listMedia({ query } satisfies MediaSearchQuery);
+    }
+    const project = await this.inspectProject();
+    const normalized = query.trim().toLowerCase();
+    return project.media.filter((media) =>
+      media.mediaId.toLowerCase().includes(normalized) || media.source.toLowerCase().includes(normalized),
+    );
   }
 }
 

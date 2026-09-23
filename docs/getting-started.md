@@ -87,8 +87,12 @@ time of day, mood, and usable source ranges. Analyzer availability is exposed
 through `editor.inspect`; missing providers produce explicit unavailable
 statuses instead of fabricated descriptions. Motion templates are discovered
 from standard locations; restrict those locations with the colon-separated
-`FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable. The complete provider setup is
-documented in the [Final Cut installation guide](./final-cut/installation.md).
+`FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable. Local media discovery is opt-in and
+read-only; configure its colon-separated roots with
+`FRAMEKIT_FINAL_CUT_MEDIA_ROOTS`. It never activates or focuses Final Cut.
+Speech wrapper setup and its
+revision-bound schema are documented in the [local speech analysis guide](./speech-analysis.md).
+The complete Final Cut provider setup is documented in the [Final Cut installation guide](./final-cut/installation.md).
 
 ## Connect Codex to Final Cut
 

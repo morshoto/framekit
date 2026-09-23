@@ -55,6 +55,11 @@ The live MCP client should observe:
 - a valid sequence time range;
 - revisions for active sequence, sequence range, and playhead changes.
 
+The initial `editor.inspect` response should also include a preflight report with
+`processMode: "headless"` for the default live setup, the effective document
+mode, and operation-level backend, guarantee, and unavailable reasons. A bridge
+that only reports metadata must remain `mode: "metadata-only"`.
+
 For canonical MCP coverage, start the server with:
 
 ```sh
@@ -67,6 +72,26 @@ Then verify `project.inspect`, `timeline.inspect`, `context.inspect`,
 `editor.timeline.edit`, `edit.diff`, `edit.verify`, and `edit.undo`. Configure local
 JSON analyzers and Motion-template roots separately when testing media analysis
 and `editor.assets`.
+
+## Headed native title discovery and placement
+
+Use a disposable Final Cut project with the Titles browser visible to prove
+native discovery and placement separately from fixture and FCPXML evidence:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Native E2E" \
+FRAMEKIT_FINAL_CUT_E2E_TITLE_QUERY="Basic Title" \
+FRAMEKIT_FINAL_CUT_E2E_TITLE_TEXT="Framekit title proof" \
+pnpm run test:final-cut-title-headed
+```
+
+The runner requires a provider-qualified `final-cut:title:` asset with
+`final-cut-accessibility` discovery provenance, previews placement at the live
+playhead, executes with explicit text and duration, verifies the new revision
+and selected title, then restores the disposable project with native Undo. Its
+JSON evidence records discovery and placement as separate sections. Missing
+Accessibility permission, an unavailable Titles browser, ambiguous results,
+or missing identities fail closed.
 
 ## Safety boundary
 
@@ -142,8 +167,11 @@ pnpm run test:final-cut-canonical-headed \
 
 The runner disables FCPXML composition, requires a canonical-write bridge to
 enumerate the live project catalog and explicitly select the active project and
-sequence, verifies the exact project and occurrence before mutation, renames
-that occurrence, and performs compensating undo. It emits a sanitized evidence document using an allowlisted summary
+sequence, and verifies the exact project and occurrence. Before the rename, it
+runs stale-revision and wrong-project probes. Each probe must return its expected
+failure code, and a fresh inspection must prove an unchanged digest and revision before mutation.
+The runner then renames that occurrence and performs compensating undo. It emits
+a sanitized evidence document using an allowlisted summary
 rather than the raw snapshots returned by the MCP tools. The document records
 the Framekit version, full Git commit, runtime environment, Final Cut
 identity/version, capability payload, required tool results, target IDs,
@@ -153,10 +181,47 @@ diff and advancing revision, then proves restoration through the matching
 canonical digest. If the bridge is metadata-only or canonical-read, it fails
 before calling `editor.timeline.edit`.
 
+For headed native-write evidence, use the disposable native runner separately:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Disposable E2E" \
+FRAMEKIT_FINAL_CUT_E2E_CLIP_ID="final-cut:occurrence:example" \
+pnpm run test:final-cut-disposable-headed
+```
+
+That run must report `preflight.mode: "native-write"` and is evidence for the
+headed native surface only; fixture, metadata-only, FCPXML, and canonical-live
+results remain separate.
+
 Before attaching the JSON to a release or pull request, review that it contains
 no private media paths, raw snapshots, transaction identifiers, credentials,
 or diagnostics. The runner and sanitizer both fail closed when the mutation,
 undo, required tool sequence, or full commit provenance is incomplete.
+
+## FCPXML publisher headed E2E
+
+Publisher validation is a separate workflow from native editing. Prepare a
+disposable FCPXML artifact and an existing Final Cut project, then run:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH="/absolute/path/to/disposable publisher.fcpxml" \
+FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT="Imported Publisher E2E" \
+FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE="Main" \
+pnpm run test:final-cut-publisher-headed \
+  > docs/tests/evidence/$(date +%F)-publisher-live.json
+```
+
+The runner checks the managed artifact, prepares it through a verified artifact
+transaction, calls `artifact.publish` with explicit confirmation, and compares
+the live project and sequence identities before and after import. The publisher
+Accessibility state machine discovers the nested Import XML command, targets the
+path control in the Import XML sheet, waits for the sheet and window to close,
+and returns a precise timeout or cleanup error. Paths containing spaces are
+supported.
+
+This runner does not call `editor.native.*`, create a native fixture project, or
+claim that a native timeline edit succeeded. Use the prepared disposable fixture
+project and the native runners below for native editing evidence.
 
 ## Disposable native edit evidence
 
@@ -207,6 +272,68 @@ The output is an allowlisted summary; it does not include raw snapshots,
 operation handles, media paths, or credentials. Headless fixtures and FCPXML
 reads do not satisfy this headed evidence requirement.
 
+## End-to-end headed MCP rough-cut acceptance
+
+Use the rough-cut gate with a disposable Final Cut project containing no
+pre-existing occurrence of the imported clip. The workflow connects through
+Framekit MCP, checks a ready headed session and native capabilities, imports one
+exact video file, confirms its stable Browser identity, appends or inserts it,
+discovers one native title, places the title at the live playhead, and verifies
+the resulting ranges and revisions:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Rough Cut E2E" \
+FRAMEKIT_FINAL_CUT_E2E_MEDIA_PATH="/absolute/path/to/rough-cut.mov" \
+FRAMEKIT_FINAL_CUT_E2E_TITLE_QUERY="Basic Title" \
+FRAMEKIT_FINAL_CUT_E2E_PLACEMENT="append" \
+pnpm run test:final-cut-rough-cut-headed \
+  > docs/tests/evidence/$(date +%F)-rough-cut-live.json
+```
+
+Set `FRAMEKIT_FINAL_CUT_E2E_PLACEMENT=insert` to test insertion at the live
+playhead. The exact media path is passed to `editor.native.media.import`; the
+runner does not use shell directory enumeration, Browser automation outside
+Framekit, direct AppleScript, FCPXML editing, or export. If only
+`FRAMEKIT_FINAL_CUT_E2E_MEDIA_DIRECTORY` is supplied, the report records
+`unavailable` and exits without guessing a filename. This preserves the
+directory-to-exact-file boundary until a directory-aware MCP workflow is
+available.
+
+The runner performs a disposable one-frame trim and native Undo before the
+rough cut so rollback is verified without undoing the requested final edit.
+The appended/inserted clip and visible title remain in the disposable Final
+Cut project after a successful run. Successful output is an allowlisted
+`headed-native-rough-cut-acceptance` summary containing Framekit and Final Cut
+versions, the full commit, project/sequence identities, media occurrence and
+ranges, revisions, operation verification, rollback status, and tool results.
+Failure reports distinguish `failed`, `unavailable`, and `unrun` steps and omit
+paths, native handles, operation identifiers, raw contexts, and diagnostics.
+
+## Native masking placement evidence
+
+For bounded native masking, use a disposable project containing one uniquely
+searchable video occurrence. The query must resolve to exactly one Browser
+media item and one timeline occurrence:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Masking E2E" \
+FRAMEKIT_FINAL_CUT_E2E_MASK_QUERY="subject-clip" \
+FRAMEKIT_FINAL_CUT_E2E_MASK_BOUNDS="0.1,0.2,0.6,0.7" \
+pnpm run test:final-cut-masking-headed \
+  > docs/tests/evidence/$(date +%F)-masking-live.json
+```
+
+The runner requires the native masking capability, previews without mutation,
+applies Final Cut's bounded Draw Mask, reads back the requested normalized
+rectangle, verifies an advancing revision and native Undo, and restores the
+disposable project. Its `headed-native-mask-placement` output is an allowlisted
+summary containing only project/occurrence identity, requested and observed
+mask properties, revision summaries, verification, and tool statuses. It does
+not include raw native contexts, media paths, operation handles, or
+diagnostics. A metadata-only Workflow Extension, ambiguous occurrence, missing
+Draw Mask inspector fields, or absent readback fails closed and is not native
+placement evidence. Person cutout and tracking are not claimed by this test.
+
 ## Canonical live read evidence
 
 When a live bridge advertises `canonicalTimelineMode: canonical-read` (or the
@@ -245,6 +372,15 @@ non-terminal playhead position. For local media import validation, enable
 native writes,
 call `editor.native.media.import` with one disposable `.mov` and one disposable
 audio file, then pass each returned `mediaHandle` to
-`editor.native.media.select`. Confirm that the returned `sourcePath`, `kind`,
-and stable handle are correct and that an invalid path fails before the import
-dialog opens. Do not use private media or commit test files.
+`editor.native.media.select`. Confirm that the returned `sourcePath`, immutable
+`sourceIdentity`, `kind`, and positive
+`verification.stage=post-import-browser-discovery` are correct, and that an
+invalid path fails before the import dialog opens. If discovery fails, preserve
+the staged error details and whether a partial import may exist. For directory
+import, create a disposable directory containing
+two supported video files and one unsupported file, preview it through
+`editor.native.media.directory.preview`, confirm that the list is exact and
+sorted, then execute with `confirm: true` and verify one stable handle per
+successful file. Also verify that an empty directory returns an empty completed
+result and that a deliberately failing file is reported without hiding other
+successes. Do not use private media or commit test files.

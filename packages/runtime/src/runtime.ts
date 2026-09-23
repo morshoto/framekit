@@ -8,6 +8,7 @@ import type {
   CompositeEditRequest,
   ContextDiff,
   ContextRevision,
+  CapabilityInspectionOptions,
   EditOperation,
   EditTransaction,
   EditorAsset,
@@ -24,6 +25,7 @@ import type {
   MusicAddRequest,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSelectionResult,
   ProjectSnapshot,
   RoughCutConstructionPlan,
   RoughCutConstructionPlanRequest,
@@ -128,12 +130,12 @@ export class AgentVideoRuntime {
     return this.projects.listProjects();
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     return this.projects.selectProject(selection);
   }
 
-  public async inspectEditor() {
-    return this.projects.inspectEditor();
+  public async inspectEditor(options: CapabilityInspectionOptions = {}) {
+    return this.projects.inspectEditor(options);
   }
 
   public async inspectContext(): Promise<AgentContext> {
@@ -256,8 +258,8 @@ export class AgentVideoRuntime {
     return this.contexts.contextChangesSince(revision, waitMs);
   }
 
-  public async analyzeSpeech(mediaId: string): Promise<SpeechAnalysis> {
-    return this.media.analyzeSpeech(mediaId);
+  public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<SpeechAnalysis> {
+    return this.media.analyzeSpeech(mediaId, range);
   }
 
   public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {

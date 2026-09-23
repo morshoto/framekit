@@ -4,13 +4,17 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { RuntimeCapabilities } from "@framekit/runtime";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, withCapabilityFamilies } from "@framekit/runtime";
 import { FinalCutProjectPublisher } from "@framekit/final-cut";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { resolveEditingRoute, type EditorRoutingContext } from "../../apps/mcp-server/src/routing.js";
+import {
+  BACKGROUND_ARTIFACT_WORKFLOW,
+  resolveEditingRoute,
+  type EditorRoutingContext,
+} from "../../apps/mcp-server/src/routing.js";
 
 const canonicalCapabilities: RuntimeCapabilities = {
   editor: {
@@ -60,6 +64,31 @@ test("routing selects the connected editor when required capabilities are availa
   assert.ok(route.requiredCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
 });
 
+test("routing selects native picture-in-picture only with native placement guarantees", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.picture-in-picture" }, context({
+    native: {
+      pictureInPicture: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      timelineFocus: true,
+      undo: true,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.ok(route.requiredCapabilities.includes("native.pictureInPicture"));
+});
+
+test("routing fails closed when native picture-in-picture is unavailable", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.picture-in-picture" }, context({
+    native: { mediaSelection: true, timelineOccurrenceLocate: true, timelineFocus: true, undo: true },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.ok(route.missingCapabilities.includes("native.pictureInPicture"));
+});
+
 test("routing fails closed when the expected editor is unavailable", () => {
   const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
     connection: {
@@ -97,6 +126,130 @@ test("routing reports missing capabilities before choosing an editing path", () 
   ]);
 });
 
+test("routing selects the background library for metadata-only project listing", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      projectRead: false,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      readAfterWrite: false,
+      rollback: false,
+      liveStateRead: true,
+      projectCatalogRead: true,
+      backgroundLibraryInspection: true,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, {
+    backend: "final-cut-session",
+    observation: {
+      library: {
+        available: true,
+        backend: "final-cut-background-library",
+        guarantee: "observed",
+      },
+    },
+  });
+
+  const route = resolveEditingRoute({ operation: "project.list" }, context({
+    editor: {
+      identity: { name: "Final Cut Pro", version: "test", backend: "final-cut-session" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "background");
+  assert.deepEqual(route.provider, {
+    backend: "final-cut-background-library",
+    guarantee: "observed",
+  });
+});
+
+test("routing does not treat canonical artifact observation as live state", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      timelineWrite: false,
+      timelineArtifactWrite: true,
+      projectCatalogRead: true,
+      liveStateRead: false,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, { backend: "fcpxml-document" });
+
+  const route = resolveEditingRoute({ operation: "editor.live.inspect" }, context({
+    editor: {
+      identity: { name: "FCPXML Document", version: "FCPXML", backend: "fcpxml-document" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.deepEqual(route.missingCapabilities, ["observation.timeline"]);
+  assert.equal(route.reason.unavailable?.category, "background-api");
+  assert.equal(route.reason.unavailable?.capability, "observation.timeline");
+});
+
+test("routing does not use canonical snapshots as a background library", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      projectCatalogRead: true,
+      backgroundLibraryInspection: false,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, { backend: "final-cut-native-canonical" });
+
+  const route = resolveEditingRoute({ operation: "project.list" }, context({
+    editor: {
+      identity: { name: "Final Cut Pro", version: "test", backend: "final-cut-native-canonical" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.deepEqual(route.missingCapabilities, ["observation.library"]);
+  assert.equal(route.reason.unavailable?.category, "background-api");
+  assert.equal(route.reason.unavailable?.capability, "observation.library");
+});
+
+test("routing explains missing canonical snapshot support", () => {
+  const capabilities = withCapabilityFamilies({
+    editor: {
+      ...canonicalCapabilities.editor,
+      projectRead: false,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      projectCatalogRead: false,
+    },
+    analyzers: canonicalCapabilities.analyzers,
+  }, { backend: "workflow-extension-ipc" });
+
+  const route = resolveEditingRoute({ operation: "project.inspect" }, context({
+    editor: {
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.reason.unavailable?.category, "canonical-snapshot");
+  assert.equal(route.reason.unavailable?.capability, "canonicalDocument.read");
+  assert.match(route.reason.unavailable?.message ?? "", /canonical snapshot/i);
+});
+
+test("routing explains missing native UI access", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: false, timelineFocus: false, undo: false },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.reason.unavailable?.category, "native-ui");
+  assert.equal(route.reason.unavailable?.capability, "native.selectionEdit");
+  assert.match(route.reason.unavailable?.message ?? "", /native UI/i);
+});
+
 test("routing permits an advertised artifact editor without a live connection", () => {
   const capabilities = structuredClone(canonicalCapabilities);
   capabilities.editor.timelineWrite = false;
@@ -112,6 +265,28 @@ test("routing permits an advertised artifact editor without a live connection", 
 
   assert.equal(route.status, "editor-selected");
   assert.equal(route.selectedPath, "editor");
+  assert.equal(route.reason.connectionState, "disconnected");
+});
+
+test("routing selects the explicit background artifact workflow offline", () => {
+  const capabilities = structuredClone(canonicalCapabilities);
+  capabilities.editor.timelineWrite = false;
+  capabilities.editor.timelineArtifactWrite = true;
+
+  const route = resolveEditingRoute({ operation: "artifact.edit" }, context({
+    connection: { state: "disconnected" },
+    editor: {
+      identity: { name: "FCPXML Document", version: "FCPXML", backend: "fcpxml-document" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "artifact");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.deepEqual(route.workflow, BACKGROUND_ARTIFACT_WORKFLOW);
+  assert.ok(route.requiredCapabilities.includes("editor.timelineArtifactWrite"));
+  assert.match(route.reason.message, /artifact/i);
   assert.equal(route.reason.connectionState, "disconnected");
 });
 
@@ -346,6 +521,11 @@ test("MCP documentation describes one consistent editor-first policy", async () 
     assert.match(content, /external-renderer/);
     assert.match(content, /CAPABILITY_UNAVAILABLE/);
   }
+  assert.match(tools, /project\.list/);
+  assert.match(tools, /observation\.library/);
+  assert.match(errors, /background API support/);
+  assert.match(errors, /canonical snapshot support/);
+  assert.match(errors, /native UI access/);
   for (const [before, after] of [
     ["connection.status", "editor.inspect"],
     ["editor.inspect", "project.inspect"],

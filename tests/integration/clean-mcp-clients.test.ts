@@ -3,8 +3,21 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { sanitizeCleanMcpEvidence } from "../../scripts/clean-mcp-client-evidence.mjs";
+import { assertMcpServerVersion } from "../../scripts/mcp-version.mjs";
 
 const repository = resolve(process.cwd());
+
+test("MCP version validation requires exact package provenance", () => {
+  assert.doesNotThrow(() => assertMcpServerVersion("0.1.4", "0.1.4", "clean client"));
+  assert.throws(
+    () => assertMcpServerVersion("0.1.0", "0.1.4", "clean client"),
+    /MCP_SERVER_VERSION_MISMATCH/,
+  );
+  assert.throws(
+    () => assertMcpServerVersion(undefined, "0.1.4", "clean client"),
+    /MCP_SERVER_VERSION_MISSING/,
+  );
+});
 
 test("clean MCP client runner covers the required setup and workflow", async () => {
   const runner = await readFile(resolve(repository, "scripts/clean-mcp-client-smoke.mjs"), "utf8");
@@ -22,6 +35,7 @@ test("clean MCP client runner covers the required setup and workflow", async () 
     "edit.undo",
     "@modelcontextprotocol/sdk",
     "initialize",
+    "assertMcpServerVersion",
   ]) {
     assert.match(runner, new RegExp(escapeRegExp(expected), "i"));
   }

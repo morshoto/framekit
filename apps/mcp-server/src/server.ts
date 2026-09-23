@@ -1,25 +1,59 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import {
   AgentVideoRuntime,
+  createCapabilityPreflight,
   resolveEditingIntent,
+  serializeCapabilityUnavailableError,
+  withCanonicalTimelineMode,
   withCapabilityFamilies,
+  type CapabilityProcessMode,
+  type CapabilityDescriptor,
+  type CapabilityPreflight,
+  type CompositeEditPreview,
+  type ContextRevision,
+  type EditorIdentity,
+  type EditTransaction,
+  type EditTarget,
   type RuntimeCapabilities,
   type TimelineFrameCapture,
+  type TimelineIr,
+  type TimelineIrEditOperation,
 } from "@framekit/runtime";
-import type {
-  DisposableNativeEditWorkflow,
-  FinalCutProjectPublisher,
-  FinalCutVideoExporter,
-  NativeFinalCutEditor,
-  NativeFinalCutTransitionMatch,
+import {
+  type BackgroundRenderExportProvider,
+  NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
+  serializeFinalCutLibraryInspectionError,
+  serializeNativeFinalCutMediaImportError,
+  type DisposableNativeEditWorkflow,
+  type FinalCutProjectPublisher,
+  type FinalCutSqliteInspectionProvider,
+  type FinalCutVideoExporter,
+  type NativeFinalCutEditor,
+  type NativeFinalCutTransitionMatch,
+  type NativeOperationSession,
 } from "@framekit/final-cut";
 import {
+  BACKGROUND_ARTIFACT_WORKFLOW,
   EDITOR_FIRST_MCP_INSTRUCTIONS,
   resolveEditingRoute,
   type EditorRoutingContext,
   type EditingRouteOperation,
 } from "./routing.js";
+import {
+  FRAMEKIT_BUILD_FINGERPRINT,
+  FRAMEKIT_VERSION,
+  type FramekitBuildFingerprint,
+} from "./version.js";
+import { EditingSessionRepository } from "./headless-sessions.js";
+import {
+  SessionMaterializationJobs,
+  type SessionMaterializationPublisher,
+} from "./materialization-jobs.js";
+
+export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -79,6 +113,39 @@ const markerSchema = z.object({
     duration: z.number().nonnegative(),
     name: z.string().min(1),
 });
+const maskBoundsSchema = z.object({
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+  width: z.number().finite().positive().max(1),
+  height: z.number().finite().positive().max(1),
+}).strict().superRefine((bounds, context) => {
+  if (bounds.x + bounds.width > 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["width"], message: "x plus width must fit within the frame" });
+  }
+  if (bounds.y + bounds.height > 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["height"], message: "y plus height must fit within the frame" });
+  }
+});
+const maskSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("rectangle"),
+    bounds: maskBoundsSchema,
+    inverted: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    mode: z.literal("supplied-alpha"),
+    alphaMediaId: z.string().trim().min(1),
+    bounds: maskBoundsSchema.optional(),
+    inverted: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    mode: z.literal("person-cutout"),
+  }).strict(),
+]);
+const nativeMaskSchema = z.object({
+  mode: z.literal("rectangle"),
+  bounds: maskBoundsSchema,
+}).strict();
 const renameClipSchema = z.object({ type: z.literal("rename-clip"), clipId: z.string().min(1), name: z.string().min(1), baseRevision: revisionSchema });
 const trimClipSchema = z.object({
     type: z.literal("trim-clip"),
@@ -215,35 +282,99 @@ const verificationPolicySchema = z.object({
   loudnessToleranceDb: z.number().finite().nonnegative().optional(),
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
-const editToolInputSchema = z.object({
-  type: z.enum(["rename-clip", "trim-clip", "set-gain", "reduce-noise", "set-color-correction", "ripple-delete", "add-marker"]),
-  clipId: z.string().min(1).optional(),
-  name: z.string().min(1).optional(),
-  duration: z.number().positive().optional(),
-  durationTime: rationalTimeSchema.optional(),
-  gainDb: z.number().finite().optional(),
-  reductionDb: z.number().finite().positive().optional(),
-  correction: colorCorrectionSchema.shape.correction.optional(),
-  timelineId: z.string().min(1).optional(),
-  range: rangeSchema.optional(),
-  reason: z.string().optional(),
-  marker: markerSchema.optional(),
-  baseRevision: revisionSchema,
-  verification: verificationPolicySchema.optional(),
-}).strict();
-const artifactEditToolInputSchema = editToolInputSchema.extend({
+function mcpObjectSchema<Schema extends z.ZodTypeAny>(schema: Schema): Schema {
+  // The MCP SDK only serializes schemas it recognizes as object-shaped.
+  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
+  return schema;
+}
+
+function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
+  options: Options,
+): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
+  const schema = z.discriminatedUnion("type", options as unknown as [
+    z.ZodDiscriminatedUnionOption<"type">,
+    ...z.ZodDiscriminatedUnionOption<"type">[],
+  ]);
+  return mcpObjectSchema(schema);
+}
+
+function mcpUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
+  options: Options,
+): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
+  const schema = z.union(options as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  return mcpObjectSchema(schema);
+}
+
+function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
+  target: Target = {} as Target,
+  baseRevision: z.ZodTypeAny = revisionSchema,
+) {
+  const options = [
+    renameClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    trimClipSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    setGainSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    reduceNoiseSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    colorCorrectionSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    rippleDeleteSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+    addMarkerSchema.extend({ ...target, verification: verificationPolicySchema.optional(), baseRevision }).strict(),
+  ] as const;
+  return mcpDiscriminatedUnion(options);
+}
+
+const editToolInputSchema = createEditToolInputSchema();
+const artifactEditToolInputSchema = createEditToolInputSchema({
   artifactPath: z.string().trim().min(1),
-  baseRevision: revisionValueSchema,
-}).strict();
-const editorTimelineEditToolInputSchema = editToolInputSchema.extend({
+}, revisionValueSchema);
+const editorTimelineEditToolInputSchema = createEditToolInputSchema({
   projectId: z.string().trim().min(1),
   sequenceId: z.string().trim().min(1),
-  baseRevision: revisionValueSchema,
-}).strict();
+}, revisionValueSchema);
+
+type JsonSchema = {
+  anyOf?: JsonSchema[];
+  properties?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function exposeObjectRoot(schema: unknown): unknown {
+  if (!isRecord(schema) || !Array.isArray(schema.anyOf)) return schema;
+  const properties: Record<string, unknown> = {};
+  for (const branch of schema.anyOf as JsonSchema[]) {
+    for (const [key, value] of Object.entries(branch.properties ?? {})) {
+      if (key !== "type") properties[key] = value;
+    }
+  }
+  return { ...schema, type: "object", properties };
+}
+
+function installMcpSchemaCompatibility(server: McpServer): void {
+  type RequestHandler = (request: unknown, extra: unknown) => Promise<unknown>;
+  type ToolListResponse = { tools?: Array<Record<string, unknown>>; [key: string]: unknown };
+  const handlers = (server.server as unknown as { _requestHandlers?: Map<string, RequestHandler> })._requestHandlers;
+  const listToolsHandler = handlers?.get("tools/list");
+  if (!listToolsHandler) throw new Error("MCP tools/list handler was not initialized");
+
+  server.server.removeRequestHandler("tools/list");
+  server.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    const response = await listToolsHandler(request, extra) as ToolListResponse;
+    return {
+      ...response,
+      tools: response.tools?.map((tool) => ({
+        ...tool,
+        inputSchema: exposeObjectRoot(tool.inputSchema),
+      })) ?? [],
+    };
+  });
+}
+
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
   confirm: z.boolean(),
+}).strict();
+const artifactTransactionInputSchema = z.object({
+  artifactPath: z.string().trim().min(1),
+  transactionId: z.string().min(1),
 }).strict();
 const workflowOperationSchema = z.discriminatedUnion("type", [
   renameClipSchema,
@@ -269,6 +400,28 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     start: z.number().nonnegative(),
     duration: z.number().positive(),
     targetLane: z.union([z.literal("primary"), z.number().int()]).optional(),
+  }),
+  z.object({
+    type: z.literal("timeline.picture-in-picture.add"),
+    occurrenceId: z.string().min(1),
+    mediaId: z.string().min(1),
+    attachedTo: z.string().min(1),
+    start: z.number().finite().nonnegative(),
+    duration: z.number().finite().positive(),
+    targetLane: z.number().int().refine((lane) => lane !== 0, "PIP requires a connected non-primary lane"),
+    position: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    scale: z.number().finite().positive(),
+    crop: z.object({
+      top: z.number().finite().min(0).lt(1),
+      right: z.number().finite().min(0).lt(1),
+      bottom: z.number().finite().min(0).lt(1),
+      left: z.number().finite().min(0).lt(1),
+    }).optional(),
+    frame: z.object({
+      style: z.literal("solid"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/i),
+      width: z.number().finite().nonnegative(),
+    }).optional(),
   }),
   z.object({
     type: z.literal("timeline.audio.fades"),
@@ -324,6 +477,11 @@ const workflowOperationSchema = z.discriminatedUnion("type", [
     fadeIn: z.number().nonnegative().optional(),
     fadeOut: z.number().nonnegative().optional(),
   }),
+  z.object({
+    type: z.literal("timeline.mask.add"),
+    occurrenceId: z.string().min(1),
+    mask: maskSchema,
+  }),
 ]);
 const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRefine((operations, context) => {
   operations.forEach((operation, index) => {
@@ -338,6 +496,11 @@ const workflowOperationsSchema = z.array(workflowOperationSchema).min(1).superRe
     if (operation.type === "timeline.media.add" && operation.role === "audio"
       && (typeof operation.targetLane !== "number" || operation.targetLane === 0)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "targetLane"], message: "audio requires an explicit non-primary lane" });
+    }
+    if (operation.type === "timeline.picture-in-picture.add"
+      && operation.crop
+      && (operation.crop.left + operation.crop.right >= 1 || operation.crop.top + operation.crop.bottom >= 1)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [index, "crop"], message: "PIP crop must leave a positive source rectangle" });
     }
     if (operation.type === "timeline.audio.mix"
       && operation.gainDb === undefined && operation.fadeIn === undefined && operation.fadeOut === undefined) {
@@ -356,13 +519,9 @@ const musicDuckingSchema = z.object({
   dialogueClipIds: z.array(z.string().min(1)).optional(),
   reductionDb: z.number().finite().optional(),
 });
-const musicAddInputSchema = {
+const musicAddCommonInputSchema = {
   baseRevision: revisionValueSchema,
   occurrenceId: z.string().min(1),
-  mediaId: z.string().min(1).optional(),
-  import: musicImportSchema.optional(),
-  placement: z.enum(["append", "insert"]),
-  start: z.number().nonnegative().optional(),
   duration: z.number().positive().optional(),
   targetLane: z.number().int().refine((lane) => lane !== 0, "music requires a non-primary lane"),
   gainDb: z.number().finite().optional(),
@@ -371,6 +530,30 @@ const musicAddInputSchema = {
   ducking: musicDuckingSchema.optional(),
   verification: verificationPolicySchema.optional(),
 };
+const musicAddInputSchema = mcpUnion([
+  z.object({
+    ...musicAddCommonInputSchema,
+    mediaId: z.string().min(1),
+    placement: z.literal("append"),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    import: musicImportSchema,
+    placement: z.literal("append"),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    mediaId: z.string().min(1),
+    placement: z.literal("insert"),
+    start: z.number().nonnegative(),
+  }).strict(),
+  z.object({
+    ...musicAddCommonInputSchema,
+    import: musicImportSchema,
+    placement: z.literal("insert"),
+    start: z.number().nonnegative(),
+  }).strict(),
+]);
 const fillerRemovalInputSchema = {
   baseRevision: revisionValueSchema,
   range: rangeSchema,
@@ -430,6 +613,37 @@ const nativeTransitionPreviewSchema = {
   afterOccurrenceHandle: z.string().min(1),
   duration: rationalTimeSchema,
 };
+const nativePictureInPicturePreviewSchema = {
+  mediaHandle: z.string().min(1),
+  anchorOccurrenceHandle: z.string().min(1),
+  start: rationalTimeSchema,
+  duration: rationalTimeSchema,
+  position: z.object({ x: z.number().finite(), y: z.number().finite() }),
+  scale: z.number().finite().positive(),
+  crop: z.object({
+    top: z.number().finite().min(0).lt(1),
+    right: z.number().finite().min(0).lt(1),
+    bottom: z.number().finite().min(0).lt(1),
+    left: z.number().finite().min(0).lt(1),
+  }).optional(),
+  frame: z.object({
+    style: z.literal("solid"),
+    color: z.string().regex(/^#[0-9a-f]{6}$/i),
+    width: z.number().finite().nonnegative(),
+  }).optional(),
+};
+const nativeMaskPreviewSchema = {
+  occurrenceHandle: z.string().trim().min(1),
+  mask: nativeMaskSchema,
+};
+const timelineMaskInputSchema = {
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  occurrenceId: z.string().trim().min(1),
+  mask: maskSchema,
+  verification: verificationPolicySchema.optional(),
+};
 const exportAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio-audibility"),
@@ -486,11 +700,102 @@ const nativeEditToolInputSchema = z.object({
   gainDb: z.number().finite().optional(),
   duration: z.number().nonnegative().optional(),
 }).strict();
+const nativeOperationSessionSubmitSchema = z.object({
+  operation: z.literal("disposable.rename-clip"),
+  previewToken: z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  targetIdentity: z.string().trim().min(1),
+  baseRevision: revisionValueSchema,
+  idempotencyKey: z.string().trim().min(1),
+}).strict();
+const nativeOperationSessionJobSchema = {
+  jobId: z.string().trim().min(1),
+};
 
 function jsonResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
   };
+}
+
+async function sessionResult(action: () => Promise<unknown>) {
+  try {
+    return jsonResult(await action());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      isError: true,
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message }),
+      }],
+    };
+  }
+}
+
+function capabilityErrorResult(operation: string, capabilityName: string, capability: CapabilityDescriptor) {
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code: "CAPABILITY_UNAVAILABLE",
+        message: `${operation} requires ${capabilityName}`,
+        operation,
+        capability: capabilityName,
+        available: false,
+        backend: capability.backend,
+        guarantee: capability.guarantee,
+        unavailableReason: capability.unavailableReason,
+      }),
+    }],
+  };
+}
+
+function nativeMediaImportErrorResult(error: unknown) {
+  const serialized = serializeNativeFinalCutMediaImportError(error);
+  if (serialized) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+    };
+  }
+  if (!isDirectoryMediaImportError(error)) throw error;
+  return {
+    isError: true,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        code: error.code,
+        message: error.message,
+        guidance: error.guidance,
+      }),
+    }],
+  };
+}
+
+function capabilityUnavailableErrorResult(error: unknown) {
+  const serialized = serializeCapabilityUnavailableError(error);
+  if (!serialized) throw error;
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+  };
+}
+
+function isDirectoryMediaImportError(error: unknown): error is Error & {
+  code: typeof NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE;
+  guidance: { previewTool: string; executeTool: string };
+} {
+  if (!error || typeof error !== "object") return false;
+  const value = error as Record<string, unknown>;
+  const guidance = value.guidance;
+  return value.code === NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE
+    && Boolean(guidance)
+    && typeof guidance === "object"
+    && typeof (guidance as Record<string, unknown>).previewTool === "string"
+    && typeof (guidance as Record<string, unknown>).executeTool === "string";
 }
 
 function skillErrorResult(error: unknown) {
@@ -531,10 +836,21 @@ function normalizeConnectionStatus(value: unknown): unknown {
   const backend = typeof identity?.backend === "string" ? identity.backend : undefined;
   return {
     ...status,
-    capabilities: withCapabilityFamilies(status.capabilities, {
+    capabilities: withCanonicalTimelineMode(withCapabilityFamilies(status.capabilities, {
       ...(backend ? { backend, connectionBackend: backend } : {}),
       connection: status.state === "ready",
-    }),
+    })),
+  };
+}
+
+function nativeMediaIntentCapabilities(nativeEditor?: NativeFinalCutEditor): Record<string, boolean> {
+  const capabilities = nativeEditor?.capabilities();
+  return {
+    "native.mediaImport": Boolean(capabilities?.mediaImport),
+    "native.mediaSelection": Boolean(capabilities?.mediaSelection),
+    "native.mediaAppendSelected": Boolean(capabilities?.mediaAppendSelected),
+    "native.mediaAppend": Boolean(capabilities?.mediaAppend),
+    "native.mediaInsert": Boolean(capabilities?.mediaInsert),
   };
 }
 
@@ -570,29 +886,160 @@ export interface McpConnectionStatus {
   editorDetected?: boolean;
   extensionInstalled?: boolean;
   socketPath?: string | null;
+  identity?: EditorIdentity;
   capabilities?: unknown;
+  preflight?: McpCapabilityPreflight;
+}
+
+export interface McpCapabilityPreflight extends CapabilityPreflight {
+  fingerprint: FramekitBuildFingerprint;
 }
 
 export interface McpServerOptions {
+  processMode?: CapabilityProcessMode;
   connectionStatus?: () => McpConnectionStatus | undefined | Promise<McpConnectionStatus | undefined>;
   nativeEditor?: NativeFinalCutEditor;
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
+  nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
   videoExporter?: FinalCutVideoExporter;
+  backgroundRenderer?: BackgroundRenderExportProvider;
+  buildFingerprint?: FramekitBuildFingerprint;
+  sessionDirectory?: string;
+  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
+  materializationDirectory?: string;
+  sessionMaterializationPublisher?: SessionMaterializationPublisher;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
   const server = new McpServer(
-    { name: "framekit", version: "0.1.0" },
+    { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
+  const sessions = options.sessionDirectory ? new EditingSessionRepository(options.sessionDirectory) : undefined;
+  const materializations = sessions && options.materializationDirectory
+    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+    : undefined;
+
+  const requireSessions = (): EditingSessionRepository => {
+    if (!sessions) throw new Error("SESSION_STORAGE_UNAVAILABLE: configure a session directory");
+    return sessions;
+  };
+  const requireMaterializations = (): SessionMaterializationJobs => {
+    if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
+    return materializations;
+  };
+
+  const sessionOperationSchema = z.array(z.unknown());
+
+  server.registerTool("session.create", {
+    description: "Create and atomically persist a provider-neutral editing session without mutating Final Cut.",
+    inputSchema: {
+      sessionId: z.string().min(1).optional(),
+      provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }).optional(),
+      base: z.unknown(),
+    },
+  }, async ({ sessionId, provider, base }) => sessionResult(async () => requireSessions().create({
+    ...(sessionId ? { sessionId } : {}),
+    ...(provider ? { provider } : {}),
+    base: base as TimelineIr,
+  })));
+
+  server.registerTool("session.inspect", {
+    description: "Inspect a persisted editing session and its exact base and desired Timeline IR.",
+    inputSchema: { sessionId: z.string().min(1) },
+  }, async ({ sessionId }) => sessionResult(async () => requireSessions().inspect(sessionId)));
+
+  server.registerTool("session.edit.preview", {
+    description: "Preview provider-neutral session edits without persisting or mutating Final Cut.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().preview(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
+
+  server.registerTool("session.edit.execute", {
+    description: "Apply edits only to a persisted session's desired Timeline IR.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().execute(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
+
+  server.registerTool("session.status", {
+    description: "Read editing-session readiness, provider binding, and revisions.",
+    inputSchema: { sessionId: z.string().min(1) },
+  }, async ({ sessionId }) => sessionResult(async () => requireSessions().status(sessionId)));
+
+  server.registerTool("session.reconcile", {
+    description: "Reconcile a fresh provider Timeline IR with the session base and desired state.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }),
+      providerState: z.unknown(),
+    },
+  }, async ({ sessionId, provider, providerState }) => sessionResult(async () => requireSessions().reconcile(
+    sessionId,
+    provider,
+    providerState as TimelineIr,
+  )));
+
+  server.registerTool("session.observe", {
+    description: "Bind read-only non-canonical Final Cut SQLite evidence to session freshness.",
+    inputSchema: { sessionId: z.string().min(1), sourcePath: z.string().min(1) },
+  }, async ({ sessionId, sourcePath }) => sessionResult(async () => {
+    if (!options.sqliteObservationProvider) {
+      throw new Error("FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE: no read-only observation provider is configured");
+    }
+    return requireSessions().observe(sessionId, sourcePath, options.sqliteObservationProvider);
+  }));
+
+  const sessionMaterializationTargetSchema = z.object({
+    provider: z.literal("final-cut"),
+    libraryUid: z.string().min(1),
+    eventUid: z.string().min(1),
+    projectUid: z.string().min(1),
+    sequenceUid: z.string().min(1),
+    eventName: z.string().min(1).optional(),
+    materialization: z.literal("versioned").optional(),
+  }).strict();
+
+  server.registerTool("session.materialize.preview", {
+    description: "Preview deterministic versioned FCPXML materialization without staging or publishing it.",
+    inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema },
+  }, async ({ sessionId, target }) => sessionResult(async () => requireMaterializations().preview(sessionId, target)));
+
+  server.registerTool("session.materialize.execute", {
+    description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
+    inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
+  }, async ({ sessionId, target, confirm }) => sessionResult(async () => requireMaterializations().execute(sessionId, target, confirm)));
+
+  server.registerTool("session.materialize.status", {
+    description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
+    inputSchema: { jobId: z.string().min(1) },
+  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().status(jobId)));
+
+  server.registerTool("session.materialize.retry", {
+    description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
+    inputSchema: { jobId: z.string().min(1) },
+  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
 
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
-  }, async () => jsonResult(normalizeConnectionStatus(await connectionStatus(options))));
+  }, async () => jsonResult(await effectiveConnectionStatus(runtime, options)));
 
   server.registerTool("skill.list", {
     description: "List registered versioned Framekit Skills with current capability availability.",
@@ -657,17 +1104,41 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("project.inspect", {
     description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
-  }, async () => jsonResult(await runtime.inspectProject()));
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) {
+      return capabilityErrorResult("project.inspect", "canonicalDocument.read", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectProject());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("artifact.inspect", {
-    description: "Identify the managed FCPXML artifact used by artifact.edit and artifact.publish.",
+    description: "Identify the managed FCPXML artifact used by the background artifact.edit and artifact.publish workflows.",
     inputSchema: {},
   }, async () => jsonResult(await runtime.inspectArtifact()));
 
   server.registerTool("project.list", {
     description: "List projects and their stable Final Cut sequence identities, including the active target.",
     inputSchema: {},
-  }, async () => jsonResult(await runtime.listProjects()));
+  }, async () => {
+    try {
+      return jsonResult(await runtime.listProjects());
+    } catch (error) {
+      const inspectionError = serializeFinalCutLibraryInspectionError(error);
+      if (inspectionError) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: JSON.stringify(inspectionError) }],
+        };
+      }
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("project.select", {
     description: "Select one project and, when it has multiple sequences, one explicit sequence; ambiguous targets fail closed.",
@@ -675,7 +1146,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       projectId: z.string().min(1),
       sequenceId: z.string().min(1).optional(),
     },
-  }, async ({ projectId, sequenceId }) => jsonResult(await runtime.selectProject({ projectId, sequenceId })));
+  }, async ({ projectId, sequenceId }) => {
+    try {
+      return jsonResult(await runtime.selectProject({ projectId, sequenceId }));
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable capabilities before selecting an editing path.",
@@ -701,14 +1178,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editing.intent.resolve", {
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
     inputSchema: { request: z.string().trim().min(1) },
-  }, async ({ request }) => jsonResult(resolveEditingIntent(request)));
+  }, async ({ request }) => jsonResult(resolveEditingIntent(request, {
+    availableCapabilities: nativeMediaIntentCapabilities(options.nativeEditor),
+  })));
 
   server.registerTool("editing.route", {
     description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
     inputSchema: {
       operation: z.enum([
+        "project.list",
+        "project.select",
+        "project.inspect",
+        "timeline.inspect",
+        "editor.live.inspect",
         "timeline.edit",
+        "artifact.edit",
+        "timeline.mask.add",
         "editor.native.edit",
+        "editor.native.picture-in-picture",
         "timeline.publish.new-project",
         "timeline.export",
       ]),
@@ -727,32 +1214,52 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
     inputSchema: {},
-  }, async () => jsonResult(options.nativeEditor
-    ? await options.nativeEditor.inspect()
+  }, async (_args, extra) => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.inspect({ signal: extra.signal })
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
   server.registerTool("editor.native.focus", {
     description: "Activate Final Cut Pro and focus its timeline without changing project or timeline content.",
     inputSchema: {},
-  }, async () => jsonResult(options.nativeEditor
-    ? await options.nativeEditor.focusTimeline()
+  }, async (_args, extra) => jsonResult(options.nativeEditor
+    ? await options.nativeEditor.focusTimeline({ signal: extra.signal })
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
   server.registerTool("editor.native.media.import", {
     description: "Import one local video or audio file into the active Final Cut Browser and wait for a stable media handle.",
     inputSchema: { path: z.string().min(1) },
-  }, async ({ path }) => {
+  }, async ({ path }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.importMedia(path));
+    try {
+      return jsonResult(await options.nativeEditor.importMedia(path, { signal: extra.signal }));
+    } catch (error) {
+      return nativeMediaImportErrorResult(error);
+    }
+  });
+
+  server.registerTool("editor.native.media.directory.preview", {
+    description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
+    inputSchema: { path: z.string().trim().min(1) },
+  }, async ({ path }, extra) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.signal }));
+  });
+
+  server.registerTool("editor.native.media.directory.execute", {
+    description: "Import every file from a directory preview after explicit confirmation and return per-file stable media handles or failures.",
+    inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
+  }, async ({ previewToken, confirm }, extra) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
     inputSchema: nativeEditToolInputSchema,
-  }, async (input) => {
+  }, async (input, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
     const operation = nativeEditSchema.parse(input);
-    return jsonResult(await options.nativeEditor.edit(operation));
+    return jsonResult(await options.nativeEditor.edit(operation, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.disposable.preview", {
@@ -766,7 +1273,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.disposable.execute", {
     description: "Execute a disposable native Final Cut edit and return canonical diff, verification, and rollback state.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.disposableNative) throw new Error("CAPABILITY_UNAVAILABLE: disposable native edit is not configured");
     return jsonResult(await options.disposableNative.execute(previewToken));
   });
@@ -779,29 +1286,79 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.disposableNative.undo(operationId));
   });
 
+  server.registerTool("editor.native.operation.submit", {
+    description: "Accept a previewed native Final Cut operation as a resumable job without waiting for headed readiness.",
+    inputSchema: nativeOperationSessionSubmitSchema,
+  }, async (request) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(await options.nativeOperationSession.submit(request));
+  });
+
+  server.registerTool("editor.native.operation.status", {
+    description: "Poll a resumable native Final Cut operation for readiness, completion, verification, and restoration evidence.",
+    inputSchema: nativeOperationSessionJobSchema,
+  }, async ({ jobId }) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(options.nativeOperationSession.status(jobId));
+  });
+
+  server.registerTool("editor.native.operation.retry", {
+    description: "Retry a waiting native Final Cut operation after the required headed session becomes ready.",
+    inputSchema: nativeOperationSessionJobSchema,
+  }, async ({ jobId }) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(await options.nativeOperationSession.retry(jobId));
+  });
+
+  server.registerTool("editor.native.operation.cancel", {
+    description: "Cancel a pending native Final Cut operation or report recovery when mutation has already started.",
+    inputSchema: nativeOperationSessionJobSchema,
+  }, async ({ jobId }) => {
+    if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
+    return jsonResult(await options.nativeOperationSession.cancel(jobId));
+  });
+
   server.registerTool("editor.native.title.add.preview", {
     description: "Preview adding an installed Final Cut title at the live playhead or an explicit timeline range.",
     inputSchema: nativeTitlePreviewSchema,
-  }, async ({ assetId, text, start, duration }) => {
+  }, async ({ assetId, text, start, duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
     const asset = await resolveNativeTitleAsset(runtime, assetId);
-    return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }));
+    return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.title.add.execute", {
     description: "Execute a previously previewed native Final Cut title placement and return its verification and Undo handle.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
-    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken));
+    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken, { signal: extra.signal }));
+  });
+
+  server.registerTool("editor.native.picture-in-picture.preview", {
+    description: "Preview connecting selected Final Cut Browser video to a stable timeline occurrence with verified transform properties.",
+    inputSchema: nativePictureInPicturePreviewSchema,
+  }, async (request, extra) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
+    await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
+    return jsonResult(await options.nativeEditor.previewPictureInPicture(request, { signal: extra.signal }));
+  });
+
+  server.registerTool("editor.native.picture-in-picture.execute", {
+    description: "Execute a native Final Cut picture-in-picture preview and return transform readback, revision, and Undo verification.",
+    inputSchema: { previewToken: z.string().min(1) },
+  }, async ({ previewToken }, extra) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
+    await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
+    return jsonResult(await options.nativeEditor.executePictureInPicture(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.transition.search", {
     description: "Search the visible Final Cut Transitions browser and return only transitions with stable native identities.",
     inputSchema: { query: z.string().trim().min(1) },
-  }, async ({ query }) => {
+  }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition discovery is not configured");
-    const matches = await options.nativeEditor.searchTransitions(query);
+    const matches = await options.nativeEditor.searchTransitions(query, { signal: extra.signal });
     for (const match of matches) {
       nativeTransitionAssets.set(match.id, match);
       nativeTransitionAssets.set(`final-cut:transition:${match.identity}`, match);
@@ -812,159 +1369,218 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("editor.native.transition.add.preview", {
     description: "Preview adding a discovered native transition between two adjacent occurrence handles at an exact duration.",
     inputSchema: nativeTransitionPreviewSchema,
-  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }) => {
+  }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
-    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets);
+    const asset = await resolveNativeTransitionAsset(runtime, options.nativeEditor, assetId, nativeTransitionAssets, extra.signal);
     return jsonResult(await options.nativeEditor.previewTransitionAdd({
       asset,
       beforeOccurrenceHandle,
       afterOccurrenceHandle,
       duration,
-    }));
+    }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.transition.add.execute", {
     description: "Execute a previously previewed native transition placement and return verified revision and Undo state.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
-    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken));
+    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken, { signal: extra.signal }));
+  });
+
+  server.registerTool("editor.native.mask.preview", {
+    description: "Preview adding a bounded native Final Cut Draw Mask to one located occurrence without mutating the timeline.",
+    inputSchema: nativeMaskPreviewSchema,
+  }, async ({ occurrenceHandle, mask }, extra) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
+    return jsonResult(await options.nativeEditor.previewMask({ occurrenceHandle, mask }, { signal: extra.signal }));
+  });
+
+  server.registerTool("editor.native.mask.execute", {
+    description: "Execute a previously previewed native Draw Mask and return readback verification and native Undo state.",
+    inputSchema: { previewToken: z.string().trim().min(1) },
+  }, async ({ previewToken }, extra) => {
+    if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
+    return jsonResult(await options.nativeEditor.executeMask(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.undo", {
     description: "Undo a previously accepted native Final Cut UI edit using Final Cut's native Undo command.",
     inputSchema: { operationId: z.string().min(1) },
-  }, async ({ operationId }) => {
+  }, async ({ operationId }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
-    return jsonResult(await options.nativeEditor.undo(operationId));
+    return jsonResult(await options.nativeEditor.undo(operationId, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.search", {
     description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
     inputSchema: { query: z.string().min(1) },
-  }, async ({ query }) => {
+  }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
-    return jsonResult(await options.nativeEditor.searchMedia(query));
+    return jsonResult(await options.nativeEditor.searchMedia(query, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.select", {
     description: "Select one live Final Cut Browser media result using its short-lived handle.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media selection is not configured");
-    return jsonResult(await options.nativeEditor.selectMedia(mediaHandle));
+    return jsonResult(await options.nativeEditor.selectMedia(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.preview", {
     description: "Preview appending the selected Final Cut Browser media to the end of the active timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
-    return jsonResult(await options.nativeEditor.previewAppendMedia(mediaHandle));
+    return jsonResult(await options.nativeEditor.previewAppendMedia(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.execute", {
     description: "Execute a previously previewed append of selected Final Cut Browser media.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
-    return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken));
+    return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.selected.preview", {
     description: "Preview appending the currently selected Final Cut Browser media to the end of the active timeline.",
     inputSchema: {},
-  }, async () => {
+  }, async (_args, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
-    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia());
+    return jsonResult(await options.nativeEditor.previewAppendSelectedMedia({ signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.selected.execute", {
     description: "Execute a previously previewed append of the currently selected Final Cut Browser media.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
-    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken));
+    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.insert.preview", {
     description: "Preview inserting the selected Final Cut Browser media at the current playhead.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
-    return jsonResult(await options.nativeEditor.previewInsertMedia(mediaHandle));
+    return jsonResult(await options.nativeEditor.previewInsertMedia(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.insert.execute", {
     description: "Execute a previously previewed insertion of selected Final Cut Browser media at the playhead.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
-    return jsonResult(await options.nativeEditor.executeInsertMedia(previewToken));
+    return jsonResult(await options.nativeEditor.executeInsertMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.timeline.locate", {
     description: "Locate matching occurrences of a live Browser media result in the active Final Cut timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
-  }, async ({ mediaHandle }) => {
+  }, async ({ mediaHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut timeline occurrence location is not configured");
-    return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle));
+    return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.target", {
     description: "Search Final Cut's Browser and target exactly one timeline occurrence with a deterministic live playhead.",
     inputSchema: { query: z.string().min(1) },
-  }, async ({ query }) => {
+  }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media targeting is not configured");
-    return jsonResult(await options.nativeEditor.targetMedia(query));
+    return jsonResult(await options.nativeEditor.targetMedia(query, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.blade.preview", {
     description: "Prepare a short-lived confirmation token for a Blade-at-playhead operation.",
     inputSchema: { occurrenceHandle: z.string().min(1) },
-  }, async ({ occurrenceHandle }) => {
+  }, async ({ occurrenceHandle }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
-    return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle));
+    return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.blade.execute", {
     description: "Execute a previously previewed Blade-at-playhead operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
-    return jsonResult(await options.nativeEditor.executeBlade(previewToken));
+    return jsonResult(await options.nativeEditor.executeBlade(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.delete-range.preview", {
     description: "Preview a destructive ripple-delete of an explicit rational time range from the Final Cut primary storyline.",
     inputSchema: { start: rationalTimeSchema, end: rationalTimeSchema },
-  }, async ({ start, end }) => {
+  }, async ({ start, end }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
-    return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }));
+    return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.delete-range.execute", {
     description: "Execute a previously previewed primary-storyline ripple-delete range operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
-    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken));
+    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.trim-to-duration.preview", {
     description: "Preview a destructive operation that preserves the beginning of the Final Cut sequence and removes everything after the requested rational duration.",
     inputSchema: { duration: rationalTimeSchema },
-  }, async ({ duration }) => {
+  }, async ({ duration }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
-    return jsonResult(await options.nativeEditor.previewTrimToDuration(duration));
+    return jsonResult(await options.nativeEditor.previewTrimToDuration(duration, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.trim-to-duration.execute", {
     description: "Execute a previously previewed trim-to-duration operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
+  }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
-    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken));
+    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken, { signal: extra.signal }));
+  });
+
+  server.registerTool("artifact.publish.preview", {
+    description: "Prepare a headed-only publish handoff for a verified FCPXML artifact without opening Final Cut.",
+    inputSchema: {
+      artifactPath: z.string().trim().min(1),
+      transactionId: z.string().min(1),
+    },
+  }, async ({ artifactPath, transactionId }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    const transaction = runtime.getTransaction(transactionId);
+    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    }
+    if (!transaction.artifactDigest) {
+      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    }
+    const verification = await runtime.verifyTransaction(transactionId);
+    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+    return jsonResult(await options.projectPublisher.preparePublish({
+      sourceTransactionId: transactionId,
+      artifactPath,
+      artifactDigest: transaction.artifactDigest,
+    }));
+  });
+
+  server.registerTool("artifact.publish.execute", {
+    description: "Execute a prepared artifact publish job after explicit confirmation and return only a verified or resumable state.",
+    inputSchema: {
+      jobId: z.string().trim().min(1),
+      confirm: z.literal(true),
+    },
+  }, async ({ jobId, confirm }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm));
+  });
+
+  server.registerTool("artifact.publish.status", {
+    description: "Read the current state of a prepared artifact publish job without opening Final Cut or retrying it.",
+    inputSchema: { jobId: z.string().trim().min(1) },
+  }, async ({ jobId }) => {
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    return jsonResult(options.projectPublisher.getPublishJob(jobId));
   });
 
   server.registerTool("artifact.publish", {
@@ -1088,9 +1704,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, waitMs ?? 0)));
 
   server.registerTool("editor.live.inspect", {
-    description: "Read live Final Cut Workflow Extension state: project, active sequence, playhead, and selected range.",
+    description: "Read observed live Final Cut state without requiring canonical timeline snapshot capability.",
     inputSchema: {},
-  }, async () => jsonResult(await runtime.inspectLiveEditor()));
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.observation.timeline;
+    if (!capability.available) {
+      return capabilityErrorResult("editor.live.inspect", "observation.timeline", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectLiveEditor());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("editor.live.changes", {
     description: "Read live Final Cut timeline change events after a revision; optionally wait for new events.",
@@ -1105,8 +1732,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, waitMs ?? 0)));
 
   server.registerTool("timeline.inspect", {
-    description: "Read the current canonical timeline snapshot.",
-  }, async () => jsonResult(await runtime.inspectTimeline()));
+    description: "Read the current canonical timeline snapshot after canonical capability checks.",
+  }, async () => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) {
+      return capabilityErrorResult("timeline.inspect", "canonicalDocument.read", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectTimeline());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("timeline.frame.capture", {
     description: "Capture an image at an exact timeline position with project, sequence, clip, and optional visual-analysis metadata.",
@@ -1124,7 +1762,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("media.search", {
     description: "Search normalized media references by id or source path.",
     inputSchema: { query: z.string() },
-  }, async ({ query }) => jsonResult(await runtime.searchMedia(query)));
+  }, async ({ query }) => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.observation.media;
+    if (!capability.available) {
+      return capabilityErrorResult("media.search", "observation.media", capability);
+    }
+    try {
+      return jsonResult(await runtime.searchMedia(query));
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
 
   server.registerTool("media.index", {
     description: "Query analyzed media by semantic properties, source identity, capabilities, and usable ranges.",
@@ -1150,11 +1799,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (request) => jsonResult(await runtime.planRoughCut(request)));
 
   server.registerTool("editor.assets", {
-    description: "Search editor-native transitions, effects, titles, generators, and templates.",
+    description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
     inputSchema: {
       query: z.string().optional(),
       kind: z.enum(["transition", "effect", "title", "generator", "audio-effect", "template"]).optional(),
       vendor: z.string().optional(),
+      discovery: z.enum(["background", "native", "all"]).optional().default("background"),
     },
   }, async (query) => jsonResult(await runtime.listAssets(query)));
 
@@ -1189,17 +1839,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (request) => jsonResult(await runtime.previewRoughCutConstruction(request)));
 
   server.registerTool("artifact.edit", {
-    description: "Edit the identified managed FCPXML artifact and return its artifact target, new revision, read-after-write, and diff.",
+    description: "Edit the identified managed FCPXML artifact in the background and return its artifact target, new revision, read-after-write, and diff.",
     inputSchema: artifactEditToolInputSchema,
   }, async (input) => {
+    await requireEditingRoute(runtime, options, "artifact.edit");
     const { artifactPath, verification, ...operation } = input;
-    return jsonResult(await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation), verification ?? {}));
+    const transaction = await runtime.editArtifact(artifactPath, editOperationSchema.parse(operation), verification ?? {});
+    return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
   });
 
   server.registerTool("editor.timeline.edit", {
     description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
     inputSchema: editorTimelineEditToolInputSchema,
   }, async (input) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
     const { projectId, sequenceId, verification, ...operation } = input;
     return jsonResult(await runtime.editTimeline(
       { projectId, sequenceId },
@@ -1235,18 +1888,36 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.previewEdit(request));
   });
 
+  server.registerTool("timeline.mask.add.preview", {
+    description: "Preview a bounded or supplied-alpha mask against an explicit project, sequence, revision, and occurrence without mutation.",
+    inputSchema: timelineMaskInputSchema,
+  }, async ({ projectId, sequenceId, baseRevision, occurrenceId, mask, verification }) => {
+    await requireEditingRoute(runtime, options, "timeline.mask.add");
+    return jsonResult(await runtime.previewTimelineEdit(
+      { projectId, sequenceId },
+      {
+        baseRevision,
+        operations: [{ type: "timeline.mask.add", occurrenceId, mask }],
+        ...(verification ? { verification } : {}),
+      },
+    ));
+  });
+
   server.registerTool("artifact.edit.preview", {
-    description: "Validate and preview an ordered artifact edit against the identified FCPXML artifact without mutating it.",
+    description: "Validate and preview an ordered background FCPXML artifact edit without mutating it or the open Final Cut timeline.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
     },
-  }, async ({ artifactPath, baseRevision, operations, verification }) => jsonResult(await runtime.previewArtifactEdit(
-    artifactPath,
-    { baseRevision, operations, ...(verification ? { verification } : {}) },
-  )));
+  }, async ({ artifactPath, baseRevision, operations, verification }) => {
+    await requireEditingRoute(runtime, options, "artifact.edit");
+    return jsonResult(await runtime.previewArtifactEdit(
+      artifactPath,
+      { baseRevision, operations, ...(verification ? { verification } : {}) },
+    ).then(withArtifactPreviewProvenance));
+  });
 
   server.registerTool("editor.timeline.edit.preview", {
     description: "Validate and preview an ordered live timeline edit against the identified active project and sequence without mutating it.",
@@ -1257,20 +1928,59 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
     },
-  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => jsonResult(await runtime.previewTimelineEdit(
-    { projectId, sequenceId },
-    { baseRevision, operations, ...(verification ? { verification } : {}) },
-  )));
+  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.previewTimelineEdit(
+      { projectId, sequenceId },
+      { baseRevision, operations, ...(verification ? { verification } : {}) },
+    ));
+  });
 
   server.registerTool("artifact.edit.execute", {
-    description: "Execute one short-lived artifact edit preview token exactly once and verify the artifact transaction.",
+    description: "Execute one short-lived background artifact edit preview token exactly once and verify the FCPXML artifact transaction.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+  }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "artifact.edit");
+    const transaction = await runtime.executeEdit(previewToken);
+    return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
+  });
+
+  server.registerTool("artifact.edit.diff", {
+    description: "Read the deterministic diff for a background FCPXML artifact transaction.",
+    inputSchema: artifactTransactionInputSchema,
+  }, async ({ artifactPath, transactionId }) => {
+    const transaction = requireArtifactTransaction(runtime, transactionId, artifactPath);
+    return jsonResult({ ...runtime.getDiff(transactionId), ...withTransactionProvenance(transaction) });
+  });
+
+  server.registerTool("artifact.edit.verify", {
+    description: "Read verification checks for a background FCPXML artifact transaction.",
+    inputSchema: artifactTransactionInputSchema,
+  }, async ({ artifactPath, transactionId }) => {
+    const transaction = requireArtifactTransaction(runtime, transactionId, artifactPath);
+    return jsonResult({ ...(await runtime.verifyTransaction(transactionId)), ...withTransactionProvenance(transaction) });
+  });
+
+  server.registerTool("artifact.edit.undo", {
+    description: "Restore a background FCPXML artifact transaction without changing the open Final Cut timeline.",
+    inputSchema: artifactTransactionInputSchema,
+  }, async ({ artifactPath, transactionId }) => {
+    const transaction = requireArtifactTransaction(runtime, transactionId, artifactPath);
+    const restored = await runtime.undo(transactionId);
+    const artifact = await runtime.inspectArtifact();
+    return jsonResult({
+      ...restored,
+      ...withTransactionProvenance(transaction, restored.revision, artifact.digest),
+    });
+  });
 
   server.registerTool("editor.timeline.edit.execute", {
     description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
     inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
+  }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit");
+    return jsonResult(await runtime.executeEdit(previewToken));
+  });
 
   server.registerTool("timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
@@ -1280,10 +1990,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
+  server.registerTool("timeline.mask.add.execute", {
+    description: "Execute one short-lived mask preview token after capability and revision checks, then verify the mask state.",
+    inputSchema: { previewToken: z.string().trim().min(1) },
+  }, async ({ previewToken }) => {
+    await requireEditingRoute(runtime, options, "timeline.mask.add");
+    return jsonResult(await runtime.executeEdit(previewToken));
+  });
+
   server.registerTool("speech.analyze", {
-    description: "Analyze speech words and filler markers for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.analyzeSpeech(mediaId)));
+    description: "Analyze speech words, filler markers, and optional VAD for one media item or source range.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeSpeech(mediaId, range)));
 
   server.registerTool("speech.filler.remove.preview", {
     description: "Analyze a selected canonical timeline range and preview removal of high-confidence filler words with safe rational delete ranges.",
@@ -1342,19 +2060,89 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("edit.diff", {
     description: "Read the deterministic diff for a completed edit transaction.",
     inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => jsonResult(runtime.getDiff(transactionId)));
+  }, async ({ transactionId }) => {
+    const transaction = runtime.getTransaction(transactionId);
+    return jsonResult({ ...runtime.getDiff(transactionId), ...withTransactionProvenance(transaction) });
+  });
 
   server.registerTool("edit.verify", {
     description: "Read verification checks for a completed transaction.",
     inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => jsonResult(await runtime.verifyTransaction(transactionId)));
+  }, async ({ transactionId }) => {
+    const transaction = runtime.getTransaction(transactionId);
+    return jsonResult({ ...(await runtime.verifyTransaction(transactionId)), ...withTransactionProvenance(transaction) });
+  });
 
   server.registerTool("edit.undo", {
     description: "Restore the pre-edit snapshot for a completed transaction.",
     inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => jsonResult(await runtime.undo(transactionId)));
+  }, async ({ transactionId }) => {
+    const transaction = runtime.getTransaction(transactionId);
+    const restored = await runtime.undo(transactionId);
+    const artifact = transaction.target?.kind === "artifact" ? await runtime.inspectArtifact() : undefined;
+    return jsonResult({
+      ...restored,
+      ...withTransactionProvenance(transaction, restored.revision, artifact?.digest),
+    });
+  });
 
+  installMcpSchemaCompatibility(server);
   return server;
+}
+
+function withTransactionProvenance(
+  transaction: EditTransaction,
+  revision: ContextRevision = transaction.after.revision,
+  digest = transaction.artifactDigest,
+) {
+  const target = transaction.target;
+  const artifact = target?.kind === "artifact"
+    ? {
+        mode: "background-artifact" as const,
+        path: target.artifactPath,
+        revisionScope: "artifact" as const,
+        revision: structuredClone(revision),
+        ...(digest ? { digest } : {}),
+        mutatesOpenTimeline: false as const,
+      }
+    : undefined;
+  return {
+    ...(target ? { target: structuredClone(target) } : {}),
+    ...(artifact ? { artifact } : {}),
+    provenance: {
+      surface: target?.kind === "artifact" ? "artifact" as const : "live-timeline" as const,
+      revisionScope: target?.kind === "artifact" ? "artifact" as const : "live-timeline" as const,
+      revision: structuredClone(revision),
+      ...(target?.kind === "artifact" && digest ? { digest } : {}),
+      mutatesOpenTimeline: target?.kind !== "artifact",
+    },
+  };
+}
+
+function withArtifactPreviewProvenance(preview: CompositeEditPreview) {
+  const target = preview.target as EditTarget;
+  if (target.kind !== "artifact") {
+    throw new Error("INVALID_ARTIFACT_TARGET: preview is not bound to an artifact");
+  }
+  const artifact = {
+    mode: "background-artifact" as const,
+    path: target.artifactPath,
+    revisionScope: "artifact" as const,
+    revision: structuredClone(preview.baseRevision),
+    ...(preview.artifactDigest ? { digest: preview.artifactDigest } : {}),
+    mutatesOpenTimeline: false as const,
+  };
+  return {
+    ...preview,
+    artifact,
+    provenance: {
+      surface: "artifact" as const,
+      revisionScope: "artifact" as const,
+      revision: structuredClone(preview.baseRevision),
+      ...(preview.artifactDigest ? { digest: preview.artifactDigest } : {}),
+      mutatesOpenTimeline: false as const,
+    },
+  };
 }
 
 async function resolveNativeTitleAsset(runtime: AgentVideoRuntime, assetId: string) {
@@ -1370,6 +2158,7 @@ async function resolveNativeTransitionAsset(
   nativeEditor: NativeFinalCutEditor,
   assetId: string,
   nativeTransitionAssets: Map<string, NativeFinalCutTransitionMatch> = new Map(),
+  signal?: AbortSignal,
 ) {
   const cachedAsset = nativeTransitionAssets.get(assetId);
   if (cachedAsset) return cachedAsset;
@@ -1385,7 +2174,7 @@ async function resolveNativeTransitionAsset(
   // transition placement must use the stable identity returned by Final Cut's
   // Transitions browser. Resolve registry assets back through native discovery
   // instead of fabricating a native identity from the registry id.
-  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId);
+  const nativeMatches = await nativeEditor.searchTransitions(asset?.name ?? assetId, { signal });
   const matchingNativeMatches = asset
     ? nativeMatches.filter((candidate) => candidate.name === asset.name)
     : nativeMatches.filter((candidate) => candidate.id === assetId || candidate.identity === assetId);
@@ -1407,6 +2196,40 @@ async function connectionStatus(options: McpServerOptions): Promise<McpConnectio
   };
 }
 
+async function effectiveConnectionStatus(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+): Promise<McpConnectionStatus> {
+  const status = await connectionStatus(options);
+  const hasConnectionCapabilities = isRuntimeCapabilities(status.capabilities);
+  if (status.state !== "ready" || (options.connectionStatus && !hasConnectionCapabilities)) {
+    return normalizeConnectionStatus(status) as McpConnectionStatus;
+  }
+
+  try {
+    const inspected = await inspectMcpEditor(runtime, options);
+    return {
+      ...status,
+      identity: inspected.identity,
+      capabilities: inspected.capabilities,
+      preflight: inspected.preflight,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return normalizeConnectionStatus({
+      ...status,
+      state: "unavailable",
+      lastError: {
+        code: "CAPABILITY_UNAVAILABLE",
+        message: `effective runtime capability inspection failed: ${message}`,
+      },
+      identity: undefined,
+      capabilities: undefined,
+      preflight: undefined,
+    }) as McpConnectionStatus;
+  }
+}
+
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
   const native = options.nativeEditor?.capabilities();
@@ -1414,47 +2237,97 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
+  const backgroundExportAvailable = Boolean(options.backgroundRenderer?.isAvailable());
+  const capabilities = withCapabilityFamilies({
+    ...inspected.capabilities,
+    editor: {
+      ...inspected.capabilities.editor,
+      artifactPublish: publishingAvailable,
+      artifactPublishMode: publishingAvailable ? "headed-only" : "unavailable",
+      ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
+      videoExport: exportAvailable,
+      backgroundRender: backgroundExportAvailable,
+      externalRender: false,
+    },
+  }, {
+    backend: inspected.identity.backend,
+    nativeBackend: "final-cut-accessibility",
+    native: {
+      selectionWrite: Boolean(native?.selectionEdit),
+      undo: Boolean(native?.undo),
+      mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
+      mediaImport: Boolean(native?.mediaImport),
+      mediaSelection: Boolean(native?.mediaSelection),
+      mediaAppendSelected: Boolean(native?.mediaAppendSelected),
+      timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
+      bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
+      deleteRange: Boolean(native?.deleteRange),
+      trimToDuration: Boolean(native?.trimToDuration),
+      mediaAppend: Boolean(native?.mediaAppend),
+      mediaInsert: Boolean(native?.mediaInsert),
+      titlePlacement: Boolean(native?.titlePlacement),
+      titleDiscovery: Boolean(native?.titleDiscovery),
+      pictureInPicture: Boolean(native?.pictureInPicture),
+      transitionDiscovery: Boolean(native?.transitionDiscovery),
+      transitionPlacement: Boolean(native?.transitionPlacement),
+      masking: Boolean(native?.masking),
+      timelineFocus: Boolean(native?.timelineFocus),
+      projectCreation: false,
+      clipInsertion: false,
+      clipMovement: false,
+    },
+    publishing: publishingAvailable,
+    publishingBackend: "fcpxml-publisher",
+    export: exportAvailable,
+    exportBackend: "final-cut-native-export",
+    backgroundExport: {
+      available: backgroundExportAvailable,
+      backend: "external-renderer",
+      guarantee: backgroundExportAvailable ? "verified" : "none",
+      ...(backgroundExportAvailable ? { evidenceTier: "artifact-rendered" as const } : { unavailableReason: "background rendering is unavailable" }),
+    },
+    backgroundExportBackend: "external-renderer",
+    externalExport: {
+      available: false,
+      backend: "external-renderer",
+      guarantee: "none",
+      unavailableReason: "external rendering is unavailable",
+    },
+    externalExportBackend: "external-renderer",
+  });
   return {
     ...inspected,
-    capabilities: withCapabilityFamilies({
-      ...inspected.capabilities,
-      editor: {
-        ...inspected.capabilities.editor,
-        artifactPublish: publishingAvailable,
-        ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
-        videoExport: exportAvailable,
+    capabilities,
+    workflows: {
+      artifact: {
+        mode: "background-artifact",
+        tools: [...BACKGROUND_ARTIFACT_WORKFLOW],
+        requiresFinalCutFrontmost: false,
+        changesOpenTimeline: false,
       },
-    }, {
-      backend: inspected.identity.backend,
-      nativeBackend: "final-cut-accessibility",
-      native: {
-        selectionWrite: Boolean(native?.selectionEdit),
-        undo: Boolean(native?.undo),
-        mediaLibrarySearch: Boolean(native?.mediaLibrarySearch),
-        mediaImport: Boolean(native?.mediaImport),
-        mediaSelection: Boolean(native?.mediaSelection),
-        mediaAppendSelected: Boolean(native?.mediaAppendSelected),
-        timelineOccurrenceLocate: Boolean(native?.timelineOccurrenceLocate),
-        bladeAtPlayhead: Boolean(native?.bladeAtPlayhead),
-        deleteRange: Boolean(native?.deleteRange),
-        trimToDuration: Boolean(native?.trimToDuration),
-        mediaAppend: Boolean(native?.mediaAppend),
-        mediaInsert: Boolean(native?.mediaInsert),
-        titlePlacement: Boolean(native?.titlePlacement),
-        transitionDiscovery: Boolean(native?.transitionDiscovery),
-        transitionPlacement: Boolean(native?.transitionPlacement),
-        timelineFocus: Boolean(native?.timelineFocus),
-        projectCreation: false,
-        clipInsertion: false,
-        clipMovement: false,
-      },
-      publishing: publishingAvailable,
-      publishingBackend: "fcpxml-publisher",
-      export: exportAvailable,
-      exportBackend: "final-cut-native-export",
-    }),
+    },
+    preflight: {
+      ...createCapabilityPreflight(inspected.identity, capabilities, {
+        processMode: options.processMode ?? (native ? "headed" : "headless"),
+        nativeWrite: Boolean(native?.selectionEdit),
+      }),
+      fingerprint: options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT,
+    } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
+}
+
+function requireArtifactTransaction(
+  runtime: AgentVideoRuntime,
+  transactionId: string,
+  artifactPath: string,
+) {
+  const transaction = runtime.getTransaction(transactionId);
+  const target = transaction.target;
+  if (target?.kind !== "artifact" || resolvePath(target.artifactPath) !== resolvePath(artifactPath.trim())) {
+    throw new Error(`TARGET_MISMATCH: transaction ${transactionId} is not bound to artifact ${artifactPath}`);
+  }
+  return transaction;
 }
 
 async function requireEditingRoute(
@@ -1472,7 +2345,7 @@ async function editingRouteContext(
   runtime: AgentVideoRuntime,
   options: McpServerOptions,
 ): Promise<EditorRoutingContext> {
-  const connection = await connectionStatus(options);
+  const connection = await effectiveConnectionStatus(runtime, options);
   let editor: Awaited<ReturnType<typeof inspectMcpEditor>> | undefined;
   try {
     editor = await inspectMcpEditor(runtime, options);

@@ -23,6 +23,8 @@ const manifest: SkillManifest = {
     required: ["name", "start"],
     additionalProperties: false,
   },
+  // Optional values resolved by the version-pinned handler.
+  defaults: { start: 0 },
   requirements: {
     type: "operation",
     operation: "add-marker",
@@ -31,9 +33,11 @@ const manifest: SkillManifest = {
 ```
 
 The ID is stable across releases. The version is semantic and is pinned by
-preview tokens. Input schemas reject missing, unknown, or incorrectly typed
-values before planning. Requirements use `allOf` and `anyOf` trees over editor
-capabilities, analyzer capabilities, and explicit semantic operations.
+preview tokens. Optional manifest defaults are part of that version and are
+copied into `plan.normalizedInput` before planning. Input schemas reject
+missing, unknown, or incorrectly typed values before planning. Requirements use
+`allOf` and `anyOf` trees over editor capabilities, analyzer capabilities, and
+explicit semantic operations.
 
 ## Handler, plan, preview, and execution
 

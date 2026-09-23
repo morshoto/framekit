@@ -87,6 +87,8 @@ private struct EditorCapabilities: Codable {
     let playbackControl: Bool
     let projectCatalogRead: Bool
     let projectSelection: Bool
+    let projectSelectionMode: String
+    let backgroundLibraryInspection: Bool
 }
 
 private struct AnalyzerCapabilities: Codable {
@@ -110,6 +112,7 @@ private struct ConnectionCapabilities: Codable {
 private struct ObservationCapabilities: Codable {
     let timeline: CapabilityDescriptor
     let media: CapabilityDescriptor
+    let library: CapabilityDescriptor
 }
 
 private struct CanonicalDocumentCapabilities: Codable {
@@ -132,6 +135,8 @@ private struct NativeCapabilities: Codable {
     let mediaAppend: CapabilityDescriptor
     let mediaInsert: CapabilityDescriptor
     let titlePlacement: CapabilityDescriptor
+    let titleDiscovery: CapabilityDescriptor
+    let pictureInPicture: CapabilityDescriptor
     let transitionDiscovery: CapabilityDescriptor
     let transitionPlacement: CapabilityDescriptor
     let timelineFocus: CapabilityDescriptor
@@ -155,10 +160,18 @@ private struct AnalyzerFamilyCapabilities: Codable {
     let visualTrack: CapabilityDescriptor
 }
 
+private struct EditingCapabilities: Codable {
+    let compositeTransactions: CapabilityDescriptor
+    let titlePlacement: CapabilityDescriptor
+    let pictureInPicture: CapabilityDescriptor
+    let masking: CapabilityDescriptor
+}
+
 private struct CapabilityFamilies: Codable {
     let connection: ConnectionCapabilities
     let observation: ObservationCapabilities
     let canonicalDocument: CanonicalDocumentCapabilities
+    let editing: EditingCapabilities
     let native: NativeCapabilities
     let publishing: PublishingCapabilities
     let `export`: ExportCapabilities
@@ -218,12 +231,19 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
         connection: ConnectionCapabilities(status: availableCapability(backend: liveBackend, guarantee: "observed")),
         observation: ObservationCapabilities(
             timeline: availableCapability(backend: liveBackend, guarantee: "observed"),
-            media: unavailableCapability(backend: liveBackend, operation: "media observation")
+            media: unavailableCapability(backend: liveBackend, operation: "media observation"),
+            library: unavailableCapability(backend: "final-cut-background-library", operation: "background library inspection")
         ),
         canonicalDocument: CanonicalDocumentCapabilities(
             read: unavailableCapability(backend: liveBackend, operation: "canonical timeline reads"),
             write: unavailableCapability(backend: liveBackend, operation: "canonical timeline writes"),
             artifactWrite: unavailableCapability(backend: liveBackend, operation: "canonical artifact writes")
+        ),
+        editing: EditingCapabilities(
+            compositeTransactions: unavailableCapability(backend: liveBackend, operation: "composite editing transactions"),
+            titlePlacement: unavailableCapability(backend: nativeBackend, operation: "title placement"),
+            pictureInPicture: unavailableCapability(backend: nativeBackend, operation: "picture-in-picture placement"),
+            masking: unavailableCapability(backend: nativeBackend, operation: "masking")
         ),
         native: NativeCapabilities(
             selectionWrite: unavailableCapability(backend: nativeBackend, operation: "native selection write"),
@@ -239,6 +259,8 @@ private func metadataOnlyCapabilityFamilies() -> CapabilityFamilies {
             mediaAppend: unavailableCapability(backend: nativeBackend, operation: "native media append"),
             mediaInsert: unavailableCapability(backend: nativeBackend, operation: "native media insert"),
             titlePlacement: unavailableCapability(backend: nativeBackend, operation: "native title placement"),
+            titleDiscovery: unavailableCapability(backend: nativeBackend, operation: "native title discovery"),
+            pictureInPicture: unavailableCapability(backend: nativeBackend, operation: "native picture-in-picture placement"),
             transitionDiscovery: unavailableCapability(backend: nativeBackend, operation: "native transition discovery"),
             transitionPlacement: unavailableCapability(backend: nativeBackend, operation: "native transition placement"),
             timelineFocus: unavailableCapability(backend: nativeBackend, operation: "native timeline focus"),
@@ -452,7 +474,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
         let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
         let capabilities = RuntimeCapabilities(
-            editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false),
+                editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: false, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable", backgroundLibraryInspection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
             schemaVersion: 1,
             families: metadataOnlyCapabilityFamilies()

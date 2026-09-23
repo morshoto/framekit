@@ -76,8 +76,8 @@ test("CI runs the clean Codex plugin installation smoke test", async () => {
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
 
   const workflow = await readFile(resolve(repository, ".github/workflows/typescript.yml"), "utf8");
-  assert.match(workflow, /npm install --global @openai\/codex@0\.144\.1/);
   assert.match(workflow, /pnpm run test:codex-plugin/);
+  assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
 
   const smoke = await readFile(resolve(repository, "scripts/codex-plugin-smoke.mjs"), "utf8");
   assert.match(smoke, /package\.json/);
@@ -111,6 +111,7 @@ test("user documentation leads with plugin installation and explains first-run b
     assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
   }
   assert.match(installation, /npx -y @morshoto\/framekit doctor finalcut/);
+  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready\s+live session may expose metadata while rejecting unsupported operations/i);
   assert.match(gettingStarted, /permissions are required only for an explicit\s+headed native-write setup/i);
 });
 
@@ -130,7 +131,7 @@ test("tagpr releases publish the package consumed by the plugin", async () => {
   assert.match(workflow, /publish-npm:/);
   assert.match(
     workflow,
-    /publish-npm:[\s\S]*?actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)\s+with:\s+persist-credentials:\s+false/,
+    /publish-npm:[\s\S]*?actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)\s+with:\s+ref: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}\s+persist-credentials:\s+false/,
   );
   assert.match(workflow, /needs:\s+tagpr/);
   assert.match(workflow, /needs\.tagpr\.outputs\.release-tag != ''/);

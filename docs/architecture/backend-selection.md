@@ -14,6 +14,9 @@ live connection must not silently downgrade to a fixture or claim that an
 incomplete native snapshot is canonical. With `FRAMEKIT_FCPXML_PATH`, the
 session composes both providers and keeps their capabilities separate.
 
+The current-version non-UI snapshot decision and evidence are recorded in the
+[non-UI timeline snapshot investigation](./non-ui-timeline-snapshot-investigation.md).
+
 ## Select the editing surface first
 
 Choose the target surface from the requested outcome before selecting a
@@ -24,9 +27,15 @@ backend:
 | Change the managed FCPXML file | `artifact.edit` | Managed artifact ID and exact path |
 | Import an edited artifact as a new project | `artifact.publish` | Verified artifact transaction, exact path, and `confirm: true` |
 | Change the open Final Cut timeline | `editor.timeline.edit` | Explicit project ID, sequence ID, and base revision |
+| Apply a verified native bounded mask | `editor.native.mask.preview` / `editor.native.mask.execute` | Unique occurrence handle, native writes opt-in, unchanged revision, and readback |
 
 `artifact.edit` never implies a live Final Cut write, and
 `editor.timeline.edit` never falls back to an artifact write. Publishing is an
 explicit create/import operation: it reports the created project and the active
 project before and after, and does not silently replace the active project.
 Backends that cannot identify or verify the requested target fail closed.
+
+Masking is independent from picture-in-picture. The deterministic fixture
+supports rectangle and supplied-alpha workflow masks; the native Accessibility
+path supports bounded Draw Mask only. Person cutout remains unavailable until a
+provider can verify its output rather than inferring segmentation or tracking.

@@ -188,6 +188,33 @@ test("native Final Cut adapter discovers and verifies a transition between adjac
   assert.equal(revision, 3);
 });
 
+test("native Final Cut adapter discovers all visible transitions for an unfiltered search", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => liveState(1),
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("transitionSearchField")) {
+        return [
+          ["Cross Dissolve", "fcp://transition/cross"].join(fieldSeparator),
+          ["Dip to Color", "fcp://transition/dip-to-color"].join(fieldSeparator),
+        ].join(recordSeparator) + recordSeparator;
+      }
+      return context("", "", "Undo");
+    },
+  });
+
+  const transitions = await adapter.searchTransitions("");
+
+  assert.deepEqual(transitions.map((transition) => transition.id), [
+    "final-cut:transition:fcp://transition/cross",
+    "final-cut:transition:fcp://transition/dip-to-color",
+  ]);
+  assert.equal(scripts.some((script) => script.includes('set value of transitionSearchField to ""')
+    && script.includes('collectTransitionMatches(UI elements of mainWindow, 0, "", false')), true);
+});
+
 test("native transition previews fail closed for non-adjacent or stale edit points", async () => {
   let revision = 1;
   let playhead = "0";

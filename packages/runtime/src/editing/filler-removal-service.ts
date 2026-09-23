@@ -12,9 +12,10 @@ import type {
   FillerRemovalTarget,
 } from "../speech/filler-removal.js";
 import { sameRevision } from "../context/revision.js";
-import { translateRationalRange } from "../timeline/rational-time.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 import { planFillerRemoval } from "../speech/filler-removal.js";
+import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { mapSourceRangeToSequenceRange } from "../speech/mapping.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
@@ -58,15 +59,23 @@ export class FillerRemovalService {
         end: Math.min(clip.duration, selectedRange.end - clip.start),
       };
       if (localRange.end <= localRange.start) continue;
-      const speech = await this.options.speechAnalyzer!.analyze({ project: before, media }, localRange);
-      analysisRangesByClip.set(clip.id, structuredClone(localRange));
-      for (const candidate of planFillerRemoval(speech.words, localRange, request)) {
+      const sourceStart = clip.sourceStart ?? 0;
+      const sourceRange = {
+        start: sourceStart + localRange.start,
+        end: sourceStart + localRange.end,
+      };
+      const speech = bindSpeechAnalysis(
+        await this.options.speechAnalyzer!.analyze({ project: before, media }, sourceRange),
+        { input: { project: before, media }, range: sourceRange, provider: this.options.speechAnalyzer!.descriptor },
+      );
+      analysisRangesByClip.set(clip.id, structuredClone(sourceRange));
+      for (const candidate of planFillerRemoval(speech.words, sourceRange, request)) {
         candidates.push({
           ...candidate,
           clipId: clip.id,
           mediaId: clip.mediaId,
           sourceRange: structuredClone(candidate.range),
-          range: translateRationalRange(clip.startTime, clip.start, candidate.range),
+          range: translateSourceRangeToSequence(clip, candidate.range),
         });
       }
     }
@@ -216,9 +225,9 @@ export class FillerRemovalService {
         analysisRange,
         deletes,
       );
-      const speech = await this.options.speechAnalyzer!.analyze(
-        { project: next, media },
-        postEditRange,
+      const speech = bindSpeechAnalysis(
+        await this.options.speechAnalyzer!.analyze({ project: next, media }, postEditRange),
+        { input: { project: next, media }, range: postEditRange, provider: this.options.speechAnalyzer!.descriptor },
       );
       const retainedWords = transaction.before.media
         .find((candidate) => candidate.mediaId === beforeClip.mediaId)
@@ -227,6 +236,7 @@ export class FillerRemovalService {
         .filter((word) => !fillerCandidates.some((candidate) => sameSpeechWord(word, candidate.word)))
         .map((word) => translateSpeechWordAfterDeletes(word, deletes));
       media.speech = {
+        ...speech,
         words: [
           ...translatedRetainedWords.filter((word) => !rangesOverlap(
             word.start,
@@ -350,7 +360,7 @@ function verifyFillerSpeechContinuity(
       if (expected.text.trim().toLowerCase() !== actual.text.trim().toLowerCase()
         || Math.abs(expected.start - actual.start) > 0.02
         || Math.abs(expected.end - actual.end) > 0.02
-        || actual.end > afterClip.duration + 0.02) {
+        || actual.end > (afterClip.sourceStart ?? 0) + afterClip.duration + 0.02) {
         return {
           name: "filler-speech-continuity",
           passed: false,
@@ -368,4 +378,22 @@ function verifyFillerSpeechContinuity(
 
 function sameSpeechWord(left: SpeechWord, right: SpeechWord): boolean {
   return left.text === right.text && left.start === right.start && left.end === right.end;
+}
+
+function translateSourceRangeToSequence(clip: ProjectSnapshot["timeline"]["clips"][number], sourceRange: TimeRange): TimeRange {
+  const sourceStart = clip.sourceStart ?? 0;
+  return mapSourceRangeToSequenceRange(sourceRange, {
+    sourceRange: {
+      start: sourceStart,
+      end: sourceStart + clip.duration,
+      startTime: clip.sourceStartTime,
+      durationTime: clip.durationTime,
+    },
+    sequenceRange: {
+      start: clip.start,
+      end: clip.start + clip.duration,
+      startTime: clip.startTime,
+      durationTime: clip.durationTime,
+    },
+  });
 }

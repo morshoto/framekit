@@ -15,18 +15,20 @@ import type {
   ProjectSnapshot,
   ProjectCatalog,
   ProjectSelection,
+  ProjectSelectionResult,
   RationalTime,
   RuntimeCapabilities,
   CapturedFrameSource,
   WorkflowOperation,
 } from "@framekit/runtime";
-import { diffSnapshots, withCapabilityFamilies } from "@framekit/runtime";
+import { createProjectSelectionResult, diffSnapshots, withCapabilityFamilies } from "@framekit/runtime";
 
 export interface InMemoryProjectFixture {
   projectId: string;
   projectName: string;
   timelineId: string;
   timelineName: string;
+  frameDuration?: RationalTime;
   clips: Array<Omit<Clip, "startTime" | "durationTime"> & Partial<Pick<Clip, "startTime" | "durationTime">>>;
   media?: MediaContext[];
   markers?: Marker[];
@@ -112,6 +114,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         compositeTransactions: true,
         mediaImport: true,
         mediaPlacement: true,
+        pictureInPicture: true,
         titlePlacement: true,
         clipMove: true,
         clipReplace: true,
@@ -121,6 +124,8 @@ export class InMemoryEditorAdapter implements EditorPort {
         audioMixing: true,
         noiseReduction: true,
         colorCorrection: true,
+        masking: true,
+        personCutout: false,
         semanticOperations: {
           "rename-clip": true,
           "trim-clip": true,
@@ -131,6 +136,7 @@ export class InMemoryEditorAdapter implements EditorPort {
           "add-marker": true,
           "media.import": true,
           "timeline.media.add": true,
+          "timeline.picture-in-picture.add": true,
           "timeline.audio.fades": true,
           "timeline.title.add": true,
           "timeline.media.move": true,
@@ -139,6 +145,7 @@ export class InMemoryEditorAdapter implements EditorPort {
           "timeline.transition.add": true,
           "timeline.audio.attach": true,
           "timeline.audio.mix": true,
+          "timeline.mask.add": true,
         },
       },
       analyzers: {
@@ -189,7 +196,7 @@ export class InMemoryEditorAdapter implements EditorPort {
     };
   }
 
-  public async selectProject(selection: ProjectSelection): Promise<ProjectCatalog> {
+  public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const project = this.projects.find((candidate) => candidate.id === selection.projectId);
     if (!project) throw new Error(`PROJECT_NOT_FOUND: ${selection.projectId}`);
     const sequenceId = selection.sequenceId
@@ -205,7 +212,9 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (target.timeline.id !== sequenceId) {
       throw new Error(`UNSUPPORTED_PROJECT_SELECTION: no canonical snapshot for sequence ${sequenceId}`);
     }
-    if (this.activeProjectId === project.id && this.activeSequenceId === sequenceId) return this.listProjects();
+    if (this.activeProjectId === project.id && this.activeSequenceId === sequenceId) {
+      return createProjectSelectionResult(await this.listProjects(), selection, this.snapshot.revision);
+    }
     this.selectionRevision += 1;
     this.snapshot = {
       ...structuredClone(target),
@@ -219,7 +228,7 @@ export class InMemoryEditorAdapter implements EditorPort {
     this.history.set(this.snapshot.revision.id, structuredClone(this.snapshot));
     this.activeProjectId = project.id;
     this.activeSequenceId = sequenceId;
-    return this.listProjects();
+    return createProjectSelectionResult(await this.listProjects(), selection, this.snapshot.revision);
   }
 
   public async readChanges(since: ContextRevision): Promise<ContextChangeSet> {
@@ -326,6 +335,7 @@ export class InMemoryEditorAdapter implements EditorPort {
         start: operation.start,
         duration: operation.duration,
         track: typeof lane === "number" ? lane : 0,
+        role: operation.role,
       });
       return {
         ...snapshot,
@@ -342,6 +352,72 @@ export class InMemoryEditorAdapter implements EditorPort {
             lane: clip.track,
             mediaId: clip.mediaId,
             ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
+          }],
+        },
+      };
+    }
+    if (operation.type === "timeline.picture-in-picture.add") {
+      const media = snapshot.media.find((candidate) => candidate.mediaId === operation.mediaId);
+      if (!media) throw new Error(`MEDIA_NOT_FOUND: ${operation.mediaId}`);
+      if (media.mediaKind !== undefined && media.mediaKind !== "video") {
+        throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mediaId}`);
+      }
+      if (snapshot.timeline.clips.some((clip) => clip.id === operation.occurrenceId)) {
+        throw new Error(`OCCURRENCE_ALREADY_EXISTS: ${operation.occurrenceId}`);
+      }
+      const anchor = snapshot.timeline.clips.find((clip) => clip.id === operation.attachedTo);
+      if (!anchor) throw new Error(`CLIP_NOT_FOUND: ${operation.attachedTo}`);
+      if (anchor.role !== undefined && anchor.role !== "video") {
+        throw new Error("INVALID_OPERATION: PIP anchor must be a video occurrence");
+      }
+      if (!Number.isFinite(operation.start) || !Number.isFinite(operation.duration)
+        || operation.start < anchor.start
+        || operation.duration <= 0
+        || operation.start + operation.duration > anchor.start + anchor.duration
+        || media.duration !== undefined && operation.duration > media.duration
+        || !Number.isInteger(operation.targetLane)
+        || operation.targetLane === 0
+        || !Number.isFinite(operation.position.x)
+        || !Number.isFinite(operation.position.y)
+        || !Number.isFinite(operation.scale)
+        || operation.scale <= 0) {
+        throw new Error("INVALID_OPERATION: PIP timing, connected lane, position, and scale are invalid");
+      }
+      if (operation.crop) assertPictureInPictureCrop(operation.crop);
+      if (operation.frame) assertPictureInPictureFrame(operation.frame);
+      const clip = withClipTime({
+        id: operation.occurrenceId,
+        mediaId: operation.mediaId,
+        name: media.source.split("/").pop() || media.mediaId,
+        start: operation.start,
+        duration: operation.duration,
+        track: operation.targetLane,
+        role: "video",
+        attachedTo: operation.attachedTo,
+        position: structuredClone(operation.position),
+        scale: operation.scale,
+        ...(operation.crop ? { crop: structuredClone(operation.crop) } : {}),
+        ...(operation.frame ? { frame: structuredClone(operation.frame) } : {}),
+      });
+      return {
+        ...snapshot,
+        timeline: {
+          ...snapshot.timeline,
+          clips: [...snapshot.timeline.clips, clip],
+          storyElements: [...snapshot.timeline.storyElements, {
+            id: clip.id,
+            kind: "asset-clip",
+            start: clip.start,
+            duration: clip.duration,
+            startTime: clip.startTime,
+            durationTime: clip.durationTime,
+            lane: clip.track,
+            mediaId: clip.mediaId,
+            attachedTo: clip.attachedTo,
+            position: clip.position,
+            scale: clip.scale,
+            ...(clip.crop ? { crop: clip.crop } : {}),
+            ...(clip.frame ? { frame: clip.frame } : {}),
           }],
         },
       };
@@ -581,6 +657,28 @@ export class InMemoryEditorAdapter implements EditorPort {
         fadeOut,
       });
     }
+    if (operation.type === "timeline.mask.add") {
+      const matches = snapshot.timeline.clips.filter(({ id }) => id === operation.occurrenceId);
+      if (matches.length === 0) throw new Error(`CLIP_NOT_FOUND: ${operation.occurrenceId}`);
+      if (matches.length > 1) throw new Error(`AMBIGUOUS_MASK_TARGET: ${operation.occurrenceId}`);
+      if (operation.mask.mode === "person-cutout") {
+        throw new Error("CAPABILITY_UNAVAILABLE: person cutout");
+      }
+      const clip = matches[0];
+      const media = clip.mediaId ? snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId) : undefined;
+      if (clip.role === "audio" || clip.role === "music" || media?.mediaKind === "audio") {
+        throw new Error("MASK_TARGET_INCOMPATIBLE: masking requires a video clip");
+      }
+      if (operation.mask.mode === "supplied-alpha") {
+        const alpha = snapshot.media.find(({ mediaId }) => mediaId === operation.mask.alphaMediaId);
+        if (!alpha) throw new Error(`MEDIA_NOT_FOUND: ${operation.mask.alphaMediaId}`);
+        if (alpha.mediaKind !== "video") throw new Error(`MEDIA_KIND_MISMATCH: ${operation.mask.alphaMediaId}`);
+      }
+      return this.updateClip(snapshot, {
+        ...clip,
+        mask: structuredClone(operation.mask),
+      });
+    }
     if (operation.type === "reduce-noise") {
       const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
       if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
@@ -674,6 +772,7 @@ export class InMemoryEditorAdapter implements EditorPort {
             lane: updatedClip.track,
             ...(updatedClip.mediaId ? { mediaId: updatedClip.mediaId } : {}),
             ...(updatedClip.attachedTo ? { attachedTo: updatedClip.attachedTo } : {}),
+            ...(updatedClip.mask ? { mask: structuredClone(updatedClip.mask) } : {}),
           }
           : element),
       },
@@ -684,6 +783,11 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (timelineId !== snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${timelineId}`);
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
       throw new Error("INVALID_OPERATION: ripple delete range must be positive");
+    }
+    if (end > snapshot.timeline.duration) {
+      throw new Error(
+        `INVALID_OPERATION: ripple delete range [${start}, ${end}) must fit timeline bounds [0, ${snapshot.timeline.duration})`,
+      );
     }
     const removedDuration = end - start;
     const clips = snapshot.timeline.clips.flatMap((clip) => {
@@ -795,6 +899,7 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
       name: fixture.timelineName,
       duration: clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0),
       durationTime: decimalToRational(clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)),
+      ...(fixture.frameDuration ? { frameDuration: structuredClone(fixture.frameDuration) } : {}),
       clips,
       storyElements: clips.map((clip) => ({
         id: clip.id,
@@ -806,6 +911,11 @@ function createSnapshot(fixture: InMemoryProjectFixture): ProjectSnapshot {
         lane: clip.track,
         mediaId: clip.mediaId,
         ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
+        ...(clip.position ? { position: structuredClone(clip.position) } : {}),
+        ...(clip.scale !== undefined ? { scale: clip.scale } : {}),
+        ...(clip.crop ? { crop: structuredClone(clip.crop) } : {}),
+        ...(clip.frame ? { frame: structuredClone(clip.frame) } : {}),
+        ...(clip.mask ? { mask: structuredClone(clip.mask) } : {}),
       })),
       markers: (fixture.markers ?? []).map((marker) => normalizeMarker(marker)),
       captions: (fixture.captions ?? []).map((caption) => normalizeCaption(caption)),
@@ -856,4 +966,20 @@ function isMediaCompatible(role: Clip["role"], mediaKind: MediaContext["mediaKin
   if (role === "audio" || role === "music") return mediaKind === undefined || mediaKind === "audio";
   if (role === "title") return false;
   return true;
+}
+
+function assertPictureInPictureCrop(crop: NonNullable<Clip["crop"]>): void {
+  const values = [crop.top, crop.right, crop.bottom, crop.left];
+  if (!values.every((value) => Number.isFinite(value) && value >= 0 && value < 1)
+    || crop.left + crop.right >= 1
+    || crop.top + crop.bottom >= 1) {
+    throw new Error("INVALID_OPERATION: PIP crop must leave a positive source rectangle");
+  }
+}
+
+function assertPictureInPictureFrame(frame: NonNullable<Clip["frame"]>): void {
+  if (frame.style !== "solid" || !/^#[0-9a-f]{6}$/i.test(frame.color)
+    || !Number.isFinite(frame.width) || frame.width < 0) {
+    throw new Error("INVALID_OPERATION: PIP frame must be a solid hex-colored non-negative width");
+  }
 }

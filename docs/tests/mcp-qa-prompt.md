@@ -51,7 +51,7 @@ live-write は、ユーザーが明示的に許可し、TARGET_PROJECT が使い
 2. 次の capability を operation ごとに表にする。
    - canonical document: read / write / artifactWrite
    - observation: live state / timeline snapshot / changes
-   - native: selectionWrite / clipInsertion / clipMovement / titlePlacement / undo / timelineFocus
+   - native: selectionWrite / titleDiscovery / clipInsertion / clipMovement / titlePlacement / undo / timelineFocus
    - publishing: projectCreation
    - export: timeline
    - analyzers: speech / audio / visual / metadata

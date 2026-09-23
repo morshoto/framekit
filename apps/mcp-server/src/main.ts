@@ -1,17 +1,28 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
   createCommandAnalyzers,
   createFinalCutLiveAdapter,
   FcpxmlDocumentAdapter,
   FinalCutAssetRegistry,
+  FinalCutMediaRegistry,
   FinalCutConnectionManager,
+  assertCanonicalProviderConfiguration,
+  FinalCutCanonicalNativeProvider,
+  FinalCutCanonicalSnapshotSource,
+  FinalCutLibraryInspectionProvider,
   FinalCutNativeAutomationAdapter,
+  createFinalCutNativeTargetResolver,
   DisposableNativeEditWorkflow,
+  FinalCutBackgroundMaterializationPublisher,
   FinalCutProjectPublisher,
+  FinalCutSqliteInspectionProvider,
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
   createNativeOperationLease,
+  createDisposableNativeOperationSession,
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
@@ -66,32 +77,99 @@ const fixture = new InMemoryEditorAdapter({
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
 const headlessFinalCut = liveMode && process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
 const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
-const connection = liveMode ? new FinalCutConnectionManager({ headless: headlessFinalCut }) : undefined;
+const canonicalNativeProviderEnabled = liveMode && process.env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER === "native";
+if (canonicalNativeProviderEnabled && headlessFinalCut) {
+  throw new Error("FINAL_CUT_CANONICAL_NATIVE_REQUIRES_HEADED: set FRAMEKIT_FINAL_CUT_HEADLESS=0 for the native provider");
+}
+if (canonicalNativeProviderEnabled && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES !== "1") {
+  throw new Error("FINAL_CUT_CANONICAL_NATIVE_REQUIRES_WRITES: set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 for the native provider");
+}
+const canonicalProviderRequired = liveMode
+  && process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1"
+  && !canonicalNativeProviderEnabled;
+assertCanonicalProviderConfiguration({ required: canonicalProviderRequired || canonicalNativeProviderEnabled, fcpxmlPath });
+const connection = liveMode
+  ? new FinalCutConnectionManager({ headless: headlessFinalCut, canonicalProviderRequired })
+  : undefined;
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();
 const liveAdapter = liveMode ? createFinalCutLiveAdapter() : undefined;
+const backgroundLibraryProvider = liveMode ? new FinalCutLibraryInspectionProvider() : undefined;
 const nativeOperationLease = autoConnect
   ? createNativeOperationLease(
       () => connection?.stopAutoConnect(),
       () => connection?.startAutoConnect(),
     )
   : undefined;
+const nativeEditor = liveMode
+  ? new FinalCutNativeAutomationAdapter({
+      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
+      liveState: () => liveAdapter!.readLiveState(),
+      nativeOperationLease,
+    })
+  : undefined;
+const canonicalNativeMutationEditor = canonicalNativeProviderEnabled
+  ? new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      nativeOperationLease,
+    })
+  : nativeEditor;
+
+const canonicalNativeProvider = canonicalNativeProviderEnabled
+  ? new FinalCutCanonicalNativeProvider({
+      live: liveAdapter!,
+      native: {
+        renameSelectedClip: async (name) => {
+          const result = await canonicalNativeMutationEditor!.edit({ type: "rename-selected-clip", name });
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
+        addMarkerAtTime: async (marker) => {
+          const result = await canonicalNativeMutationEditor!.addMarkerAtTime(marker);
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
+        rippleDeleteRange: async (range) => {
+          const preview = await canonicalNativeMutationEditor!.previewDeleteRange(range);
+          const result = await canonicalNativeMutationEditor!.executeDeleteRange(preview.previewToken);
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
+        setSelectedClipGain: async (gainDb) => {
+          const result = await canonicalNativeMutationEditor!.edit({ type: "set-selected-clip-gain", gainDb });
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
+        undo: async (operationId) => {
+          const result = await canonicalNativeMutationEditor!.undo(operationId);
+          return { undone: result.undone, verification: result.verification };
+        },
+      },
+      readSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
+      resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
+      backgroundCatalog: backgroundLibraryProvider,
+    })
+  : undefined;
+
+const configuredAssetRoots = parseRoots(process.env.FRAMEKIT_FINAL_CUT_ASSET_ROOTS) ?? [];
+const configuredMediaRoots = parseRoots(process.env.FRAMEKIT_FINAL_CUT_MEDIA_ROOTS) ?? [];
 
 const editor = liveMode
   ? new FinalCutSessionAdapter({
-      live: liveAdapter!,
-      ...(fcpxmlPath
+      live: canonicalNativeProvider ?? liveAdapter!,
+      ...(!canonicalNativeProvider && backgroundLibraryProvider
+        ? { backgroundCatalog: backgroundLibraryProvider }
+        : {}),
+      ...(fcpxmlPath && !canonicalNativeProviderEnabled
         ? (() => {
             const document = new FcpxmlDocumentAdapter(fcpxmlPath);
             return { snapshot: document, mutation: document };
           })()
         : {}),
       assets: new FinalCutAssetRegistry({
-        roots: process.env.FRAMEKIT_FINAL_CUT_ASSET_ROOTS
-          ?.split(process.platform === "win32" ? ";" : ":")
-          .map((root) => root.trim())
-          .filter(Boolean),
+        roots: configuredAssetRoots.length > 0 ? configuredAssetRoots : undefined,
+        nativeTitleProvider: nativeEditor?.capabilities().titleDiscovery ? nativeEditor : undefined,
+        nativeTransitionProvider: nativeEditor?.capabilities().transitionDiscovery ? nativeEditor : undefined,
       }),
+      ...(configuredMediaRoots.length > 0
+        ? { media: new FinalCutMediaRegistry({ roots: configuredMediaRoots }) }
+        : {}),
     })
   : fixture;
 
@@ -111,13 +189,8 @@ const analyzers = liveMode
     };
 
 const runtime = new AgentVideoRuntime(editor, analyzers);
-const nativeEditor = liveMode
-  ? new FinalCutNativeAutomationAdapter({
-      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
-      liveState: () => liveAdapter!.readLiveState(),
-      nativeOperationLease,
-    })
-  : undefined;
+const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
+const sqliteObservationProvider = new FinalCutSqliteInspectionProvider();
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
       native: nativeEditor,
@@ -125,12 +198,21 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
       readCanonicalCapabilities: async () => (await runtime.inspectEditor()).capabilities,
     })
   : undefined;
-const projectPublisher = liveMode && !headlessFinalCut && fcpxmlPath && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
+const nativeOperationSession = disposableNative && nativeEditor
+  ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor })
+  : undefined;
+const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
-      enabled: true,
+      enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
       liveState: () => liveAdapter!.readLiveState(),
     })
+  : undefined;
+const backgroundMaterializationCommand = liveMode
+  ? process.env.FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND
+  : undefined;
+const sessionMaterializationPublisher = backgroundMaterializationCommand?.trim()
+  ? new FinalCutBackgroundMaterializationPublisher({ command: backgroundMaterializationCommand })
   : undefined;
 const videoExportProbeAvailable = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1"
   ? await isFinalCutVideoProbeAvailable()
@@ -144,11 +226,17 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
     })
   : undefined;
 const server = createMcpServer(runtime, {
-  connectionStatus: () => connection?.getStatus(),
+  processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
+  connectionStatus: () => connection?.ensureConnected(),
   nativeEditor,
   disposableNative,
+  nativeOperationSession,
   projectPublisher,
+  ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
+  sessionDirectory: join(framekitStateDirectory, "sessions"),
+  materializationDirectory: join(framekitStateDirectory, "materializations"),
+  sqliteObservationProvider,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;
@@ -173,4 +261,12 @@ function parseTimeout(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const timeout = Number(value);
   return Number.isFinite(timeout) && timeout > 0 ? timeout : undefined;
+}
+
+function parseRoots(value: string | undefined): string[] | undefined {
+  const roots = value
+    ?.split(process.platform === "win32" ? ";" : ":")
+    .map((root) => root.trim())
+    .filter(Boolean);
+  return roots && roots.length > 0 ? roots : undefined;
 }

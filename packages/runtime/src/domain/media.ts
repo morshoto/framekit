@@ -21,6 +21,15 @@ export interface SpeechSegment {
   confidence?: number;
 }
 
+export const SPEECH_ANALYSIS_SCHEMA_VERSION = 1 as const;
+
+export type SpeechAnalysisCapability = "transcription-only" | "transcription-plus-vad";
+
+export interface SpeechAnalyzerCapabilities {
+  transcription: boolean;
+  vad: boolean;
+}
+
 export type MediaAnalysisCapability = "metadata" | "speech" | "audio" | "noise" | "visual";
 
 export interface SemanticTag {
@@ -50,6 +59,25 @@ export interface MediaSourceIdentity {
   sourceDigest?: string;
   mediaKind?: "video" | "audio";
   duration?: number;
+}
+
+export interface MediaDiscoveryProvenance {
+  backend: string;
+  guarantee: "observed" | "native-verified";
+  source: "filesystem" | "final-cut";
+  native?: {
+    backend: string;
+    guarantee: "none" | "native-verified";
+    unavailableReason?: string;
+  };
+}
+
+export interface MediaSourceMetadata {
+  fileName: string;
+  extension: string;
+  sizeBytes: number;
+  mimeType?: string;
+  modifiedAt?: string;
 }
 
 export function sameMediaSourceIdentity(left: MediaSourceIdentity, right: MediaSourceIdentity): boolean {
@@ -134,13 +162,43 @@ export interface RoughCutPlan {
 }
 
 export interface SpeechAnalysis {
+  /** Provenance fields are optional for backwards-compatible provider ports. */
+  schemaVersion?: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
+  mediaId?: string;
+  sourceIdentity?: MediaSourceIdentity;
+  requestedRange?: TimeRange;
+  observedRange?: TimeRange;
+  revision?: ContextRevision;
+  provider?: AnalyzerDescriptor;
+  sourceTimebase?: RationalTime;
+  capability?: SpeechAnalysisCapability;
   words: SpeechWord[];
   vadSegments?: SpeechSegment[];
   silenceSegments?: SpeechSegment[];
   protectedSegments?: SpeechSegment[];
 }
 
+/** Speech evidence that is safe to use for a specific editor revision. */
+export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
+  schemaVersion: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
+  mediaId: string;
+  sourceIdentity: MediaSourceIdentity;
+  requestedRange: TimeRange;
+  observedRange: TimeRange;
+  revision: ContextRevision;
+  provider: AnalyzerDescriptor;
+  sourceTimebase: RationalTime;
+  capability: SpeechAnalysisCapability;
+}
+
 export interface AudioAnalysis {
+  schemaVersion?: 1;
+  mediaId?: string;
+  sourceIdentity?: MediaSourceIdentity;
+  requestedRange?: TimeRange;
+  measuredRange?: TimeRange;
+  revision?: ContextRevision;
+  provider?: AnalyzerDescriptor;
   integratedLufs: number;
   truePeakDb: number;
   silenceMs: number;
@@ -253,6 +311,8 @@ export interface MediaContext {
   mediaKind?: "video" | "audio";
   duration?: number;
   sourceDigest?: string;
+  sourceMetadata?: MediaSourceMetadata;
+  discovery?: MediaDiscoveryProvenance;
   metadata?: MetadataAnalysis;
   analysis?: MediaAnalysisStatus[];
   semantic?: MediaSemanticDescription;
@@ -286,6 +346,7 @@ export interface AnalysisInput {
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
   readonly descriptor?: AnalyzerDescriptor;
+  readonly capabilities?: SpeechAnalyzerCapabilities;
 }
 
 export interface AudioAnalyzer {

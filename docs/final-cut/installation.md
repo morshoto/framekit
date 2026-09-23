@@ -41,18 +41,30 @@ starts the published package as:
 npx -y @morshoto/framekit mcp --editor final-cut-live --headless
 ```
 
-Headless mode only probes an existing Workflow Extension bridge. It does not
-install the extension, launch or activate Final Cut Pro, focus its windows,
-request Accessibility or Automation access, or perform native destructive
-edits. Open Final Cut and its Framekit Workflow Extension before asking Codex to
-connect.
+Headless mode performs bounded readiness probes against an existing Workflow
+Extension bridge. It does not install the extension, launch or activate Final
+Cut Pro, focus its windows, request Accessibility or Automation access, or
+perform native destructive edits. Open Final Cut and its Framekit Workflow
+Extension before asking Codex to connect.
 
 Start troubleshooting with `connection.status`. A missing application,
 extension, or socket must remain an actionable non-ready state;
-`FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE` and `CAPABILITY_UNAVAILABLE` are not
-successful connections. Live metadata access also does not imply canonical
-timeline snapshot or write capability: inspect the active backend's capability
-flags before using project, timeline, or edit tools.
+`FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE`,
+and `FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE` are headless connection
+failures. `CAPABILITY_UNAVAILABLE` is an operation-level diagnostic: a ready
+live session may expose metadata while rejecting unsupported operations. Live
+metadata access also does not imply canonical timeline snapshot or write
+capability: inspect the active backend's capability flags before using project,
+timeline, or edit tools. When ready, its effective capabilities and `preflight`
+fingerprint match `editor.inspect`.
+
+Call `editor.inspect` after connecting to read the actionable `preflight` report.
+It identifies the active `mode`, `documentMode`, headed/headless `processMode`,
+the package version/source commit fingerprint, and the provider backend,
+guarantee, or unavailable reason for each operation.
+An FCPXML artifact, metadata-only bridge, canonical-live bridge, and headed
+native-write session are distinct modes; one must not be used as evidence for
+another.
 
 Accessibility and Automation permission are required only for an explicit
 headed native-write setup. Native destructive edits retain their preview,
@@ -91,6 +103,89 @@ read-only procedure.
 
 ## Canonical document and analysis providers
 
+### Canonical live provider
+
+The bundled Framekit Workflow Extension is metadata-only. It can report the
+active Final Cut project, sequence, playhead, and range, but it does not expose
+complete timeline enumeration or canonical mutation. Do not treat that bridge
+as canonical-live support.
+
+For a provider that implements the v1 Framekit Unix-socket protocol, require a
+canonical-write connection explicitly:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED=1 \
+FRAMEKIT_FINAL_CUT_SOCKET=/absolute/path/to/canonical-provider.sock \
+FRAMEKIT_FINAL_CUT_HEADLESS=1 \
+pnpm run framekit -- mcp --editor final-cut-live --headless
+```
+
+The provider must advertise `projectRead`, `projectCatalogRead`,
+`projectSelection`, `timelineSnapshotRead`, `timelineWrite`, `readAfterWrite`,
+and `rollback`, and implement the `capabilities`, `projects`,
+`select-project`, `snapshot`, `apply`, and `restore` protocol methods. The
+connection is `ready` only when its normalized `canonicalTimelineMode` is
+`canonical-write`. If the socket is unavailable or reports metadata-only or
+canonical-read capabilities, Framekit returns an actionable
+`needs-user-action` status without launching Final Cut, installing the bundled
+extension, or falling back to an artifact.
+
+Leave `FRAMEKIT_FCPXML_PATH` unset in this mode. Combining it with
+`FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED=1` fails at startup with
+`FINAL_CUT_CANONICAL_FALLBACK_CONFLICT` rather than silently routing reads or
+writes to the artifact. The provider must report its Final Cut and macOS
+versions in its identity; the repository's supported transport boundary is
+protocol v1, while provider-specific version compatibility must be confirmed by
+the sanitized headed evidence.
+
+### Bundled headed canonical provider
+
+The repository also provides an explicit headed provider that composes the
+metadata socket with Final Cut's own UI. It exports the active timeline through
+`File > Export XML` into a private temporary file. Before opening the export
+flow, it requests Final Cut Pro to become frontmost and verifies that state.
+It parses that export as the canonical snapshot and removes the file after each
+read. It does not read or write `FRAMEKIT_FCPXML_PATH`. The provider supports `rename-clip` after an exact
+Browser media match and a unique timeline occurrence with matching rational
+coordinates; native Accessibility Undo and a second export verify rollback. Its
+canonical transaction port currently supports one `rename-clip` operation through
+`editor.timeline.edit.preview` and `editor.timeline.edit.execute`.
+
+Use it only with Final Cut Pro 10.7.1 on the repository's macOS/Xcode 16.4
+baseline until a different Final Cut version has its own headed evidence:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+pnpm run framekit -- mcp --editor final-cut-live
+```
+
+Keep `FRAMEKIT_FCPXML_PATH` unset. Open the disposable project and intended
+sequence in Final Cut before connecting, and grant Accessibility and Automation
+permission to the MCP host. `project.list` exposes the one active project and
+sequence; `project.select` must confirm that exact target. If the export,
+identity binding, readback, advancing revision, or native Undo verification is
+unavailable, the provider fails closed and must not claim canonical-write.
+
+Use the canonical headed runners only with a disposable project and stable
+project, sequence, and occurrence IDs:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+pnpm run test:final-cut-canonical-read-headed
+
+FRAMEKIT_FINAL_CUT_E2E_PROJECT="Framekit Canonical E2E" \
+FRAMEKIT_FINAL_CUT_E2E_CLIP_ID="final-cut:occurrence:example" \
+pnpm run test:final-cut-canonical-headed
+```
+
+The mutation runner requires canonical-write mode and verifies the target,
+advancing revision, diff, and restored digest. Both runners emit sanitized
+evidence only; a metadata-only bundled bridge is not a passing result.
+
 To enable project/timeline reads, artifact edits, diffs, verification, and undo
 in the live MCP session, provide an exported FCPXML file:
 
@@ -101,7 +196,9 @@ pnpm run framekit -- mcp --editor final-cut-live
 ```
 
 The FCPXML file is the managed artifact. Framekit does not automatically
-import edits into the open Final Cut timeline.
+import edits into the open Final Cut timeline. See the [FCPXML operation
+matrix](./fcpxml-operation-matrix.md) for the supported artifact operations and
+their evidence boundary.
 
 Optional local JSON analyzer commands can be configured with
 `FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, and
@@ -110,6 +207,9 @@ environment, time-of-day, mood, and usable-range descriptions. Each receives
 one JSON request on stdin and returns one typed JSON result on stdout.
 Motion-template discovery can be restricted with the colon-separated
 `FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable.
+Local media discovery is opt-in and can be configured with the colon-separated
+`FRAMEKIT_FINAL_CUT_MEDIA_ROOTS` variable. It scans supported video and audio
+files without activating, focusing, or communicating with Final Cut.
 
 For selection-scoped native UI edits, explicitly opt in and grant the MCP host
 Accessibility and Automation permission in System Settings:
@@ -126,12 +226,25 @@ It does not report success until Final Cut has produced a non-empty file and
 `ffprobe` has verified its media metadata. Existing output files are protected
 unless the request includes `overwrite: true`.
 
-Framekit activates Final Cut and focuses the timeline before timeline-native
-operations using Accessibility hierarchy discovery with bounded coordinate
-fallbacks. If the visible Framekit extension window overlaps the editor,
+Use `editor.native.inspect` for a bounded, passive readiness check before
+timeline-native work. It does not activate Final Cut, raise a window, minimize
+the Framekit overlay, click, or change selection. The returned `readiness`
+object identifies the first missing requirement, whether retry is useful, and
+the frontmost, timeline-focus, target, permission, and overlay states.
+
+Explicit timeline-native previews and executions may activate Final Cut and
+focus the timeline. Browser search accepts a labelled Browser or Events
+Accessibility relationship, or the current layout's Accessibility-labelled
+`toggle search bar` control. Framekit activates that control and uses the
+focused Browser text field; it does not use ambiguous screen-coordinate
+fallback. Background media and Motion-template discovery are
+filesystem-observed metadata and do not prove canonical timeline state or native
+placement. `editor.assets` uses filesystem discovery by default; native Titles
+or Transitions Browser discovery requires an explicit `discovery: "native"`
+request. If the visible Framekit extension window overlaps the editor,
 Framekit minimizes it with `AXMinimize`, raises Final Cut's timeline window,
 and verifies the focused window after each attempt. It never clicks the
 Framekit close button. The user must open the intended project timeline and
 select the target clip; Framekit does not choose projects automatically. A
-failed focus can be retried with `editor.native.focus` without changing
-timeline content.
+failed focus can be retried explicitly with `editor.native.focus` without
+changing timeline content.

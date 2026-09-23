@@ -39,7 +39,23 @@ test("CodeQL filters language jobs by changed paths", async () => {
   assert.match(workflow, /swift_pattern=/);
   assert.match(workflow, /needs: changes/);
   assert.match(workflow, /if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.javascript_typescript == 'true'\) \}\}/);
-  assert.match(workflow, /if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/);
+});
+
+test("Swift CodeQL publishes its required analysis when unchanged", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const swiftJob = workflow.match(
+    /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
+  )?.[0];
+
+  assert.ok(swiftJob, "Swift CodeQL job should be present");
+  assert.match(swiftJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
+  assert.doesNotMatch(swiftJob, /Skip Swift CodeQL analysis \(no Swift changes\)/);
+  assert.doesNotMatch(swiftJob, /if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/);
+  assert.match(swiftJob, /category: \/language:swift/);
+  assert.doesNotMatch(
+    swiftJob,
+    /needs: changes\n    if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/,
+  );
 });
 
 test("CodeQL concurrency policy is documented for operators", async () => {
@@ -80,9 +96,19 @@ test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async 
   assert.match(workflow, /languages: swift/);
   assert.match(workflow, /build-mode: manual/);
   assert.match(workflow, /timeout-minutes: 25/);
+  assert.match(workflow, /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 25\n        run: \|/);
+});
+
+test("JavaScript CodeQL uploads without waiting on remote processing", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const javascriptJob = workflow.match(
+    /\n  analyze:\n[\s\S]*?(?=\n  analyze-swift:|$)/,
+  )?.[0];
+
+  assert.ok(javascriptJob, "JavaScript CodeQL job should be present");
   assert.match(
-    workflow,
-    /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 25\n        run: \|/,
+    javascriptJob,
+    /name: Analyze with CodeQL[\s\S]*?wait-for-processing: false/,
   );
 });
 

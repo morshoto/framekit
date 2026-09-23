@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { EditorIdentity, RuntimeCapabilities } from "@framekit/runtime";
-import { withCapabilityFamilies } from "@framekit/runtime";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "@framekit/runtime";
 import { createFinalCutLiveAdapter, DEFAULT_FINAL_CUT_LIVE_SOCKET } from "./live.js";
 
 const execFile = promisify(execFileCallback);
@@ -37,6 +37,8 @@ export interface FinalCutConnectionStatus {
 export interface FinalCutConnectionOptions {
   /** Probe an existing Workflow Extension socket without launching or activating Final Cut. */
   headless?: boolean;
+  /** Require an external provider that advertises verified canonical writes. */
+  canonicalProviderRequired?: boolean;
   socketPath?: string;
   extensionSourcePath?: string;
   extensionInstallPath?: string;
@@ -55,6 +57,19 @@ export interface FinalCutConnectionOptions {
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
+export interface CanonicalProviderConfiguration {
+  required: boolean;
+  fcpxmlPath?: string;
+}
+
+export function assertCanonicalProviderConfiguration(options: CanonicalProviderConfiguration): void {
+  if (options.required && options.fcpxmlPath?.trim()) {
+    throw new Error(
+      "FINAL_CUT_CANONICAL_FALLBACK_CONFLICT: canonical provider mode cannot use FRAMEKIT_FCPXML_PATH",
+    );
+  }
+}
+
 export interface FinalCutActivationOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -69,6 +84,9 @@ interface StatusPatch {
   lastError?: { code: string; message: string };
 }
 
+type FinalCutProbeResult = { identity: EditorIdentity; capabilities: RuntimeCapabilities };
+type FinalCutProbeAttempt = { result?: FinalCutProbeResult; error?: unknown };
+
 const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
 /**
  * Owns the user-facing lifecycle around the native Workflow Extension.
@@ -78,6 +96,7 @@ const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
 export class FinalCutConnectionManager {
   private readonly socketPath: string;
   private readonly headless: boolean;
+  private readonly canonicalProviderRequired: boolean;
   private readonly extensionSourcePath?: string;
   private readonly extensionInstallPath: string;
   private readonly finalCutApp: string;
@@ -101,6 +120,8 @@ export class FinalCutConnectionManager {
   public constructor(options: FinalCutConnectionOptions = {}) {
     this.socketPath = options.socketPath ?? process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET;
     this.headless = options.headless ?? process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
+    this.canonicalProviderRequired = options.canonicalProviderRequired
+      ?? process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1";
     this.extensionInstallPath = options.extensionInstallPath
       ?? process.env.FRAMEKIT_EXTENSION_INSTALL_PATH
       ?? join(homedir(), "Applications", DEFAULT_EXTENSION_NAME);
@@ -165,14 +186,23 @@ export class FinalCutConnectionManager {
     try {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
-      if (existing) return this.ready(existing);
+      this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
+      if (existing.result) return this.ready(existing.result);
+
+      if (this.canonicalProviderRequired) {
+        return this.fail(
+          "FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE",
+          `Canonical live provider is unavailable at ${this.socketPath}; metadata-only fallback is disabled`,
+          "needs-user-action",
+        );
+      }
 
       if (this.headless) {
-        return this.fail(
-          "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE",
-          `Headless mode only probes the existing Workflow Extension socket at ${this.socketPath}; it does not launch or activate Final Cut Pro`,
-          "unavailable",
-        );
+        this.update({ state: "waiting-for-socket" });
+        const waiting = await this.waitForHeadlessBridge(existing.error);
+        if (waiting.result) return this.ready(waiting.result);
+        const failure = headlessProbeFailure(waiting.error, this.socketPath);
+        return this.fail(failure.code, failure.message, "unavailable");
       }
 
       const editorDetected = await this.detectFinalCut();
@@ -228,7 +258,7 @@ export class FinalCutConnectionManager {
       let nextActivationAt = Date.now() + this.activationRetryIntervalMs;
       while (Date.now() < deadline) {
         const result = await this.tryProbe();
-        if (result) return this.ready(result);
+        if (result.result) return this.ready(result.result);
         if (Date.now() >= nextActivationAt) {
           try {
             await this.activateWithDeadline(deadline);
@@ -256,31 +286,55 @@ export class FinalCutConnectionManager {
     }
   }
 
-  private async tryProbe(): Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities } | undefined> {
+  private async tryProbe(): Promise<FinalCutProbeAttempt> {
     try {
-      return await this.probe();
-    } catch {
-      return undefined;
+      return { result: await this.probe() };
+    } catch (error) {
+      return { error };
     }
   }
 
+  private async waitForHeadlessBridge(initialError: unknown): Promise<FinalCutProbeAttempt> {
+    const deadline = Date.now() + this.startupTimeoutMs;
+    let attempt: FinalCutProbeAttempt = { error: initialError };
+    while (Date.now() < deadline) {
+      if (isIncompatibleProbeError(attempt.error)) return attempt;
+      await this.sleep(Math.min(this.pollIntervalMs, Math.max(1, deadline - Date.now())));
+      attempt = await this.tryProbe();
+      if (attempt.result) return attempt;
+    }
+    return attempt;
+  }
+
   private ready(result: { identity: EditorIdentity; capabilities: RuntimeCapabilities }): FinalCutConnectionStatus {
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(result.capabilities, {
+      backend: result.identity.backend,
+      connectionBackend: result.identity.backend,
+    }));
+    if (this.canonicalProviderRequired && capabilities.editor.canonicalTimelineMode !== "canonical-write") {
+      return this.fail(
+        "FINAL_CUT_CANONICAL_PROVIDER_REQUIRED",
+        `Canonical live provider at ${this.socketPath} reports ${capabilities.editor.canonicalTimelineMode}; canonical-write is required`,
+        "needs-user-action",
+      );
+    }
     this.update({
       state: "ready",
       editorDetected: true,
-      extensionInstalled: true,
       identity: result.identity,
-      capabilities: withCapabilityFamilies(result.capabilities, {
-        backend: result.identity.backend,
-        connectionBackend: result.identity.backend,
-      }),
+      capabilities,
       lastError: undefined,
-    });
+      });
     return this.getStatus();
   }
 
   private fail(code: string, message: string, state: FinalCutConnectionState): FinalCutConnectionStatus {
-    this.update({ state, lastError: { code, message } });
+    this.update({
+      state,
+      identity: undefined,
+      capabilities: undefined,
+      lastError: { code, message },
+    });
     return this.getStatus();
   }
 
@@ -367,10 +421,7 @@ export class FinalCutConnectionManager {
 
 function defaultProbe(socketPath: string): () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }> {
   const adapter = createFinalCutLiveAdapter(socketPath);
-  return async () => ({
-    identity: await adapter.getIdentity(),
-    capabilities: await adapter.getCapabilities(),
-  });
+  return () => adapter.inspect();
 }
 
 async function defaultDetectFinalCut(appPath: string): Promise<boolean> {
@@ -468,4 +519,24 @@ function isPermissionError(error: unknown): boolean {
 function isActivationTimeout(error: unknown): boolean {
   const message = String(error);
   return message.includes("-1712") || message.includes("ETIMEDOUT") || message.includes("timed out");
+}
+
+function isIncompatibleProbeError(error: unknown): boolean {
+  return String(error).includes("FINAL_CUT_LIVE_PROTOCOL")
+    || String(error).includes("UNSUPPORTED_METHOD")
+    || String(error).includes("CAPABILITY_UNAVAILABLE");
+}
+
+function headlessProbeFailure(error: unknown, socketPath: string): { code: string; message: string } {
+  const detail = error instanceof Error ? error.message : String(error ?? "unknown probe failure");
+  if (isIncompatibleProbeError(error)) {
+    return {
+      code: "FINAL_CUT_HEADLESS_PROTOCOL_INCOMPATIBLE",
+      message: `The Workflow Extension endpoint at ${socketPath} is incompatible with Framekit's live protocol: ${detail}`,
+    };
+  }
+  return {
+    code: "FINAL_CUT_HEADLESS_SOCKET_UNAVAILABLE",
+    message: `Headless mode could not connect to the Workflow Extension socket at ${socketPath}: ${detail}. It does not launch or activate Final Cut Pro`,
+  };
 }

@@ -4,6 +4,20 @@ Phase 0, Phase 1, and Phase 2 are local runtime spikes. Capability declarations 
 authoritative at runtime; unsupported operations must fail with an explicit
 `CAPABILITY_UNAVAILABLE` error.
 
+## v0.1.6 native-editing release gate
+
+The current repository-owned gate covers five separate evidence tiers:
+deterministic fixture edits, FCPXML artifact writes, metadata-only bridge
+observations, canonical live capability, and opt-in headed-native Final Cut
+verification. Its workflow matrix covers canonical live editing,
+picture-in-picture, built-in title discovery, masking, filler removal, and
+dialogue normalization. `unsupported` and `unrun` remain distinct from
+`verified` in the report.
+
+Release provenance also checks package, MCP server, plugin, tag, GitHub release,
+workflow, npm, native archive, and checksum alignment. A release is not complete
+until the external checks and both native assets are verified.
+
 ## v0.0.3 release gate
 
 The repository-owned deterministic corpus verifies both v0.0.3 Skills through
@@ -22,7 +36,7 @@ payload.
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | unavailable until configured | Motion-template registry |
-| Final Cut live (bundled Workflow Extension) | Workflow Extension live IPC | active project/sequence metadata only; catalog/selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (bundled Workflow Extension + background library) | Workflow Extension live IPC plus direct read-only Apple Events | active project/sequence metadata plus observed library/event/project/sequence catalog; selection unavailable | no | no | no | no | no | no | no |
 | Final Cut live (canonical-capable bridge) | guarded live IPC provider contract | complete snapshot with explicit targets | yes, when canonical-write is advertised | yes | yes | provider-specific | provider-specific | provider-specific | provider-specific |
 
 The canonical-capable live row describes an optional provider contract, not a
@@ -73,10 +87,19 @@ live-state port: it exposes active project metadata and a project-scoped
 sequence identity derived from the current sequence name, plus playhead,
 selected range, and observer-backed change events. The sequence identity is
 not an immutable host identifier; native handles fail closed when it changes.
-It reports
+The public host API does not expose library-wide project enumeration or project
+activation, so the bridge keeps `projectCatalogRead` and `projectSelection`
+disabled. It reports
 `timelineSnapshotRead: false` because the public Workflow Extension proxy does
 not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
+
+The editor capability payload explicitly reports
+`projectSelectionMode` as `background-capable`, `headed-only`, or
+`unavailable`. A successful selection returns the requested target, the
+observed active target, and the observed revision separately. These fields keep
+target transitions distinct from canonical timeline mutation and prevent
+request acknowledgements from being treated as active-target proof.
 
 Native selection and media-library operations are separate MCP capabilities.
 They use Accessibility automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`,
@@ -90,8 +113,11 @@ between two adjacent occurrences. Imported media handles are session stable;
 timeline occurrence, native title, and native transition operation handles
 remain short-lived and are not canonical timeline identities. Native title and
 transition placement are reported separately as `titlePlacement` and
-`transitionPlacement`; neither upgrades the live Workflow Extension's
-canonical timeline capabilities.
+`transitionPlacement`; bounded Draw Mask placement is reported separately as
+`masking`. It requires a unique occurrence handle, unchanged live revision,
+exact property readback, and native Undo. Neither native placement operation
+upgrades the live Workflow Extension's canonical timeline capabilities, and
+person cutout remains unavailable.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `artifact.publish` accepts a verified artifact transaction, its managed
@@ -99,10 +125,26 @@ When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 project. It reports the created project target and active project before/after;
 the active project is never replaced automatically.
 
+The current publisher is a headed-only handoff because the inspected Final Cut
+Pro 10.7.1 surfaces do not provide supported non-UI project creation with
+target-bound readback. `artifact.publish.preview`, `artifact.publish.execute`,
+and `artifact.publish.status` expose a bounded job state so a missing Final Cut
+provider can be retried without claiming that a project was created. See
+[`artifact-publishing.md`](architecture/artifact-publishing.md) for the state
+machine and current-version decision.
+
 With native writes enabled, the live server also exposes `timeline.export` for
 rendering the active Final Cut timeline to a local video file. This separate
 capability requires `ffprobe`; it verifies file completion and media metadata
 and does not make the FCPXML artifact or live timeline canonically writable.
+
+Background rendering is a separate provider contract. When an external renderer
+is explicitly configured, `backgroundRender` exposes an `artifact-rendered`
+evidence tier with `backend: "external-renderer"`. `externalRender` remains
+unavailable until a provider can return `external-rendered` evidence. The
+provider binds an explicit FCPXML source, stages and verifies output, and
+preserves the headed-native boundary; it does not claim to reproduce Final Cut
+semantics.
 
 ## Phase 2 local runtime
 
@@ -114,7 +156,8 @@ are replaceable ports. Final Cut can provide
 the same contracts through configured local JSON analyzers and filesystem
 Motion-template discovery; no fixture data is injected into live mode.
 
-The live server also supports `--headless`. In that mode it probes an existing
-Workflow Extension socket without launching or activating Final Cut and keeps
-native UI writes disabled. Headless validation covers the native contracts
-through deterministic executors; it does not mutate the open Final Cut UI.
+The live server also supports `--headless`. In that mode it performs bounded
+readiness probes against an existing Workflow Extension socket without
+launching or activating Final Cut and keeps native UI writes disabled. Headless
+validation covers the native contracts through deterministic executors; it does
+not mutate the open Final Cut UI.

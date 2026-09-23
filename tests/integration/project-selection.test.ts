@@ -133,6 +133,15 @@ test("MCP lists stable project identities, selects an explicit timeline, and rej
     })));
     assert.equal(selectedMain.activeProjectId, "project-alpha");
     assert.equal(selectedMain.activeSequenceId, "sequence-alpha-main");
+    assert.deepEqual(selectedMain.requestedTarget, {
+      projectId: "project-alpha",
+      sequenceId: "sequence-alpha-main",
+    });
+    assert.deepEqual(selectedMain.observedActiveTarget, {
+      projectId: "project-alpha",
+      sequenceId: "sequence-alpha-main",
+    });
+    assert.equal(selectedMain.observedRevision.id, (await adapter.readProject()).revision.id);
 
     const selected = JSON.parse(textFrom(await client.callTool({
       name: "project.select",

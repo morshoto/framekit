@@ -29,6 +29,33 @@ function fixtureAdapter() {
   });
 }
 
+function publisherLiveState(projectName: string) {
+  let imported = false;
+  return async () => {
+    const wasImported = imported;
+    const state = imported
+      ? {
+          project: { id: "published-project", name: projectName },
+          sequence: { id: "published-sequence", name: projectName },
+        }
+      : {
+          project: { id: "existing-project", name: "Existing Project" },
+          sequence: { id: "existing-sequence", name: "Existing Sequence" },
+        };
+    imported = true;
+    return {
+      ...state,
+      sequence: {
+        ...state.sequence,
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "1", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      revision: { id: wasImported ? "revision-after" : "revision-before", sequence: wasImported ? 2 : 1, timestamp: new Date(0).toISOString() },
+    };
+  };
+}
+
 test("editor timeline edits bind the active project, sequence, and verification target", async () => {
   const runtime = new AgentVideoRuntime(fixtureAdapter());
   const before = await runtime.inspectProject();
@@ -80,11 +107,11 @@ test("artifact edits mutate only the identified FCPXML artifact", async () => {
     const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
     const before = await runtime.inspectProject();
 
-    assert.deepEqual(await runtime.inspectArtifact(), {
-      id: `fcpxml:${artifactPath}`,
-      path: artifactPath,
-      format: "fcpxml",
-    });
+    const inspectedArtifact = await runtime.inspectArtifact();
+    assert.equal(inspectedArtifact.id, `fcpxml:${artifactPath}`);
+    assert.equal(inspectedArtifact.path, artifactPath);
+    assert.equal(inspectedArtifact.format, "fcpxml");
+    assert.match(inspectedArtifact.digest ?? "", /^[a-f0-9]{64}$/);
 
     const transaction = await runtime.editArtifact(
       artifactPath,
@@ -143,6 +170,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
         sourcePath: artifactPath,
         waitMs: 0,
         executor: async () => "imported",
+        liveState: publisherLiveState("Artifact Project"),
       }),
     });
     const client = new Client({ name: "artifact-publish-test", version: "0.1.0" });
@@ -152,6 +180,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
       await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
       const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
       assert.equal(editor.capabilities.editor.artifactPublish, true);
+      assert.equal(editor.capabilities.editor.artifactPublishMode, "headed-only");
       assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
       const published = await client.callTool({
         name: "artifact.publish",
@@ -160,7 +189,13 @@ test("MCP publishing requires the verified artifact target and returns the creat
       assert.equal(published.isError, undefined);
       const result = JSON.parse(textFrom(published));
       assert.deepEqual(result.sourceTarget, { kind: "artifact", artifactPath });
-      assert.deepEqual(result.createdTarget, { kind: "editor.project", projectName: "Artifact Project" });
+      assert.deepEqual(result.createdTarget, {
+        kind: "editor.project",
+        projectId: "published-project",
+        sequenceId: "published-sequence",
+        projectName: "Artifact Project",
+        sequenceName: "Artifact Project",
+      });
 
       const unconfirmed = await client.callTool({
         name: "artifact.publish",
@@ -195,9 +230,67 @@ test("MCP reports disabled artifact publishing as unavailable", async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.editor.artifactPublishMode, "unavailable");
   } finally {
     await client.close();
     await server.close();
+  }
+});
+
+test("MCP exposes resumable artifact publish handoff jobs", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-publish-job-"));
+  try {
+    const artifactPath = join(directory, "managed.fcpxml");
+    const source = `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-job" name="Job Project"><sequence uid="sequence-job" name="Main" duration="1s"><spine><asset-clip id="clip-job" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`;
+    await writeFile(artifactPath, source);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
+    const transaction = await runtime.editArtifact(artifactPath, {
+      type: "rename-clip",
+      clipId: "clip-job",
+      name: "Prepared Job",
+      baseRevision: before.revision,
+    });
+    const server = createMcpServer(runtime, {
+      projectPublisher: new FinalCutProjectPublisher({
+        enabled: false,
+        sourcePath: artifactPath,
+      }),
+    });
+    const client = new Client({ name: "artifact-publish-job-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const preview = await client.callTool({
+        name: "artifact.publish.preview",
+        arguments: { artifactPath, transactionId: transaction.id },
+      });
+      assert.equal(preview.isError, undefined);
+      const prepared = JSON.parse(textFrom(preview));
+      assert.equal(prepared.state, "awaiting-confirmation");
+      assert.equal(prepared.executionMode, "headed-only");
+
+      const executed = await client.callTool({
+        name: "artifact.publish.execute",
+        arguments: { jobId: prepared.jobId, confirm: true },
+      });
+      const waiting = JSON.parse(textFrom(executed));
+      assert.equal(waiting.state, "awaiting-final-cut");
+      assert.equal(waiting.retryable, true);
+      assert.equal(waiting.createdTarget, undefined);
+
+      const status = await client.callTool({
+        name: "artifact.publish.status",
+        arguments: { jobId: prepared.jobId },
+      });
+      assert.deepEqual(JSON.parse(textFrom(status)), waiting);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

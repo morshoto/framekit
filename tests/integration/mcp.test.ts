@@ -65,22 +65,32 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "editor.native.edit",
         "editor.native.focus",
         "editor.native.inspect",
+        "editor.native.picture-in-picture.execute",
+        "editor.native.picture-in-picture.preview",
         "editor.native.media.append.execute",
         "editor.native.media.append.preview",
         "editor.native.media.append.selected.execute",
         "editor.native.media.append.selected.preview",
         "editor.native.media.import",
+        "editor.native.media.directory.execute",
+        "editor.native.media.directory.preview",
         "editor.native.media.insert.execute",
         "editor.native.media.insert.preview",
         "editor.native.media.search",
         "editor.native.media.select",
         "editor.native.media.target",
+        "editor.native.operation.cancel",
+        "editor.native.operation.retry",
+        "editor.native.operation.status",
+        "editor.native.operation.submit",
         "editor.native.timeline.locate",
         "editor.native.title.add.execute",
         "editor.native.title.add.preview",
         "editor.native.transition.add.execute",
         "editor.native.transition.add.preview",
         "editor.native.transition.search",
+        "editor.native.mask.execute",
+        "editor.native.mask.preview",
         "editor.native.trim-to-duration.execute",
         "editor.native.trim-to-duration.preview",
         "editor.native.undo",
@@ -97,6 +107,17 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "rough-cut.construction.plan",
         "rough-cut.construction.preview",
         "rough-cut.plan",
+        "session.create",
+        "session.edit.execute",
+        "session.edit.preview",
+        "session.inspect",
+        "session.materialize.execute",
+        "session.materialize.preview",
+        "session.materialize.retry",
+        "session.materialize.status",
+        "session.observe",
+        "session.reconcile",
+        "session.status",
         "speech.analyze",
         "speech.filler.remove.execute",
         "speech.filler.remove.preview",
@@ -104,12 +125,20 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "timeline.edit",
         "timeline.edit.execute",
         "timeline.edit.preview",
+        "timeline.mask.add.execute",
+        "timeline.mask.add.preview",
         "timeline.publish.new-project",
         "artifact.edit",
+        "artifact.edit.diff",
         "artifact.edit.execute",
         "artifact.edit.preview",
+        "artifact.edit.undo",
+        "artifact.edit.verify",
         "artifact.inspect",
         "artifact.publish",
+        "artifact.publish.execute",
+        "artifact.publish.preview",
+        "artifact.publish.status",
         "editor.timeline.edit",
         "editor.timeline.edit.execute",
         "editor.timeline.edit.preview",
@@ -119,15 +148,29 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "visual.analyze",
       ].sort(),
     );
+    const nativeMaskPreviewTool = tools.tools.find((tool) => tool.name === "editor.native.mask.preview");
+    assert.doesNotMatch(JSON.stringify(nativeMaskPreviewTool?.inputSchema ?? {}), /inverted/);
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "type", "verification",
+      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
     ]);
-    assert.deepEqual(timelineEditTool?.inputSchema.required?.slice().sort(), ["baseRevision", "projectId", "sequenceId", "type"]);
+    const timelineEditTrim = (timelineEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
+      (branch) => branch.properties?.type?.const === "trim-clip",
+    );
+    assert.deepEqual(timelineEditTrim?.required?.slice().sort(), ["baseRevision", "clipId", "duration", "projectId", "sequenceId", "type"]);
     const artifactEditTool = tools.tools.find((tool) => tool.name === "artifact.edit");
-    assert.deepEqual(artifactEditTool?.inputSchema.required?.slice().sort(), ["artifactPath", "baseRevision", "type"]);
+    const artifactEditRename = (artifactEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
+      (branch) => branch.properties?.type?.const === "rename-clip",
+    );
+    assert.deepEqual(artifactEditRename?.required?.slice().sort(), ["artifactPath", "baseRevision", "clipId", "name", "type"]);
     const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
     assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
+    const artifactPublishPreviewTool = tools.tools.find((tool) => tool.name === "artifact.publish.preview");
+    assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "transactionId"]);
+    const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
+    assert.deepEqual(artifactPublishExecuteTool?.inputSchema.required?.slice().sort(), ["confirm", "jobId"]);
+    const artifactPublishStatusTool = tools.tools.find((tool) => tool.name === "artifact.publish.status");
+    assert.deepEqual(artifactPublishStatusTool?.inputSchema.required?.slice().sort(), ["jobId"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
     assert.deepEqual(Object.keys(nativeEditTool?.inputSchema.properties ?? {}).sort(), ["duration", "edge", "gainDb", "name", "type"]);
     assert.deepEqual(nativeEditTool?.inputSchema.required, ["type"]);
@@ -207,6 +250,11 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
 
     const speech = await client.callTool({ name: "speech.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(speech)).words[0].filler, true);
+    const rangedSpeech = await client.callTool({
+      name: "speech.analyze",
+      arguments: { mediaId: "media-1", range: { start: 0, end: 0.3 } },
+    });
+    assert.deepEqual(JSON.parse(textFrom(rangedSpeech)).requestedRange, { start: 0, end: 0.3 });
     const audio = await client.callTool({ name: "audio.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(audio)).integratedLufs, -18);
     const visual = await client.callTool({ name: "visual.analyze", arguments: { mediaId: "media-1" } });

@@ -20,11 +20,20 @@ processing is explicitly selected or authorized. The route response reports
 `EXTERNAL_FALLBACK_SELECTED` and its structured cause; the MCP server does not
 invoke the external renderer.
 
+The explicit background artifact workflow is selected with
+`editing.route({ "operation": "artifact.edit" })` when
+`FRAMEKIT_FCPXML_PATH` is configured. Its `artifact.edit.*` preview, execute,
+diff, verify, and undo tools operate on the managed file without requiring
+Final Cut Pro to be frontmost; their artifact revision and digest are not the
+revision of the open Final Cut timeline.
+
 - [Protocol](./protocol.md): live Final Cut IPC framing and request methods.
 - [Tools](./tools.md): MCP tool names, inputs, and behavior.
 - [Rough-cut duration policy](../rough-cut/duration-policy.md): explicit duration tradeoffs for planning workflows.
 - [Capabilities and errors](./capabilities-and-errors.md): fail-closed rules.
 - [Final Cut live backend](./final-cut-live.md): selecting and probing it.
+- [Local speech analysis](../speech-analysis.md): configuring a local
+  Whisper/VAD-compatible wrapper and its revision-bound JSON contract.
 
 The default `pnpm run mcp` configuration uses the deterministic in-memory
 fixture. Set `FRAMEKIT_EDITOR=final-cut-live` to select the live Final Cut

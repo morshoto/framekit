@@ -15,11 +15,12 @@ import type {
   EditorTimelineEditTargetInput,
   WorkflowOperation,
 } from "../domain/editing.js";
+import { assertValidMaskConfiguration } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimelineDiff } from "../domain/diff.js";
-import type { VerificationEngine, VerificationPolicy } from "../domain/verification.js";
+import type { VerificationCheck, VerificationEngine, VerificationPolicy } from "../domain/verification.js";
 import { sameRevision } from "../context/revision.js";
-import { MediaAnalysisService } from "../application/media-analysis-service.js";
+import { MediaAnalysisService, type PostWriteAnalysisRequirements } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import { TransactionStore } from "../application/transaction-store.js";
@@ -118,8 +119,7 @@ export class EditService {
       status: "APPLIED",
     };
     try {
-      transaction.attemptedAfter = await this.analysis.reanalyzeAffectedRanges(transaction);
-      transaction.after = transaction.attemptedAfter;
+      await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
       this.assertRestored(before, await this.project.inspectProject());
@@ -197,11 +197,13 @@ export class EditService {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction preview");
     }
     const expectedAfter = await this.adapter.previewTransaction(request.operations, before.revision);
+    const artifactDigest = await this.readArtifactDigest(target);
     const previewToken = `preview-${randomUUID()}`;
     const preview: CompositeEditPreview = {
       previewToken,
       target: structuredClone(target),
       baseRevision: structuredClone(before.revision),
+      ...(artifactDigest ? { artifactDigest } : {}),
       operations: structuredClone(request.operations),
       expectedDiff: diffSnapshots(before, expectedAfter),
       warnings: [],
@@ -231,6 +233,12 @@ export class EditService {
       throw new Error("PREVIEW_TOKEN_EXPIRED: composite edit preview has expired");
     }
     const before = await this.project.inspectProject();
+    const currentArtifactDigest = await this.readArtifactDigest(preview.target);
+    if (preview.target.kind === "artifact"
+      && preview.artifactDigest !== undefined
+      && currentArtifactDigest !== preview.artifactDigest) {
+      throw new Error("ARTIFACT_SOURCE_CHANGED: FCPXML artifact digest changed before execution");
+    }
     if (!sameRevision(preview.baseRevision, before.revision)) {
       throw new Error("STALE_CONTEXT: preview base revision does not match current editor state");
     }
@@ -274,9 +282,19 @@ export class EditService {
       verificationPolicy,
       status: "APPLIED",
     };
+    const authorizedDiffCheck: VerificationCheck | undefined = sameDiffContent(transaction.diff, preview.expectedDiff)
+      ? undefined
+      : {
+        name: "authorized-diff",
+        passed: false,
+        status: "failed",
+        reason: "UNAUTHORIZED_DIFF",
+        expected: structuredClone(preview.expectedDiff),
+        observed: structuredClone(transaction.diff),
+        detail: "canonical diff contains changes outside the preview-authorized operations",
+      };
     try {
-      transaction.attemptedAfter = await this.analysis.reanalyzeAffectedRanges(transaction);
-      transaction.after = transaction.attemptedAfter;
+      await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
       await this.adapter.restore(before, attemptedAfter.revision);
       this.assertRestored(before, await this.project.inspectProject());
@@ -295,6 +313,13 @@ export class EditService {
         throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
       }
       throw new Error(`VERIFICATION_FAILED: canonical state was restored (${String(verificationError)})`);
+    }
+    if (authorizedDiffCheck && transaction.verification) {
+      transaction.verification = {
+        ...transaction.verification,
+        passed: false,
+        checks: [...transaction.verification.checks, authorizedDiffCheck],
+      };
     }
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
@@ -320,8 +345,24 @@ export class EditService {
     return this.getTransaction(transactionId).verification!;
   }
 
+  private async reanalyzeForVerification(
+    transaction: EditTransaction,
+    policy: VerificationPolicy,
+  ): Promise<void> {
+    const requirements = postWriteAnalysisRequirements(policy);
+    if (!Object.values(requirements).some(Boolean)) return;
+    transaction.attemptedAfter = await this.analysis.reanalyzeAffectedRanges(transaction, requirements);
+    transaction.after = transaction.attemptedAfter;
+  }
+
   public async undo(transactionId: string): Promise<ProjectSnapshot> {
     const transaction = this.getTransaction(transactionId);
+    const currentArtifactDigest = await this.readArtifactDigest(transaction.target);
+    if (transaction.target?.kind === "artifact"
+      && transaction.artifactDigest !== undefined
+      && currentArtifactDigest !== transaction.artifactDigest) {
+      throw new Error("ARTIFACT_SOURCE_CHANGED: FCPXML artifact digest changed after transaction");
+    }
     const current = await this.project.inspectProject();
     if (current.projectId !== transaction.before.projectId || current.timeline.id !== transaction.before.timeline.id) {
       throw new Error(
@@ -358,6 +399,9 @@ export class EditService {
     if (operations.some((operation) => operation.type === "timeline.media.add") && !capabilities.mediaPlacement) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline media placement");
     }
+    if (operations.some((operation) => operation.type === "timeline.picture-in-picture.add") && !capabilities.pictureInPicture) {
+      throw new Error("CAPABILITY_UNAVAILABLE: picture-in-picture placement");
+    }
     if (operations.some((operation) => operation.type === "timeline.title.add")
       && (!capabilities.titlePlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline title placement");
@@ -385,6 +429,15 @@ export class EditService {
     if (operations.some((operation) => operation.type === "timeline.transition.add")
       && (!capabilities.transitionPlacement || !capabilities.assetDiscovery)) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline transition placement");
+    }
+    const maskOperations = operations.filter(
+      (operation): operation is Extract<WorkflowOperation, { type: "timeline.mask.add" }> => operation.type === "timeline.mask.add",
+    );
+    if (maskOperations.some((operation) => operation.mask.mode !== "person-cutout") && !capabilities.masking) {
+      throw new Error("CAPABILITY_UNAVAILABLE: masking");
+    }
+    if (maskOperations.some((operation) => operation.mask.mode === "person-cutout") && !capabilities.personCutout) {
+      throw new Error("CAPABILITY_UNAVAILABLE: person cutout");
     }
     if (operations.some((operation) => operation.type === "timeline.audio.attach") && !capabilities.audioAttachment) {
       throw new Error("CAPABILITY_UNAVAILABLE: timeline audio attachment");
@@ -433,8 +486,8 @@ export class EditService {
     return { kind: "artifact", artifactId: artifact.id, artifactPath: artifact.path };
   }
 
-  private async readArtifactDigest(target: EditTarget): Promise<string | undefined> {
-    if (target.kind !== "artifact" || !this.adapter.getManagedArtifactDigest) return undefined;
+  private async readArtifactDigest(target: EditTarget | undefined): Promise<string | undefined> {
+    if (!target || target.kind !== "artifact" || !this.adapter.getManagedArtifactDigest) return undefined;
     return this.adapter.getManagedArtifactDigest();
   }
 
@@ -480,7 +533,32 @@ export class EditService {
   }
 }
 
+function postWriteAnalysisRequirements(policy: VerificationPolicy): PostWriteAnalysisRequirements {
+  const assertions = policy.assertions ?? [];
+  return {
+    speech: policy.requireSpeechContinuity === true,
+    audio: policy.maxTruePeakDb !== undefined
+      || policy.targetLufs !== undefined
+      || assertions.some((assertion) => assertion.type === "audio-audibility" || assertion.type === "audio-loudness"),
+    noise: assertions.some((assertion) => assertion.type === "audio-noise"),
+    visual: assertions.some((assertion) => assertion.type === "visual-content"),
+  };
+}
+
+function sameDiffContent(left: TimelineDiff, right: TimelineDiff): boolean {
+  const comparable = (diff: TimelineDiff) => {
+    const { from: _from, to: _to, ...content } = diff;
+    return content;
+  };
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+}
+
 function assertValidWorkflowOperation(operation: WorkflowOperation): void {
+  if (operation.type === "timeline.mask.add") {
+    if (!operation.occurrenceId.trim()) throw new Error("INVALID_OPERATION: mask occurrenceId is required");
+    assertValidMaskConfiguration(operation.mask);
+    return;
+  }
   if (operation.type !== "trim-clip") return;
   if (!Number.isFinite(operation.duration) || operation.duration <= 0) {
     throw new Error("INVALID_OPERATION: clip duration must be positive");

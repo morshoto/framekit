@@ -2527,6 +2527,7 @@
                 "start": 0,
                 "duration": 8,
                 "track": 0,
+                "role": "video",
                 "startTime": {
                   "value": "0",
                   "timescale": "1"
@@ -2543,6 +2544,7 @@
                 "start": 0,
                 "duration": 8,
                 "track": -1,
+                "role": "music",
                 "startTime": {
                   "value": "0",
                   "timescale": "1"
@@ -2666,6 +2668,7 @@
                 "start": 0,
                 "duration": 8,
                 "track": 0,
+                "role": "video",
                 "startTime": {
                   "value": "0",
                   "timescale": "1"
@@ -2686,6 +2689,7 @@
                 "start": 0,
                 "duration": 8,
                 "track": -1,
+                "role": "music",
                 "startTime": {
                   "value": "0",
                   "timescale": "1"

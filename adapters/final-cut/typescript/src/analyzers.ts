@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
+import { bindSpeechAnalysis } from "@framekit/runtime";
 import type {
   AnalysisInput,
   AudioAnalysis,
@@ -8,6 +9,7 @@ import type {
   MetadataAnalyzer,
   SpeechAnalysis,
   SpeechAnalyzer,
+  MediaSourceIdentity,
   TimeRange,
   VisualAnalysis,
   VisualAnalyzer,
@@ -44,11 +46,17 @@ export function createCommandAnalyzers(options: {
 
 export class CommandSpeechAnalyzer implements SpeechAnalyzer {
   public readonly descriptor = { id: "command.speech", provider: "command" };
+  public readonly capabilities = { transcription: true, vad: false };
 
   public constructor(private readonly options: CommandAnalyzerOptions) {}
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
-    return runCommand<SpeechAnalysis>(this.options, { ...input, range }, "speech");
+    const result = await runCommand<unknown>(this.options, { ...input, range }, "speech");
+    try {
+      return bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
+    } catch (error) {
+      throw new Error(`ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema: ${String(error)}`);
+    }
   }
 }
 
@@ -130,8 +138,28 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
       }
     });
 
-    child.stdin.end(JSON.stringify(request));
+    child.stdin.end(JSON.stringify(commandRequest(request, kind)));
   });
+}
+
+function commandRequest(request: AnalyzerRequest, kind: string): unknown {
+  if (kind !== "speech") return request;
+  return {
+    schemaVersion: 1,
+    media: sourceIdentityOf(request.media),
+    revision: request.project.revision,
+    ...(request.range ? { range: structuredClone(request.range) } : {}),
+  };
+}
+
+function sourceIdentityOf(media: AnalysisInput["media"]): MediaSourceIdentity {
+  return {
+    mediaId: media.mediaId,
+    source: media.source,
+    ...(media.sourceDigest ? { sourceDigest: media.sourceDigest } : {}),
+    ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
+    ...(media.duration !== undefined ? { duration: media.duration } : {}),
+  };
 }
 
 function validateResult(value: unknown, kind: string): void {

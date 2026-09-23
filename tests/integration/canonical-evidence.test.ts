@@ -10,7 +10,25 @@ test("canonical headed runner publishes the sanitized evidence contract", async 
   assert.match(runner, /sanitizeCanonicalEvidence/);
   assert.match(runner, /evidenceEnvironment\(root\)/);
   assert.match(runner, /editStatus: transaction\.status/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER: "native"/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1"/);
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
+});
+
+test("canonical headed runner rejects unsafe targets before mutation", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
+
+  const staleProbe = runner.indexOf('status: "rejected-stale-context"');
+  const targetProbe = runner.indexOf('status: "rejected-target-mismatch"');
+  const verifiedMutation = runner.indexOf("const transaction = await callJson");
+  assert.ok(staleProbe >= 0 && staleProbe < verifiedMutation);
+  assert.ok(targetProbe >= 0 && targetProbe < verifiedMutation);
+  assert.match(runner, /STALE_CONTEXT/);
+  assert.match(runner, /TARGET_MISMATCH/);
+  assert.match(runner, /canonicalDigest\(afterStaleProbe\).*beforeDigest/s);
+  assert.match(runner, /canonicalDigest\(afterTargetProbe\).*beforeDigest/s);
+  assert.match(runner, /sameRevision\(afterStaleProbe\.revision,\s*before\.revision\)/);
+  assert.match(runner, /sameRevision\(afterTargetProbe\.revision,\s*before\.revision\)/);
 });
 
 test("canonical headed read runner publishes a read-only sanitized evidence contract", async () => {
@@ -31,6 +49,8 @@ test("canonical headed evidence documentation describes the sanitized review bou
   assert.match(documentation, /tool results/);
   assert.match(documentation, /raw snapshots/);
   assert.match(documentation, /private media paths/);
+  assert.match(documentation, /stale-revision and wrong-project probes/);
+  assert.match(documentation, /unchanged digest and revision before mutation/);
 });
 
 test("canonical headed evidence keeps mutation proof while omitting private snapshot data", () => {
@@ -101,6 +121,10 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       { name: "project.list", status: "passed" },
       { name: "project.select", status: "passed" },
       { name: "project.inspect", status: "passed" },
+      { name: "editor.timeline.edit", status: "rejected-stale-context" },
+      { name: "project.inspect", status: "unchanged" },
+      { name: "editor.timeline.edit", status: "rejected-target-mismatch" },
+      { name: "project.inspect", status: "unchanged" },
       { name: "editor.timeline.edit", status: "VERIFIED" },
       { name: "edit.undo", status: "passed" },
     ],
@@ -402,6 +426,10 @@ const rawRun = {
     { name: "project.list", status: "passed" },
     { name: "project.select", status: "passed" },
     { name: "project.inspect", status: "passed" },
+    { name: "editor.timeline.edit", status: "rejected-stale-context" },
+    { name: "project.inspect", status: "unchanged" },
+    { name: "editor.timeline.edit", status: "rejected-target-mismatch" },
+    { name: "project.inspect", status: "unchanged" },
     { name: "editor.timeline.edit", status: "VERIFIED" },
     { name: "edit.undo", status: "passed" },
   ],

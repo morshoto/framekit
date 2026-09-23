@@ -2,28 +2,59 @@ import { CAPABILITY_SCHEMA_VERSION } from "./domain/capabilities.js";
 import type {
   CapabilityDescriptor,
   CapabilityFamilies,
+  EditingCapabilityOperation,
+  EditorIdentity,
   NativeCapabilityOperation,
+  ProjectSelectionMode,
   RuntimeCapabilities,
   VersionedRuntimeCapabilities,
 } from "./domain/capabilities.js";
 
 export type CanonicalTimelineMode = "metadata-only" | "canonical-read" | "canonical-write";
+export type CapabilityProcessMode = "headless" | "headed";
+export type CapabilityPreflightMode =
+  | "fixture"
+  | "fcpxml-artifact"
+  | "metadata-only"
+  | "canonical-live"
+  | "native-write";
+
+export interface CapabilityPreflight {
+  mode: CapabilityPreflightMode;
+  documentMode: Exclude<CapabilityPreflightMode, "native-write">;
+  processMode: CapabilityProcessMode;
+  backend: string;
+  capabilities: CapabilityFamilies;
+}
 
 export function canonicalTimelineMode(capabilities: RuntimeCapabilities): CanonicalTimelineMode {
   const editor = capabilities.editor;
-  const hasExplicitTargeting = Boolean(editor.projectCatalogRead && editor.projectSelection);
+  const hasCanonicalProjectRead = canonicalProjectReadAvailable(editor);
   if (
-    editor.projectRead
-    && editor.timelineSnapshotRead
-    && hasExplicitTargeting
+    hasCanonicalProjectRead
     && editor.timelineWrite
     && editor.readAfterWrite
     && editor.rollback
   ) {
     return "canonical-write";
   }
-  if (editor.projectRead && editor.timelineSnapshotRead && hasExplicitTargeting) return "canonical-read";
+  if (hasCanonicalProjectRead) return "canonical-read";
   return "metadata-only";
+}
+
+export function projectSelectionMode(
+  editor: RuntimeCapabilities["editor"],
+): ProjectSelectionMode {
+  return editor.projectSelectionMode
+    ?? (editor.projectSelection ? "background-capable" : "unavailable");
+}
+
+function canonicalProjectReadAvailable(editor: RuntimeCapabilities["editor"]): boolean {
+  return Boolean(
+    editor.projectRead
+    && editor.timelineSnapshotRead
+    && editor.projectCatalogRead,
+  );
 }
 
 export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): RuntimeCapabilities {
@@ -31,22 +62,75 @@ export function withCanonicalTimelineMode(capabilities: RuntimeCapabilities): Ru
     ...capabilities,
     editor: {
       ...capabilities.editor,
+      projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
+      projectSelectionMode: projectSelectionMode(capabilities.editor),
     },
   };
   const previous = capabilities.families;
   if (!previous) return normalized;
+  const canonicalRead = normalized.editor.canonicalTimelineMode === "canonical-read"
+    || normalized.editor.canonicalTimelineMode === "canonical-write";
+  const canonicalWrite = normalized.editor.canonicalTimelineMode === "canonical-write";
+  const backgroundLibraryInspection = normalized.editor.backgroundLibraryInspection
+    ?? previous.observation.library.available;
+  const compositeTransactions = Boolean(
+    normalized.editor.compositeTransactions
+    && normalized.editor.timelineSnapshotRead
+    && normalized.editor.readAfterWrite
+    && normalized.editor.rollback
+    && (normalized.editor.timelineArtifactWrite || canonicalWrite),
+  );
   return withCapabilityFamilies(normalized, {
     backend: previous.connection.status.backend,
     nativeBackend: previous.native.selectionWrite.backend,
     publishingBackend: previous.publishing.projectCreation.backend,
     exportBackend: previous.export.timeline.backend,
-    analyzerBackend: previous.analyzers.speechTranscribe.backend,
+    backgroundExportBackend: previous.export.background.backend,
+    externalExportBackend: previous.export.external.backend,
+    analyzerBackends: {
+      speechTranscribe: previous.analyzers.speechTranscribe.backend,
+      speechVad: previous.analyzers.speechVad.backend,
+      audioLoudness: previous.analyzers.audioLoudness.backend,
+      audioNoise: previous.analyzers.audioNoise?.backend,
+      visualTrack: previous.analyzers.visualTrack.backend,
+    },
     connection: previous.connection.status,
+    observation: {
+      media: normalized.editor.timelineSnapshotRead && normalized.editor.projectRead
+        || normalized.editor.backgroundMediaDiscovery
+        ? previous.observation.media
+        : false,
+      assets: normalized.editor.assetDiscovery ? previous.observation.assets : false,
+      library: backgroundLibraryInspection ? previous.observation.library : false,
+    },
+    canonicalDocument: {
+      read: refreshDescriptor(canonicalRead, previous.canonicalDocument.read, "canonical-read", "canonical timeline reads are unavailable"),
+      write: refreshDescriptor(canonicalWrite, previous.canonicalDocument.write, "canonical-write", "canonical timeline writes are unavailable"),
+      artifactWrite: refreshDescriptor(normalized.editor.timelineArtifactWrite, previous.canonicalDocument.artifactWrite, "artifact-write", "canonical artifact writes are unavailable"),
+    },
+    editing: {
+      compositeTransactions: refreshDescriptor(compositeTransactions, previous.editing.compositeTransactions, "verified", "composite editing transactions are unavailable"),
+      titlePlacement: refreshDescriptor(Boolean(normalized.editor.titlePlacement), previous.editing.titlePlacement, "verified", "title placement is unavailable"),
+      pictureInPicture: previous.editing.pictureInPicture,
+      masking: previous.editing.masking,
+      personCutout: previous.editing.personCutout,
+    },
     native: nativeAvailability(previous.native),
     publishing: previous.publishing.projectCreation,
     export: previous.export.timeline,
   });
+}
+
+function refreshDescriptor(
+  available: boolean,
+  previous: CapabilityDescriptor,
+  guarantee: Exclude<CapabilityDescriptor["guarantee"], "none">,
+  unavailableReason: string,
+): CapabilityDescriptor {
+  if (available && previous.available) return previous;
+  if (!available && !previous.available) return previous;
+  return descriptorFrom(available, previous.backend, guarantee, unavailableReason);
 }
 
 export interface CapabilityFamilyOptions {
@@ -55,11 +139,20 @@ export interface CapabilityFamilyOptions {
   nativeBackend?: string;
   publishingBackend?: string;
   exportBackend?: string;
+  backgroundExportBackend?: string;
+  externalExportBackend?: string;
   analyzerBackend?: string;
+  analyzerBackends?: Partial<Record<keyof CapabilityFamilies["analyzers"], string | undefined>>;
+  observation?: Partial<Record<keyof CapabilityFamilies["observation"], boolean | CapabilityDescriptor>>;
+  canonicalDocument?: Partial<Record<"read" | "write" | "artifactWrite", boolean | CapabilityDescriptor>>;
+  editing?: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>;
+  editingBackend?: string;
   connection?: boolean | CapabilityDescriptor;
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
   export?: boolean | CapabilityDescriptor;
+  backgroundExport?: boolean | CapabilityDescriptor;
+  externalExport?: boolean | CapabilityDescriptor;
 }
 
 /**
@@ -72,18 +165,39 @@ export function withCapabilityFamilies(
 ): VersionedRuntimeCapabilities {
   const previous = capabilities.families;
   const backend = options.backend ?? previous?.connection.status.backend ?? "unknown";
+  const configuredLibrary = options.observation?.library;
+  const backgroundLibraryInspection = capabilities.editor.backgroundLibraryInspection
+    ?? (typeof configuredLibrary === "boolean" ? configuredLibrary : configuredLibrary?.available)
+    ?? previous?.observation.library.available
+    ?? false;
   const normalized = {
     ...capabilities,
     schemaVersion: CAPABILITY_SCHEMA_VERSION,
     editor: {
       ...capabilities.editor,
+      projectRead: canonicalProjectReadAvailable(capabilities.editor),
       canonicalTimelineMode: canonicalTimelineMode(capabilities),
+      projectSelectionMode: projectSelectionMode(capabilities.editor),
+      backgroundLibraryInspection,
     },
   };
   const editor = normalized.editor;
+  const analyzerBackend = (operation: keyof CapabilityFamilies["analyzers"]): string =>
+    options.analyzerBackends?.[operation]
+    ?? options.analyzerBackend
+    ?? previous?.analyzers[operation]?.backend
+    ?? backend;
   const native = {
     ...nativeAvailability(previous?.native),
     ...options.native,
+  };
+  const canonicalDocument = {
+    ...previous?.canonicalDocument,
+    ...options.canonicalDocument,
+  };
+  const editing = {
+    ...previous?.editing,
+    ...options.editing,
   };
   const families: CapabilityFamilies = {
     connection: {
@@ -102,33 +216,60 @@ export function withCapabilityFamilies(
         "timeline observation is unavailable",
       ),
       media: descriptorFrom(
-        editor.timelineSnapshotRead && editor.projectRead,
+        options.observation?.media ?? (
+          editor.timelineSnapshotRead && editor.projectRead
+            ? previous?.observation.media ?? true
+            : editor.backgroundMediaDiscovery
+              ? previous?.observation.media ?? { available: true, backend, guarantee: "observed" as const }
+              : false
+        ),
         backend,
-        "canonical-read",
+        editor.timelineSnapshotRead && editor.projectRead ? "canonical-read" : "observed",
         "media observation is unavailable",
+      ),
+      assets: descriptorFrom(
+        options.observation?.assets ?? (editor.assetDiscovery ? previous?.observation.assets ?? true : false),
+        backend,
+        "observed",
+        "asset discovery is unavailable",
+      ),
+      library: descriptorFrom(
+        options.observation?.library ?? (
+          backgroundLibraryInspection
+            ? previous?.observation.library ?? true
+            : false
+        ),
+        backend,
+        "observed",
+        "background library inspection is unavailable",
       ),
     },
     canonicalDocument: {
       read: descriptorFrom(
-        editor.canonicalTimelineMode === "canonical-read"
-          || editor.canonicalTimelineMode === "canonical-write",
+        canonicalDocument.read ?? (editor.canonicalTimelineMode === "canonical-read"
+          || editor.canonicalTimelineMode === "canonical-write"),
         backend,
         "canonical-read",
         "canonical timeline reads are unavailable",
       ),
       write: descriptorFrom(
-        editor.canonicalTimelineMode === "canonical-write",
+        canonicalDocument.write ?? (editor.canonicalTimelineMode === "canonical-write"),
         backend,
         "canonical-write",
         "canonical timeline writes are unavailable",
       ),
       artifactWrite: descriptorFrom(
-        editor.timelineArtifactWrite,
+        canonicalDocument.artifactWrite ?? editor.timelineArtifactWrite,
         backend,
         "artifact-write",
         "canonical artifact writes are unavailable",
       ),
     },
+    editing: editingFamily(
+      editor,
+      editing,
+      options.editingBackend ?? previous?.editing?.compositeTransactions.backend ?? backend,
+    ),
     native: nativeFamily(native, options.nativeBackend ?? previous?.native.selectionWrite.backend ?? backend),
     publishing: {
       projectCreation: descriptorFrom(
@@ -139,22 +280,108 @@ export function withCapabilityFamilies(
       ),
     },
     export: {
-      timeline: descriptorFrom(
+      timeline: exportDescriptor(
         options.export ?? previous?.export.timeline ?? false,
         options.exportBackend ?? backend,
         "verified",
         "timeline export is unavailable",
+        "headed-native",
+      ),
+      background: exportDescriptor(
+        options.backgroundExport ?? previous?.export.background ?? false,
+        options.backgroundExportBackend ?? previous?.export.background?.backend ?? backend,
+        "verified",
+        "background rendering is unavailable",
+        "background-native",
+      ),
+      external: exportDescriptor(
+        options.externalExport ?? previous?.export.external ?? editor.externalRender ?? false,
+        options.externalExportBackend ?? previous?.export.external?.backend ?? backend,
+        "verified",
+        "external rendering is unavailable",
+        "external-rendered",
       ),
     },
     analyzers: {
-      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, options.analyzerBackend ?? backend, "speech transcription"),
-      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, options.analyzerBackend ?? backend, "speech VAD"),
-      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, options.analyzerBackend ?? backend, "audio loudness analysis"),
-      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), options.analyzerBackend ?? backend, "audio noise analysis"),
-      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, options.analyzerBackend ?? backend, "visual analysis"),
+      speechTranscribe: analyzerDescriptor(capabilities.analyzers.speechTranscribe, analyzerBackend("speechTranscribe"), "speech transcription"),
+      speechVad: analyzerDescriptor(capabilities.analyzers.speechVad, analyzerBackend("speechVad"), "speech VAD"),
+      audioLoudness: analyzerDescriptor(capabilities.analyzers.audioLoudness, analyzerBackend("audioLoudness"), "audio loudness analysis"),
+      audioNoise: analyzerDescriptor(Boolean(capabilities.analyzers.audioNoise), analyzerBackend("audioNoise"), "audio noise analysis"),
+      visualTrack: analyzerDescriptor(capabilities.analyzers.visualTrack, analyzerBackend("visualTrack"), "visual analysis"),
     },
   };
   return { ...normalized, families };
+}
+
+function editingFamily(
+  editor: RuntimeCapabilities["editor"],
+  overrides: Partial<Record<EditingCapabilityOperation, boolean | CapabilityDescriptor>>,
+  backend: string,
+): Record<EditingCapabilityOperation, CapabilityDescriptor> {
+  return {
+    compositeTransactions: descriptorFrom(
+      overrides.compositeTransactions ?? Boolean(editor.compositeTransactions),
+      backend,
+      "verified",
+      "composite editing transactions are unavailable",
+    ),
+    titlePlacement: descriptorFrom(
+      overrides.titlePlacement ?? Boolean(editor.titlePlacement),
+      backend,
+      "verified",
+      "title placement is unavailable",
+    ),
+    pictureInPicture: descriptorFrom(
+      overrides.pictureInPicture ?? Boolean(editor.pictureInPicture),
+      backend,
+      "verified",
+      "picture-in-picture editing is unavailable",
+    ),
+    masking: descriptorFrom(
+      overrides.masking ?? Boolean(editor.masking),
+      backend,
+      "verified",
+      "masking is unavailable",
+    ),
+    personCutout: descriptorFrom(
+      overrides.personCutout ?? Boolean(editor.personCutout),
+      backend,
+      "verified",
+      "person cutout is unavailable",
+    ),
+  };
+}
+
+export function createCapabilityPreflight(
+  identity: EditorIdentity,
+  capabilities: RuntimeCapabilities,
+  options: {
+    processMode?: CapabilityProcessMode;
+    nativeWrite?: boolean;
+  } = {},
+): CapabilityPreflight {
+  const normalized = capabilities.families
+    ? capabilities as VersionedRuntimeCapabilities
+    : withCapabilityFamilies(capabilities, { backend: identity.backend });
+  const editor = normalized.editor;
+  const documentMode: CapabilityPreflight["documentMode"] = identity.backend === "fixture"
+    ? "fixture"
+    : editor.timelineArtifactWrite && !editor.timelineWrite
+      ? "fcpxml-artifact"
+      : editor.canonicalTimelineMode === "metadata-only"
+        ? "metadata-only"
+        : "canonical-live";
+  const processMode = options.processMode ?? "headless";
+  const mode: CapabilityPreflightMode = options.nativeWrite && processMode === "headed"
+    ? "native-write"
+    : documentMode;
+  return {
+    mode,
+    documentMode,
+    processMode,
+    backend: identity.backend,
+    capabilities: normalized.families,
+  };
 }
 
 function descriptorFrom(
@@ -166,6 +393,19 @@ function descriptorFrom(
   if (typeof value !== "boolean") return value;
   return value
     ? { available: true, backend, guarantee }
+    : { available: false, backend, guarantee: "none", unavailableReason };
+}
+
+function exportDescriptor(
+  value: boolean | CapabilityDescriptor,
+  backend: string,
+  guarantee: Exclude<CapabilityDescriptor["guarantee"], "none">,
+  unavailableReason: string,
+  evidenceTier: NonNullable<CapabilityDescriptor["evidenceTier"]>,
+): CapabilityDescriptor {
+  if (typeof value !== "boolean") return value;
+  return value
+    ? { available: true, backend, guarantee, evidenceTier }
     : { available: false, backend, guarantee: "none", unavailableReason };
 }
 
@@ -191,12 +431,15 @@ function nativeFamily(
     "mediaAppend",
     "mediaInsert",
     "titlePlacement",
+    "titleDiscovery",
     "timelineFocus",
     "projectCreation",
     "clipInsertion",
     "clipMovement",
     "transitionDiscovery",
     "transitionPlacement",
+    "pictureInPicture",
+    "masking",
   ];
   return Object.fromEntries(nativeOperations.map((operation) => [
     operation,

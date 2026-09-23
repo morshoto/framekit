@@ -411,6 +411,26 @@ test("composite execute restores canonical state when verification throws", asyn
   assert.deepEqual(projectContent(await runtime.inspectProject()), projectContent(before));
 });
 
+test("composite execute ignores optional analyzer failures without verification policy", async () => {
+  let visualCalls = 0;
+  const { runtime } = createCompositeRuntime({
+    visualAnalyzer: {
+      analyze: async () => {
+        visualCalls += 1;
+        throw new Error("ANALYZER_MEDIA_UNAVAILABLE");
+      },
+    },
+  });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+
+  const transaction = await runtime.executeEdit(preview.previewToken);
+
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(visualCalls, 0);
+  assert.equal(transaction.after.media.length, 2);
+});
+
 test("composite execute rejects a failed-verification rollback that does not restore canonical state", async () => {
   const failingVerification: VerificationEngine = {
     verify: async () => ({
@@ -431,7 +451,11 @@ test("composite execute rejects an analysis rollback that does not restore canon
     speechAnalyzer: { analyze: async () => { throw new Error("FIXTURE_ANALYSIS_ERROR"); } },
   });
   const before = await runtime.inspectProject();
-  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: workflowOperations() });
+  const preview = await runtime.previewEdit({
+    baseRevision: before.revision,
+    operations: workflowOperations(),
+    verification: { requireSpeechContinuity: true },
+  });
   adapter.restore = async () => {};
 
   await assert.rejects(runtime.executeEdit(preview.previewToken), /ROLLBACK_FAILED/);

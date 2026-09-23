@@ -2,7 +2,7 @@
 
 ## Editor-first routing
 
-For an editing request, follow this order:
+For a canonical editing request, follow this order:
 
 1. Call `connection.status` to establish whether the expected editor is
    connected.
@@ -23,25 +23,69 @@ connected editor cannot satisfy the requested operation. It selects an
 never silently bypassed, and Framekit does not execute external rendering from
 this routing tool.
 
+Background metadata has a separate route. After `connection.status` and
+`editor.inspect`, call `editing.route` for `project.list`; when
+`observation.library` is available, the route selects the background provider
+with its `backend` and `guarantee`. This path reports observed catalog metadata
+only and never upgrades a metadata-only session to canonical timeline evidence
+or native UI access. Use `editor.live.inspect` for observed live state and
+`project.inspect` or `timeline.inspect` only when canonical snapshot support is
+advertised.
+
+## Background FCPXML artifact workflow
+
+When `FRAMEKIT_FCPXML_PATH` is configured, use the explicit `artifact.edit`
+route for edits that should run against the managed FCPXML file without
+bringing Final Cut Pro to the front. The recommended MCP sequence is:
+
+1. Call `connection.status` and `editor.inspect`.
+2. Confirm `editor.inspect.workflows.artifact` and the artifact-write
+   capability; `requiresFinalCutFrontmost` and `changesOpenTimeline` are both
+   `false`.
+3. Call `artifact.inspect` and retain its exact path and digest.
+4. Call `project.inspect`, then `editing.route` with
+   `{ "operation": "artifact.edit" }`.
+5. Call `artifact.edit.preview` with that path, revision, and ordered
+   operations.
+6. Execute the returned token with `artifact.edit.execute`.
+7. Read the result with `artifact.edit.diff` and `artifact.edit.verify`, then
+   use `artifact.edit.undo` with the exact path and transaction ID when needed.
+
+Artifact responses identify the artifact revision and digest separately from
+the live Final Cut revision. Their provenance includes
+`mutatesOpenTimeline: false`; a successful artifact edit therefore does not
+claim that the open Final Cut timeline changed. Publishing the verified file
+is a separate, confirmed `artifact.publish` step.
+
 ## Common runtime tools
 
 | Tool | Purpose | Backend notes |
 | --- | --- | --- |
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
-| `editing.intent.resolve` | Map one supported natural-language request to an explicit operation and affected range | Read-only; ambiguous requests return clarification and no operation; resolved destructive requests set `previewRequired` |
+| `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
 | `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
 | `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
-| `editor.native.inspect` | Active native Final Cut selection/playhead and UI focus diagnostics | Requires native writes opt-in and Accessibility permission |
-| `editor.native.focus` | Activate Final Cut and focus the timeline without editing | Bounded retry; returns focus diagnostics on failure |
+| `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
+| `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |
 | `editor.native.edit` | Selection-scoped native Final Cut edit | Requires native writes opt-in and Final Cut frontmost |
+| `editor.native.operation.submit` | Accept a previewed native Final Cut operation as a resumable job without waiting for headed readiness | First implementation supports `disposable.rename-clip`; requires the preview token, project, sequence, target, base revision, and idempotency key |
+| `editor.native.operation.status` | Poll a resumable native operation for readiness, completion, verification, and restoration evidence | Returns structured `waiting_for_final_cut`, terminal state, and sanitized evidence |
+| `editor.native.operation.retry` | Retry a waiting native operation after Final Cut becomes ready | Requires a retryable readiness state and an unexpired preview |
+| `editor.native.operation.cancel` | Cancel pending native work or report recovery when mutation has started | Never claims safe cancellation of an unverified mutation |
 | `editor.native.title.add.preview` | Preview adding a discovered title at the live playhead or an explicit range | Requires a discovered `editor.assets` title, live sequence bounds, and native writes opt-in |
 | `editor.native.title.add.execute` | Add the previewed title, set its text, and verify placement | Requires unchanged sequence/playhead revision; returns a native Undo operation ID |
+| `editor.native.picture-in-picture.preview` | Preview connecting selected Browser video to a stable timeline occurrence | Requires native PIP capability, selected media and occurrence handles, frame-aligned timing, and explicit transform properties |
+| `editor.native.picture-in-picture.execute` | Connect the previewed video, apply transform/crop/frame, and verify Inspector readback | Requires unchanged sequence revision; returns headed-native placement evidence and a native Undo operation ID |
 | `editor.native.transition.search` | Search the visible Final Cut Transitions browser | Returns only transitions with stable native identities; native writes required |
 | `editor.native.transition.add.preview` | Preview adding a discovered transition between two adjacent timeline occurrences | Requires occurrence handles, exact rational timing, unchanged live revision, and native writes opt-in |
 | `editor.native.transition.add.execute` | Add the previewed transition and verify selection, revision, and Undo | Requires unchanged sequence and timeline revision; returns a native Undo operation ID |
+| `editor.native.mask.preview` | Preview a bounded native Draw Mask on one located timeline occurrence | Requires a unique occurrence handle, unchanged live revision, and native writes opt-in; preview is non-mutating |
+| `editor.native.mask.execute` | Apply the previewed Draw Mask and verify readback, revision, and Undo | Fails closed if Final Cut does not expose the requested mask properties |
 | `editor.native.undo` | Final Cut native Undo for an accepted native edit | Requires native writes opt-in |
-| `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle |
+| `editor.native.media.import` | Import one local video or audio file into the active Final Cut Browser | Automatically focuses the Browser, validates the path, waits for Browser availability, and returns a stable session media handle, source identity, and verification; directory inputs return structured guidance to the directory workflow |
+| `editor.native.media.directory.preview` | Enumerate top-level `.mov`, `.mp4`, and `.m4v` files without changing Final Cut | Returns a deterministic, expiring preview; nested directories and unsupported files are excluded |
+| `editor.native.media.directory.execute` | Import every file from a directory preview | Requires `confirm: true`; returns stable per-file media results and explicit partial-failure status |
 | `editor.native.media.search` | Search the active Final Cut Browser | Automatically focuses the Browser and returns short-lived media handles; native writes required |
 | `editor.native.media.select` | Select a Browser result by handle | Fails if the result or selection cannot be verified |
 | `editor.native.media.append.preview` | Preview appending selected Browser media to the timeline | Requires selected media, live duration, and timeline focus |
@@ -51,7 +95,7 @@ this routing tool.
 | `editor.native.media.insert.preview` | Preview inserting selected Browser media at the playhead | Requires selected media, live playhead, and timeline focus |
 | `editor.native.media.insert.execute` | Insert a previously previewed Browser media result at the playhead | Requires unchanged sequence revision/duration/playhead; verifies duration and revision |
 | `editor.native.timeline.locate` | Locate timeline occurrences for a Browser result | Requires exactly one match and timeline focus before automatic editing |
-| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Fails closed for missing/ambiguous media or occurrences; requires live playhead state |
+| `editor.native.media.target` | Search Browser media and target one timeline occurrence | Returns legacy handles/playhead fields plus a stable `TimelineTarget` with explicit projectId, sequenceId, revision, and occurrence; fails closed for missing/ambiguous identity or coordinates |
 | `editor.native.blade.preview` | Prepare a Blade-at-playhead preview token | Token expires and is bound to the occurrence |
 | `editor.native.blade.execute` | Execute a previewed Blade-at-playhead operation | Requires frontmost, timeline-focused Final Cut and post-command verification |
 | `editor.native.delete-range.preview` | Preview a primary-storyline ripple delete for a rational time range | Destructive; requires explicit execute and timeline focus |
@@ -61,16 +105,28 @@ this routing tool.
 | `context.inspect` | Queryable agent editing context | Backend-dependent |
 | `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
-| `project.list` | Stable project and sequence catalog plus active IDs | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge |
+| `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider advertised as `observation.library` |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
+| `artifact.inspect` | Identify the managed FCPXML artifact and its source digest | FCPXML-backed session; unsupported backends fail closed |
+| `artifact.edit` | Edit the identified managed FCPXML artifact in the background | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
+| `artifact.edit.preview` | Preview an ordered background edit against the identified FCPXML artifact | Non-mutating; captures the artifact revision and source digest |
+| `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Returns artifact revision, digest, and `mutatesOpenTimeline: false` |
+| `artifact.edit.diff` | Read the diff for a background artifact transaction | Requires the exact `artifactPath` and transaction ID; reports artifact provenance |
+| `artifact.edit.verify` | Read verification for a background artifact transaction | Requires the exact `artifactPath` and transaction ID; reports artifact provenance |
+| `artifact.edit.undo` | Restore a background artifact transaction | Requires the exact `artifactPath` and transaction ID; never changes the open timeline |
 | `artifact.inspect` | Identify the managed FCPXML artifact | FCPXML-backed session; unsupported backends fail closed |
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
+| `artifact.publish.preview` | Prepare a headed-only handoff for a verified artifact without opening Final Cut | Requires the verified `artifactPath` and `transactionId`; returns an explicit publish job |
+| `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
+| `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
 | `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
 | `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
 | `editor.timeline.edit.execute` | Execute one live timeline preview token and verify the timeline transaction | Requires an unexpired, single-use live timeline preview token |
+| `timeline.mask.add.preview` | Preview a rectangle or supplied-alpha mask for an explicit project, sequence, revision, and occurrence | Non-mutating; requires `editor.masking` and canonical transaction guarantees |
+| `timeline.mask.add.execute` | Execute one mask preview token and verify the requested mask state | Requires an unexpired, single-use preview token; person cutout remains unavailable |
 | `timeline.inspect` | Canonical timeline snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
@@ -79,9 +135,9 @@ this routing tool.
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
 | `music.add.preview` | Explicit alias for the non-mutating music preview | Deterministic fixture |
 | `music.add.execute` | Execute a music preview and return the verified transaction | Deterministic fixture; undo with `edit.undo` |
-| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
+| `timeline.export` | Export the active Final Cut timeline to a local video file and verify completion, existence, duration, resolution, frame rate, audio presence, and optional transaction-bound manifest | Explicit headed-native path; requires live Final Cut native writes, `ffprobe`, and one of the `master` or `web` presets; `transactionId` requires a verified transaction for the active project and sequence; existing outputs require `overwrite: true` |
 | `media.inspect` | Normalized media context | Fixture/FCPXML-backed Final Cut session |
-| `media.search` | Search media references | Fixture/FCPXML-backed Final Cut session |
+| `media.search` | Search media references through configured filesystem discovery or canonical observation | Requires `observation.media`; background discovery is read-only and does not activate Final Cut; unavailable sessions return structured `CAPABILITY_UNAVAILABLE`; capable sessions may return `[]` |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
 | `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
@@ -93,7 +149,7 @@ this routing tool.
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
 | `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
-| `editor.assets` | Search native editor assets by text, kind, or vendor | Fixture or Motion-template registry |
+| `editor.assets` | Search editor assets by text, kind, vendor, and explicit discovery mode; IDs are provider-qualified and include discovery provenance | `discovery: "background"` is the default filesystem registry; `discovery: "native"` explicitly requires Accessibility and Final Cut frontmost; `discovery: "all"` composes both |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
@@ -155,6 +211,11 @@ The three editing surfaces have separate targets and guarantees:
   `createdTarget`, and `activeProject` before/after; it reports
   `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
   guessing.
+- `artifact.publish.preview`, `artifact.publish.execute`, and
+  `artifact.publish.status` expose a bounded headed-only handoff state machine.
+  `awaiting-final-cut` is retryable before import; `verification-pending` is
+  retryable verification only and never repeats the import. Neither state has
+  a `createdTarget`, and only `verified` has a successful publish result.
 
 The target-specific tools are preferred. The older `timeline.edit` and
 `timeline.publish.new-project` names remain registered as compatibility aliases;
@@ -174,6 +235,30 @@ fail with `FCPXML_PROJECT_IDENTITY_UNAVAILABLE` or
 `FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE` instead of deriving IDs from mutable
 names.
 
+When a background library provider is configured, `project.list` routes to that
+provider and does not invoke the canonical snapshot reader or Final Cut's
+`File > Export XML` UI. The response may include `provenance` with the
+background catalog source, observed live socket state, live revision and
+rational timing values, the stable-ID/name-only reconciliation method, and the
+selection capability. Stable IDs are required before active IDs are returned;
+name-only matches and changing revisions remain unresolved or stale and clear
+the active IDs. Background catalog discovery never upgrades metadata-only data
+to canonical timeline evidence, and project selection remains unavailable until
+a provider can prove a supported non-UI selection transition.
+
+The canonical native provider does not synthesize `project.list` from its
+headed canonical snapshot. If no background catalog provider is available,
+`project.list` fails with structured `CAPABILITY_UNAVAILABLE` metadata naming
+canonical `File > Export XML` as the first headed requirement; use
+`project.inspect` when a complete canonical snapshot is intended.
+
+On successful `project.select`, the response retains the catalog's active ID
+fields and adds `requestedTarget`, `observedActiveTarget`, and
+`observedRevision`. The observed target and revision are read back after the
+provider request; an acknowledgement alone is not a successful selection.
+`editor.projectSelectionMode` identifies whether the provider is
+`background-capable`, `headed-only`, or `unavailable`.
+
 The headed project-selection acceptance gate is opt-in and never uses project
 names as IDs:
 
@@ -187,14 +272,38 @@ It requires `projectCatalogRead` and `projectSelection`, enumerates the live
 catalog, selects the explicit project and sequence, and records only the
 allowlisted IDs, counts, capability payload, Final Cut version, and commit.
 With the bundled metadata-only Workflow Extension it fails closed with
-`CAPABILITY_UNAVAILABLE`; that failure is the expected current result until a
-bridge with real catalog and selection support is installed.
+`CAPABILITY_UNAVAILABLE`; the public host API exposes neither library-wide
+enumeration nor project activation, so that failure remains the expected result
+until a supported provider supplies both capabilities.
 
-`media.search` remains canonical snapshot search. Live Browser import and search
-use the explicit `editor.native.media.*` tools because Browser media identity and
-timeline occurrence identity are different. Imported media handles are stable
-for the current native session; timeline occurrence handles remain short-lived
-and bound to the active sequence/playhead state.
+`media.search` is background-first. With `FRAMEKIT_FINAL_CUT_MEDIA_ROOTS`
+configured, it searches local video and audio files without activating,
+focusing, or communicating with Final Cut; otherwise a canonical-capable
+provider may answer from its project snapshot. Filesystem results include a
+provider-qualified media ID, absolute source path, SHA-256 source digest, file
+metadata, and observed filesystem provenance. A changed file or root listing is
+rescanned before the next search. This metadata-only result is not a native
+Browser handle, canonical timeline observation, or placement proof.
+
+`editor.assets` is likewise background-first. The default
+`discovery: "background"` scans configured or standard Motion Template roots
+and returns installation provenance. `discovery: "native"` is the explicit
+headed fallback for Final Cut Titles or Transitions Browser discovery, while
+`discovery: "all"` preserves the composed compatibility response. Filesystem
+assets can support artifact workflows only when their source identity and digest
+are bound. Native title or transition placement must revalidate a stable
+`final-cut:` asset identity, and Browser handles remain separate from timeline
+occurrence identities.
+
+Live Browser import and search continue to use the explicit
+`editor.native.media.*` tools because Browser media identity and timeline
+occurrence identity are different. Imported media handles are stable for the
+current native session; timeline occurrence handles remain short-lived and
+bound to the active sequence/playhead state. `editor.native.media.target`
+also returns the stable `TimelineTarget` contract: project and sequence IDs,
+revision, media identity, occurrence identity, and rational coordinates. Native
+selection/playhead compatibility operations remain headed compatibility and do
+not replace that target with a UI index or coordinate-only match.
 
 ## Semantic media understanding
 
@@ -289,25 +398,64 @@ after 30 seconds by default and are consumed on the first execute attempt.
 Execution rechecks capabilities and the base revision, then applies the ordered
 operations through one adapter transaction. Verification failure or a partial
 adapter write restores the pre-transaction timeline and media registry. The
-deterministic fixture advertises this contract; FCPXML and live Final Cut
-backends continue to fail closed until they implement the same atomic adapter
-port.
+deterministic fixture advertises this contract. The opt-in headed native
+provider implements the same atomic adapter port for one `rename-clip`
+transaction; broader composite primitives and the metadata-only bundled
+Workflow Extension remain unavailable until they advertise atomic preview,
+execution, read-after-write, and rollback support.
+
+## Masking workflow
+
+`timeline.mask.add.preview` accepts an explicit project ID, sequence ID, base
+revision, occurrence ID, and one mask configuration. Rectangle bounds are
+normalized to the frame. `supplied-alpha` requires an explicit video media ID;
+it does not infer an alpha source from a filename. `person-cutout` is part of
+the versioned contract but fails closed unless the selected backend advertises
+and verifies it. Preview does not mutate the project or revision.
+
+Execute with `timeline.mask.add.execute`, then inspect `edit.diff` and
+`edit.verify`. The runtime checks the target identity and requested properties,
+returns a `mask-state` verification check, and restores the complete pre-edit
+state if verification fails. PIP is a separate capability and is never a
+fallback or prerequisite for masking.
+
+For the headed native path, use `editor.native.timeline.locate` followed by
+`editor.native.mask.preview` and `editor.native.mask.execute`. The native
+adapter applies Final Cut's Draw Mask to the selected occurrence and requires
+readback of the bounded configuration plus a changed revision and native Undo.
+Native evidence does not claim canonical timeline enumeration.
 
 ## Explicit editing intent
 
-`editing.intent.resolve` accepts a request string and recognizes only these
+`editing.intent.resolve` accepts a request string and recognizes these explicit
 forms:
 
 - `Cut at 30 seconds and remove the rest` → `trim_to_duration`
 - `Blade at 30 seconds` → `blade_at_playhead`
 - `Remove 10–15 seconds` → `delete_range`
+- `Import "/tmp/interview.mov"` → `media_import`
+- `Select Browser media with handle media-42` → `media_select`
+- `Append the selected media to the active timeline` → `media_append_selected`
+- `Append media with handle media-42 to the timeline` → `media_append`
+- `Insert media with handle media-42 at the playhead` → `media_insert`
+- `Import "/tmp/interview.mov" and append it to the active timeline` → `media_import_then_append`
 
-The result includes the selected operation, the affected range,
-`previewRequired: true`, and the exact `previewTool` to call. The resolver never
-mutates the editor. Callers must use that operation-specific native preview tool
-before an execute call; native execute tools accept only their short-lived
-preview tokens. An unrecognized or ambiguous destructive request returns
-`clarification_required` without an operation or preview tool.
+Destructive timeline resolutions include the selected operation,
+`requiredCapabilities`, explicit `requiredParameters`, the active project
+target, `previewRequired: true`, and the exact `previewTool`, `executeTool`, and
+`workflow` sequence to call. Handle-based append and insert workflows select the
+Browser handle before previewing; selected-media append uses the selected-media
+preview pair directly. Import-and-append remains a sequence of separately
+confirmed native steps, with the append still protected by its own preview
+token. The resolver never mutates the editor.
+
+The MCP server checks the advertised native capabilities while resolving media
+intents. If a required capability is unavailable, resolution returns
+`capability_unavailable` with `requiredCapabilities`, `missingCapabilities`, and
+the relevant operation option; it never claims that a preview or execute path
+is available. Missing paths, handles, placements, and unsupported wording
+return `clarification_required` without inventing values. Existing destructive
+intent mappings retain their original response shape and preview contract.
 
 ## Generic Skills
 
@@ -318,3 +466,33 @@ optional semantic version, and an argument object containing the inspected base
 revision; execute accepts only the runtime-issued preview token. See
 [Generic MCP Skills](./skills.md) for the full contract. Skills use runtime
 capabilities and never embed Final Cut-specific commands.
+
+## Headless editing sessions
+
+The `session.create`, `session.inspect`, and `session.status` tools manage a
+provider-neutral Timeline IR session on disk. `session.edit.preview` is
+non-mutating; `session.edit.execute` changes only the session's desired state.
+Use `session.reconcile` with a fresh provider Timeline IR before materializing
+any session that is possibly stale or conflicted.
+
+`session.observe` binds read-only Final Cut SQLite evidence to session
+freshness. Its digest is explicitly non-canonical and can invalidate a session,
+but it cannot make the session ready or authorize a write.
+
+Use `session.materialize.preview` to inspect the versioned destination and
+artifact digest without staging files. Its `target` requires explicit
+`libraryUid`, `eventUid`, `projectUid`, and `sequenceUid` identities; the
+materialization surface is always create-only and versioned. `session.materialize.execute`
+requires `confirm: true`, stages an immutable FCPXML artifact, and creates a
+persistent job. `session.materialize.status` reads a job after server restart,
+and `session.materialize.retry` resubmits a retryable blocker using the same
+digest-verified artifact. A provider request is not completion: canonical
+readback must match the desired Timeline IR and identify the exact created
+library/event/project/sequence target.
+
+When `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured in
+live mode, it receives the staged request through stdin as an explicit non-UI
+provider contract. The command must create a new versioned project without
+overwriting an existing one and must return sanitized canonical readback. If
+the capability is absent or the console is locked, the job remains a structured
+retryable blocker; Framekit does not activate Final Cut or write SQLite.

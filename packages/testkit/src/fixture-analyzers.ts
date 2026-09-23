@@ -15,6 +15,7 @@ import type {
 
 export class FixtureSpeechAnalyzer implements SpeechAnalyzer {
   public readonly descriptor = { id: "fixture.speech", provider: "fixture", version: "1" };
+  public readonly capabilities = { transcription: true, vad: true };
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
     const speech = input.media.speech;
