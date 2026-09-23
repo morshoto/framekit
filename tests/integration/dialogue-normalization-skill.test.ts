@@ -208,6 +208,33 @@ test("dialogue execution remeasures after writing and verifies the new result", 
   assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });
 
+test("partial post-write dialogue measurement rolls back the transaction", async () => {
+  let calls = 0;
+  const { runtime, adapter } = createFixture({
+    analyze: async ({ project }) => {
+      calls += 1;
+      const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-occurrence")?.gainDb ?? 0;
+      return {
+        integratedLufs: -20 + gain,
+        truePeakDb: -6 + gain,
+        silenceMs: 100,
+        analyzedDurationSeconds: calls === 1 ? 10 : 3,
+        dialoguePresent: true,
+      };
+    },
+  });
+  runtime.registerBuiltinSkills();
+  const { before, preview } = await previewDialogue(runtime);
+
+  const result = await runtime.executeSkill(preview.previewToken);
+
+  assert.equal(calls, 2);
+  assert.equal(result.status, "ROLLED_BACK");
+  assert.equal(result.rollback.succeeded, true);
+  assert.equal(result.verification?.checks.find((check) => check.name === "dialogue-measurement")?.passed, false);
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
+});
+
 test("dialogue Skill targets the selected occurrence when media is repeated", async () => {
   const ranges: Array<{ start: number; end: number } | undefined> = [];
   const { runtime } = createFixture({

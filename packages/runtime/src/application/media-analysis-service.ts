@@ -89,8 +89,8 @@ export class MediaAnalysisService {
       occurrenceId,
       requestedRange,
       measuredRange: {
-        start: 0,
-        end: Number.isFinite(analyzedDurationSeconds) ? analyzedDurationSeconds : clip.duration,
+        start: sourceStart,
+        end: sourceStart + (Number.isFinite(analyzedDurationSeconds) ? analyzedDurationSeconds : clip.duration),
       },
       revision: project.revision,
       provider: this.options.audioAnalyzer.descriptor ?? { id: "framekit.audio", provider: "unknown" },
