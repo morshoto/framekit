@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
+  canonicalTimelineMode,
   createProjectSelectionResult,
   assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
@@ -27,6 +28,7 @@ import {
   type ProjectSelection,
   type ProjectSelectionResult,
   type ProjectSnapshot,
+  type RationalTime,
   type RuntimeCapabilities,
   type CapabilityDescriptor,
   type CapabilityInspectionOptions,
@@ -39,11 +41,9 @@ import { FcpxmlDocumentAdapter } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
 
-const CANONICAL_GAIN_MIN_DB = -6;
-const CANONICAL_GAIN_MAX_DB = 6;
-
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
+  addMarkerAtTime?(marker: { start: RationalTime; duration: RationalTime; name: string }): Promise<{ operationId: string; undoAvailable: boolean }>;
   setSelectedClipGain?(gainDb: number): Promise<{ operationId: string; undoAvailable: boolean }>;
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
@@ -74,6 +74,28 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   executor?: (script: string) => Promise<string>;
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
+}
+
+export interface CanonicalLiveReadiness {
+  ready: boolean;
+  mode: ReturnType<typeof canonicalTimelineMode>;
+  missing: string[];
+}
+
+/** Report the complete guarantees required before claiming canonical live support. */
+export function assessCanonicalLiveReadiness(capabilities: RuntimeCapabilities): CanonicalLiveReadiness {
+  const mode = canonicalTimelineMode(capabilities);
+  const editor = capabilities.editor;
+  const missing = [
+    ...(mode === "canonical-write" ? [] : ["canonical-write"]),
+    ...(!editor.projectCatalogRead ? ["projectCatalogRead"] : []),
+    ...(!editor.projectSelection ? ["projectSelection"] : []),
+    ...(!editor.timelineSnapshotRead ? ["timelineSnapshotRead"] : []),
+    ...(!editor.timelineWrite ? ["timelineWrite"] : []),
+    ...(!editor.readAfterWrite ? ["readAfterWrite"] : []),
+    ...(!editor.rollback ? ["rollback"] : []),
+  ];
+  return { ready: missing.length === 0, mode, missing };
 }
 
 /** Reads the active Final Cut project through its headed Export XML command. */
@@ -305,7 +327,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? true
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
-    return withCapabilityFamilies({
+    const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
         timelineSnapshotRead: snapshotProbe.available,
@@ -326,6 +348,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
           "rename-clip": snapshotProbe.available,
+          "add-marker": snapshotProbe.available && Boolean(this.native.addMarkerAtTime),
           "set-gain": snapshotProbe.available && Boolean(this.native.setSelectedClipGain),
         },
       },
@@ -351,6 +374,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
               guarantee: "observed" as const,
             }
           : false,
+      },
+    });
+    const readiness = assessCanonicalLiveReadiness(capabilities);
+    if (readiness.ready) return capabilities;
+    return withCapabilityFamilies({
+      ...capabilities,
+      editor: {
+        ...capabilities.editor,
+        projectRead: false,
+        timelineSnapshotRead: false,
+        timelineWrite: false,
+        readAfterWrite: false,
+        rollback: false,
+        compositeTransactions: false,
       },
     });
   }
@@ -413,17 +450,28 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
-    const clip = canonicalTargetForOperation(before, supported);
+    const markerRange = supported.type === "add-marker" ? canonicalMarkerRange(before, supported.marker) : undefined;
+    const clip = supported.type === "rename-clip" || supported.type === "set-gain"
+      ? canonicalTargetForOperation(before, supported)
+      : undefined;
 
     const timelineTarget = createTimelineTarget(before, {
-      occurrenceId: clip.id,
-      mediaId: clip.mediaId,
+      ...(clip ? { occurrenceId: clip.id, mediaId: clip.mediaId } : {}),
+      ...(markerRange && compareRational(markerRange.duration, zeroRational()) > 0
+        ? { range: { start: markerRange.start, end: markerRange.end } }
+        : {}),
     });
     resolveTimelineTarget(before, timelineTarget);
-    await this.resolveTarget(clip, before);
+    if (clip) await this.resolveTarget(clip, before);
     const nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
-      : await this.native.setSelectedClipGain!(supported.gainDb);
+      : supported.type === "set-gain"
+        ? await this.native.setSelectedClipGain!(supported.gainDb)
+        : await this.native.addMarkerAtTime!({
+          start: markerRange!.start,
+          duration: markerRange!.duration,
+          name: supported.marker.name,
+        });
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
       throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
@@ -436,13 +484,18 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
     try {
       const after = await this.readProject();
-      const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
-      if (!afterClip) throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: edited occurrence was not read back from Final Cut");
-      if (supported.type === "rename-clip" && afterClip.name !== supported.name) {
-        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
-      }
-      if (supported.type === "set-gain" && (afterClip.gainDb ?? 0) !== supported.gainDb) {
-        throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: gain was not read back from Final Cut");
+      if (supported.type === "rename-clip") {
+        const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
+        if (!afterClip || afterClip.name !== supported.name) {
+          throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+        }
+      } else if (supported.type === "set-gain") {
+        const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
+        if (!afterClip || (afterClip.gainDb ?? 0) !== supported.gainDb) {
+          throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: gain was not read back from Final Cut");
+        }
+      } else {
+        assertMarkerReadback(before, after, supported.marker, markerRange!);
       }
       if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
@@ -588,15 +641,17 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 }
 
-type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "set-gain" }>;
+type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "add-marker" | "set-gain" }>;
 
 function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
-  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "set-gain")) {
-    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip or set-gain transaction");
+  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "set-gain")) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip, add-marker, or set-gain transaction");
   }
   return operations[0].type === "rename-clip"
     ? validateCanonicalRename(operations[0])
-    : validateCanonicalGain(operations[0]);
+    : operations[0].type === "add-marker"
+      ? validateCanonicalMarker(operations[0])
+      : validateCanonicalGain(operations[0]);
 }
 
 function canonicalTargetForOperation(
@@ -609,18 +664,78 @@ function canonicalTargetForOperation(
 }
 
 function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: CanonicalOperation): ProjectSnapshot {
-  const clip = canonicalTargetForOperation(snapshot, operation);
+  if (operation.type === "rename-clip" || operation.type === "set-gain") {
+    const clip = canonicalTargetForOperation(snapshot, operation);
+    return {
+      ...structuredClone(snapshot),
+      timeline: {
+        ...structuredClone(snapshot.timeline),
+        clips: snapshot.timeline.clips.map((candidate) => {
+          if (candidate.id !== clip.id) return candidate;
+          return operation.type === "rename-clip"
+            ? { ...candidate, name: operation.name }
+            : { ...candidate, gainDb: operation.gainDb };
+        }),
+      },
+    };
+  }
+  const range = canonicalMarkerRange(snapshot, operation.marker);
+  if (snapshot.timeline.markers.some(({ id }) => id === operation.marker.id)) {
+    throw new Error(`MARKER_ALREADY_EXISTS: ${operation.marker.id}`);
+  }
+  const marker = {
+    ...structuredClone(operation.marker),
+    start: rationalSeconds(range.start),
+    duration: rationalSeconds(range.duration),
+    startTime: range.start,
+    durationTime: range.duration,
+  };
   return {
     ...structuredClone(snapshot),
     timeline: {
       ...structuredClone(snapshot.timeline),
-      clips: snapshot.timeline.clips.map((candidate) => candidate.id !== clip.id
-        ? candidate
-        : operation.type === "rename-clip"
-          ? { ...candidate, name: operation.name }
-          : { ...candidate, gainDb: operation.gainDb }),
+      markers: [...snapshot.timeline.markers, marker],
     },
   };
+}
+
+function canonicalMarkerRange(snapshot: ProjectSnapshot, marker: Extract<CanonicalOperation, { type: "add-marker" }>["marker"]): { start: RationalTime; duration: RationalTime; end: RationalTime } {
+  if (!marker.id.trim() || !marker.name.trim()) throw new Error("INVALID_OPERATION: marker id and name are required");
+  if (!Number.isFinite(marker.start) || !Number.isFinite(marker.duration) || marker.start < 0 || marker.duration < 0) {
+    throw new Error("INVALID_OPERATION: marker position and duration must be finite and non-negative");
+  }
+  const frameDuration = snapshot.timeline.frameDuration;
+  if (!frameDuration) throw new Error("CAPABILITY_UNAVAILABLE: marker requires sequence frame duration");
+  const start = marker.startTime ?? secondsToRational(marker.start, frameDuration);
+  const duration = marker.durationTime ?? secondsToRational(marker.duration, frameDuration);
+  if (Math.abs(rationalSeconds(start) - marker.start) > 0.000001
+    || Math.abs(rationalSeconds(duration) - marker.duration) > 0.000001) {
+    throw new Error("INVALID_OPERATION: marker rational coordinates disagree with numeric coordinates");
+  }
+  const end = addRational(start, duration);
+  const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(duration, zeroRational(), frameDuration)
+    || compareRational(end, timelineDuration) > 0) {
+    throw new Error("INVALID_OPERATION: marker must be frame-aligned and fit inside the active timeline");
+  }
+  return { start, duration, end };
+}
+
+function assertMarkerReadback(
+  before: ProjectSnapshot,
+  after: ProjectSnapshot,
+  marker: Extract<CanonicalOperation, { type: "add-marker" }>["marker"],
+  range: { start: RationalTime; duration: RationalTime },
+): void {
+  const matches = after.timeline.markers.filter((candidate) => candidate.name === marker.name
+    && sameRational(candidate.startTime ?? secondsToRational(candidate.start), range.start)
+    && sameRational(candidate.durationTime ?? secondsToRational(candidate.duration), range.duration));
+  const beforeMatches = before.timeline.markers.filter((candidate) => candidate.name === marker.name
+    && sameRational(candidate.startTime ?? secondsToRational(candidate.start), range.start)
+    && sameRational(candidate.durationTime ?? secondsToRational(candidate.duration), range.duration));
+  if (matches.length !== beforeMatches.length + 1) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker was not uniquely read back at the requested rational position");
+  }
 }
 
 function validateCanonicalRename(
@@ -630,14 +745,97 @@ function validateCanonicalRename(
   return operation;
 }
 
+function validateCanonicalMarker(
+  operation: Extract<EditOperation, { type: "add-marker" }>,
+): Extract<EditOperation, { type: "add-marker" }> {
+  return operation;
+}
+
 function validateCanonicalGain(
   operation: Extract<EditOperation, { type: "set-gain" }>,
 ): Extract<EditOperation, { type: "set-gain" }> {
   if (!Number.isFinite(operation.gainDb)) throw new Error("INVALID_OPERATION: gain must be finite");
-  if (operation.gainDb < CANONICAL_GAIN_MIN_DB || operation.gainDb > CANONICAL_GAIN_MAX_DB) {
-    throw new Error(`INVALID_OPERATION: gain must be between ${CANONICAL_GAIN_MIN_DB} and ${CANONICAL_GAIN_MAX_DB} dB`);
+  if (operation.gainDb < -6 || operation.gainDb > 6) {
+    throw new Error("INVALID_OPERATION: gain must be between -6 and 6 dB");
   }
   return operation;
+}
+
+function sameRational(left: RationalTime, right: RationalTime): boolean {
+  try {
+    const [leftValue, leftScale] = rationalParts(left);
+    const [rightValue, rightScale] = rationalParts(right);
+    return leftValue * rightScale === rightValue * leftScale;
+  } catch {
+    return false;
+  }
+}
+
+function rationalParts(value: RationalTime): [bigint, bigint] {
+  const numerator = BigInt(value.value);
+  const denominator = BigInt(value.timescale);
+  if (denominator <= 0n) throw new Error("INVALID_OPERATION: rational timescale must be positive");
+  return [numerator, denominator];
+}
+
+function normalizeRational(numerator: bigint, denominator: bigint): RationalTime {
+  const divisor = gcd(numerator < 0n ? -numerator : numerator, denominator);
+  return { value: (numerator / divisor).toString(), timescale: (denominator / divisor).toString() };
+}
+
+function gcd(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
+}
+
+function addRational(left: RationalTime, right: RationalTime): RationalTime {
+  const [leftValue, leftScale] = rationalParts(left);
+  const [rightValue, rightScale] = rationalParts(right);
+  return normalizeRational(leftValue * rightScale + rightValue * leftScale, leftScale * rightScale);
+}
+
+function compareRational(left: RationalTime, right: RationalTime): number {
+  const [leftValue, leftScale] = rationalParts(left);
+  const [rightValue, rightScale] = rationalParts(right);
+  const difference = leftValue * rightScale - rightValue * leftScale;
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function isFrameAligned(value: RationalTime, origin: RationalTime, frameDuration: RationalTime): boolean {
+  const [valueNumerator, valueDenominator] = rationalParts(normalizeRational(
+    rationalParts(value)[0] * rationalParts(origin)[1] - rationalParts(origin)[0] * rationalParts(value)[1],
+    rationalParts(value)[1] * rationalParts(origin)[1],
+  ));
+  const [frameNumerator, frameDenominator] = rationalParts(frameDuration);
+  return (valueNumerator * frameDenominator) % (valueDenominator * frameNumerator) === 0n;
+}
+
+function zeroRational(): RationalTime {
+  return { value: "0", timescale: "1" };
+}
+
+function rationalSeconds(value: RationalTime): number {
+  const [numerator, denominator] = rationalParts(value);
+  return Number(numerator) / Number(denominator);
+}
+
+function secondsToRational(seconds: number, frameDuration?: RationalTime): RationalTime {
+  if (!Number.isFinite(seconds)) throw new Error("INVALID_OPERATION: time must be finite");
+  if (frameDuration) {
+    const frameSeconds = rationalSeconds(frameDuration);
+    const frames = Math.round(seconds / frameSeconds);
+    if (Math.abs(seconds - frames * frameSeconds) > 0.000001) throw new Error("INVALID_OPERATION: time must be frame-aligned");
+    const [frameValue, frameScale] = rationalParts(frameDuration);
+    return normalizeRational(BigInt(frames) * frameValue, frameScale);
+  }
+  const scaled = BigInt(Math.round(seconds * 1_000_000_000));
+  return normalizeRational(scaled, 1_000_000_000n);
 }
 
 function unavailableCanonicalSnapshot(reason: string): CapabilityDescriptor {

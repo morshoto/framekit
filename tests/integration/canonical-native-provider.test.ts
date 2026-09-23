@@ -67,6 +67,20 @@ function snapshot(name: string): ProjectSnapshot {
   };
 }
 
+function markerSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
+  const before = snapshot("Interview");
+  const after = structuredClone(before);
+  after.timeline.markers = [{
+    id: "marker-1",
+    start: 1,
+    duration: 0.5,
+    name: "Review",
+    startTime: { value: "24", timescale: "24" },
+    durationTime: { value: "12", timescale: "24" },
+  }];
+  return { before, after };
+}
+
 function gainSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
   const before = snapshot("Dialogue");
   before.timeline.clips[0] = { ...before.timeline.clips[0]!, gainDb: 0 };
@@ -162,7 +176,12 @@ test("canonical native provider exposes one explicit active project and sequence
   assert.equal(catalog.projects.length, 1);
   assert.equal(catalog.activeProjectId, "final-cut:project:project-1");
   assert.equal(catalog.activeSequenceId, "final-cut:sequence:sequence-1");
-  assert.equal((await provider.getCapabilities()).editor.canonicalTimelineMode, "canonical-write");
+  const capabilities = await provider.getCapabilities();
+  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.editor.projectCatalogRead, true);
+  assert.equal(capabilities.editor.projectSelection, false);
+  assert.equal(capabilities.editor.projectRead, false);
+  assert.equal(capabilities.editor.timelineWrite, false);
 });
 
 test("canonical project listing requires a background catalog", async () => {
@@ -292,6 +311,50 @@ test("canonical native provider previews and applies its supported timeline tran
   await provider.applyTransaction([operation], before.revision);
 
   assert.deepEqual(calls, ["edit"]);
+});
+
+test("canonical native provider previews and applies a revision-guarded marker", async () => {
+  const { before: original, after: marked } = markerSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, original, original, marked, marked, marked, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      addMarkerAtTime: async (marker) => {
+        calls.push(`marker:${marker.start.value}/${marker.start.timescale}:${marker.duration.value}/${marker.duration.timescale}`);
+        return { operationId: "native-marker-1", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "add-marker" as const,
+    timelineId: before.timeline.id,
+    marker: {
+      id: "marker-1",
+      start: 1,
+      duration: 0.5,
+      name: "Review",
+      startTime: { value: "24", timescale: "24" },
+      durationTime: { value: "12", timescale: "24" },
+    },
+    baseRevision: before.revision,
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.markers[0]?.name, "Review");
+  assert.deepEqual(await provider.readProject(), before);
+  assert.deepEqual(calls, []);
+
+  await provider.applyTransaction([operation], before.revision);
+
+  assert.deepEqual(calls, ["marker:24/24:12/24"]);
+  await provider.restore(before, (await provider.readProject()).revision);
+  assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
 });
 
 test("canonical native provider previews and applies a revision-guarded gain", async () => {
