@@ -44,6 +44,12 @@ try {
   toolResults.push({ name: "editor.inspect", status: "passed" });
   requireCanonicalWrite(editor);
 
+  const inspection = await callJson("skill.inspect", { skill: "filler-removal" });
+  toolResults.push({ name: "skill.inspect", status: "passed" });
+  if (inspection.availability?.available !== true) {
+    throw new Error(`CAPABILITY_UNAVAILABLE: filler-removal Skill requirements are unmet: ${JSON.stringify(inspection.availability?.missingRequirements ?? [])}`);
+  }
+
   const live = await callJson("editor.live.inspect");
   toolResults.push({ name: "editor.live.inspect", status: "passed" });
   const before = await callJson("project.inspect");
@@ -58,23 +64,24 @@ try {
     throw new Error(`FINAL_CUT_E2E_RANGE_MISMATCH: ${end} exceeds timeline duration ${before.timeline.duration}`);
   }
 
-  const preview = await callJson("speech.filler.remove.preview", {
-    baseRevision: before.revision,
-    range: { start, end },
+  const preview = await callJson("skill.preview", {
+    skill: "filler-removal",
+    arguments: { baseRevision: before.revision, range: { start, end } },
   });
-  toolResults.push({ name: "speech.filler.remove.preview", status: "passed" });
-  if (!Array.isArray(preview.candidates) || preview.candidates.length === 0) {
+  toolResults.push({ name: "skill.preview", status: "passed" });
+  const candidates = preview.plan?.details?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) {
     throw new Error("FINAL_CUT_E2E_NO_FILLERS: the disposable range contains no high-confidence fillers");
   }
-  const occurrenceIds = [...new Set(preview.candidates.map((candidate) => candidate.clipId).filter(Boolean))];
+  const occurrenceIds = [...new Set(candidates.map((candidate) => candidate.occurrenceId).filter(Boolean))];
   if (occurrenceIds.length !== 1) {
     throw new Error("FINAL_CUT_E2E_OCCURRENCE_AMBIGUOUS: filler range must resolve to exactly one timeline occurrence");
   }
   const occurrenceId = occurrenceIds[0];
 
-  const transaction = await callJson("speech.filler.remove.execute", { previewToken: preview.previewToken });
-  toolResults.push({ name: "speech.filler.remove.execute", status: transaction.status });
-  transactionId = transaction.id;
+  const transaction = await callJson("skill.execute", { previewToken: preview.previewToken });
+  toolResults.push({ name: "skill.execute", status: transaction.status });
+  transactionId = transaction.transactionIds?.[0];
   if (transaction.status !== "VERIFIED") {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: filler removal was not verified");
   }
@@ -86,6 +93,9 @@ try {
     throw new Error("FINAL_CUT_E2E_DIFF_FAILED: verified filler removal did not shorten the timeline");
   }
   canUndo = true;
+
+  const after = await callJson("project.inspect");
+  toolResults.push({ name: "project.inspect", status: "passed" });
 
   const restored = await callJson("edit.undo", { transactionId });
   toolResults.push({ name: "edit.undo", status: "passed" });
@@ -119,10 +129,10 @@ try {
     toolResults,
     removal: {
       status: transaction.status,
-      candidateCount: preview.candidates.length,
-      operationCount: transaction.applied.length,
+      candidateCount: candidates.length,
+      operationCount: preview.plan.operations.length,
       beforeRevision: summarizeRevision(before.revision),
-      afterRevision: summarizeRevision(transaction.after.revision),
+      afterRevision: summarizeRevision(after.revision),
       removedDurationSeconds: -transaction.diff.durationDelta,
       affectedRangeCount: transaction.diff.affectedRanges.length,
       continuityVerified: true,
@@ -171,17 +181,26 @@ function requireCanonicalWrite(editor) {
   if (editor.capabilities?.editor?.canonicalTimelineMode !== "canonical-write") {
     throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${editor.capabilities?.editor?.canonicalTimelineMode ?? "unknown"}; canonical-write is required`);
   }
-  for (const key of ["projectRead", "timelineSnapshotRead", "timelineWrite", "readAfterWrite", "rollback", "liveStateRead", "projectCatalogRead", "projectSelection"]) {
+  for (const key of ["projectRead", "timelineSnapshotRead", "timelineWrite", "readAfterWrite", "rollback", "compositeTransactions", "liveStateRead", "projectCatalogRead", "projectSelection"]) {
     if (editor.capabilities.editor[key] !== true) throw new Error(`CAPABILITY_UNAVAILABLE: headed filler removal requires ${key}`);
   }
   if (editor.capabilities.analyzers?.speechTranscribe !== true) {
     throw new Error("CAPABILITY_UNAVAILABLE: headed filler removal requires speech transcription");
   }
+  if (editor.capabilities.analyzers?.speechVad !== true) {
+    throw new Error("CAPABILITY_UNAVAILABLE: headed filler removal requires speech VAD");
+  }
+  if (editor.capabilities.editor.semanticOperations?.["ripple-delete"] !== true) {
+    throw new Error("CAPABILITY_UNAVAILABLE: headed filler removal requires ripple-delete");
+  }
 }
 
 function allowlistedCapabilities(capabilities) {
   return {
-    editor: pick(capabilities.editor, ["canonicalTimelineMode", "projectRead", "timelineSnapshotRead", "timelineWrite", "timelineArtifactWrite", "readAfterWrite", "incrementalChanges", "rollback", "assetDiscovery", "liveStateRead", "playheadWrite", "frameCapture", "projectCatalogRead", "projectSelection"]),
+    editor: {
+      ...pick(capabilities.editor, ["canonicalTimelineMode", "projectRead", "timelineSnapshotRead", "timelineWrite", "timelineArtifactWrite", "readAfterWrite", "incrementalChanges", "rollback", "compositeTransactions", "assetDiscovery", "liveStateRead", "playheadWrite", "frameCapture", "projectCatalogRead", "projectSelection"]),
+      semanticOperations: pick(capabilities.editor?.semanticOperations, ["ripple-delete"]),
+    },
     analyzers: pick(capabilities.analyzers, ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"]),
   };
 }

@@ -11,8 +11,11 @@ test("headed filler-removal runner covers live preflight, verification, and roll
 
   assert.match(runner, /canonical-write/);
   assert.match(runner, /editor\.live\.inspect/);
-  assert.match(runner, /speech\.filler\.remove\.preview/);
-  assert.match(runner, /speech\.filler\.remove\.execute/);
+  assert.match(runner, /skill\.inspect/);
+  assert.match(runner, /skill\.preview/);
+  assert.match(runner, /skill\.execute/);
+  assert.match(runner, /speechVad/);
+  assert.match(runner, /ripple-delete/);
   assert.match(runner, /filler-speech-continuity/);
   assert.match(runner, /edit\.undo/);
   assert.match(runner, /schemaVersion:\s*1/);
