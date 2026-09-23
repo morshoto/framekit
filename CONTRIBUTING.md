@@ -74,13 +74,14 @@ complete timeline or media enumeration.
 Every commit runs:
 
 ```sh
+node scripts/check-git-config.mjs
 node scripts/check-staged-content.mjs
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
 ```
 
-The first step inspects the staged commit payload, including staged filenames
+The staged-content step inspects the staged commit payload, including staged filenames
 and added text, and fails closed for credentials, user-specific paths, private
 media files, diagnostic dump files, and binary content. It reports only the
 affected repository path, line, and category; matched values are never printed.
