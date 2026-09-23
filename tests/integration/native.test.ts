@@ -1122,6 +1122,51 @@ test("native inspect blocks readiness without a target or Undo", async () => {
   assert.equal(noUndoInspection.readiness.undo, "unavailable");
 });
 
+test("native focus resolves the selected occurrence and binds live target scope", async () => {
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Interview" },
+    sequence: {
+      id: "sequence-1",
+      name: "Main Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", "native-occurrence-1")
+      : script.includes("semanticPoints")
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1)
+        : "",
+  });
+
+  const focused = await adapter.focusTimeline();
+  const target = focused.target as typeof focused.target & {
+    projectId?: string;
+    sequenceId?: string;
+    revision?: { id: string; sequence: number; timestamp: string };
+  };
+
+  assert.equal(target.kind, "selected-clip");
+  assert.equal(target.identity, "native-occurrence-1");
+  assert.equal(target.projectId, "project-1");
+  assert.equal(target.sequenceId, "sequence-1");
+  assert.deepEqual(target.revision, {
+    id: "rev-1",
+    sequence: 1,
+    timestamp: new Date(0).toISOString(),
+  });
+});
+
 test("native inspect retries a transient partial result after focus recovery", async () => {
   let passiveCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
