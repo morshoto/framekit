@@ -63,7 +63,7 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
     });
     const [packed] = JSON.parse(stdout) as Array<{ filename: string }>;
     const archive = join(directory, packed.filename);
-    await exec("npm", ["install", "--ignore-scripts", archive], { cwd: directory });
+    await exec("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
     const installedManifest = JSON.parse(
       await readFile(join(directory, "node_modules", "@morshoto", "framekit", "package.json"), "utf8"),
     ) as { version?: string };
