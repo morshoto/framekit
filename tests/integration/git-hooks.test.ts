@@ -7,13 +7,20 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { hasNativeChanges, isNativePath } from "../../scripts/staged-native-changes.mjs";
 import { installHooks } from "../../scripts/install-git-hooks.mjs";
 import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
 
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const cleanGitEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+);
+
+function git(directory: string, args: string[]) {
+  return exec("git", args, { cwd: directory, env: cleanGitEnvironment });
+}
 
 test("native staged-path detection covers Swift, Xcode, and toolchain files only", () => {
   assert.equal(isNativePath("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension.swift"), true);
@@ -31,15 +38,57 @@ test("hook installer configures a temporary repository idempotently", async () =
   const hookPath = join(directory, ".githooks", "pre-commit");
   await writeFile(hookPath, "#!/bin/sh\nexit 0\n");
   await chmod(hookPath, 0o755);
-  await exec("git", ["init", "--quiet", directory]);
+  await git(directory, ["init", "--quiet"]);
 
   const first = installHooks(directory);
   const second = installHooks(directory);
   assert.equal(first.hooksPath, ".githooks");
   assert.equal(second.hookPath, hookPath);
-  assert.equal((await exec("git", ["-C", directory, "config", "--get", "core.hooksPath"])).stdout.trim(), ".githooks");
+  assert.equal((await git(directory, ["config", "--get", "core.hooksPath"])).stdout.trim(), ".githooks");
   await access(hookPath, constants.X_OK);
   assert.notEqual((await stat(hookPath)).mode & 0o111, 0);
+});
+
+test("hook installer isolates Git config for linked worktrees", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-worktree-config-"));
+  await mkdir(join(directory, ".githooks"), { recursive: true });
+  const hookPath = join(directory, ".githooks", "pre-commit");
+  await writeFile(hookPath, "#!/bin/sh\nexit 0\n");
+  await chmod(hookPath, 0o755);
+  await git(directory, ["init", "--quiet"]);
+  await git(directory, ["config", "user.email", "test@example.com"]);
+  await git(directory, ["config", "user.name", "Framekit Test"]);
+  await writeFile(join(directory, "README.md"), "test\n");
+  await git(directory, ["add", "README.md"]);
+  await git(directory, ["commit", "--quiet", "-m", "init"]);
+
+  installHooks(directory);
+
+  assert.equal(
+    (await git(directory, ["config", "--get", "extensions.worktreeConfig"])).stdout.trim(),
+    "true",
+  );
+  assert.equal(
+    (await git(directory, ["config", "--worktree", "--get", "core.bare"])).stdout.trim(),
+    "false",
+  );
+  assert.equal(
+    (await git(directory, ["config", "--worktree", "--get", "core.hooksPath"])).stdout.trim(),
+    ".githooks",
+  );
+
+  const linkedWorktree = `${directory}-linked`;
+  const linkedBranch = `linked-${basename(directory)}`;
+  await git(directory, ["worktree", "add", "--quiet", linkedWorktree, "-b", linkedBranch]);
+  try {
+    await git(linkedWorktree, ["config", "core.bare", "true"]);
+    assert.equal(
+      (await git(directory, ["rev-parse", "--is-bare-repository"])).stdout.trim(),
+      "false",
+    );
+  } finally {
+    await git(directory, ["worktree", "remove", "--force", linkedWorktree]);
+  }
 });
 
 test("pre-commit hook is executable and shell-valid", async () => {
@@ -53,11 +102,19 @@ test("pre-commit hook presents grouped validation stages and failure diagnostics
   const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
   assert.match(hook, /run_step\(\)/);
   assert.match(hook, /#%d \[%d\/%d\]/);
+  assert.match(hook, /run_step "git configuration" node scripts\/check-git-config\.mjs/);
   assert.match(hook, /run_step "sanitize staged content" node scripts\/check-staged-content\.mjs/);
   assert.match(hook, /--test-reporter=dot/);
   assert.match(hook, /mktemp -d/);
   assert.match(hook, /cat \"\$log_file\" >&2/);
   assert.doesNotMatch(hook, /corepack pnpm/);
+});
+
+test("Git configuration guard is available as a developer command", async () => {
+  const manifest = JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  assert.equal(manifest.scripts?.["check:git-config"], "node scripts/check-git-config.mjs");
 });
 
 test("pre-commit hook animates only in color-capable terminals", async () => {

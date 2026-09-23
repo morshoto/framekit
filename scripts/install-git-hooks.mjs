@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
+import { findRepositoryRoot, repositoryConfigPaths, writeGitConfig } from "./git-config.mjs";
 
 export function repositoryRoot(cwd = process.cwd()) {
-  return execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  return findRepositoryRoot(cwd);
 }
 
 export function installHooks(repoRoot = repositoryRoot()) {
@@ -13,7 +13,12 @@ export function installHooks(repoRoot = repositoryRoot()) {
   if (!existsSync(hookPath)) throw new Error(`Framekit pre-commit hook is missing: ${hookPath}`);
   accessSync(hookPath, constants.X_OK);
   if ((statSync(hookPath).mode & 0o111) === 0) throw new Error(`Framekit pre-commit hook is not executable: ${hookPath}`);
-  execFileSync("git", ["-C", root, "config", "core.hooksPath", ".githooks"], { stdio: "inherit" });
+  const { commonConfig, worktreeConfig } = repositoryConfigPaths(root);
+  writeGitConfig(commonConfig, "extensions.worktreeConfig", "true");
+  writeGitConfig(commonConfig, "core.bare", "false");
+  writeGitConfig(worktreeConfig, "core.bare", "false");
+  writeGitConfig(worktreeConfig, "core.hooksPath", ".githooks");
+  writeGitConfig(commonConfig, "core.hooksPath", ".githooks");
   return { repoRoot: root, hooksPath: ".githooks", hookPath };
 }
 

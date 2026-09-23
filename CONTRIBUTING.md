@@ -3,6 +3,18 @@
 For first-time setup, install the local pre-commit hook with
 `pnpm run hooks:install` after installing dependencies.
 
+When linked worktrees are in use, `hooks:install` also enables Git's
+worktree-local configuration and protects the current worktree with
+`core.bare=false` and `core.hooksPath=.githooks`. Check the repository state with:
+
+```sh
+pnpm run check:git-config
+```
+
+If the check reports shared Git corruption, run `pnpm run hooks:install`. If Git
+cannot enter the checkout, use the explicit `git config --file` repair commands
+printed by the guard before retrying.
+
 ## Development setup
 
 Requirements:
@@ -62,13 +74,14 @@ complete timeline or media enumeration.
 Every commit runs:
 
 ```sh
+node scripts/check-git-config.mjs
 node scripts/check-staged-content.mjs
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
 ```
 
-The first step inspects the staged commit payload, including staged filenames
+The staged-content step inspects the staged commit payload, including staged filenames
 and added text, and fails closed for credentials, user-specific paths, private
 media files, diagnostic dump files, and binary content. It reports only the
 affected repository path, line, and category; matched values are never printed.
