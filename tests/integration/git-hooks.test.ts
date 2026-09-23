@@ -81,7 +81,7 @@ test("hook installer isolates Git config for linked worktrees", async () => {
   const linkedBranch = `linked-${basename(directory)}`;
   await git(directory, ["worktree", "add", "--quiet", linkedWorktree, "-b", linkedBranch]);
   try {
-    await git(linkedWorktree, ["config", "--worktree", "core.bare", "true"]);
+    await git(linkedWorktree, ["config", "core.bare", "true"]);
     assert.equal(
       (await git(directory, ["rev-parse", "--is-bare-repository"])).stdout.trim(),
       "false",
