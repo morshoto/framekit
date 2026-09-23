@@ -1,8 +1,8 @@
 # TDD Plan: Active Final Cut project does not reconcile with catalog project and sequence IDs (#382)
 
-**Type**: Bug  
-**Issue**: https://github.com/morshoto/framekit/issues/382  
-**Complexity**: Medium  
+**Type**: Bug
+**Issue**: https://github.com/morshoto/framekit/issues/382
+**Complexity**: Medium
 **TDD Entry Point**: Extend `tests/integration/project-catalog-reconciliation.test.ts` with stable-ID mismatch and ambiguous-name assertions.
 
 ## Issue Summary
@@ -152,13 +152,13 @@ The headed command is evidence-gated and may remain unavailable when Final Cut P
 
 ## Risks and Mitigations
 
-- **Risk**: a name fallback is accidentally treated as a stable target.  
+- **Risk**: a name fallback is accidentally treated as a stable target.
   **Mitigation**: assert no active IDs for `name-only` and `ambiguous-name` results.
-- **Risk**: catalog metadata is mistaken for canonical timeline proof.  
+- **Risk**: catalog metadata is mistaken for canonical timeline proof.
   **Mitigation**: assert metadata-only capability descriptors remain unavailable for canonical read/write.
-- **Risk**: live target changes during two reads are returned as a successful mapping.  
+- **Risk**: live target changes during two reads are returned as a successful mapping.
   **Mitigation**: retain before/after target and revision tests and require stale status.
-- **Risk**: headed evidence leaks private environment data.  
+- **Risk**: headed evidence leaks private environment data.
   **Mitigation**: keep the evidence summary allowlisted and record only stable target/revision fields.
 
 ## Definition of Done
