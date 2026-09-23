@@ -181,6 +181,8 @@ const editor = liveMode
 const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
+      speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
+      speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       visualCommand: process.env.FRAMEKIT_VISUAL_ANALYZER,
       metadataCommand: process.env.FRAMEKIT_METADATA_ANALYZER,
