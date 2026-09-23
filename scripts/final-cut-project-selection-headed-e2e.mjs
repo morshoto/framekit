@@ -58,6 +58,9 @@ try {
   if (!project.sequences.some((sequence) => sequence?.id === sequenceId)) {
     throw new Error(`FINAL_CUT_E2E_SEQUENCE_NOT_FOUND: ${sequenceId} is not in ${expectedProjectId}`);
   }
+  if (reconciliation.sequence?.catalogId !== sequenceId) {
+    throw new Error(`FINAL_CUT_E2E_RECONCILIATION_SEQUENCE_MISMATCH: reconciled sequence ${reconciliation.sequence?.catalogId ?? "<missing>"} does not match selected sequence ${sequenceId}`);
+  }
 
   const live = await callJson("editor.live.inspect");
   if (
