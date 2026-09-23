@@ -403,6 +403,45 @@ test("canonical native provider rejects middle-of-clip ripple deletes", async ()
   assert.deepEqual(calls, []);
 });
 
+test("canonical native provider rejects collateral ripple-delete readback changes", async () => {
+  const { before: original, after: deleted } = rippleSnapshots();
+  const collateral = structuredClone(deleted);
+  collateral.timeline.markers.push({ id: "unexpected-marker", start: 1, duration: 0, name: "Collateral" });
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, collateral, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      rippleDeleteRange: async () => {
+        calls.push("delete");
+        return { operationId: "native-delete-collateral", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: before.timeline.id,
+    range: {
+      start: 2,
+      end: 4,
+      startTime: { value: "48", timescale: "24" },
+      durationTime: { value: "48", timescale: "24" },
+    },
+    candidateId: "filler-1",
+    reason: "remove verified filler",
+  };
+
+  await assert.rejects(
+    provider.apply(operation, before.revision),
+    /ripple-delete readback differed from the exact canonical projection/,
+  );
+  assert.deepEqual(calls, ["delete", "undo"]);
+});
+
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
   const calls: string[] = [];
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);

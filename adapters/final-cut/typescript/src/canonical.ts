@@ -806,6 +806,9 @@ function assertRippleDeleteReadback(
   range: { start: RationalTime; end: RationalTime },
 ): void {
   const expected = projectCanonicalRippleDelete(before, range);
+  if (canonicalSnapshotDigest(normalizeRippleSnapshot(after)) !== canonicalSnapshotDigest(normalizeRippleSnapshot(expected))) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: ripple-delete readback differed from the exact canonical projection");
+  }
   if (!after.timeline.durationTime || !expected.timeline.durationTime
     || !sameRational(after.timeline.durationTime, expected.timeline.durationTime)) {
     throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: ripple-delete duration was not read back exactly");
@@ -829,6 +832,39 @@ function assertRippleDeleteReadback(
       throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: ripple-delete did not preserve the shifted occurrence coordinates");
     }
   }
+}
+
+function normalizeRippleSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+  const normalized = structuredClone(snapshot);
+  normalized.timeline.durationTime = normalized.timeline.durationTime
+    ? normalizeRationalTime(normalized.timeline.durationTime)
+    : normalized.timeline.durationTime;
+  normalized.timeline.clips = normalized.timeline.clips.map((clip) => ({
+    ...clip,
+    startTime: normalizeRationalTime(clip.startTime),
+    durationTime: normalizeRationalTime(clip.durationTime),
+  }));
+  normalized.timeline.storyElements = normalized.timeline.storyElements.map((element) => ({
+    ...element,
+    ...(element.startTime ? { startTime: normalizeRationalTime(element.startTime) } : {}),
+    ...(element.durationTime ? { durationTime: normalizeRationalTime(element.durationTime) } : {}),
+  }));
+  normalized.timeline.markers = normalized.timeline.markers.map((marker) => ({
+    ...marker,
+    ...(marker.startTime ? { startTime: normalizeRationalTime(marker.startTime) } : {}),
+    ...(marker.durationTime ? { durationTime: normalizeRationalTime(marker.durationTime) } : {}),
+  }));
+  normalized.timeline.captions = normalized.timeline.captions.map((caption) => ({
+    ...caption,
+    ...(caption.startTime ? { startTime: normalizeRationalTime(caption.startTime) } : {}),
+    ...(caption.durationTime ? { durationTime: normalizeRationalTime(caption.durationTime) } : {}),
+  }));
+  return normalized;
+}
+
+function normalizeRationalTime(value: RationalTime): RationalTime {
+  const [numerator, denominator] = rationalParts(value);
+  return normalizeRational(numerator, denominator);
 }
 
 function sameRational(left: RationalTime, right: RationalTime): boolean {
