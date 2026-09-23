@@ -157,6 +157,13 @@ test("configured local speech analyzer rejects missing response provenance", asy
   );
 });
 
+test("configured local speech analyzer requires a provider version", () => {
+  assert.throws(
+    () => new CommandSpeechAnalyzer({ command: "/usr/bin/true", requireVad: true }),
+    /ANALYZER_SETUP_REQUIRED: speech provider version is required when VAD is required/,
+  );
+});
+
 test("configured local speech analyzer rejects mismatched provider provenance", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-provenance-mismatch-"));
   const mediaPath = join(directory, "interview.wav");

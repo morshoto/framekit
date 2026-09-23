@@ -61,6 +61,9 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
   public readonly capabilities: { transcription: true; vad: boolean };
 
   public constructor(private readonly options: CommandAnalyzerOptions) {
+    if (options.requireVad === true && !options.providerVersion?.trim()) {
+      throw new Error("ANALYZER_SETUP_REQUIRED: speech provider version is required when VAD is required");
+    }
     this.descriptor = {
       id: "command.speech",
       provider: "command",

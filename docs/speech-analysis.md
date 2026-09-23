@@ -83,7 +83,8 @@ is optional:
 When `FRAMEKIT_SPEECH_REQUIRE_VAD=1`, the configured provider must return VAD
 segments; transcript-only output is rejected before a destructive Skill can
 use it. `FRAMEKIT_SPEECH_ANALYZER_VERSION` records the local provider version
-in the analyzer descriptor and every bound result.
+in the analyzer descriptor and every bound result, and is required when VAD is
+enabled; startup fails with an actionable setup diagnostic when it is missing.
 
 The normalized runtime and MCP response adds `schemaVersion: 1`, `mediaId`,
 `sourceIdentity`, `requestedRange`, `observedRange`, `revision`, `provider`,
