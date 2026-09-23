@@ -33,6 +33,7 @@ From the repository root, install dependencies and run the deterministic checks:
 ```sh
 pnpm install --frozen-lockfile
 pnpm run hooks:install
+pnpm run check:git-config
 pnpm run build
 pnpm run test
 pnpm run check:boundaries

@@ -3,6 +3,18 @@
 For first-time setup, install the local pre-commit hook with
 `pnpm run hooks:install` after installing dependencies.
 
+When linked worktrees are in use, `hooks:install` also enables Git's
+worktree-local configuration and protects the current worktree with
+`core.bare=false` and `core.hooksPath=.githooks`. Check the repository state with:
+
+```sh
+pnpm run check:git-config
+```
+
+If the check reports shared Git corruption, run `pnpm run hooks:install`. If Git
+cannot enter the checkout, use the explicit `git config --file` repair commands
+printed by the guard before retrying.
+
 ## Development setup
 
 Requirements:
