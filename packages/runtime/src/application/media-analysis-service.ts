@@ -19,6 +19,7 @@ import type {
   RevisionBoundSpeechAnalysis,
   VisualAnalysis,
 } from "../domain/media.js";
+import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimeRange } from "../domain/primitives.js";
@@ -77,7 +78,22 @@ export class MediaAnalysisService {
     const sourceStart = clip.sourceStart ?? 0;
     const requestedRange = { start: sourceStart, end: sourceStart + clip.duration };
     const analysis = await this.options.audioAnalyzer.analyze({ project, media }, requestedRange);
-    const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? clip.duration;
+    validateAudioProvenance(analysis, {
+      media,
+      mediaId,
+      project,
+      provider: this.options.audioAnalyzer.descriptor,
+      requestedRange,
+    });
+    const measuredRange = analysis.measuredRange ?? {
+      start: requestedRange.start,
+      end: requestedRange.start + (analysis.analyzedDurationSeconds ?? clip.duration),
+    };
+    validateAudioRange(measuredRange, requestedRange, "measured audio range");
+    const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? measuredRange.end - measuredRange.start;
+    if (Math.abs(analyzedDurationSeconds - (measuredRange.end - measuredRange.start)) > 0.000001) {
+      throw new Error("ANALYSIS_INVALID: audio measured duration does not match its measured range");
+    }
     const valid = analysis.valid !== false
       && Number.isFinite(analysis.integratedLufs)
       && Number.isFinite(analysis.truePeakDb)
@@ -88,12 +104,9 @@ export class MediaAnalysisService {
       mediaId,
       occurrenceId,
       requestedRange,
-      measuredRange: {
-        start: 0,
-        end: Number.isFinite(analyzedDurationSeconds) ? analyzedDurationSeconds : clip.duration,
-      },
+      measuredRange,
       revision: project.revision,
-      provider: this.options.audioAnalyzer.descriptor ?? { id: "framekit.audio", provider: "unknown" },
+      provider: analysis.provider ?? this.options.audioAnalyzer.descriptor ?? { id: "framekit.audio", provider: "unknown" },
       dialoguePresent: analysis.dialoguePresent
         ?? Boolean(media.speech?.words.some((word) => word.filler !== true)),
       integratedLufs: analysis.integratedLufs,
@@ -547,4 +560,49 @@ function findMedia(project: ProjectSnapshot, mediaId: string): MediaContext {
   const media = project.media.find((candidate) => candidate.mediaId === mediaId);
   if (!media) throw new Error(`MEDIA_NOT_FOUND: ${mediaId}`);
   return media;
+}
+
+function validateAudioProvenance(
+  analysis: AudioAnalysis,
+  expected: {
+    media: MediaContext;
+    mediaId: string;
+    project: ProjectSnapshot;
+    provider?: AnalyzerDescriptor;
+    requestedRange: TimeRange;
+  },
+): void {
+  if (analysis.schemaVersion !== undefined && analysis.schemaVersion !== 1) {
+    throw new Error("ANALYSIS_INVALID: unsupported audio analysis schema version");
+  }
+  if (analysis.mediaId !== undefined && analysis.mediaId !== expected.mediaId) {
+    throw new Error("TARGET_MISMATCH: audio analysis media identity does not match the requested media");
+  }
+  if (analysis.sourceIdentity !== undefined
+    && !sameMediaSourceIdentity(analysis.sourceIdentity, sourceIdentityOf(expected.media))) {
+    throw new Error("TARGET_MISMATCH: audio analysis source identity does not match the requested media");
+  }
+  if (analysis.requestedRange !== undefined && !sameRange(analysis.requestedRange, expected.requestedRange)) {
+    throw new Error("ANALYSIS_INVALID: audio requested range does not match the runtime request");
+  }
+  if (analysis.revision !== undefined
+    && (analysis.revision.id !== expected.project.revision.id || analysis.revision.sequence !== expected.project.revision.sequence)) {
+    throw new Error("ANALYSIS_STALE: audio analysis revision does not match the inspected project");
+  }
+  if (analysis.provider !== undefined && expected.provider !== undefined
+    && !sameDescriptor(analysis.provider, expected.provider)) {
+    throw new Error("ANALYSIS_INVALID: audio provider identity does not match the configured analyzer");
+  }
+}
+
+function validateAudioRange(range: TimeRange, requested: TimeRange, label: string): void {
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)
+    || range.start < requested.start || range.end > requested.end || range.end <= range.start) {
+    throw new Error(`ANALYSIS_INVALID: ${label} must fit inside the requested occurrence range`);
+  }
+}
+
+function sameRange(left: TimeRange, right: TimeRange): boolean {
+  return Math.abs(left.start - right.start) <= 0.000001
+    && Math.abs(left.end - right.end) <= 0.000001;
 }

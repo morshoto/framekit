@@ -6,3 +6,5 @@
     - head-branch: ['^feat']
 'Type: Improvement':
     - head-branch: ['^refactor']
+'Type: Chore':
+    - head-branch: ['^renovate/']
