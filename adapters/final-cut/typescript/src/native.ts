@@ -509,6 +509,8 @@ export interface NativeFinalCutRangeResult {
   beforeDuration: RationalTime;
   afterDuration: RationalTime;
   expectedAfterDuration: RationalTime;
+  beforeRevision: ContextRevision;
+  afterRevision: ContextRevision;
   verification: {
     verified: boolean;
     detail: string;
@@ -2601,6 +2603,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         beforeDuration: preview.beforeDuration,
         afterDuration: preview.beforeDuration,
         expectedAfterDuration: preview.expectedAfterDuration,
+        beforeRevision: beforeLive.revision,
+        afterRevision: beforeLive.revision,
         verification: { verified: true, detail: "Requested duration is already at or below the active sequence duration" },
         undoAvailable: false,
       };
@@ -2640,6 +2644,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       beforeDuration: preview.beforeDuration,
       afterDuration: afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration ?? preview.expectedAfterDuration,
       expectedAfterDuration: preview.expectedAfterDuration,
+      beforeRevision: beforeLive.revision,
+      afterRevision: afterLive.revision,
       verification: { verified: true, detail: detail.detail },
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
@@ -3193,6 +3199,9 @@ function verifyNativeUndo(
     const duration = afterLive?.sequenceTimeRange?.duration ?? afterLive?.sequence?.duration;
     const detail = durationVerificationDetail(duration, operation.beforeDuration);
     if (!detail.verified) return detail;
+  }
+  if (operation.before.target.identity && after.target.identity !== operation.before.target.identity) {
+    return { verified: false, detail: "native target identity changed during Undo" };
   }
   if (operation.kind === "selection" && operation.before.target.name !== after.target.name) {
     return {
