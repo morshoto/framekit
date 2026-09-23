@@ -123,6 +123,10 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           const result = await canonicalNativeMutationEditor!.edit({ type: "rename-selected-clip", name });
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
+        addMarkerAtTime: async (marker) => {
+          const result = await canonicalNativeMutationEditor!.addMarkerAtTime(marker);
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
         undo: async (operationId) => {
           const result = await canonicalNativeMutationEditor!.undo(operationId);
           return { undone: result.undone, verification: result.verification };
