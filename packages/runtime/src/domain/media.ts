@@ -192,6 +192,13 @@ export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
 }
 
 export interface AudioAnalysis {
+  schemaVersion?: 1;
+  mediaId?: string;
+  sourceIdentity?: MediaSourceIdentity;
+  requestedRange?: TimeRange;
+  measuredRange?: TimeRange;
+  revision?: ContextRevision;
+  provider?: AnalyzerDescriptor;
   integratedLufs: number;
   truePeakDb: number;
   silenceMs: number;
