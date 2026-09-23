@@ -439,8 +439,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         validateDiff: (diff) => {
           const afterClip = after.timeline.clips.find(({ id }) => id === operation.clipId);
           const changed = diff.modified.filter(({ itemId }) => itemId === operation.clipId);
-          if (!afterClip || afterClip.name !== operation.name || changed.length !== 1) {
-            throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+          if (!afterClip || afterClip.name !== operation.name
+            || diff.added.length !== 0
+            || diff.removed.length !== 0
+            || diff.modified.length !== 1
+            || changed.length !== 1
+            || diff.markerChanges.length !== 0
+            || diff.storyElementChanges.length !== 0
+            || diff.captionChanges.length !== 0
+            || diff.mediaChanges.length !== 0) {
+            throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back as a rename-only diff from Final Cut");
           }
         },
       });

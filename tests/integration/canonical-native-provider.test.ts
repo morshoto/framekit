@@ -365,6 +365,30 @@ test("canonical native provider undoes failed post-edit verification", async () 
   }
 });
 
+test("canonical native provider rejects collateral changes in rename readback", async () => {
+  const calls: string[] = [];
+  const after = snapshot("Renamed");
+  after.timeline.markers.push({ id: "collateral-marker", start: 1, duration: 0, name: "Unexpected" });
+  const provider = providerFor([
+    snapshot("Original"),
+    snapshot("Original"),
+    after,
+    snapshot("Original"),
+  ], calls);
+  const before = await provider.readProject();
+
+  await assert.rejects(
+    provider.apply({
+      type: "rename-clip",
+      clipId: "final-cut:occurrence:clip-1",
+      name: "Renamed",
+      baseRevision: before.revision,
+    }, before.revision),
+    /renamed occurrence was not read back as a rename-only diff/,
+  );
+  assert.deepEqual(calls, ["edit", "undo"]);
+});
+
 test("canonical native provider rejects ambiguous occurrence bindings before edit", async () => {
   const calls: string[] = [];
   const resolveTarget: CanonicalNativeTargetResolver = async () => {
