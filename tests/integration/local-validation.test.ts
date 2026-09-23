@@ -68,3 +68,19 @@ test("the local MCP launcher provisions development mode and requires alignment"
   assert.match(cli, /connectFinalCut\(\["finalcut", "--development", "--json"\]\)/);
   assert.match(cli, /FRAMEKIT_REQUIRE_BUILD_ALIGNMENT: "1"/);
 });
+
+test("the validation guide documents exact local Codex registration and checks", async () => {
+  const installation = await readFile(resolve(repository, "docs/final-cut/installation.md"), "utf8");
+
+  for (const expected of [
+    "pnpm install --frozen-lockfile",
+    "pnpm run framekit -- mcp --editor final-cut-live --development",
+    "FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native",
+    "FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1",
+    "codex mcp add framekit-local",
+    "buildAlignment.status",
+    "FRAMEKIT_BUILD_COMMIT",
+  ]) {
+    assert.ok(installation.includes(expected), `missing documentation: ${expected}`);
+  }
+});
