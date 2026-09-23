@@ -543,6 +543,9 @@ export interface NativeFinalCutContext {
     name?: string;
     role?: string;
     identity?: string;
+    projectId?: string;
+    sequenceId?: string;
+    revision?: ContextRevision;
   };
   bladeAvailable: boolean;
   undoAvailable: boolean;
@@ -853,7 +856,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      return await this.attachLiveState(await this.ensureTimelineReady());
+      const focused = await this.attachLiveState(await this.ensureTimelineReady());
+      if (!this.liveState || focused.target.kind === "selected-clip") return focused;
+
+      // Timeline focus and target selection are separate Accessibility states.
+      // Re-read the bounded selection tree after focus so a selected occurrence
+      // is not reported as a playhead-only target.
+      return await this.inspectRawNative(undefined, passiveTimelinePreflightScript());
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
@@ -883,6 +892,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       context.playheadTime = live.playheadTime
         ? `${live.playheadTime.value}/${live.playheadTime.timescale}`
         : undefined;
+      if (live.project?.id && live.sequence?.id) {
+        context.target = {
+          ...context.target,
+          projectId: live.project.id,
+          sequenceId: live.sequence.id,
+          revision: structuredClone(live.revision),
+        };
+      }
     } catch {
       // Native UI inspection remains useful when the optional live socket is down.
     }
@@ -2796,10 +2813,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       || expected.target.role !== recovered.target.role;
     const occurrenceChanged = expected.target.kind === "selected-clip" && recovered.target.kind === "selected-clip"
       && (!expected.target.identity || !recovered.target.identity || expected.target.identity !== recovered.target.identity);
+    const scopeChanged = expected.target.projectId !== recovered.target.projectId
+      || expected.target.sequenceId !== recovered.target.sequenceId
+      || expected.target.revision?.id !== recovered.target.revision?.id
+      || expected.target.revision?.sequence !== recovered.target.revision?.sequence
+      || expected.target.revision?.timestamp !== recovered.target.revision?.timestamp;
     const playheadChanged = requirePlayhead
       ? !expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime
       : expected.playheadTime !== recovered.playheadTime;
-    if (targetChanged || occurrenceChanged || playheadChanged) {
+    if (targetChanged || occurrenceChanged || scopeChanged || playheadChanged) {
       throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection or playhead changed during focus recovery");
     }
   }
