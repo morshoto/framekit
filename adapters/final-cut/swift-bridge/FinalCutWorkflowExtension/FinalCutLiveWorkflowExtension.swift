@@ -15,6 +15,11 @@ import ProExtensionHost
 
 private let protocolVersion = 1
 
+private struct BuildFingerprint: Codable {
+    let version: String
+    let commit: String
+}
+
 private struct RationalTime: Codable {
     let value: String
     let timescale: String
@@ -189,6 +194,7 @@ private struct Identity: Codable {
     let name: String
     let version: String
     let backend: String
+    let buildFingerprint: BuildFingerprint
 }
 
 private struct BridgeResult: Codable {
@@ -472,7 +478,12 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     }
 
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
-        let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
+        let identity = Identity(
+            name: "Final Cut Pro",
+            version: "Workflow Extension",
+            backend: "workflow-extension-ipc",
+            buildFingerprint: extensionBuildFingerprint()
+        )
         let capabilities = RuntimeCapabilities(
                 editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: false, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable", backgroundLibraryInspection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
@@ -503,6 +514,14 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         default:
             return failure(request, code: "UNSUPPORTED_METHOD", message: request.method)
         }
+    }
+
+    private func extensionBuildFingerprint() -> BuildFingerprint {
+        let info = Bundle(for: FinalCutLiveWorkflowExtension.self).infoDictionary ?? [:]
+        return BuildFingerprint(
+            version: info["FramekitBuildVersion"] as? String ?? "unknown",
+            commit: info["FramekitBuildCommit"] as? String ?? "unknown"
+        )
     }
 
     private func failure(_ request: BridgeRequest, code: String, message: String) -> BridgeResponse {

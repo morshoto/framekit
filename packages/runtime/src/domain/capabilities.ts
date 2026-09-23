@@ -1,9 +1,15 @@
 import type { SkillOperation } from "./skills.js";
 
+export interface BuildFingerprint {
+  version: string;
+  commit: string;
+}
+
 export interface EditorIdentity {
   name: string;
   version: string;
   backend: string;
+  buildFingerprint?: BuildFingerprint;
 }
 
 export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";

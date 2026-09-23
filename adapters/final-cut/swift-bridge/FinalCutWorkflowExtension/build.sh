@@ -2,6 +2,9 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(git -C "$project_root" rev-parse --show-toplevel)"
+build_version="$(node -p "require('$repo_root/package.json').version")"
+build_commit="$(git -C "$repo_root" rev-parse HEAD)"
 final_cut_app="${FINAL_CUT_APP:-/Applications/Final Cut Pro.app}"
 signing_identity="${FRAMEKIT_CODESIGN_IDENTITY:--}"
 signing_required="${FRAMEKIT_CODESIGN_REQUIRED:-NO}"
@@ -23,7 +26,9 @@ xcodebuild \
   build \
   CODE_SIGN_IDENTITY="$signing_identity" \
   CODE_SIGNING_REQUIRED="$signing_required" \
-  CODE_SIGNING_ALLOWED=YES
+  CODE_SIGNING_ALLOWED=YES \
+  FRAMEKIT_BUILD_VERSION="$build_version" \
+  FRAMEKIT_BUILD_COMMIT="$build_commit"
 
 # The build uses a space-free symlink so XcodeGen can link the embedded Final
 # Cut frameworks reliably. Do not ship that temporary path in the extension's

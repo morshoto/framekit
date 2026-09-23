@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { BuildFingerprint } from "@framekit/runtime";
 
 const FRAMEKIT_PACKAGE_NAME = "@morshoto/framekit";
 
@@ -11,10 +12,7 @@ interface PackageManifest {
 
 export const FRAMEKIT_VERSION = readFramekitVersion();
 
-export interface FramekitBuildFingerprint {
-  version: string;
-  commit: string;
-}
+export type FramekitBuildFingerprint = BuildFingerprint;
 
 export const FRAMEKIT_BUILD_FINGERPRINT: FramekitBuildFingerprint = Object.freeze({
   version: FRAMEKIT_VERSION,
