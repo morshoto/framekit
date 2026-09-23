@@ -49,10 +49,10 @@ export function assertRepositoryConfig(cwd = process.cwd()) {
     ...problems.map((problem) => `- ${problem}`),
     "Run `pnpm run hooks:install` to restore isolated worktree configuration.",
     `If Git worktree commands fail, repair ${state.commonConfig} explicitly:`,
-    `git config --file ${state.commonConfig} core.bare false`,
-    `git config --file ${state.commonConfig} core.hooksPath .githooks`,
-    `git config --file ${state.worktreeConfig} core.bare false`,
-    `git config --file ${state.worktreeConfig} core.hooksPath .githooks`,
+    `git config --file ${JSON.stringify(state.commonConfig)} core.bare false`,
+    `git config --file ${JSON.stringify(state.commonConfig)} core.hooksPath .githooks`,
+    `git config --file ${JSON.stringify(state.worktreeConfig)} core.bare false`,
+    `git config --file ${JSON.stringify(state.worktreeConfig)} core.hooksPath .githooks`,
   ].join("\n"));
 }
 

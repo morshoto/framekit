@@ -17,8 +17,8 @@ function git(directory: string, args: string[]) {
   return exec("git", args, { cwd: directory, env: cleanGitEnvironment });
 }
 
-async function temporaryRepository() {
-  const directory = await mkdtemp(join(os.tmpdir(), "framekit-git-config-"));
+async function temporaryRepository(prefix = "framekit-git-config-") {
+  const directory = await mkdtemp(join(os.tmpdir(), prefix));
   await mkdir(join(directory, ".githooks"), { recursive: true });
   const hookPath = join(directory, ".githooks", "pre-commit");
   await writeFile(hookPath, "#!/bin/sh\nexit 0\n");
@@ -53,6 +53,22 @@ test("repository config guard rejects a shared bare-repository mutation", async 
       (error: unknown) => error instanceof Error
         && /core\.bare=true/.test(error.message)
         && /pnpm run hooks:install/.test(error.message),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("repository config guard quotes repair paths containing spaces", async () => {
+  const directory = await temporaryRepository("framekit git config-");
+  try {
+    const { commonConfig } = repositoryConfigPaths(directory);
+    await git(directory, ["config", "--file", commonConfig, "core.bare", "true"]);
+
+    assert.throws(
+      () => assertRepositoryConfig(directory),
+      (error: unknown) => error instanceof Error
+        && error.message.includes(`git config --file ${JSON.stringify(commonConfig)} core.bare false`),
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
