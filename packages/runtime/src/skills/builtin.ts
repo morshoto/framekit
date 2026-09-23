@@ -686,7 +686,9 @@ async function verifyDialogueSkill(context: SkillVerificationContext): Promise<i
   const targetBound = measurement.mediaId === mediaId
     && measurement.occurrenceId === occurrenceId
     && sameRevision(measurement.revision, context.transaction.attemptedAfter.revision)
-    && Boolean(expectedRange && sameRange(measurement.requestedRange, expectedRange))
+    && Boolean(expectedRange
+      && sameRange(measurement.requestedRange, expectedRange)
+      && sameRange(measurement.measuredRange, expectedRange))
     && Boolean(measurement.provider?.id && measurement.provider.provider);
   const measurementPassed = measurement.valid && targetBound;
   const measurementCheck = {
