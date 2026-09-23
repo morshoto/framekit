@@ -648,6 +648,7 @@ export interface NativeFinalCutEditor {
   inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   edit(operation: NativeFinalCutEdit, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutEditResult>;
+  trimSelectedClipToRange(range: NativeFinalCutRange, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutEditResult>;
   addMarkerAtTime(marker: { start: RationalTime; duration: RationalTime; name: string }, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutEditResult>;
   undo(operationId: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutUndoResult>;
   importMedia(sourcePath: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportResult>;
@@ -900,6 +901,41 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async edit(operation: NativeFinalCutEdit, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutEditResult> {
     return this.withNativeUi(() => this.editNative(operation), options.signal);
+  }
+
+  public async trimSelectedClipToRange(
+    range: NativeFinalCutRange,
+    options: NativeFinalCutRequestOptions = {},
+  ): Promise<NativeFinalCutEditResult> {
+    return this.withNativeUi(() => this.trimSelectedClipToRangeNative(range), options.signal);
+  }
+
+  private async trimSelectedClipToRangeNative(range: NativeFinalCutRange): Promise<NativeFinalCutEditResult> {
+    this.assertEnabled();
+    const live = await this.requireLiveState();
+    const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    const sequenceDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
+    const frameDuration = live.sequence?.frameDuration;
+    if (!sequenceStart || !sequenceDuration || !frameDuration) {
+      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence frame rate and duration are unavailable");
+    }
+    const duration = subtractRational(range.end, range.start);
+    const sequenceEnd = addRational(sequenceStart, sequenceDuration);
+    if (compareRational(duration, zeroRational()) <= 0) {
+      throw new Error("INVALID_OPERATION: canonical trim range must have start before end");
+    }
+    if (compareRational(range.start, sequenceStart) < 0 || compareRational(range.end, sequenceEnd) > 0) {
+      throw new Error("FINAL_CUT_NATIVE_RANGE_OUT_OF_BOUNDS: canonical trim range must be inside the active sequence");
+    }
+    if (!isFrameAligned(range.start, sequenceStart, frameDuration) || !isFrameAligned(range.end, sequenceStart, frameDuration)) {
+      throw new Error("INVALID_OPERATION: canonical trim range must be frame-aligned");
+    }
+
+    await this.requireTimelineTarget({ type: "trim-selected-clip-to-playhead", edge: "end" });
+    if (!live.sequence?.id) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence identity is unavailable");
+    await this.executeNativeScript(setPlayheadScript(this.toTimecode(range.end, live)));
+    await this.waitForPlayhead(range.end, live.sequence.id);
+    return this.editNative({ type: "trim-selected-clip-to-playhead", edge: "end" });
   }
 
   public async addMarkerAtTime(
