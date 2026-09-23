@@ -995,6 +995,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!verification.verified) {
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
     }
+    this.assertNativeRollbackReady(after, "native mutation");
     this.rememberOperation(operationId, { kind: "selection", before, after, beforeLive, afterLive, undoCommand: after.undoCommand });
     return { operationId, operation, command, before, after, verification, undoAvailable: after.undoAvailable, ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}) };
   }
@@ -1702,6 +1703,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (resultingSegments.length < 2) {
       throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
     }
+    this.assertNativeRollbackReady(after, "Blade");
     const operationId = opaqueHandle("native-blade");
     this.rememberOperation(operationId, { kind: "blade", before, after, beforeLive: undefined, afterLive, undoCommand: after.undoCommand });
     return {
@@ -2487,6 +2489,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
     }
+    this.assertNativeRollbackReady(after, `${preview.operation} media insertion`);
     this.rememberOperation(operationId, operation);
     return {
       operationId,
@@ -2624,6 +2627,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       afterLive.sequence?.frameDuration ?? beforeLive.sequence?.frameDuration,
     );
     if (!detail.verified) throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${detail.detail}`);
+    this.assertNativeRollbackReady(after, preview.operation);
     const operationId = opaqueHandle(`native-${preview.operation}`);
     this.rememberOperation(operationId, {
       kind: "range",
@@ -3001,8 +3005,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.readiness.selectedTarget) {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead or select a timeline target in Final Cut Pro");
     }
-    if (!context.undoAvailable) {
-      throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command; native writes require an available Undo command");
+  }
+
+  private assertNativeRollbackReady(context: NativeFinalCutContext, operation: string): void {
+    if (!context.undoAvailable || !context.undoCommand) {
+      throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut did not expose operation-specific Undo after ${operation}; transaction is not safely reversible`);
     }
   }
 
@@ -6681,7 +6688,7 @@ function readinessForContext(context: {
 }): NativeFinalCutReadiness {
   const selectedTarget = context.target.kind !== "none" && context.target.kind !== "unknown";
   const state = context.error?.state
-    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget && context.undoAvailable
+    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget
       ? "ready"
       : "unavailable");
   const overlay = context.overlayBlocked
@@ -6702,12 +6709,10 @@ function readinessForContext(context: {
           : !context.frontmost
             ? "frontmost"
             : !context.timelineFocused
-              ? "timeline-focus"
-              : !selectedTarget
-                ? "target"
-                : !context.undoAvailable
-                  ? "undo"
-                  : undefined;
+          ? "timeline-focus"
+            : !selectedTarget
+              ? "target"
+                : undefined;
   const retryable = context.error?.retryable ?? state !== "ready";
   const nextAction = state === "ready"
     ? "none"
@@ -6725,8 +6730,8 @@ function readinessForContext(context: {
             ? "Focus the Final Cut Pro timeline and retry"
             : firstMissing === "target"
               ? "Select a single timeline target and retry"
-              : firstMissing === "undo"
-                ? "Enable an Undo command in Final Cut Pro and retry"
+              : state === "ready"
+                ? "Native Final Cut is ready for a guarded mutation; verify operation-specific Undo after execution"
                 : state === "timeout"
                   ? "Final Cut did not respond before the native deadline; retry"
                   : state === "cancelled"
