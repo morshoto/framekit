@@ -896,7 +896,7 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
 });
 
-test("native Undo fails closed when Final Cut has no enabled Undo command", async () => {
+test("native edit fails closed when operation Undo is unavailable after mutation", async () => {
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
@@ -909,9 +909,9 @@ test("native Undo fails closed when Final Cut has no enabled Undo command", asyn
   });
   await assert.rejects(
     adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }),
-    /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/,
+    /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut did not expose operation-specific Undo after native mutation/,
   );
-  assert.equal(renamed, false);
+  assert.equal(renamed, true);
   await assert.rejects(adapter.undo("native-op-missing"), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
 });
 
