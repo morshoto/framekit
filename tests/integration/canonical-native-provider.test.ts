@@ -331,6 +331,39 @@ test("canonical native provider previews and applies a revision-guarded gain", a
   assert.deepEqual(calls, ["gain:3", "undo"]);
 });
 
+test("canonical native provider rejects unbounded gains before native mutation", async () => {
+  for (const gainDb of [-7, 7, Number.POSITIVE_INFINITY]) {
+    const calls: string[] = [];
+    const provider = providerFor(
+      [snapshot("Dialogue"), snapshot("Dialogue")],
+      calls,
+      undefined,
+      liveState(),
+      undefined,
+      {
+        setSelectedClipGain: async (gain) => {
+          calls.push(`gain:${gain}`);
+          return { operationId: "unexpected-gain", undoAvailable: true };
+        },
+      },
+    );
+    const before = await provider.readProject();
+
+    await assert.rejects(
+      provider.apply({
+        type: "set-gain",
+        clipId: before.timeline.clips[0]!.id,
+        gainDb,
+        baseRevision: before.revision,
+      }, before.revision),
+      gainDb === Number.POSITIVE_INFINITY
+        ? /INVALID_OPERATION: gain must be finite/
+        : /INVALID_OPERATION: gain must be between -6 and 6 dB/,
+    );
+    assert.deepEqual(calls, []);
+  }
+});
+
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
   const calls: string[] = [];
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);

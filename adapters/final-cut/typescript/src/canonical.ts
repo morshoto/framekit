@@ -39,6 +39,9 @@ import { FcpxmlDocumentAdapter } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
 
+const CANONICAL_GAIN_MIN_DB = -6;
+const CANONICAL_GAIN_MAX_DB = 6;
+
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
   setSelectedClipGain?(gainDb: number): Promise<{ operationId: string; undoAvailable: boolean }>;
@@ -631,6 +634,9 @@ function validateCanonicalGain(
   operation: Extract<EditOperation, { type: "set-gain" }>,
 ): Extract<EditOperation, { type: "set-gain" }> {
   if (!Number.isFinite(operation.gainDb)) throw new Error("INVALID_OPERATION: gain must be finite");
+  if (operation.gainDb < CANONICAL_GAIN_MIN_DB || operation.gainDb > CANONICAL_GAIN_MAX_DB) {
+    throw new Error(`INVALID_OPERATION: gain must be between ${CANONICAL_GAIN_MIN_DB} and ${CANONICAL_GAIN_MAX_DB} dB`);
+  }
   return operation;
 }
 
