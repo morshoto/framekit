@@ -1,5 +1,23 @@
 # Changelog
 
+## [v0.1.11](https://github.com/morshoto/framekit/compare/v0.1.10...v0.1.11) - 2026-09-16
+
+### Feature changes
+- feat: inspect Final Cut SQLite read-only by @morshoto in https://github.com/morshoto/framekit/pull/316
+- feat: reconcile editing session drift by @morshoto in https://github.com/morshoto/framekit/pull/318
+- feat: compile Timeline IR to FCPXML by @morshoto in https://github.com/morshoto/framekit/pull/319
+- feat: add locked console FCPXML experiment by @morshoto in https://github.com/morshoto/framekit/pull/320
+- feat: add unattended editing workflow by @morshoto in https://github.com/morshoto/framekit/pull/321
+- feat: add headless editing sessions by @morshoto in https://github.com/morshoto/framekit/pull/327
+- Experimental shadow bundle mutation safety by @morshoto in https://github.com/morshoto/framekit/pull/329
+- feat: publish headless materialization jobs by @morshoto in https://github.com/morshoto/framekit/pull/335
+- fix: restore headless Workflow Extension connectivity by @morshoto in https://github.com/morshoto/framekit/pull/336
+- feat: Wire background materialization publisher by @morshoto in https://github.com/morshoto/framekit/pull/330
+### Maintenance and internal
+- chore(deps): update pnpm to v12.4.1 by @renovate[bot] in https://github.com/morshoto/framekit/pull/332
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/331
+- docs: architecture update by @morshoto in https://github.com/morshoto/framekit/pull/333
+
 ## [v0.1.10](https://github.com/morshoto/framekit/compare/v0.1.9...v0.1.10) - 2026-09-14
 
 ### Patch changes

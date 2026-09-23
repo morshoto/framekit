@@ -8,7 +8,6 @@ import {
 } from "@framekit/final-cut";
 import {
   AgentVideoRuntime,
-  canonicalSnapshotDigest,
   type ContextRevision,
   type EditorChange,
   type EditorIdentity,
@@ -135,16 +134,18 @@ async function connect(runtime: AgentVideoRuntime) {
   return { client, server };
 }
 
-test("canonical native provider satisfies the MCP targeting, edit, verify, and Undo contract", async () => {
+test("canonical native provider fails closed without an explicit selection guarantee", async () => {
   const calls: string[] = [];
   const { client, server } = await connect(createRuntime(calls));
 
   try {
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.identity.backend, "final-cut-native-canonical");
-    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-write");
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "metadata-only");
     assert.equal(editor.capabilities.editor.projectCatalogRead, true);
     assert.equal(editor.capabilities.editor.projectSelection, false);
+    assert.equal(editor.capabilities.editor.projectRead, false);
+    assert.equal(editor.capabilities.editor.timelineWrite, false);
 
     const selection = await client.callTool({
       name: "project.select",
@@ -175,126 +176,28 @@ test("canonical native provider satisfies the MCP targeting, edit, verify, and U
     assert.equal(catalog.activeSequenceId, "final-cut:sequence:canonical-mcp");
     assert.equal(catalog.provenance.catalog.source, "background-library");
 
-    const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
-    const route = JSON.parse(textFrom(await client.callTool({
-      name: "editing.route",
-      arguments: { operation: "timeline.edit" },
-    })));
-    assert.equal(route.status, "editor-selected");
-    assert.equal(route.selectedPath, "editor");
-
-    const transaction = JSON.parse(textFrom(await client.callTool({
-      name: "editor.timeline.edit",
-      arguments: {
-        projectId: before.projectId,
-        sequenceId: before.timeline.id,
-        baseRevision: before.revision,
-        type: "rename-clip",
-        clipId: before.timeline.clips[0].id,
-        name: "Renamed by MCP",
-      },
-    })));
-    assert.equal(transaction.status, "VERIFIED");
-    assert.equal(transaction.after.timeline.clips[0].name, "Renamed by MCP");
-    assert.deepEqual(calls, ["edit"]);
-
-    const diff = JSON.parse(textFrom(await client.callTool({ name: "edit.diff", arguments: { transactionId: transaction.id } })));
-    assert.equal(diff.modified.some((item: { itemId: string }) => item.itemId === before.timeline.clips[0].id), true);
-    assert.equal(JSON.parse(textFrom(await client.callTool({ name: "edit.verify", arguments: { transactionId: transaction.id } }))).passed, true);
-
-    const stale = await client.callTool({
-      name: "editor.timeline.edit",
-      arguments: {
-        projectId: before.projectId,
-        sequenceId: before.timeline.id,
-        baseRevision: before.revision,
-        type: "rename-clip",
-        clipId: before.timeline.clips[0].id,
-        name: "Stale Rename",
-      },
-    });
-    assert.equal(stale.isError, true);
-    assert.match(textFrom(stale), /STALE_CONTEXT/);
-
-    const mismatch = await client.callTool({
-      name: "editor.timeline.edit",
-      arguments: {
-        projectId: "wrong-project",
-        sequenceId: before.timeline.id,
-        baseRevision: transaction.after.revision,
-        type: "rename-clip",
-        clipId: before.timeline.clips[0].id,
-        name: "Wrong Target",
-      },
-    });
-    assert.equal(mismatch.isError, true);
-    assert.match(textFrom(mismatch), /TARGET_MISMATCH/);
-
-    const undone = JSON.parse(textFrom(await client.callTool({ name: "edit.undo", arguments: { transactionId: transaction.id } })));
-    assert.equal(undone.timeline.clips[0].name, "Original");
-    assert.deepEqual(calls, ["edit", "undo"]);
-    assert.equal(canonicalSnapshotDigest(undone), canonicalSnapshotDigest(before));
+    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    assert.equal(project.isError, true);
+    assert.match(textFrom(project), /project\.inspect requires canonicalDocument\.read/);
+    assert.deepEqual(calls, []);
   } finally {
     await client.close();
     await server.close();
   }
 });
 
-test("canonical native provider exposes a non-mutating preview-token transaction through MCP", async () => {
+test("canonical native provider disables preview transactions without canonical-live readiness", async () => {
   const calls: string[] = [];
   const { client, server } = await connect(createRuntime(calls));
 
   try {
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
-    assert.equal(editor.capabilities.editor.compositeTransactions, true);
-    assert.equal(editor.capabilities.families.editing.compositeTransactions.available, true);
-
-    const before = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
-    const timeline = JSON.parse(textFrom(await client.callTool({ name: "timeline.inspect", arguments: {} })));
-    assert.deepEqual(timeline, before.timeline);
-
-    const preview = JSON.parse(textFrom(await client.callTool({
-      name: "editor.timeline.edit.preview",
-      arguments: {
-        projectId: before.projectId,
-        sequenceId: before.timeline.id,
-        baseRevision: before.revision,
-        operations: [{
-          type: "rename-clip",
-          clipId: before.timeline.clips[0].id,
-          name: "Preview-token rename",
-        }],
-      },
-    })));
-    assert.equal(preview.operations[0].type, "rename-clip");
-    assert.equal(preview.target.projectId, before.projectId);
-    assert.equal(preview.target.sequenceId, before.timeline.id);
-    assert.deepEqual(JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} }))), before);
+    assert.equal(editor.capabilities.editor.compositeTransactions, false);
+    assert.equal(editor.capabilities.families.editing.compositeTransactions.available, false);
+    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    assert.equal(project.isError, true);
+    assert.match(textFrom(project), /project\.inspect requires canonicalDocument\.read/);
     assert.deepEqual(calls, []);
-
-    const transaction = JSON.parse(textFrom(await client.callTool({
-      name: "editor.timeline.edit.execute",
-      arguments: { previewToken: preview.previewToken },
-    })));
-    assert.equal(transaction.status, "VERIFIED");
-    assert.equal(transaction.after.timeline.clips[0].name, "Preview-token rename");
-    assert.ok(transaction.diff.modified.some((item: { itemId: string }) => item.itemId === before.timeline.clips[0].id));
-    assert.ok(transaction.after.revision.sequence > before.revision.sequence);
-    assert.deepEqual(calls, ["edit"]);
-
-    const replay = await client.callTool({
-      name: "editor.timeline.edit.execute",
-      arguments: { previewToken: preview.previewToken },
-    });
-    assert.equal(replay.isError, true);
-    assert.match(textFrom(replay), /PREVIEW_TOKEN_INVALID/);
-
-    const restored = JSON.parse(textFrom(await client.callTool({
-      name: "edit.undo",
-      arguments: { transactionId: transaction.id },
-    })));
-    assert.equal(restored.timeline.clips[0].name, "Original");
-    assert.deepEqual(calls, ["edit", "undo"]);
   } finally {
     await client.close();
     await server.close();

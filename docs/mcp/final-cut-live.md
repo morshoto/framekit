@@ -71,6 +71,8 @@ revision-bearing responses. `editor.inspect` is the first check; then use
 `project.list`, `project.select`, and `project.inspect` before a supported edit.
 Successful mutation evidence must show a target-matching before/after diff, an
 advancing revision, and a restored canonical digest after `edit.undo`.
+The adapter exposes `assessCanonicalLiveReadiness` for deterministic preflight;
+only an empty `missing` list is eligible for a canonical-write claim.
 
 ### Headed native canonical provider
 
