@@ -239,6 +239,47 @@ test("normal live sessions reconcile project catalogs before returning them", as
   });
 });
 
+test("unresolved catalog reconciliation keeps canonical capabilities unavailable", async () => {
+  const session = new FinalCutSessionAdapter({
+    live: {
+      ...live,
+      getCapabilities: async () => ({
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          projectRead: false,
+          timelineSnapshotRead: false,
+          timelineWrite: false,
+          readAfterWrite: false,
+          rollback: false,
+          projectCatalogRead: true,
+          projectSelection: false,
+        },
+      }),
+      listProjects: async () => ({
+        projects: [{
+          id: "catalog-project",
+          name: "Background Project",
+          sequences: [{ id: "catalog-sequence", name: "Main" }],
+        }],
+      }),
+    },
+  });
+
+  const listed = await session.listProjects();
+  const sessionCapabilities = await session.getCapabilities();
+  const reconciliation = listed.provenance?.reconciliation;
+  assert.ok(reconciliation);
+
+  assert.equal(listed.activeProjectId, undefined);
+  assert.equal(listed.activeSequenceId, undefined);
+  assert.equal(reconciliation.status, "unresolved");
+  assert.equal(reconciliation.diagnostics?.[0]?.code, "stable-id-mismatch");
+  assert.equal(sessionCapabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(sessionCapabilities.families?.canonicalDocument.read.available, false);
+  assert.equal(sessionCapabilities.families?.canonicalDocument.write.available, false);
+});
+
 test("sessions expose an explicitly injected background catalog beside metadata-only live state", async () => {
   const session = new FinalCutSessionAdapter({
     live: {
