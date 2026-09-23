@@ -89,6 +89,37 @@ test("routing fails closed when native picture-in-picture is unavailable", () =>
   assert.ok(route.missingCapabilities.includes("native.pictureInPicture"));
 });
 
+test("routing separates native Undo capability from current readiness", () => {
+  const route = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: true, timelineFocus: true, undo: true },
+    nativeReadiness: {
+      state: "unavailable",
+      nextAction: "retry",
+      retryable: true,
+      firstMissing: "undo",
+      frontmost: true,
+      timelineFocus: true,
+      selectedTarget: true,
+      overlay: "clear",
+      permission: "granted",
+      undo: "unavailable",
+      guidance: "Enable an Undo command in Final Cut Pro and retry",
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.selectedPath, "none");
+  assert.ok(route.requiredCapabilities.includes("native.undo"));
+  assert.ok(route.missingCapabilities.includes("native.undo.ready"));
+  assert.deepEqual(route.readiness, {
+    state: "unavailable",
+    nextAction: "retry",
+    retryable: true,
+    firstMissing: "undo",
+    guidance: "Enable an Undo command in Final Cut Pro and retry",
+  });
+});
+
 test("routing fails closed when the expected editor is unavailable", () => {
   const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
     connection: {
