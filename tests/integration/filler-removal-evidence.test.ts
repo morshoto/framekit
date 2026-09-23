@@ -32,3 +32,18 @@ test("headed filler-removal evidence documentation keeps live and deterministic 
   assert.match(documentation, /deterministic/);
   assert.match(documentation, /private media/);
 });
+
+test("headed dialogue documentation requires an explicit disposable target", async () => {
+  const documentation = await readFile(join(repositoryRoot, "docs/tests/final-cut-dialogue-normalization-e2e.md"), "utf8");
+
+  assert.match(documentation, /FRAMEKIT_FINAL_CUT_E2E_PROJECT/);
+  assert.match(documentation, /FRAMEKIT_FINAL_CUT_E2E_OCCURRENCE/);
+  assert.match(documentation, /FRAMEKIT_AUDIO_ANALYZER/);
+  assert.match(documentation, /skill\.inspect/);
+  assert.match(documentation, /LUFS/);
+  assert.match(documentation, /true peak/i);
+  assert.match(documentation, /Undo/);
+  assert.match(documentation, /canonical-live/);
+  assert.match(documentation, /headed-native/);
+  assert.match(documentation, /private media/);
+});
