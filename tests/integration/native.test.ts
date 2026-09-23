@@ -3510,6 +3510,45 @@ test("native Final Cut trim-to-duration deletes the tail and is idempotent when 
   assert.equal(noop.undoAvailable, false);
 });
 
+test("native trim rejects a changed target before mutation", async () => {
+  let targetIdentity = "target-a";
+  let duration = "20";
+  let revision = 1;
+  let deleteCalls = 0;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("key code 51")) {
+        deleteCalls += 1;
+        duration = "12";
+        revision = 2;
+      }
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Delete Range", targetIdentity)
+        : "";
+    },
+  });
+
+  const preview = await adapter.previewTrimToDuration({ value: "12", timescale: "1" });
+  targetIdentity = "target-b";
+
+  await assert.rejects(
+    adapter.executeTrimToDuration(preview.previewToken),
+    /FINAL_CUT_NATIVE_PREVIEW_STALE: native target changed/,
+  );
+  assert.equal(deleteCalls, 0);
+  assert.equal((await liveState()).revision.id, "rev-1");
+  assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
+});
+
 test("native Final Cut range previews reject invalid and stale ranges", async () => {
   let revision = "rev-1";
   let clock = 1_000;
