@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
+  canonicalTimelineMode,
   createProjectSelectionResult,
   assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
@@ -28,11 +29,11 @@ import {
   type ProjectSelectionResult,
   type ProjectSnapshot,
   type RationalTime,
+  type TimeRange,
   type RuntimeCapabilities,
   type CapabilityDescriptor,
   type CapabilityInspectionOptions,
   type WorkflowOperation,
-  type TimeRange,
 } from "@framekit/runtime";
 import type {
   NativeFinalCutEditor,
@@ -43,6 +44,7 @@ const execFile = promisify(execFileCallback);
 
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
+  addMarkerAtTime?(marker: { start: RationalTime; duration: RationalTime; name: string }): Promise<{ operationId: string; undoAvailable: boolean }>;
   rippleDeleteRange?(range: { start: RationalTime; end: RationalTime }): Promise<{ operationId: string; undoAvailable: boolean }>;
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
@@ -73,6 +75,28 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   executor?: (script: string) => Promise<string>;
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
+}
+
+export interface CanonicalLiveReadiness {
+  ready: boolean;
+  mode: ReturnType<typeof canonicalTimelineMode>;
+  missing: string[];
+}
+
+/** Report the complete guarantees required before claiming canonical live support. */
+export function assessCanonicalLiveReadiness(capabilities: RuntimeCapabilities): CanonicalLiveReadiness {
+  const mode = canonicalTimelineMode(capabilities);
+  const editor = capabilities.editor;
+  const missing = [
+    ...(mode === "canonical-write" ? [] : ["canonical-write"]),
+    ...(!editor.projectCatalogRead ? ["projectCatalogRead"] : []),
+    ...(!editor.projectSelection ? ["projectSelection"] : []),
+    ...(!editor.timelineSnapshotRead ? ["timelineSnapshotRead"] : []),
+    ...(!editor.timelineWrite ? ["timelineWrite"] : []),
+    ...(!editor.readAfterWrite ? ["readAfterWrite"] : []),
+    ...(!editor.rollback ? ["rollback"] : []),
+  ];
+  return { ready: missing.length === 0, mode, missing };
 }
 
 /** Reads the active Final Cut project through its headed Export XML command. */
@@ -304,7 +328,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? true
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
-    return withCapabilityFamilies({
+    const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
         timelineSnapshotRead: snapshotProbe.available,
@@ -325,6 +349,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
           "rename-clip": snapshotProbe.available,
+          "add-marker": snapshotProbe.available && Boolean(this.native.addMarkerAtTime),
           "ripple-delete": snapshotProbe.available && Boolean(this.native.rippleDeleteRange),
         },
       },
@@ -350,6 +375,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
               guarantee: "observed" as const,
             }
           : false,
+      },
+    });
+    const readiness = assessCanonicalLiveReadiness(capabilities);
+    if (readiness.ready) return capabilities;
+    return withCapabilityFamilies({
+      ...capabilities,
+      editor: {
+        ...capabilities.editor,
+        projectRead: false,
+        timelineSnapshotRead: false,
+        timelineWrite: false,
+        readAfterWrite: false,
+        rollback: false,
+        compositeTransactions: false,
       },
     });
   }
@@ -412,18 +451,29 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
-    const target = canonicalTargetForOperation(before, supported);
+    const markerRange = supported.type === "add-marker" ? canonicalMarkerRange(before, supported.marker) : undefined;
+    const renameTarget = supported.type === "rename-clip" ? canonicalTargetForOperation(before, supported) : undefined;
+    const clip = renameTarget?.clip;
+    const rippleTarget = supported.type === "ripple-delete" ? canonicalTargetForOperation(before, supported) : undefined;
 
     const timelineTarget = createTimelineTarget(before, {
-      occurrenceId: target.clip.id,
-      mediaId: target.clip.mediaId,
-      ...(target.range ? { range: target.range } : {}),
+      ...(clip ? { occurrenceId: clip.id, mediaId: clip.mediaId } : {}),
+      ...(rippleTarget?.range ? { range: rippleTarget.range } : {}),
+      ...(markerRange && compareRational(markerRange.duration, zeroRational()) > 0
+        ? { range: { start: markerRange.start, end: markerRange.end } }
+        : {}),
     });
     resolveTimelineTarget(before, timelineTarget);
-    await this.resolveTarget(target.clip, before);
+    if (clip) await this.resolveTarget(clip, before);
     const nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
-      : await this.native.rippleDeleteRange!(target.range!);
+      : supported.type === "ripple-delete"
+        ? await this.native.rippleDeleteRange!(rippleTarget!.range!)
+        : await this.native.addMarkerAtTime!({
+          start: markerRange!.start,
+          duration: markerRange!.duration,
+          name: supported.marker.name,
+        });
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
       throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
@@ -441,13 +491,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         if (!afterClip || afterClip.name !== supported.name) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
         }
+      } else if (supported.type === "ripple-delete") {
+        assertRippleDeleteReadback(before, after, rippleTarget!.clip, rippleTarget!.range!);
       } else {
-        assertRippleDeleteReadback(before, after, target.clip, target.range!);
+        assertMarkerReadback(before, after, supported.marker, markerRange!);
       }
       if (canonicalSnapshotDigest(after) === this.pending.beforeDigest) {
         throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native edit did not change the canonical digest");
       }
-      assertTimelineTargetReadAfterWrite(timelineTarget, before, after, supported.type === "ripple-delete" ? { allowOccurrenceRemoval: true } : undefined);
+      assertTimelineTargetReadAfterWrite(
+        timelineTarget,
+        before,
+        after,
+        supported.type === "ripple-delete" ? { allowOccurrenceRemoval: true } : undefined,
+      );
       this.pending.afterRevision = after.revision;
       return after.revision;
     } catch (error) {
@@ -588,15 +645,17 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 }
 
-type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "ripple-delete" }>;
+type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "add-marker" | "ripple-delete" }>;
 
 function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
-  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "ripple-delete")) {
-    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip or ripple-delete transaction");
+  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "ripple-delete")) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip, add-marker, or ripple-delete transaction");
   }
   return operations[0].type === "rename-clip"
     ? validateCanonicalRename(operations[0])
-    : operations[0];
+    : operations[0].type === "add-marker"
+      ? validateCanonicalMarker(operations[0])
+      : operations[0];
 }
 
 interface CanonicalOperationTarget {
@@ -604,7 +663,10 @@ interface CanonicalOperationTarget {
   range?: { start: RationalTime; end: RationalTime };
 }
 
-function canonicalTargetForOperation(snapshot: ProjectSnapshot, operation: CanonicalOperation): CanonicalOperationTarget {
+function canonicalTargetForOperation(
+  snapshot: ProjectSnapshot,
+  operation: Extract<CanonicalOperation, { type: "rename-clip" | "ripple-delete" }>,
+): CanonicalOperationTarget {
   if (operation.type === "rename-clip") {
     const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
@@ -614,9 +676,9 @@ function canonicalTargetForOperation(snapshot: ProjectSnapshot, operation: Canon
     throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
   }
   const range = canonicalRippleRange(snapshot, operation.range);
-  const candidates = snapshot.timeline.clips.filter((clip) => {
-    const end = addRational(clip.startTime, clip.durationTime);
-    return compareRational(clip.startTime, range.end) < 0 && compareRational(end, range.start) > 0;
+  const candidates = snapshot.timeline.clips.filter((candidate) => {
+    const end = addRational(candidate.startTime, candidate.durationTime);
+    return compareRational(candidate.startTime, range.end) < 0 && compareRational(end, range.start) > 0;
   });
   if (candidates.length === 0) {
     throw new Error("TARGET_NOT_FOUND: ripple-delete range does not intersect a timeline occurrence");
@@ -636,19 +698,40 @@ function canonicalTargetForOperation(snapshot: ProjectSnapshot, operation: Canon
 }
 
 function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: CanonicalOperation): ProjectSnapshot {
-  const target = canonicalTargetForOperation(snapshot, operation);
   if (operation.type === "rename-clip") {
+    const { clip } = canonicalTargetForOperation(snapshot, operation);
     return {
       ...structuredClone(snapshot),
       timeline: {
         ...structuredClone(snapshot.timeline),
         clips: snapshot.timeline.clips.map((candidate) => (
-          candidate.id === operation.clipId ? { ...candidate, name: operation.name } : candidate
+          candidate.id === clip.id ? { ...candidate, name: operation.name } : candidate
         )),
       },
     };
   }
-  return projectCanonicalRippleDelete(snapshot, target.range!);
+  if (operation.type === "ripple-delete") {
+    const target = canonicalTargetForOperation(snapshot, operation);
+    return projectCanonicalRippleDelete(snapshot, target.range!);
+  }
+  const range = canonicalMarkerRange(snapshot, operation.marker);
+  if (snapshot.timeline.markers.some(({ id }) => id === operation.marker.id)) {
+    throw new Error(`MARKER_ALREADY_EXISTS: ${operation.marker.id}`);
+  }
+  const marker = {
+    ...structuredClone(operation.marker),
+    start: rationalSeconds(range.start),
+    duration: rationalSeconds(range.duration),
+    startTime: range.start,
+    durationTime: range.duration,
+  };
+  return {
+    ...structuredClone(snapshot),
+    timeline: {
+      ...structuredClone(snapshot.timeline),
+      markers: [...snapshot.timeline.markers, marker],
+    },
+  };
 }
 
 function projectCanonicalRippleDelete(
@@ -683,11 +766,8 @@ function projectClipAfterRippleDelete(
   const clipEnd = addRational(clip.startTime, clip.durationTime);
   if (compareRational(clipEnd, range.start) <= 0) return [structuredClone(clip)];
   if (compareRational(clip.startTime, range.end) >= 0) {
-    return [{
-      ...structuredClone(clip),
-      start: rationalSeconds(subtractRational(clip.startTime, removedDuration)),
-      startTime: subtractRational(clip.startTime, removedDuration),
-    }];
+    const startTime = subtractRational(clip.startTime, removedDuration);
+    return [{ ...structuredClone(clip), start: rationalSeconds(startTime), startTime }];
   }
   if (compareRational(clip.startTime, range.start) < 0) {
     const duration = subtractRational(range.start, clip.startTime);
@@ -717,11 +797,8 @@ function projectStoryElementAfterRippleDelete(
   const elementEnd = addRational(element.startTime, element.durationTime);
   if (compareRational(elementEnd, range.start) <= 0) return [structuredClone(element)];
   if (compareRational(element.startTime, range.end) >= 0) {
-    return [{
-      ...structuredClone(element),
-      start: rationalSeconds(subtractRational(element.startTime, removedDuration)),
-      startTime: subtractRational(element.startTime, removedDuration),
-    }];
+    const startTime = subtractRational(element.startTime, removedDuration);
+    return [{ ...structuredClone(element), start: rationalSeconds(startTime), startTime }];
   }
   if (compareRational(element.startTime, range.start) < 0) {
     const duration = subtractRational(range.start, element.startTime);
@@ -789,14 +866,15 @@ function canonicalRippleRange(snapshot: ProjectSnapshot, range: TimeRange): { st
   if (compareRational(duration, zeroRational()) <= 0) {
     throw new Error("INVALID_OPERATION: ripple-delete range must have positive duration");
   }
-  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(addRational(start, duration), zeroRational(), frameDuration)) {
+  const end = addRational(start, duration);
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
     throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
   }
   const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
-  if (compareRational(start, zeroRational()) < 0 || compareRational(addRational(start, duration), timelineDuration) > 0) {
+  if (compareRational(start, zeroRational()) < 0 || compareRational(end, timelineDuration) > 0) {
     throw new Error("INVALID_OPERATION: ripple-delete range must fit inside the active timeline");
   }
-  return { start, end: addRational(start, duration) };
+  return { start, end };
 }
 
 function assertRippleDeleteReadback(
@@ -867,6 +945,58 @@ function normalizeRationalTime(value: RationalTime): RationalTime {
   return normalizeRational(numerator, denominator);
 }
 
+function canonicalMarkerRange(snapshot: ProjectSnapshot, marker: Extract<CanonicalOperation, { type: "add-marker" }>["marker"]): { start: RationalTime; duration: RationalTime; end: RationalTime } {
+  if (!marker.id.trim() || !marker.name.trim()) throw new Error("INVALID_OPERATION: marker id and name are required");
+  if (!Number.isFinite(marker.start) || !Number.isFinite(marker.duration) || marker.start < 0 || marker.duration < 0) {
+    throw new Error("INVALID_OPERATION: marker position and duration must be finite and non-negative");
+  }
+  const frameDuration = snapshot.timeline.frameDuration;
+  if (!frameDuration) throw new Error("CAPABILITY_UNAVAILABLE: marker requires sequence frame duration");
+  const start = marker.startTime ?? secondsToRational(marker.start, frameDuration);
+  const duration = marker.durationTime ?? secondsToRational(marker.duration, frameDuration);
+  if (Math.abs(rationalSeconds(start) - marker.start) > 0.000001
+    || Math.abs(rationalSeconds(duration) - marker.duration) > 0.000001) {
+    throw new Error("INVALID_OPERATION: marker rational coordinates disagree with numeric coordinates");
+  }
+  const end = addRational(start, duration);
+  const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(duration, zeroRational(), frameDuration)
+    || compareRational(end, timelineDuration) > 0) {
+    throw new Error("INVALID_OPERATION: marker must be frame-aligned and fit inside the active timeline");
+  }
+  return { start, duration, end };
+}
+
+function assertMarkerReadback(
+  before: ProjectSnapshot,
+  after: ProjectSnapshot,
+  marker: Extract<CanonicalOperation, { type: "add-marker" }>["marker"],
+  range: { start: RationalTime; duration: RationalTime },
+): void {
+  const matches = after.timeline.markers.filter((candidate) => candidate.name === marker.name
+    && sameRational(candidate.startTime ?? secondsToRational(candidate.start), range.start)
+    && sameRational(candidate.durationTime ?? secondsToRational(candidate.duration), range.duration));
+  const beforeMatches = before.timeline.markers.filter((candidate) => candidate.name === marker.name
+    && sameRational(candidate.startTime ?? secondsToRational(candidate.start), range.start)
+    && sameRational(candidate.durationTime ?? secondsToRational(candidate.duration), range.duration));
+  if (matches.length !== beforeMatches.length + 1) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker was not uniquely read back at the requested rational position");
+  }
+}
+
+function validateCanonicalRename(
+  operation: Extract<EditOperation, { type: "rename-clip" }>,
+): Extract<EditOperation, { type: "rename-clip" }> {
+  if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
+  return operation;
+}
+
+function validateCanonicalMarker(
+  operation: Extract<EditOperation, { type: "add-marker" }>,
+): Extract<EditOperation, { type: "add-marker" }> {
+  return operation;
+}
+
 function sameRational(left: RationalTime, right: RationalTime): boolean {
   try {
     const [leftValue, leftScale] = rationalParts(left);
@@ -920,8 +1050,10 @@ function compareRational(left: RationalTime, right: RationalTime): number {
 }
 
 function isFrameAligned(value: RationalTime, origin: RationalTime, frameDuration: RationalTime): boolean {
-  const relative = subtractRational(value, origin);
-  const [valueNumerator, valueDenominator] = rationalParts(relative);
+  const [valueNumerator, valueDenominator] = rationalParts(normalizeRational(
+    rationalParts(value)[0] * rationalParts(origin)[1] - rationalParts(origin)[0] * rationalParts(value)[1],
+    rationalParts(value)[1] * rationalParts(origin)[1],
+  ));
   const [frameNumerator, frameDenominator] = rationalParts(frameDuration);
   return (valueNumerator * frameDenominator) % (valueDenominator * frameNumerator) === 0n;
 }
@@ -940,21 +1072,12 @@ function secondsToRational(seconds: number, frameDuration?: RationalTime): Ratio
   if (frameDuration) {
     const frameSeconds = rationalSeconds(frameDuration);
     const frames = Math.round(seconds / frameSeconds);
-    if (Math.abs(seconds - frames * frameSeconds) > 0.000001) {
-      throw new Error("INVALID_OPERATION: time must be frame-aligned");
-    }
+    if (Math.abs(seconds - frames * frameSeconds) > 0.000001) throw new Error("INVALID_OPERATION: time must be frame-aligned");
     const [frameValue, frameScale] = rationalParts(frameDuration);
     return normalizeRational(BigInt(frames) * frameValue, frameScale);
   }
   const scaled = BigInt(Math.round(seconds * 1_000_000_000));
   return normalizeRational(scaled, 1_000_000_000n);
-}
-
-function validateCanonicalRename(
-  operation: Extract<EditOperation, { type: "rename-clip" }>,
-): Extract<EditOperation, { type: "rename-clip" }> {
-  if (!operation.name.trim()) throw new Error("INVALID_OPERATION: clip name cannot be empty");
-  return operation;
 }
 
 function unavailableCanonicalSnapshot(reason: string): CapabilityDescriptor {
