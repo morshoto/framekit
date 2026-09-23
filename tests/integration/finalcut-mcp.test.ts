@@ -318,6 +318,31 @@ test("Final Cut MCP exposes guarded native title preview and execute tools", asy
 
 test("Final Cut MCP routes native picture-in-picture through preview and execute", async () => {
   const requests: unknown[] = [];
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "selected-clip" as const, name: "Primary" },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Native Picture-in-Picture",
+    readiness: {
+      state: "ready" as const,
+      nextAction: "none" as const,
+      retryable: false,
+      frontmost: true,
+      timelineFocus: true,
+      selectedTarget: true,
+      overlay: "clear" as const,
+      permission: "granted" as const,
+      undo: "available" as const,
+      guidance: "Native Final Cut readiness is available",
+    },
+  };
   const preview = {
     previewToken: "pip-preview-1",
     media: { handle: "media-guest", name: "Guest", sourceIdentity: "guest-source" },
@@ -363,6 +388,7 @@ test("Final Cut MCP routes native picture-in-picture through preview and execute
       requiresAccessibility: true as const,
       requiresFinalCutFrontmost: true as const,
     }),
+    inspect: async () => nativeContext,
     previewPictureInPicture: async (request: unknown) => {
       requests.push(request);
       return preview;
