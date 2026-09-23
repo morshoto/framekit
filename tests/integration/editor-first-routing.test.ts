@@ -144,6 +144,30 @@ test("routing separates native Undo capability from current readiness", () => {
   });
 });
 
+test("routing exposes native target resolution state", () => {
+  const selected = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: true, timelineFocus: true, undo: true },
+    nativeReadiness: {
+      ...readyNativeReadiness,
+      targetKind: "selected-clip",
+      targetBound: true,
+    },
+  }));
+  assert.equal(selected.readiness?.targetKind, "selected-clip");
+  assert.equal(selected.readiness?.targetBound, true);
+
+  const unresolved = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: true, timelineFocus: true, undo: true },
+    nativeReadiness: {
+      ...readyNativeReadiness,
+      targetKind: "playhead",
+      targetBound: false,
+    },
+  }));
+  assert.equal(unresolved.readiness?.targetKind, "playhead");
+  assert.equal(unresolved.readiness?.targetBound, false);
+});
+
 test("routing fails closed when the expected editor is unavailable", () => {
   const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
     connection: {
