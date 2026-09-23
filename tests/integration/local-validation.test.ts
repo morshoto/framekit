@@ -60,3 +60,11 @@ test("development extension embeds and reports the checkout fingerprint", async 
   assert.match(extensionSource, /struct BuildFingerprint: Codable/);
   assert.match(extensionSource, /buildFingerprint: extensionBuildFingerprint\(\)/);
 });
+
+test("the local MCP launcher provisions development mode and requires alignment", async () => {
+  const cli = await readFile(resolve(repository, "apps/cli/src/main.ts"), "utf8");
+
+  assert.match(cli, /mcp --editor final-cut-live \[--headless\] \[--development\]/);
+  assert.match(cli, /connectFinalCut\(\["finalcut", "--development", "--json"\]\)/);
+  assert.match(cli, /FRAMEKIT_REQUIRE_BUILD_ALIGNMENT: development \? "1"/);
+});
