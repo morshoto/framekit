@@ -127,6 +127,11 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           const result = await canonicalNativeMutationEditor!.addMarkerAtTime(marker);
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
+        rippleDeleteRange: async (range) => {
+          const preview = await canonicalNativeMutationEditor!.previewDeleteRange(range);
+          const result = await canonicalNativeMutationEditor!.executeDeleteRange(preview.previewToken);
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
         setSelectedClipGain: async (gainDb) => {
           const result = await canonicalNativeMutationEditor!.edit({ type: "set-selected-clip-gain", gainDb });
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };

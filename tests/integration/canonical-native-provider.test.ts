@@ -89,6 +89,54 @@ function gainSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
   return { before, after };
 }
 
+function rippleSnapshots(): { before: ProjectSnapshot; after: ProjectSnapshot } {
+  const before = snapshot("Interview");
+  before.timeline.duration = 6;
+  before.timeline.durationTime = { value: "144", timescale: "24" };
+  before.timeline.clips[0] = {
+    ...before.timeline.clips[0]!,
+    duration: 4,
+    durationTime: { value: "96", timescale: "24" },
+  };
+  before.timeline.storyElements[0] = {
+    ...before.timeline.storyElements[0]!,
+    duration: 4,
+    durationTime: { value: "96", timescale: "24" },
+  };
+  before.timeline.clips.push({
+    id: "final-cut:occurrence:clip-2",
+    mediaId: "final-cut:media:media-1",
+    name: "B-roll",
+    start: 4,
+    duration: 2,
+    track: 0,
+    startTime: { value: "96", timescale: "24" },
+    durationTime: { value: "48", timescale: "24" },
+  });
+  before.timeline.storyElements.push({
+    id: "final-cut:occurrence:clip-2",
+    kind: "asset-clip",
+    start: 4,
+    duration: 2,
+    startTime: { value: "96", timescale: "24" },
+    durationTime: { value: "48", timescale: "24" },
+    lane: 0,
+    mediaId: "final-cut:media:media-1",
+  });
+  const after = structuredClone(before);
+  after.timeline.duration = 4;
+  after.timeline.durationTime = { value: "96", timescale: "24" };
+  after.timeline.clips = [
+    { ...after.timeline.clips[0]!, duration: 2, durationTime: { value: "48", timescale: "24" } },
+    { ...after.timeline.clips[1]!, start: 2, startTime: { value: "48", timescale: "24" } },
+  ];
+  after.timeline.storyElements = [
+    { ...after.timeline.storyElements[0]!, duration: 2, durationTime: { value: "48", timescale: "24" } },
+    { ...after.timeline.storyElements[1]!, start: 2, startTime: { value: "48", timescale: "24" } },
+  ];
+  return { before, after };
+}
+
 function liveState(): EditorLiveState {
   return {
     project: { id: "final-cut:project:project-1", name: "Canonical E2E" },
@@ -311,6 +359,114 @@ test("canonical native provider previews and applies its supported timeline tran
   await provider.applyTransaction([operation], before.revision);
 
   assert.deepEqual(calls, ["edit"]);
+});
+
+test("canonical native provider previews and applies a revision-guarded ripple delete", async () => {
+  const { before: original, after: deleted } = rippleSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, original, original, deleted, deleted, deleted, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      rippleDeleteRange: async (range) => {
+        calls.push(`delete:${range.start.value}/${range.start.timescale}-${range.end.value}/${range.end.timescale}`);
+        return { operationId: "native-delete-1", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: before.timeline.id,
+    range: {
+      start: 2,
+      end: 4,
+      startTime: { value: "48", timescale: "24" },
+      durationTime: { value: "48", timescale: "24" },
+    },
+    candidateId: "filler-1",
+    reason: "remove verified filler",
+  };
+
+  const preview = await provider.previewTransaction([operation], before.revision);
+
+  assert.equal(preview.timeline.duration, 4);
+  assert.equal(preview.timeline.clips[0]?.duration, 2);
+  assert.equal(preview.timeline.clips[1]?.start, 2);
+  assert.deepEqual(await provider.readProject(), before);
+  assert.deepEqual(calls, []);
+
+  await provider.applyTransaction([operation], before.revision);
+
+  assert.deepEqual(calls, ["delete:48/24-4/1"]);
+  await provider.restore(before, (await provider.readProject()).revision);
+  assert.deepEqual(calls, ["delete:48/24-4/1", "undo"]);
+});
+
+test("canonical native provider rejects middle-of-clip ripple deletes", async () => {
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Interview"), snapshot("Interview")], calls);
+  const before = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: before.timeline.id,
+    range: {
+      start: 1,
+      end: 2,
+      startTime: { value: "24", timescale: "24" },
+      durationTime: { value: "24", timescale: "24" },
+    },
+    candidateId: "filler-middle",
+    reason: "remove verified filler",
+  };
+
+  await assert.rejects(
+    provider.previewTransaction([operation], before.revision),
+    /INVALID_OPERATION: ripple-delete middle-of-clip range requires a source-preserving split/,
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("canonical native provider rejects collateral ripple-delete readback changes", async () => {
+  const { before: original, after: deleted } = rippleSnapshots();
+  const collateral = structuredClone(deleted);
+  collateral.timeline.markers.push({ id: "unexpected-marker", start: 1, duration: 0, name: "Collateral" });
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, collateral, original],
+    calls,
+    undefined,
+    liveState(),
+    undefined,
+    {
+      rippleDeleteRange: async () => {
+        calls.push("delete");
+        return { operationId: "native-delete-collateral", undoAvailable: true };
+      },
+    },
+  );
+  const before = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: before.timeline.id,
+    range: {
+      start: 2,
+      end: 4,
+      startTime: { value: "48", timescale: "24" },
+      durationTime: { value: "48", timescale: "24" },
+    },
+    candidateId: "filler-1",
+    reason: "remove verified filler",
+  };
+
+  await assert.rejects(
+    provider.apply(operation, before.revision),
+    /ripple-delete readback differed from the exact canonical projection/,
+  );
+  assert.deepEqual(calls, ["delete", "undo"]);
 });
 
 test("canonical native provider previews and applies a revision-guarded marker", async () => {
