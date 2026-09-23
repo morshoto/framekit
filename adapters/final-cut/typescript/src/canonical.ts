@@ -629,6 +629,9 @@ function canonicalTargetForOperation(snapshot: ProjectSnapshot, operation: Canon
   if (compareRational(range.start, clip.startTime) < 0 || compareRational(range.end, clipEnd) > 0) {
     throw new Error("INVALID_OPERATION: ripple-delete range must fit inside one timeline occurrence");
   }
+  if (compareRational(range.start, clip.startTime) > 0 && compareRational(range.end, clipEnd) < 0) {
+    throw new Error("INVALID_OPERATION: ripple-delete middle-of-clip range requires a source-preserving split");
+  }
   return { clip, range };
 }
 

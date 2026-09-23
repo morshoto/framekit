@@ -379,6 +379,30 @@ test("canonical native provider previews and applies a revision-guarded ripple d
   assert.deepEqual(calls, ["delete:48/24-4/1", "undo"]);
 });
 
+test("canonical native provider rejects middle-of-clip ripple deletes", async () => {
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Interview"), snapshot("Interview")], calls);
+  const before = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: before.timeline.id,
+    range: {
+      start: 1,
+      end: 2,
+      startTime: { value: "24", timescale: "24" },
+      durationTime: { value: "24", timescale: "24" },
+    },
+    candidateId: "filler-middle",
+    reason: "remove verified filler",
+  };
+
+  await assert.rejects(
+    provider.previewTransaction([operation], before.revision),
+    /INVALID_OPERATION: ripple-delete middle-of-clip range requires a source-preserving split/,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("canonical native provider rejects whitespace-only direct renames before mutation", async () => {
   const calls: string[] = [];
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls);
