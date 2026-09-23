@@ -59,6 +59,21 @@ test("repository config guard rejects a shared bare-repository mutation", async 
   }
 });
 
+test("hook installation repairs a shared bare-repository mutation", async () => {
+  const directory = await temporaryRepository();
+  try {
+    const { commonConfig } = repositoryConfigPaths(directory);
+    await git(directory, ["config", "--file", commonConfig, "core.bare", "true"]);
+
+    installHooks(directory);
+
+    assert.doesNotThrow(() => assertRepositoryConfig(directory));
+    assert.equal((await git(directory, ["config", "--file", commonConfig, "--get", "core.bare"])).stdout.trim(), "false");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("repository config guard quotes repair paths containing spaces", async () => {
   const directory = await temporaryRepository("framekit git config-");
   try {

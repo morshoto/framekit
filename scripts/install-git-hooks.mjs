@@ -15,6 +15,7 @@ export function installHooks(repoRoot = repositoryRoot()) {
   if ((statSync(hookPath).mode & 0o111) === 0) throw new Error(`Framekit pre-commit hook is not executable: ${hookPath}`);
   const { commonConfig, worktreeConfig } = repositoryConfigPaths(root);
   writeGitConfig(commonConfig, "extensions.worktreeConfig", "true");
+  writeGitConfig(commonConfig, "core.bare", "false");
   writeGitConfig(worktreeConfig, "core.bare", "false");
   writeGitConfig(worktreeConfig, "core.hooksPath", ".githooks");
   writeGitConfig(commonConfig, "core.hooksPath", ".githooks");
