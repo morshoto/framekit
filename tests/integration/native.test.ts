@@ -161,6 +161,27 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
+test("native Final Cut adapter allows the first edit to establish operation Undo", async () => {
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) renamed = true;
+      if (script.includes('click menu item "Undo Rename"')) renamed = false;
+      return script.includes("timelineWindowAvailable")
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, renamed, true, true, "timeline", 1, renamed ? "Undo Rename" : "")
+        : "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.undoAvailable, true);
+  assert.equal(result.undoCommand, "Undo Rename");
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.context.target.name, "Interview");
+});
+
 test("native Final Cut adapter trims a selected clip to an exact canonical range", async () => {
   const scripts: string[] = [];
   let playhead = "0";
@@ -1096,7 +1117,7 @@ test("native inspect propagates caller cancellation to the native executor", asy
   assert.equal(inspected.readiness.firstMissing, undefined);
 });
 
-test("native inspect blocks readiness without a target or Undo", async () => {
+test("native inspect distinguishes missing target from operation Undo readiness", async () => {
   const noTarget = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
@@ -1116,10 +1137,11 @@ test("native inspect blocks readiness without a target or Undo", async () => {
       : "",
   });
   const noUndoInspection = await noUndo.inspect();
-  assert.equal(noUndoInspection.readiness.state, "unavailable");
-  assert.equal(noUndoInspection.readiness.firstMissing, "undo");
+  assert.equal(noUndoInspection.readiness.state, "ready");
+  assert.equal(noUndoInspection.readiness.firstMissing, undefined);
   assert.equal(noUndoInspection.readiness.selectedTarget, true);
   assert.equal(noUndoInspection.readiness.undo, "unavailable");
+  assert.equal(noUndoInspection.readiness.guidance, "Native Final Cut is ready for a guarded mutation; verify operation-specific Undo after execution");
 });
 
 test("native inspect retries a transient partial result after focus recovery", async () => {
