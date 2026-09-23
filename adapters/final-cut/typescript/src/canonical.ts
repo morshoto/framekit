@@ -324,7 +324,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? true
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
-    return withCapabilityFamilies({
+    const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
         timelineSnapshotRead: snapshotProbe.available,
@@ -366,6 +366,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
               guarantee: "observed" as const,
             }
           : false,
+      },
+    });
+    const readiness = assessCanonicalLiveReadiness(capabilities);
+    if (readiness.ready) return capabilities;
+    return withCapabilityFamilies({
+      ...capabilities,
+      editor: {
+        ...capabilities.editor,
+        projectRead: false,
+        timelineSnapshotRead: false,
+        timelineWrite: false,
+        readAfterWrite: false,
+        rollback: false,
+        compositeTransactions: false,
       },
     });
   }
