@@ -1,7 +1,7 @@
 {
   "name": "@morshoto/framekit",
   "version": "0.1.11",
-  "packageManager": "pnpm@12.4.1",
+  "packageManager": "pnpm@12.5.1",
   "private": false,
   "type": "module",
   "description": "Agentic video editing runtime and MCP server for Final Cut Pro",
