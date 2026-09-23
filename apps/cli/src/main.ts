@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   if (command !== "help") process.exitCode = 1;
 }
 
-async function connectFinalCut(args: string[]): Promise<void> {
+async function connectFinalCut(args: string[]): Promise<ReturnType<FinalCutConnectionManager["getStatus"]>> {
   if (args[0] !== "finalcut") {
     throw new Error("Usage: framekit connect finalcut [--development] [--json]");
   }
@@ -45,6 +45,7 @@ async function connectFinalCut(args: string[]): Promise<void> {
   const status = await manager.ensureConnected();
   printStatus(status, json);
   if (status.state !== "ready") process.exitCode = 1;
+  return status;
 }
 
 async function doctorFinalCut(args: string[]): Promise<void> {
@@ -58,11 +59,19 @@ async function runMcp(args: string[]): Promise<void> {
   const editorIndex = args.indexOf("--editor");
   const editor = editorIndex >= 0 ? args[editorIndex + 1] : "final-cut-live";
   const headless = args.includes("--headless");
+  const development = args.includes("--development");
   if (editor !== "final-cut-live" && editor !== "fixture") {
-    throw new Error("Usage: framekit mcp [--editor final-cut-live|fixture] [--headless]");
+    throw new Error("Usage: framekit mcp [--editor final-cut-live|fixture] [--headless] [--development]");
   }
   if (headless && editor !== "final-cut-live") {
     throw new Error("Usage: --headless is only supported with --editor final-cut-live");
+  }
+  if (development && editor !== "final-cut-live") {
+    throw new Error("Usage: --development is only supported with --editor final-cut-live");
+  }
+  if (development) {
+    const status = await connectFinalCut(["finalcut", "--development", "--json"]);
+    if (status.state !== "ready") return;
   }
   const root = repoRoot();
   const compiled = fileURLToPath(import.meta.url).endsWith(".js");
@@ -72,6 +81,7 @@ async function runMcp(args: string[]): Promise<void> {
     env: {
       ...process.env,
       FRAMEKIT_EDITOR: editor,
+      ...(development ? { FRAMEKIT_REQUIRE_BUILD_ALIGNMENT: "1" } : {}),
       ...(headless
         ? {
             FRAMEKIT_FINAL_CUT_HEADLESS: "1",
@@ -119,7 +129,7 @@ function printHelp(): void {
     "",
     "  framekit connect finalcut [--development] [--json]",
     "  framekit doctor finalcut [--json]",
-    "  framekit mcp --editor final-cut-live [--headless]",
+    "  framekit mcp --editor final-cut-live [--headless] [--development]",
     "",
     "Codex registration:",
     "  codex mcp add framekit -- framekit mcp --editor final-cut-live --headless",
