@@ -1,8 +1,9 @@
 import type { SkillDefinition, SkillPlanningContext, SkillVerificationContext } from "../domain/skills.js";
 import type { RationalTime, TimeRange } from "../domain/primitives.js";
-import type { SpeechWord } from "../domain/media.js";
+import type { AudioMeasurement, SpeechWord } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
 import type { TimelineDiff } from "../domain/diff.js";
+import { sameRevision } from "../context/revision.js";
 import { FillerDetector, type FillerCandidate } from "../speech/filler-detector.js";
 import { SafeCutResolver, type SafeCutDecision } from "../speech/safe-cut-resolver.js";
 import {
@@ -86,6 +87,13 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
   const candidates: FillerCandidate[] = [];
   const decisions: SafeCutDecision[] = [];
   const operations: Array<Extract<import("../domain/editing.js").WorkflowOperation, { type: "ripple-delete" }>> = [];
+  const analysisProvenance: Array<{
+    mediaId: string;
+    occurrenceId: string;
+    sourceRange: TimeRange;
+    revision: import("../domain/primitives.js").ContextRevision;
+    provider: import("../domain/media.js").AnalyzerDescriptor;
+  }> = [];
   for (const clip of context.project.timeline.clips.filter((candidate) =>
     Boolean(candidate.mediaId)
       && candidate.start < selectedRange.end
@@ -103,6 +111,13 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
       end: sourceStart + localRange.end,
     };
     const speech = await context.analyzeSpeech(mediaId, sourceRange);
+    analysisProvenance.push({
+      mediaId,
+      occurrenceId: clip.id,
+      sourceRange: structuredClone(sourceRange),
+      revision: structuredClone(speech.revision ?? context.baseRevision),
+      provider: structuredClone(speech.provider ?? { id: "framekit.speech", provider: "unknown" }),
+    });
     const occurrence = {
       occurrenceId: clip.id,
       mediaId,
@@ -151,6 +166,7 @@ async function planFillerSkill(context: SkillPlanningContext, input: Record<stri
       range: structuredClone(selectedRange),
       candidates: structuredClone(candidates),
       decisions: structuredClone(decisions),
+      analysisProvenance: structuredClone(analysisProvenance),
       selectedCandidateIds: [...selectedCandidateIds],
       candidateProvenance: operations.map((operation, operationIndex) => ({
         candidateId: operation.candidateId!,
@@ -182,6 +198,13 @@ function resolveSequenceFrameDuration(frameDuration: RationalTime | undefined): 
 interface FillerSkillDetails {
   candidates: FillerCandidate[];
   decisions: SafeCutDecision[];
+  analysisProvenance?: Array<{
+    mediaId: string;
+    occurrenceId: string;
+    sourceRange: TimeRange;
+    revision: import("../domain/primitives.js").ContextRevision;
+    provider: import("../domain/media.js").AnalyzerDescriptor;
+  }>;
   candidateProvenance: Array<{
     candidateId: string;
     occurrenceId?: string;
@@ -443,6 +466,7 @@ function dialogueNormalizationSkill(): SkillDefinition {
     handler: {
       normalize: (input) => ({ ...DIALOGUE_NORMALIZATION_DEFAULTS, ...(input as Record<string, unknown>) }),
       plan: async (context, input) => planDialogueSkill(context, input),
+      verify: (context) => verifyDialogueSkill(context),
     },
   };
 }
@@ -622,14 +646,6 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
   const targetGainDb = Number((existingGainDb + plan.clampedGainDb).toFixed(6));
   const verification = plan.decision === "APPLY" ? {
     requireExpectedChange: true,
-    maxTruePeakDb: request.maxTruePeakDb,
-    assertions: [{
-      type: "audio-loudness" as const,
-      mediaId: request.mediaId,
-      occurrenceId: request.occurrenceId,
-      targetLufs: request.targetLufs,
-      toleranceDb: request.toleranceDb,
-    }],
   } : undefined;
   return {
     operations: plan.decision === "APPLY" ? [{
@@ -655,4 +671,95 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
       ...structuredClone(plan),
     },
   };
+}
+
+async function verifyDialogueSkill(context: SkillVerificationContext): Promise<import("../domain/verification.js").VerificationCheck[]> {
+  const details = context.plan.details;
+  const mediaId = typeof details?.mediaId === "string" ? details.mediaId : undefined;
+  const occurrenceId = typeof details?.occurrenceId === "string" ? details.occurrenceId : undefined;
+  const input = context.plan.normalizedInput as unknown as DialogueNormalizationRequest;
+  if (!mediaId || !occurrenceId || !context.measureAudio) {
+    return [{
+      name: "dialogue-measurement",
+      passed: false,
+      status: "unavailable",
+      reason: "AUDIO_MEASUREMENT_UNAVAILABLE",
+      detail: "selected dialogue occurrence cannot be measured after the write",
+    }];
+  }
+
+  let measurement: AudioMeasurement;
+  try {
+    measurement = await context.measureAudio(mediaId, occurrenceId);
+  } catch (error) {
+    return [{
+      name: "dialogue-measurement",
+      passed: false,
+      status: "failed",
+      reason: "POST_WRITE_MEASUREMENT_FAILED",
+      detail: String(error),
+    }];
+  }
+
+  const occurrence = context.transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === occurrenceId);
+  const expectedRange = occurrence
+    ? { start: occurrence.sourceStart ?? 0, end: (occurrence.sourceStart ?? 0) + occurrence.duration }
+    : undefined;
+  const targetBound = measurement.mediaId === mediaId
+    && measurement.occurrenceId === occurrenceId
+    && sameRevision(measurement.revision, context.transaction.attemptedAfter.revision)
+    && Boolean(expectedRange
+      && sameRange(measurement.requestedRange, expectedRange)
+      && sameRange(measurement.measuredRange, expectedRange))
+    && Boolean(measurement.provider?.id && measurement.provider.provider);
+  const measurementPassed = measurement.valid && targetBound;
+  const measurementCheck = {
+    name: "dialogue-measurement",
+    passed: measurementPassed,
+    status: measurementPassed ? "passed" as const : "failed" as const,
+    expected: {
+      mediaId,
+      occurrenceId,
+      revision: context.transaction.attemptedAfter.revision,
+      requestedRange: expectedRange,
+    },
+    observed: measurement,
+    ...(measurementPassed ? {} : { reason: measurement.valid ? "MEASUREMENT_TARGET_MISMATCH" : "MEASUREMENT_INVALID" }),
+    detail: measurementPassed
+      ? "post-write dialogue measurement is valid and bound to the selected occurrence"
+      : "post-write dialogue measurement is invalid or not bound to the selected occurrence",
+  };
+  const loudnessPassed = measurementPassed
+    && Math.abs(measurement.integratedLufs - input.targetLufs) <= input.toleranceDb;
+  const peakPassed = measurementPassed && measurement.truePeakDb <= input.maxTruePeakDb;
+  return [
+    measurementCheck,
+    {
+      name: "dialogue-loudness",
+      passed: loudnessPassed,
+      status: loudnessPassed ? "passed" as const : "failed" as const,
+      expected: { targetLufs: input.targetLufs, toleranceDb: input.toleranceDb },
+      observed: { integratedLufs: measurement.integratedLufs },
+      ...(loudnessPassed ? {} : { reason: "AUDIO_LOUDNESS_OUT_OF_RANGE" }),
+      detail: loudnessPassed
+        ? "post-write loudness is inside the configured tolerance"
+        : "post-write loudness is outside the configured tolerance",
+    },
+    {
+      name: "dialogue-true-peak",
+      passed: peakPassed,
+      status: peakPassed ? "passed" as const : "failed" as const,
+      expected: { maxTruePeakDb: input.maxTruePeakDb },
+      observed: { truePeakDb: measurement.truePeakDb },
+      ...(peakPassed ? {} : { reason: "AUDIO_TRUE_PEAK_OUT_OF_RANGE" }),
+      detail: peakPassed
+        ? "post-write true peak is within the configured limit"
+        : "post-write true peak exceeds the configured limit",
+    },
+  ];
+}
+
+function sameRange(left: TimeRange, right: TimeRange): boolean {
+  return Math.abs(left.start - right.start) <= 0.000001
+    && Math.abs(left.end - right.end) <= 0.000001;
 }

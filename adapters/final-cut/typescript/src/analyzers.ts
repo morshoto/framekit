@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import { bindSpeechAnalysis } from "@framekit/runtime";
+import { bindSpeechAnalysis, sameMediaSourceIdentity } from "@framekit/runtime";
 import type {
   AnalysisInput,
   AudioAnalysis,
   AudioAnalyzer,
+  AnalyzerDescriptor,
   MetadataAnalysis,
   MetadataAnalyzer,
   SpeechAnalysis,
@@ -18,6 +19,8 @@ import type {
 export interface CommandAnalyzerOptions {
   command: string;
   timeoutMs?: number;
+  providerVersion?: string;
+  requireVad?: boolean;
 }
 
 interface AnalyzerRequest extends AnalysisInput {
@@ -26,6 +29,8 @@ interface AnalyzerRequest extends AnalysisInput {
 
 export function createCommandAnalyzers(options: {
   speechCommand?: string;
+  speechProviderVersion?: string;
+  speechRequireVad?: boolean;
   audioCommand?: string;
   visualCommand?: string;
   metadataCommand?: string;
@@ -37,7 +42,14 @@ export function createCommandAnalyzers(options: {
   metadataAnalyzer?: MetadataAnalyzer;
 } {
   return {
-    ...(options.speechCommand ? { speechAnalyzer: new CommandSpeechAnalyzer({ command: options.speechCommand, timeoutMs: options.timeoutMs }) } : {}),
+    ...(options.speechCommand ? {
+      speechAnalyzer: new CommandSpeechAnalyzer({
+        command: options.speechCommand,
+        timeoutMs: options.timeoutMs,
+        ...(options.speechProviderVersion ? { providerVersion: options.speechProviderVersion } : {}),
+        ...(options.speechRequireVad ? { requireVad: true } : {}),
+      }),
+    } : {}),
     ...(options.audioCommand ? { audioAnalyzer: new CommandAudioAnalyzer({ command: options.audioCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.visualCommand ? { visualAnalyzer: new CommandVisualAnalyzer({ command: options.visualCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.metadataCommand ? { metadataAnalyzer: new CommandMetadataAnalyzer({ command: options.metadataCommand, timeoutMs: options.timeoutMs }) } : {}),
@@ -45,15 +57,32 @@ export function createCommandAnalyzers(options: {
 }
 
 export class CommandSpeechAnalyzer implements SpeechAnalyzer {
-  public readonly descriptor = { id: "command.speech", provider: "command" };
-  public readonly capabilities = { transcription: true, vad: false };
+  public readonly descriptor: AnalyzerDescriptor;
+  public readonly capabilities: { transcription: true; vad: boolean };
 
-  public constructor(private readonly options: CommandAnalyzerOptions) {}
+  public constructor(private readonly options: CommandAnalyzerOptions) {
+    if (options.requireVad === true && !options.providerVersion?.trim()) {
+      throw new Error("ANALYZER_SETUP_REQUIRED: speech provider version is required when VAD is required");
+    }
+    this.descriptor = {
+      id: "command.speech",
+      provider: "command",
+      ...(options.providerVersion ? { version: options.providerVersion } : {}),
+    };
+    this.capabilities = { transcription: true, vad: options.requireVad === true };
+  }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
     const result = await runCommand<unknown>(this.options, { ...input, range }, "speech");
     try {
-      return bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
+      if (this.options.requireVad) {
+        requireStrictSpeechProvenance(result, input, range, this.descriptor);
+      }
+      const analysis = bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
+      if (this.options.requireVad && analysis.capability !== "transcription-plus-vad") {
+        throw new Error("ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence");
+      }
+      return analysis;
     } catch (error) {
       throw new Error(`ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema: ${String(error)}`);
     }
@@ -160,6 +189,52 @@ function sourceIdentityOf(media: AnalysisInput["media"]): MediaSourceIdentity {
     ...(media.mediaKind ? { mediaKind: media.mediaKind } : {}),
     ...(media.duration !== undefined ? { duration: media.duration } : {}),
   };
+}
+
+function requireStrictSpeechProvenance(
+  value: unknown,
+  input: AnalysisInput,
+  range: TimeRange | undefined,
+  provider: AnalyzerDescriptor,
+): void {
+  if (!value || typeof value !== "object") {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response must include complete trusted provenance");
+  }
+  const record = value as Record<string, unknown>;
+  const required = ["schemaVersion", "mediaId", "sourceIdentity", "requestedRange", "revision", "provider"];
+  const missing = required.filter((field) => record[field] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`ANALYZER_INVALID_OUTPUT: speech response is missing provenance: ${missing.join(", ")}`);
+  }
+  if (!sameAnalyzerDescriptor(record.provider, provider)) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response provider provenance does not match the configured provider");
+  }
+  const sourceIdentity = sourceIdentityOf(input.media);
+  if (record.mediaId !== sourceIdentity.mediaId
+    || !sameMediaSourceIdentity(record.sourceIdentity as MediaSourceIdentity, sourceIdentity)) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response source identity does not match the requested media");
+  }
+  if (record.schemaVersion !== 1) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response schema version is not supported");
+  }
+  const expectedRange = range ?? (input.media.duration === undefined ? undefined : { start: 0, end: input.media.duration });
+  if (expectedRange && !sameRange(record.requestedRange, expectedRange)) {
+    throw new Error("ANALYZER_INVALID_OUTPUT: speech response range does not match the runtime request");
+  }
+}
+
+function sameAnalyzerDescriptor(value: unknown, expected: AnalyzerDescriptor): boolean {
+  if (!value || typeof value !== "object") return false;
+  const descriptor = value as Record<string, unknown>;
+  return descriptor.id === expected.id
+    && descriptor.provider === expected.provider
+    && descriptor.version === expected.version;
+}
+
+function sameRange(value: unknown, expected: TimeRange): boolean {
+  if (!value || typeof value !== "object") return false;
+  const range = value as Record<string, unknown>;
+  return range.start === expected.start && range.end === expected.end;
 }
 
 function validateResult(value: unknown, kind: string): void {

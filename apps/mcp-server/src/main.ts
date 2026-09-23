@@ -111,6 +111,7 @@ const nativeEditor = liveMode
 const canonicalNativeMutationEditor = canonicalNativeProviderEnabled
   ? new FinalCutNativeAutomationAdapter({
       enabled: true,
+      liveState: () => liveAdapter!.readLiveState(),
       nativeOperationLease,
     })
   : nativeEditor;
@@ -123,6 +124,10 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           const result = await canonicalNativeMutationEditor!.edit({ type: "rename-selected-clip", name });
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
+        trimSelectedClipToRange: async (range) => {
+          const result = await canonicalNativeMutationEditor!.trimSelectedClipToRange(range);
+          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+        },
         addMarkerAtTime: async (marker) => {
           const result = await canonicalNativeMutationEditor!.addMarkerAtTime(marker);
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
@@ -133,8 +138,8 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
         setSelectedClipGain: async (gainDb) => {
-          const result = await canonicalNativeMutationEditor!.edit({ type: "set-selected-clip-gain", gainDb });
-          return { operationId: result.operationId, undoAvailable: result.undoAvailable };
+           const result = await canonicalNativeMutationEditor!.edit({ type: "set-selected-clip-gain", gainDb });
+           return { operationId: result.operationId, undoAvailable: result.undoAvailable };
         },
         undo: async (operationId) => {
           const result = await canonicalNativeMutationEditor!.undo(operationId);
@@ -176,6 +181,8 @@ const editor = liveMode
 const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
+      speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
+      speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       visualCommand: process.env.FRAMEKIT_VISUAL_ANALYZER,
       metadataCommand: process.env.FRAMEKIT_METADATA_ANALYZER,
