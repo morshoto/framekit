@@ -1167,6 +1167,22 @@ test("native focus resolves the selected occurrence and binds live target scope"
   });
 });
 
+test("native inspect fails closed when a selected occurrence has no stable identity", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", "")
+      : "",
+  });
+
+  const inspected = await adapter.inspect();
+
+  assert.equal(inspected.target.kind, "unknown");
+  assert.equal(inspected.readiness.state, "unavailable");
+  assert.equal(inspected.readiness.firstMissing, "target");
+  assert.equal(inspected.readiness.selectedTarget, false);
+});
+
 test("native inspect retries a transient partial result after focus recovery", async () => {
   let passiveCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
