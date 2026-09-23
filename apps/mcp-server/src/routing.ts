@@ -295,7 +295,7 @@ function nativeUndoReadinessRequirement(): Requirement {
     name: "native.undo.ready",
     label: "native.undo.ready",
     category: "native-ui",
-    satisfied: (context) => context.nativeReadiness === undefined || context.nativeReadiness.undo === "available",
+    satisfied: (context) => context.nativeReadiness?.undo === "available",
     descriptor: () => undefined,
   };
 }
