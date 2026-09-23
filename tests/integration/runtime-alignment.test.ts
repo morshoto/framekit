@@ -71,10 +71,13 @@ class FailingInspectionAdapter extends InMemoryEditorAdapter {
 async function withClient(
   runtime: AgentVideoRuntime,
   callback: (client: Client) => Promise<void>,
+  overrides: { buildFingerprint?: { version: string; commit: string }; requireBuildAlignment?: boolean; validationCommit?: string } = {},
 ): Promise<void> {
   const server = createMcpServer(runtime, {
     processMode: "headless",
-    buildFingerprint: { version: "0.1.7", commit: "test-commit" },
+    buildFingerprint: overrides.buildFingerprint ?? { version: "0.1.7", commit: "test-commit" },
+    requireBuildAlignment: overrides.requireBuildAlignment,
+    validationCommit: overrides.validationCommit,
     connectionStatus: () => ({
       state: "ready",
       editorDetected: true,
@@ -118,6 +121,22 @@ test("connection status and editor inspection share effective preflight", async 
     assert.equal(status.preflight.fingerprint.commit, "test-commit");
     assert.deepEqual(status.identity.buildFingerprint, extensionFingerprint);
     assert.deepEqual(editor.identity.buildFingerprint, extensionFingerprint);
+    assert.equal(status.preflight.buildAlignment?.status, "matched");
+  });
+});
+
+test("required local alignment fails clearly for a stale extension", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
+
+    assert.equal(status.state, "unavailable");
+    assert.equal(status.lastError?.code, "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH");
+    assert.match(status.lastError?.message ?? "", /extension commit test-commit does not match runtime commit intended-commit/);
+    assert.equal(status.preflight, undefined);
+  }, {
+    buildFingerprint: { version: "0.1.7", commit: "intended-commit" },
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
   });
 });
 
