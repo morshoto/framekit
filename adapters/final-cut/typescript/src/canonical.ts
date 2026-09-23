@@ -164,20 +164,42 @@ on findWindow(finalCut, expectedNames, timeoutSeconds, timeoutMessage)
   end repeat
 end findWindow
 
-on pressButtonIfPresent(targetWindow, expectedNames)
-  repeat with candidate in (buttons of targetWindow)
+on findDescendantByRole(container, expectedRole, timeoutSeconds, timeoutMessage)
+  set deadline to (current date) + timeoutSeconds
+  repeat
     try
-      set candidateName to name of candidate as text
-      repeat with expectedName in expectedNames
-        if candidateName is (expectedName as text) and enabled of candidate then
-          perform action "AXPress" of candidate
-          return true
-        end if
+      repeat with candidate in (entire contents of container)
+        try
+          if role of candidate is expectedRole then return candidate
+        end try
       end repeat
+    end try
+    if (current date) > deadline then error timeoutMessage
+    delay 0.1
+  end repeat
+end findDescendantByRole
+
+on pressDescendantButtonIfPresent(container, expectedNames)
+  try
+    set candidates to entire contents of container
+  on error
+    return false
+  end try
+  repeat with candidate in candidates
+    try
+      if role of candidate is "AXButton" then
+        set candidateName to name of candidate as text
+        repeat with expectedName in expectedNames
+          if candidateName is (expectedName as text) and enabled of candidate then
+            perform action "AXPress" of candidate
+            return true
+          end if
+        end repeat
+      end if
     end try
   end repeat
   return false
-end pressButtonIfPresent
+end pressDescendantButtonIfPresent
 
 end using terms from
 
@@ -209,25 +231,18 @@ tell application "System Events"
     end try
     perform action "AXPress" of exportCommand
     set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-    my pressButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
+    my pressDescendantButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
     delay 0.2
     set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
     keystroke "g" using {command down, shift down}
-    repeat 50 times
-      try
-        if exists sheet 1 of saveWindow then exit repeat
-      end try
-      delay 0.1
-    end repeat
-    if not (exists sheet 1 of saveWindow) then error "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: save path sheet did not appear"
-    set pathSheet to sheet 1 of saveWindow
-    if (count of text fields of pathSheet) is 0 then error "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"
-    set value of text field 1 of pathSheet to ${appleScriptString(exportPath)}
+    set pathSheet to my findDescendantByRole(saveWindow, "AXSheet", 5, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: save path sheet did not appear")
+    set pathField to my findDescendantByRole(pathSheet, "AXTextField", 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
+    set value of pathField to ${appleScriptString(exportPath)}
     key code 36
     delay 0.2
-    if exists button "Save" of saveWindow then click button "Save" of saveWindow
+    my pressDescendantButtonIfPresent(saveWindow, {"Save"})
     delay 0.2
-    if exists button "Replace" of saveWindow then click button "Replace" of saveWindow
+    my pressDescendantButtonIfPresent(saveWindow, {"Replace"})
     return "canonical-export-requested"
   end tell
 end tell`;
