@@ -101,6 +101,57 @@ For a prebuilt or locally supplied artifact, set
 See the [live E2E test](../tests/final-cut-live-e2e.md) for the complete
 read-only procedure.
 
+## Local latest-checkout validation
+
+Use the checkout launcher when native validation must exercise the current
+commit without publishing an npm release. Install the locked workspace
+dependencies first:
+
+```sh
+pnpm install --frozen-lockfile
+```
+
+The development MCP launcher builds and installs the extension, gracefully
+reloads Final Cut when needed, starts MCP from the checkout, and requires the
+MCP runtime and extension fingerprints to match the current validation target:
+
+```sh
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+FRAMEKIT_VALIDATION_COMMIT="$(git rev-parse HEAD)" \
+pnpm run framekit -- mcp --editor final-cut-live --development
+```
+
+The local command is headed and requires the same Accessibility, Automation,
+disposable-project, preview, readback, revision, and Undo safeguards as any
+other native-write validation. It does not publish a package. The development
+extension embeds the checkout's package version and `FRAMEKIT_BUILD_COMMIT`
+metadata in its bridge identity; `connection.status` and `editor.inspect`
+expose the MCP `preflight.fingerprint`, extension
+`identity.buildFingerprint`, and `preflight.buildAlignment` report. Continue
+only when `preflight.buildAlignment.status` is `matched`.
+
+For a clean Codex session, register the checkout as a separate MCP server:
+
+```sh
+codex mcp add framekit-local \
+  --env FRAMEKIT_EDITOR=final-cut-live \
+  --env FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+  --env FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+  --env FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+  --env FRAMEKIT_VALIDATION_COMMIT="$(git rev-parse HEAD)" \
+  -- pnpm run framekit -- mcp --editor final-cut-live --development
+```
+
+Start a new Codex session after changing the registered commit. Remove the
+local entry with `codex mcp remove framekit-local` to return to the published
+plugin workflow. If the extension is stale, missing metadata, or built from a
+different commit, the required preflight fails with
+`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH` instead of presenting stale native evidence
+as current.
+
 ## Canonical document and analysis providers
 
 ### Canonical live provider

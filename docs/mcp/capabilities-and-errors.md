@@ -183,6 +183,11 @@ The report includes `fingerprint.version` for the Framekit package and
 `fingerprint.commit` for the source build. The commit comes from
 `FRAMEKIT_BUILD_COMMIT` when supplied, otherwise from the checked-out Git
 repository; packaged builds without either source should report `unknown`.
+When the local development launcher is used, `buildAlignment` compares this
+MCP fingerprint with the Workflow Extension's `identity.buildFingerprint` and
+reports `matched`, `missing`, or `mismatched`. Required local validation fails
+with `FRAMEKIT_BUILD_ALIGNMENT_MISMATCH` when the current checkout and
+installed development extension do not agree.
 The report repeats the effective `capabilities` families so agents can see the
 backend, guarantee, and unavailable reason for connection, canonical reads and
 writes, composite editing, speech, audio, visual analysis, title placement, PIP,

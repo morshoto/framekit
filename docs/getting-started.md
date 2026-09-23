@@ -128,6 +128,10 @@ with:
 pnpm run framekit -- connect finalcut --development
 ```
 
+To launch headed MCP directly from the latest checkout with an explicit
+runtime/extension alignment preflight, follow the [local latest-checkout
+validation guide](./final-cut/installation.md#local-latest-checkout-validation).
+
 Inspect automatic setup and reconnect progress with:
 
 ```sh
