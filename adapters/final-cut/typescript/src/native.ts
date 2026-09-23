@@ -188,6 +188,8 @@ export interface NativeFinalCutOccurrenceSearchResult {
   occurrences: NativeFinalCutOccurrence[];
 }
 
+export type NativeFinalCutTargetKind = "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
+
 export type NativeFinalCutReadinessState = "ready" | "unavailable" | "timeout" | "cancelled" | "stale";
 export type NativeFinalCutReadinessAction = "none" | "retry" | "queue" | "unavailable";
 export type NativeFinalCutReadinessRequirement =
@@ -208,6 +210,8 @@ export interface NativeFinalCutReadiness {
   frontmost: boolean;
   timelineFocus: boolean;
   selectedTarget: boolean;
+  targetKind?: NativeFinalCutTargetKind;
+  targetBound?: boolean;
   overlay: "clear" | "blocked" | "unknown";
   permission: "granted" | "required" | "unknown";
   undo: "available" | "unavailable" | "unknown";
@@ -539,7 +543,7 @@ export interface NativeFinalCutContext {
   sequence?: string;
   playheadTime?: string;
   target: {
-    kind: "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
+    kind: NativeFinalCutTargetKind;
     name?: string;
     role?: string;
     identity?: string;
@@ -6704,6 +6708,8 @@ function readinessForContext(context: {
   error?: NativeFinalCutContext["error"];
 }): NativeFinalCutReadiness {
   const selectedTarget = context.target.kind !== "none" && context.target.kind !== "unknown";
+  const targetBound = selectedTarget
+    && Boolean(context.target.projectId && context.target.sequenceId && context.target.revision);
   const state = context.error?.state
     ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget && context.undoAvailable
       ? "ready"
@@ -6766,6 +6772,8 @@ function readinessForContext(context: {
     frontmost: context.frontmost,
     timelineFocus: context.timelineFocused,
     selectedTarget,
+    targetKind: context.target.kind,
+    targetBound,
     overlay,
     permission: context.error?.code.includes("PERMISSION") ? "required" : context.available ? "granted" : "unknown",
     undo: context.available ? context.undoAvailable ? "available" : "unavailable" : "unknown",
