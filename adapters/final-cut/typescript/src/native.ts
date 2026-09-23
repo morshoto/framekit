@@ -494,6 +494,7 @@ export interface NativeFinalCutRangePreview {
   expectedAfterDuration: RationalTime;
   sequenceId?: string;
   revision?: string;
+  targetIdentity?: string;
   command: "Delete primary storyline range" | "Trim sequence to duration";
   expiresAt: string;
 }
@@ -729,6 +730,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     expectedAfterDuration: RationalTime;
     sequenceId?: string;
     revision?: string;
+    targetIdentity?: string;
     expiresAt: number;
   }>();
   private readonly mediaInsertionPreviews = new Map<string, {
@@ -1732,11 +1734,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (!sequenceStart || !currentDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
       if (compareRational(duration, zeroRational()) <= 0) throw new Error("INVALID_OPERATION: target duration must be positive");
       if (compareRational(duration, currentDuration) >= 0) {
-        const token = this.createRangePreview("trim-to-duration", { start: sequenceStart, end: sequenceStart }, currentDuration, currentDuration, live);
+        const token = this.createRangePreview("trim-to-duration", { start: sequenceStart, end: sequenceStart }, currentDuration, currentDuration, live, undefined, context.target.identity);
         return { ...token, command: "Trim sequence to duration" };
       }
       const range = { start: addRational(sequenceStart, duration), end: addRational(sequenceStart, currentDuration) };
-      return this.createRangePreview("trim-to-duration", range, currentDuration, duration, live, duration);
+      return this.createRangePreview("trim-to-duration", range, currentDuration, duration, live, duration, context.target.identity);
     }, options.signal);
   }
 
@@ -2539,7 +2541,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_RANGE_OUT_OF_BOUNDS: delete range must be inside the active sequence");
     }
     const expectedAfterDuration = subtractRational(currentDuration, duration);
-    return this.createRangePreview(operation, range, currentDuration, expectedAfterDuration, live);
+    return this.createRangePreview(operation, range, currentDuration, expectedAfterDuration, live, undefined, context.target.identity);
   }
 
   private createRangePreview(
@@ -2549,6 +2551,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     expectedAfterDuration: RationalTime,
     live: EditorLiveState,
     targetDuration?: RationalTime,
+    targetIdentity?: string,
   ): NativeFinalCutRangePreview {
     const expiresAt = this.now() + 30_000;
     const previewToken = opaqueHandle(`${operation}-preview`);
@@ -2559,6 +2562,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       expectedAfterDuration,
       sequenceId: live.sequence?.id,
       revision: live.revision.id,
+      ...(targetIdentity ? { targetIdentity } : {}),
       expiresAt,
     });
     return {
@@ -2569,6 +2573,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       expectedAfterDuration: targetDuration ?? expectedAfterDuration,
       ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
       revision: live.revision.id,
+      ...(targetIdentity ? { targetIdentity } : {}),
       command: operation === "delete-range" ? "Delete primary storyline range" : "Trim sequence to duration",
       expiresAt: new Date(expiresAt).toISOString(),
     };
@@ -2583,7 +2588,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (expectedOperation && preview.operation !== expectedOperation) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: preview operation does not match execute operation");
     const before = await this.requireNativeWriteContext();
     const beforeLive = await this.requireLiveState();
-    this.validateRangeBinding(preview, beforeLive);
+    this.validateRangeBinding(preview, beforeLive, before);
     const rangeDuration = subtractRational(preview.range.end, preview.range.start);
     if (compareRational(rangeDuration, zeroRational()) === 0) {
       return {
@@ -2641,9 +2646,16 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  private validateRangeBinding(preview: { sequenceId?: string; revision?: string; beforeDuration: RationalTime }, live: EditorLiveState): void {
+  private validateRangeBinding(
+    preview: { sequenceId?: string; revision?: string; beforeDuration: RationalTime; targetIdentity?: string },
+    live: EditorLiveState,
+    context?: NativeFinalCutContext,
+  ): void {
     if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
     if (preview.revision && live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
+    if (preview.targetIdentity && context && context.target.identity !== preview.targetIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: native target changed");
+    }
     const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
     if (!currentDuration || compareRational(currentDuration, preview.beforeDuration) !== 0) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: sequence duration changed");
   }
