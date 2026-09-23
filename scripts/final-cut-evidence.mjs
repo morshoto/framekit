@@ -556,6 +556,65 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
   };
 }
 
+export function sanitizeDialogueNormalizationEvidence(run, environment) {
+  assert(run?.passed === true, "headed dialogue-normalization run did not pass");
+  assert(run.editor && run.project && run.normalization && run.restoration, "dialogue-normalization evidence is incomplete");
+  assert(run.normalization.status === "VERIFIED", "dialogue-normalization mutation was not verified");
+  assert(run.normalization.verificationPassed === true, "dialogue-normalization verification failed");
+  assert(run.restoration.restored === true && run.restoration.status === "VERIFIED", "dialogue-normalization Undo was not verified");
+  const project = {
+    id: requireString(run.project.id, "dialogue-normalization project id"),
+    name: requireString(run.project.name, "dialogue-normalization project name"),
+    sequenceId: requireString(run.project.sequenceId, "dialogue-normalization sequence id"),
+    occurrenceId: requireSafeIdentity(run.project.occurrenceId, "dialogue-normalization occurrence id"),
+  };
+  const revisions = {
+    before: requireString(run.normalization.beforeRevision?.id, "dialogue-normalization before revision"),
+    after: requireString(run.normalization.afterRevision?.id, "dialogue-normalization after revision"),
+    restored: requireString(run.restoration.restoredRevision?.id, "dialogue-normalization restored revision"),
+  };
+  assert(revisions.before !== revisions.after, "dialogue-normalization revision did not advance");
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-dialogue-normalization",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities: sanitizeCapabilities(run.capabilities),
+    project,
+    target: {
+      project: project.name,
+      projectId: project.id,
+      sequenceId: project.sequenceId,
+      occurrenceId: project.occurrenceId,
+    },
+    measurement: {
+      before: {
+        lufs: requireFiniteNumber(run.normalization.measuredLufs, "dialogue-normalization measured LUFS"),
+        truePeakDb: requireFiniteNumber(run.normalization.measuredTruePeakDb, "dialogue-normalization measured true peak"),
+      },
+      proposedGainDb: requireFiniteNumber(run.normalization.proposedGainDb, "dialogue-normalization proposed gain"),
+      after: {
+        lufs: requireFiniteNumber(run.normalization.outputLufs, "dialogue-normalization output LUFS"),
+        truePeakDb: requireFiniteNumber(run.normalization.outputTruePeakDb, "dialogue-normalization output true peak"),
+      },
+      constraints: {
+        toleranceDb: requireFiniteNumber(run.normalization.toleranceDb, "dialogue-normalization tolerance"),
+        maxTruePeakDb: requireFiniteNumber(run.normalization.maxTruePeakDb, "dialogue-normalization maximum true peak"),
+      },
+    },
+    revisions,
+    restoration: { status: "VERIFIED", restored: true },
+    verification: { execute: true, undo: true },
+    toolResults: sanitizeToolResultList(run.toolResults),
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["non-allowlisted source and diagnostic fields"],
+    },
+  };
+}
+
 export function sanitizeCanonicalReadEvidence(run, environment) {
   assert(run?.passed === true, "headed read did not pass");
   assert(run.editor, "editor identity is missing");
