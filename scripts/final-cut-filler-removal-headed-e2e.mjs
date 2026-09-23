@@ -82,9 +82,10 @@ try {
   const transaction = await callJson("skill.execute", { previewToken: preview.previewToken });
   toolResults.push({ name: "skill.execute", status: transaction.status });
   transactionId = transaction.transactionIds?.[0];
-  if (transaction.status !== "VERIFIED") {
+  if (transaction.status !== "VERIFIED" || !transactionId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: filler removal was not verified");
   }
+  canUndo = true;
   const continuity = transaction.verification?.checks?.find((check) => check.name === "filler-speech-continuity");
   if (!continuity?.passed) {
     throw new Error("FINAL_CUT_E2E_CONTINUITY_FAILED: filler removal did not preserve adjacent speech");
@@ -92,8 +93,6 @@ try {
   if (!(transaction.diff?.durationDelta < 0)) {
     throw new Error("FINAL_CUT_E2E_DIFF_FAILED: verified filler removal did not shorten the timeline");
   }
-  canUndo = true;
-
   const after = await callJson("project.inspect");
   toolResults.push({ name: "project.inspect", status: "passed" });
 

@@ -91,9 +91,9 @@ try {
   if (execution.status !== "VERIFIED" || !transactionId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: dialogue normalization was not verified");
   }
+  canUndo = true;
   const loudness = requirePassedCheck(execution, "dialogue-loudness");
   const peak = requirePassedCheck(execution, "dialogue-true-peak");
-  canUndo = true;
 
   const after = await callJson("project.inspect");
   toolResults.push({ name: "project.inspect", status: "passed" });

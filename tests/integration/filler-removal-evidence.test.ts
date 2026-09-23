@@ -22,6 +22,14 @@ test("headed filler-removal runner covers live preflight, verification, and roll
   assert.match(runner, /evidenceType:\s*"headed-native-filler-removal"/);
 });
 
+test("headed Skill runners arm rollback before validating committed results", async () => {
+  const fillerRunner = await readFile(join(repositoryRoot, "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8");
+  const dialogueRunner = await readFile(join(repositoryRoot, "scripts/final-cut-dialogue-normalization-headed-e2e.mjs"), "utf8");
+
+  assert.ok(fillerRunner.indexOf("canUndo = true") < fillerRunner.indexOf("const continuity ="));
+  assert.ok(dialogueRunner.indexOf("canUndo = true") < dialogueRunner.indexOf("const loudness ="));
+});
+
 test("headed filler-removal evidence documentation keeps live and deterministic proof separate", async () => {
   const documentation = await readFile(join(repositoryRoot, "docs/tests/final-cut-filler-removal-e2e.md"), "utf8");
 
