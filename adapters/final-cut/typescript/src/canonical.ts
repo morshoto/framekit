@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
+  canonicalTimelineMode,
   createProjectSelectionResult,
   assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
@@ -72,6 +73,28 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   executor?: (script: string) => Promise<string>;
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
+}
+
+export interface CanonicalLiveReadiness {
+  ready: boolean;
+  mode: ReturnType<typeof canonicalTimelineMode>;
+  missing: string[];
+}
+
+/** Report the complete guarantees required before claiming canonical live support. */
+export function assessCanonicalLiveReadiness(capabilities: RuntimeCapabilities): CanonicalLiveReadiness {
+  const mode = canonicalTimelineMode(capabilities);
+  const editor = capabilities.editor;
+  const missing = [
+    ...(mode === "canonical-write" ? [] : ["canonical-write"]),
+    ...(!editor.projectCatalogRead ? ["projectCatalogRead"] : []),
+    ...(!editor.projectSelection ? ["projectSelection"] : []),
+    ...(!editor.timelineSnapshotRead ? ["timelineSnapshotRead"] : []),
+    ...(!editor.timelineWrite ? ["timelineWrite"] : []),
+    ...(!editor.readAfterWrite ? ["readAfterWrite"] : []),
+    ...(!editor.rollback ? ["rollback"] : []),
+  ];
+  return { ready: missing.length === 0, mode, missing };
 }
 
 /** Reads the active Final Cut project through its headed Export XML command. */
@@ -303,7 +326,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? true
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
-    return withCapabilityFamilies({
+    const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
         timelineSnapshotRead: snapshotProbe.available,
@@ -349,6 +372,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
               guarantee: "observed" as const,
             }
           : false,
+      },
+    });
+    const readiness = assessCanonicalLiveReadiness(capabilities);
+    if (readiness.ready) return capabilities;
+    return withCapabilityFamilies({
+      ...capabilities,
+      editor: {
+        ...capabilities.editor,
+        projectRead: false,
+        timelineSnapshotRead: false,
+        timelineWrite: false,
+        readAfterWrite: false,
+        rollback: false,
+        compositeTransactions: false,
       },
     });
   }
