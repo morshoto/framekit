@@ -867,6 +867,48 @@ test("native range undo uses Final Cut's Undo Delete Range command and restores 
   assert.equal(scripts.some((script) => script.includes('menu items of menu "Edit" of menu bar 1')), true);
 });
 
+test("native range mutation establishes operation Undo after the first command", async () => {
+  let revision = 1;
+  let duration = "20";
+  let playhead = "0";
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("00:00:10:00")) playhead = "10";
+      if (script.includes("00:00:15:00")) playhead = "15";
+      if (script.includes("key code 51")) {
+        duration = "15";
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Delete Range"')) {
+        duration = "20";
+        revision = 3;
+      }
+      const operationUndoAvailable = duration === "15";
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, operationUndoAvailable, true, true, "timeline", 1, operationUndoAvailable ? "Undo Delete Range" : "")
+        : "";
+    },
+  });
+
+  const preview = await adapter.previewDeleteRange({ start: { value: "10", timescale: "1" }, end: { value: "15", timescale: "1" } });
+  const result = await adapter.executeDeleteRange(preview.previewToken);
+  assert.equal(result.undoAvailable, true);
+  assert.equal(result.undoCommand, "Undo Delete Range");
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
+});
+
 test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   const recordSeparator = String.fromCharCode(30);
   const scripts: string[] = [];
