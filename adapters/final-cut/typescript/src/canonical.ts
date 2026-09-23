@@ -38,6 +38,7 @@ import {
 import type {
   NativeFinalCutEditor,
 } from "./native.js";
+import { verifyCanonicalReadback } from "./canonical-verification.js";
 import { FcpxmlDocumentAdapter } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
@@ -506,9 +507,25 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     try {
       const after = await this.readProject();
       if (supported.type === "rename-clip") {
-        const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
-        if (!afterClip || afterClip.name !== supported.name) {
-          throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back from Final Cut");
+        const readback = verifyCanonicalReadback(before, after, timelineTarget, {
+          validateDiff: (diff) => {
+            const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
+            const changed = diff.modified.filter(({ itemId }) => itemId === supported.clipId);
+            if (!afterClip || afterClip.name !== supported.name
+              || diff.added.length !== 0
+              || diff.removed.length !== 0
+              || diff.modified.length !== 1
+              || changed.length !== 1
+              || diff.markerChanges.length !== 0
+              || diff.storyElementChanges.length !== 0
+              || diff.captionChanges.length !== 0
+              || diff.mediaChanges.length !== 0) {
+              throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: renamed occurrence was not read back as a rename-only diff from Final Cut");
+            }
+          },
+        });
+        if (readback.beforeDigest !== this.pending.beforeDigest) {
+          throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: canonical before digest changed during verification");
         }
       } else if (supported.type === "trim-clip") {
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
