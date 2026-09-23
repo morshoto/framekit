@@ -18,6 +18,8 @@ export FRAMEKIT_EDITOR=final-cut-live
 export FRAMEKIT_FCPXML_PATH=/absolute/path/to/project.fcpxml
 export FRAMEKIT_SPEECH_ANALYZER=/absolute/path/to/framekit/scripts/speech-analyzer-wrapper.mjs
 export FRAMEKIT_SPEECH_BACKEND=/absolute/path/to/whisper-vad-backend
+export FRAMEKIT_SPEECH_ANALYZER_VERSION=local-whisper-vad@1
+export FRAMEKIT_SPEECH_REQUIRE_VAD=1
 pnpm run mcp
 ```
 
@@ -77,6 +79,12 @@ is optional:
   "sourceTimebase": { "value": "1", "timescale": "1000" }
 }
 ```
+
+When `FRAMEKIT_SPEECH_REQUIRE_VAD=1`, the configured provider must return VAD
+segments; transcript-only output is rejected before a destructive Skill can
+use it. `FRAMEKIT_SPEECH_ANALYZER_VERSION` records the local provider version
+in the analyzer descriptor and every bound result, and is required when VAD is
+enabled; startup fails with an actionable setup diagnostic when it is missing.
 
 The normalized runtime and MCP response adds `schemaVersion: 1`, `mediaId`,
 `sourceIdentity`, `requestedRange`, `observedRange`, `revision`, `provider`,
