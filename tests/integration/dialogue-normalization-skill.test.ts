@@ -149,23 +149,82 @@ test("dialogue preview resolves defaults and targets one complete occurrence ran
   assert.equal(analyzer.descriptor?.provider, "fixture");
 });
 
-test("dialogue measurement rejects provider provenance drift", async () => {
+test("dialogue measurement rejects a requested-range mismatch", async () => {
   const { runtime } = createFixture({
     analyze: async () => ({
       integratedLufs: -20,
       truePeakDb: -6,
       silenceMs: 100,
-      analyzedDurationSeconds: 3,
+      analyzedDurationSeconds: 10,
       dialoguePresent: true,
       requestedRange: { start: 0, end: 3 },
-      revision: { id: "stale", sequence: 0, timestamp: new Date(0).toISOString() },
     }),
   });
   runtime.registerBuiltinSkills();
 
   await assert.rejects(
-    previewDialogue(runtime, { occurrenceId: "dialogue-occurrence" }),
+    previewDialogue(runtime),
     /ANALYSIS_INVALID: audio requested range does not match the runtime request/,
+  );
+});
+
+test("dialogue measurement rejects provider identity drift", async () => {
+  const { runtime } = createFixture({
+    analyze: async () => ({
+      integratedLufs: -20,
+      truePeakDb: -6,
+      silenceMs: 100,
+      analyzedDurationSeconds: 10,
+      dialoguePresent: true,
+      requestedRange: { start: 0, end: 10 },
+      provider: { id: "other.audio", provider: "other", version: "1" },
+    }),
+  });
+  runtime.registerBuiltinSkills();
+
+  await assert.rejects(
+    previewDialogue(runtime),
+    /ANALYSIS_INVALID: audio provider identity does not match the configured analyzer/,
+  );
+});
+
+test("dialogue measurement rejects stale revision provenance", async () => {
+  const { runtime } = createFixture({
+    analyze: async ({ project }) => ({
+      integratedLufs: -20,
+      truePeakDb: -6,
+      silenceMs: 100,
+      analyzedDurationSeconds: 10,
+      dialoguePresent: true,
+      requestedRange: { start: 0, end: 10 },
+      revision: { ...project.revision, id: "stale-revision", sequence: project.revision.sequence - 1 },
+    }),
+  });
+  runtime.registerBuiltinSkills();
+
+  await assert.rejects(
+    previewDialogue(runtime),
+    /ANALYSIS_STALE: audio analysis revision does not match the inspected project/,
+  );
+});
+
+test("dialogue measurement rejects source identity drift", async () => {
+  const { runtime } = createFixture({
+    analyze: async () => ({
+      integratedLufs: -20,
+      truePeakDb: -6,
+      silenceMs: 100,
+      analyzedDurationSeconds: 10,
+      dialoguePresent: true,
+      requestedRange: { start: 0, end: 10 },
+      sourceIdentity: { mediaId: "other-media", source: "other.wav" },
+    }),
+  });
+  runtime.registerBuiltinSkills();
+
+  await assert.rejects(
+    previewDialogue(runtime),
+    /TARGET_MISMATCH: audio analysis source identity does not match the requested media/,
   );
 });
 
