@@ -38,6 +38,7 @@ import {
 import type {
   NativeFinalCutEditor,
 } from "./native.js";
+import { recoverCanonicalNativeMutation } from "./canonical-recovery.js";
 import { verifyCanonicalReadback } from "./canonical-verification.js";
 import { FcpxmlDocumentAdapter } from "./fcpxml.js";
 
@@ -45,6 +46,7 @@ const execFile = promisify(execFileCallback);
 
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
+  trimSelectedClipToRange?(range: { start: RationalTime; end: RationalTime }): Promise<{ operationId: string; undoAvailable: boolean }>;
   addMarkerAtTime?(marker: { start: RationalTime; duration: RationalTime; name: string }): Promise<{ operationId: string; undoAvailable: boolean }>;
   rippleDeleteRange?(range: { start: RationalTime; end: RationalTime }): Promise<{ operationId: string; undoAvailable: boolean }>;
   setSelectedClipGain?(gainDb: number): Promise<{ operationId: string; undoAvailable: boolean }>;
@@ -351,6 +353,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
           "rename-clip": snapshotProbe.available,
+          "trim-clip": snapshotProbe.available && Boolean(this.native.trimSelectedClipToRange),
           "add-marker": snapshotProbe.available && Boolean(this.native.addMarkerAtTime),
           "ripple-delete": snapshotProbe.available && Boolean(this.native.rippleDeleteRange),
           "set-gain": snapshotProbe.available && Boolean(this.native.setSelectedClipGain),
@@ -437,6 +440,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const operation = supportedCanonicalOperation(operations);
+    assertCanonicalOperationAvailable(this.native, operation);
     const preview = projectCanonicalOperation(before, operation);
     preview.revision = previewRevision(preview, before.revision);
     return preview;
@@ -455,11 +459,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
     const markerRange = supported.type === "add-marker" ? canonicalMarkerRange(before, supported.marker) : undefined;
-    const renameTarget = supported.type === "rename-clip" ? canonicalTargetForOperation(before, supported) : undefined;
-    const clip = renameTarget?.clip;
+    const clipTarget = supported.type === "rename-clip" || supported.type === "trim-clip" || supported.type === "set-gain"
+      ? canonicalTargetForOperation(before, supported)
+      : undefined;
+    const clip = clipTarget?.clip;
     const rippleTarget = supported.type === "ripple-delete" ? canonicalTargetForOperation(before, supported) : undefined;
-    const gainTarget = supported.type === "set-gain" ? canonicalTargetForOperation(before, supported) : undefined;
-    const targetClip = clip ?? gainTarget?.clip;
+    const targetClip = clip;
+    const trimDuration = supported.type === "trim-clip"
+      ? validateCanonicalTrim(supported, clip!, before)
+      : undefined;
 
     const timelineTarget = createTimelineTarget(before, {
       ...(targetClip ? { occurrenceId: targetClip.id, mediaId: targetClip.mediaId } : {}),
@@ -470,17 +478,23 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
     resolveTimelineTarget(before, timelineTarget);
     if (targetClip) await this.resolveTarget(targetClip, before);
+    assertCanonicalOperationAvailable(this.native, supported);
     const nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
-      : supported.type === "ripple-delete"
-        ? await this.native.rippleDeleteRange!(rippleTarget!.range!)
-        : supported.type === "set-gain"
-          ? await this.native.setSelectedClipGain!(supported.gainDb)
-          : await this.native.addMarkerAtTime!({
-            start: markerRange!.start,
-            duration: markerRange!.duration,
-            name: supported.marker.name,
-          });
+      : supported.type === "trim-clip"
+        ? await this.native.trimSelectedClipToRange!({
+          start: structuredClone(clip!.startTime),
+          end: addRational(clip!.startTime, trimDuration!),
+        })
+        : supported.type === "ripple-delete"
+          ? await this.native.rippleDeleteRange!(rippleTarget!.range!)
+          : supported.type === "set-gain"
+            ? await this.native.setSelectedClipGain!(supported.gainDb)
+            : await this.native.addMarkerAtTime!({
+              start: markerRange!.start,
+              duration: markerRange!.duration,
+              name: supported.marker.name,
+            });
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
       throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
@@ -514,6 +528,12 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         if (readback.beforeDigest !== this.pending.beforeDigest) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: canonical before digest changed during verification");
         }
+      } else if (supported.type === "trim-clip") {
+        const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
+        if (!afterClip || !sameRational(afterClip.startTime, clip!.startTime)
+          || !sameRational(afterClip.durationTime, trimDuration!)) {
+          throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: trimmed occurrence range was not read back from Final Cut");
+        }
       } else if (supported.type === "set-gain") {
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
         if (!afterClip || (afterClip.gainDb ?? 0) !== supported.gainDb) {
@@ -537,14 +557,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       return after.revision;
     } catch (error) {
       try {
-        const undone = await this.native.undo(nativeResult.operationId);
-        if (!undone.undone || undone.verification?.verified !== true) {
-          throw new Error("native Undo did not verify restoration");
-        }
-        const restored = await this.readProject();
-        if (canonicalSnapshotDigest(restored) !== this.pending.beforeDigest) {
-          throw new Error("restored canonical digest does not match the pre-edit state");
-        }
+        await recoverCanonicalNativeMutation({
+          operationId: nativeResult.operationId,
+          before,
+          target: timelineTarget,
+          undo: this.native.undo,
+          readSnapshot: () => this.readProject(),
+        });
       } catch (rollbackError) {
         const original = error instanceof Error ? error.message : String(error);
         const rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
@@ -673,11 +692,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 }
 
-type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "add-marker" | "ripple-delete" | "set-gain" }>;
+type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "trim-clip" | "add-marker" | "ripple-delete" | "set-gain" }>;
 
 function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
-  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "ripple-delete" && operations[0]?.type !== "set-gain")) {
-    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip, add-marker, ripple-delete, or set-gain transaction");
+  if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "trim-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "ripple-delete" && operations[0]?.type !== "set-gain")) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip, trim-clip, add-marker, ripple-delete, or set-gain transaction");
   }
   return operations[0].type === "rename-clip"
     ? validateCanonicalRename(operations[0])
@@ -695,9 +714,9 @@ interface CanonicalOperationTarget {
 
 function canonicalTargetForOperation(
   snapshot: ProjectSnapshot,
-  operation: Extract<CanonicalOperation, { type: "rename-clip" | "ripple-delete" | "set-gain" }>,
+  operation: Extract<CanonicalOperation, { type: "rename-clip" | "trim-clip" | "ripple-delete" | "set-gain" }>,
 ): CanonicalOperationTarget {
-  if (operation.type === "rename-clip" || operation.type === "set-gain") {
+  if (operation.type === "rename-clip" || operation.type === "trim-clip" || operation.type === "set-gain") {
     const clip = snapshot.timeline.clips.find(({ id }) => id === operation.clipId);
     if (!clip) throw new Error(`CLIP_NOT_FOUND: ${operation.clipId}`);
     return { clip };
@@ -742,6 +761,33 @@ function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: Canonic
         }),
       },
     };
+  }
+  if (operation.type === "trim-clip") {
+    const preview = structuredClone(snapshot);
+    const { clip } = canonicalTargetForOperation(preview, operation);
+    const trimDuration = validateCanonicalTrim(operation, clip, preview);
+    const updatedClip = {
+      ...clip,
+      duration: rationalSeconds(trimDuration),
+      durationTime: trimDuration,
+    };
+    preview.timeline.clips = preview.timeline.clips.map((candidate) => (
+      candidate.id === clip.id ? updatedClip : candidate
+    ));
+    preview.timeline.storyElements = preview.timeline.storyElements.map((element) => (
+      element.id === clip.id
+        ? { ...element, duration: updatedClip.duration, durationTime: updatedClip.durationTime }
+        : element
+    ));
+    const oldTimelineEnd = snapshot.timeline.durationTime
+      ? addRational(clip.startTime, clip.durationTime)
+      : undefined;
+    if (oldTimelineEnd && snapshot.timeline.durationTime && sameRational(oldTimelineEnd, snapshot.timeline.durationTime)) {
+      const nextTimelineEnd = addRational(clip.startTime, trimDuration);
+      preview.timeline.durationTime = nextTimelineEnd;
+      preview.timeline.duration = rationalSeconds(nextTimelineEnd);
+    }
+    return preview;
   }
   if (operation.type === "ripple-delete") {
     const target = canonicalTargetForOperation(snapshot, operation);
@@ -1015,6 +1061,47 @@ function assertMarkerReadback(
   if (matches.length !== beforeMatches.length + 1) {
     throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker was not uniquely read back at the requested rational position");
   }
+}
+
+function assertCanonicalOperationAvailable(
+  native: CanonicalNativeMutationPort,
+  operation: CanonicalOperation,
+): void {
+  if (operation.type === "trim-clip" && !native.trimSelectedClipToRange) {
+    throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical trim");
+  }
+}
+
+function parseRationalTime(value: RationalTime, label: string): { value: bigint; timescale: bigint } {
+  if (!value || !/^-?\d+$/.test(value.value) || !/^\d+$/.test(value.timescale) || value.timescale === "0") {
+    throw new Error(`${label} must be an integer rational`);
+  }
+  return { value: BigInt(value.value), timescale: BigInt(value.timescale) };
+}
+
+function validateCanonicalTrim(
+  operation: Extract<CanonicalOperation, { type: "trim-clip" }>,
+  clip: ProjectSnapshot["timeline"]["clips"][number],
+  snapshot: ProjectSnapshot,
+): RationalTime {
+  if (!operation.durationTime) {
+    throw new Error("INVALID_OPERATION: native trim requires an exact durationTime");
+  }
+  const duration = parseRationalTime(operation.durationTime, "INVALID_OPERATION: trim durationTime");
+  const currentDuration = parseRationalTime(clip.durationTime, "INVALID_PROJECT_STATE: clip durationTime");
+  if (duration.value <= 0n || compareRational(operation.durationTime, clip.durationTime) >= 0) {
+    throw new Error("INVALID_OPERATION: native trim duration must be shorter than the current occurrence");
+  }
+  if (!Number.isFinite(operation.duration)
+    || Math.abs(operation.duration - Number(duration.value) / Number(duration.timescale)) > 1e-9) {
+    throw new Error("INVALID_OPERATION: trim duration and durationTime must agree");
+  }
+  const frame = snapshot.timeline.frameDuration;
+  if (!frame || !isFrameAligned(operation.durationTime, zeroRational(), frame)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: native trim duration must align to the sequence frame duration");
+  }
+  if (currentDuration.value <= 0n) throw new Error("INVALID_PROJECT_STATE: clip durationTime must be positive");
+  return structuredClone(operation.durationTime);
 }
 
 function validateCanonicalRename(

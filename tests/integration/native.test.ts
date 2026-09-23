@@ -161,6 +161,66 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
 });
 
+test("native Final Cut adapter trims a selected clip to an exact canonical range", async () => {
+  const scripts: string[] = [];
+  let playhead = "0";
+  let revision = 1;
+  let trimmed = false;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "4", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "4", timescale: "1" },
+    },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    sleep: async () => {},
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("00:00:03:00")) playhead = "3";
+      if (script.includes('click menu item "Trim End"')) {
+        trimmed = true;
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Trim End"')) {
+        trimmed = false;
+        revision = 3;
+      }
+      if (script.includes("timelineWindowAvailable")) {
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, trimmed ? "Undo Trim End" : "Undo");
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.trimSelectedClipToRange({
+    start: { value: "0", timescale: "1" },
+    end: { value: "3", timescale: "1" },
+  });
+
+  assert.equal(result.verification.verified, true);
+  assert.equal(result.command, "Trim > Trim End");
+  assert.equal(scripts.some((script) => script.includes("00:00:03:00")), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Trim End" of menu "Trim"')), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Trim Start"')), false);
+
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Trim End" of menu "Edit"')), true);
+});
+
 test("native Final Cut adapter adds markers through the Markers submenu and undoes them", async () => {
   const scripts: string[] = [];
   let markerAdded = false;
