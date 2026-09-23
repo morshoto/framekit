@@ -20,6 +20,8 @@ real Final Cut Pro process.
   reproducible verification rate, rollback categories, and retained evidence.
 - [v0.1.12 acceptance corpus](./v0112-acceptance.md): sanitized disposable
   closed-loop coverage and independent evidence-tier reporting.
+- [Headed dialogue normalization](./final-cut-dialogue-normalization-e2e.md):
+  target-bound LUFS, true-peak, gain, verification, and Undo evidence.
 - [v0.0.3 release gate](./release-gate.md): deterministic closed-loop
   filler-removal and dialogue-normalization Skill evidence.
 - [Final Cut live E2E](./final-cut-live-e2e.md): read-only native bridge test.

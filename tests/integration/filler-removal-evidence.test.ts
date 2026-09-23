@@ -11,12 +11,23 @@ test("headed filler-removal runner covers live preflight, verification, and roll
 
   assert.match(runner, /canonical-write/);
   assert.match(runner, /editor\.live\.inspect/);
-  assert.match(runner, /speech\.filler\.remove\.preview/);
-  assert.match(runner, /speech\.filler\.remove\.execute/);
+  assert.match(runner, /skill\.inspect/);
+  assert.match(runner, /skill\.preview/);
+  assert.match(runner, /skill\.execute/);
+  assert.match(runner, /speechVad/);
+  assert.match(runner, /ripple-delete/);
   assert.match(runner, /filler-speech-continuity/);
   assert.match(runner, /edit\.undo/);
   assert.match(runner, /schemaVersion:\s*1/);
   assert.match(runner, /evidenceType:\s*"headed-native-filler-removal"/);
+});
+
+test("headed Skill runners arm rollback before validating committed results", async () => {
+  const fillerRunner = await readFile(join(repositoryRoot, "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8");
+  const dialogueRunner = await readFile(join(repositoryRoot, "scripts/final-cut-dialogue-normalization-headed-e2e.mjs"), "utf8");
+
+  assert.ok(fillerRunner.indexOf("canUndo = true") < fillerRunner.indexOf("const continuity ="));
+  assert.ok(dialogueRunner.indexOf("canUndo = true") < dialogueRunner.indexOf("const loudness ="));
 });
 
 test("headed filler-removal evidence documentation keeps live and deterministic proof separate", async () => {
@@ -27,5 +38,20 @@ test("headed filler-removal evidence documentation keeps live and deterministic 
   assert.match(documentation, /canonical-write/);
   assert.match(documentation, /metadata-only/);
   assert.match(documentation, /deterministic/);
+  assert.match(documentation, /private media/);
+});
+
+test("headed dialogue documentation requires an explicit disposable target", async () => {
+  const documentation = await readFile(join(repositoryRoot, "docs/tests/final-cut-dialogue-normalization-e2e.md"), "utf8");
+
+  assert.match(documentation, /FRAMEKIT_FINAL_CUT_E2E_PROJECT/);
+  assert.match(documentation, /FRAMEKIT_FINAL_CUT_E2E_OCCURRENCE/);
+  assert.match(documentation, /FRAMEKIT_AUDIO_ANALYZER/);
+  assert.match(documentation, /skill\.inspect/);
+  assert.match(documentation, /LUFS/);
+  assert.match(documentation, /true peak/i);
+  assert.match(documentation, /Undo/);
+  assert.match(documentation, /canonical-live/);
+  assert.match(documentation, /headed-native/);
   assert.match(documentation, /private media/);
 });

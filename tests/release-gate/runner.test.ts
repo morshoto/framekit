@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { loadNativeEditingManifest } from "./native-editing.js";
 import { loadReleaseGateCorpus, renderReleaseGateReport, runReleaseGate } from "./runner.js";
 
 test("v0.1.6 release gate corpus carries controlled fixtures", () => {
@@ -44,4 +45,17 @@ test("release gate executes Skills and separates capability evidence", async () 
     "unrun",
   ]);
   assert.equal(report.generatedAt, "2026-08-30T00:00:00.000Z");
+});
+
+test("release gate registers both headed Skill workflows", () => {
+  const manifest = loadNativeEditingManifest();
+  const filler = manifest.workflows.find((workflow) => workflow.id === "filler-removal");
+  const dialogue = manifest.workflows.find((workflow) => workflow.id === "dialogue-normalization");
+
+  assert.deepEqual(filler?.evidenceTypes, ["headed-native-filler-removal"]);
+  assert.equal(filler?.headedRunner, "scripts/final-cut-filler-removal-headed-e2e.mjs");
+  assert.ok(filler?.evidenceTiers.includes("headed-native"));
+  assert.deepEqual(dialogue?.evidenceTypes, ["headed-native-dialogue-normalization"]);
+  assert.equal(dialogue?.headedRunner, "scripts/final-cut-dialogue-normalization-headed-e2e.mjs");
+  assert.ok(dialogue?.evidenceTiers.includes("headed-native"));
 });

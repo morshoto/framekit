@@ -36,9 +36,9 @@ test("v0.1.6 manifest names every evidence tier and workflow", () => {
     "scripts/final-cut-picture-in-picture-headed-e2e.mjs",
   );
   const dialogue = manifest.workflows.find((workflow) => workflow.id === "dialogue-normalization");
-  assert.deepEqual(dialogue?.evidenceTiers, ["deterministic", "fcpxml-artifact", "canonical-live"]);
-  assert.deepEqual(dialogue?.evidenceTypes, []);
-  assert.equal(dialogue?.headedRunner, undefined);
+  assert.deepEqual(dialogue?.evidenceTiers, ["deterministic", "fcpxml-artifact", "canonical-live", "headed-native"]);
+  assert.deepEqual(dialogue?.evidenceTypes, ["headed-native-dialogue-normalization"]);
+  assert.equal(dialogue?.headedRunner, "scripts/final-cut-dialogue-normalization-headed-e2e.mjs");
 });
 
 test("headed evidence is reduced to a target, revision, verification, and restoration summary", () => {
@@ -392,6 +392,11 @@ test("complete headed evidence promotes every claimed native workflow", async ()
       evidenceType: "headed-native-filler-removal",
       target: { project: "Disposable Filler", projectId: "project-5", sequenceId: "sequence-5", occurrenceId: "occurrence-5" },
     },
+    {
+      file: "dialogue.json",
+      evidenceType: "headed-native-dialogue-normalization",
+      target: { project: "Disposable Dialogue", projectId: "project-6", sequenceId: "sequence-6", occurrenceId: "occurrence-6" },
+    },
   ];
 
   try {
@@ -413,7 +418,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
     assert.equal(report.evidenceTiers["headed-native"].passed, true);
     assert.deepEqual(
       report.evidenceTiers["headed-native"].workflows.map((workflow) => workflow.status),
-      ["verified", "verified", "verified", "verified", "verified"],
+      ["verified", "verified", "verified", "verified", "verified", "verified"],
     );
   } finally {
     await rm(directory, { recursive: true, force: true });

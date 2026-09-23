@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   sanitizeFillerRemovalEvidence,
+  sanitizeDialogueNormalizationEvidence,
   sanitizeMaskEvidence,
   sanitizeNativeTitleEvidence,
   sanitizePictureInPictureEvidence,
@@ -245,6 +246,84 @@ test("headed filler evidence keeps rollback proof without private state", () => 
   assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|\/private\/media/);
 });
 
+test("headed dialogue evidence keeps measurements and rollback proof", () => {
+  const evidence = sanitizeDialogueNormalizationEvidence({
+    passed: true,
+    recordedAt: "2026-09-23T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: {
+      editor: {
+        canonicalTimelineMode: "canonical-write",
+        timelineSnapshotRead: true,
+        timelineWrite: true,
+        readAfterWrite: true,
+        rollback: true,
+        compositeTransactions: true,
+        semanticOperations: { "set-gain": true },
+      },
+      analyzers: { audioLoudness: true },
+    },
+    project: {
+      id: "project-dialogue",
+      name: "Disposable Dialogue",
+      sequenceId: "sequence-dialogue",
+      occurrenceId: "occurrence-dialogue",
+      mediaId: "media-dialogue",
+    },
+    normalization: {
+      status: "VERIFIED",
+      measuredLufs: -22,
+      measuredTruePeakDb: -5,
+      proposedGainDb: 6,
+      outputLufs: -16.1,
+      outputTruePeakDb: -1.2,
+      toleranceDb: 0.5,
+      maxTruePeakDb: -1,
+      beforeRevision: { id: "rev-20" },
+      afterRevision: { id: "rev-21" },
+      verificationPassed: true,
+      operationId: "private-operation",
+    },
+    restoration: {
+      status: "VERIFIED",
+      restored: true,
+      restoredRevision: { id: "rev-22" },
+      rawSnapshot: { source: "/private/media/dialogue.wav" },
+    },
+    toolResults: [
+      { name: "skill.inspect", status: "passed" },
+      { name: "skill.preview", status: "passed" },
+      { name: "skill.execute", status: "VERIFIED" },
+      { name: "edit.undo", status: "passed" },
+    ],
+  }, environment);
+
+  assert.deepEqual(evidence.target, {
+    project: "Disposable Dialogue",
+    projectId: "project-dialogue",
+    sequenceId: "sequence-dialogue",
+    occurrenceId: "occurrence-dialogue",
+  });
+  assert.deepEqual(evidence.measurement, {
+    before: { lufs: -22, truePeakDb: -5 },
+    proposedGainDb: 6,
+    after: { lufs: -16.1, truePeakDb: -1.2 },
+    constraints: { toleranceDb: 0.5, maxTruePeakDb: -1 },
+  });
+  assert.deepEqual(evidence.revisions, { before: "rev-20", after: "rev-21", restored: "rev-22" });
+  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|rawSnapshot|\/private\/media/);
+});
+
+test("headed dialogue evidence rejects failed loudness verification", () => {
+  const run = dialogueNormalizationRun();
+  run.normalization.verificationPassed = false;
+
+  assert.throws(
+    () => sanitizeDialogueNormalizationEvidence(run, environment),
+    /dialogue-normalization verification failed/,
+  );
+});
+
 test("all claimed headed runners publish through an allowlisted sanitizer", async () => {
   const root = process.cwd();
   const runners = await Promise.all([
@@ -253,6 +332,7 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
     readFile(join(root, "scripts/final-cut-title-discovery-headed-e2e.mjs"), "utf8"),
     readFile(join(root, "scripts/final-cut-masking-headed-e2e.mjs"), "utf8"),
     readFile(join(root, "scripts/final-cut-filler-removal-headed-e2e.mjs"), "utf8"),
+    readFile(join(root, "scripts/final-cut-dialogue-normalization-headed-e2e.mjs"), "utf8"),
     readFile(join(root, "scripts/final-cut-rough-cut-headed-e2e.mjs"), "utf8"),
   ]);
 
@@ -261,10 +341,47 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
   assert.match(runners[2], /sanitizeNativeTitleEvidence/);
   assert.match(runners[3], /sanitizeMaskEvidence/);
   assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
-  assert.match(runners[5], /sanitizeRoughCutEvidence/);
+  assert.match(runners[5], /sanitizeDialogueNormalizationEvidence/);
+  assert.match(runners[6], /sanitizeRoughCutEvidence/);
   assert.match(runners[2], /occurrenceId:\s*executed\.after\.target\.identity/);
   assert.match(runners[4], /occurrenceId[,:]/);
+  for (const runner of runners.slice(4, 6)) {
+    assert.match(runner, /callJson\("skill\.inspect"/);
+    assert.match(runner, /callJson\("skill\.preview"/);
+    assert.match(runner, /callJson\("skill\.execute"/);
+  }
 });
+
+function dialogueNormalizationRun(): Record<string, any> {
+  return {
+    passed: true,
+    recordedAt: "2026-09-23T00:00:00.000Z",
+    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
+    capabilities: {},
+    project: {
+      id: "project-dialogue",
+      name: "Disposable Dialogue",
+      sequenceId: "sequence-dialogue",
+      occurrenceId: "occurrence-dialogue",
+      mediaId: "media-dialogue",
+    },
+    normalization: {
+      status: "VERIFIED",
+      measuredLufs: -22,
+      measuredTruePeakDb: -5,
+      proposedGainDb: 6,
+      outputLufs: -16.1,
+      outputTruePeakDb: -1.2,
+      toleranceDb: 0.5,
+      maxTruePeakDb: -1,
+      beforeRevision: { id: "rev-20" },
+      afterRevision: { id: "rev-21" },
+      verificationPassed: true,
+    },
+    restoration: { status: "VERIFIED", restored: true, restoredRevision: { id: "rev-22" } },
+    toolResults: [],
+  };
+}
 
 function pictureInPictureRun(): Record<string, any> {
   return {
