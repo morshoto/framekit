@@ -6292,8 +6292,10 @@ function parseContext(output: string): NativeFinalCutContext {
       : "none";
   const target = selectedCount < 0
     ? { kind: "unknown" as const }
-    : selectedCount === 1
+    : selectedCount === 1 && Boolean(targetIdentity)
       ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
+      : selectedCount === 1
+        ? { kind: "unknown" as const }
       : selectedCount > 1
         ? { kind: "unknown" as const }
         : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")
