@@ -43,10 +43,30 @@ try {
   if (!project) throw new Error(`FINAL_CUT_E2E_PROJECT_NOT_FOUND: ${expectedProjectId}`);
   if (!Array.isArray(project.sequences)) throw new Error("FINAL_CUT_E2E_PROJECT_CATALOG_INVALID: project sequences must be an array");
 
+  const reconciliation = catalog.provenance?.reconciliation;
+  if (
+    reconciliation?.status !== "matched"
+    || reconciliation.project?.method !== "stable-id"
+    || reconciliation.sequence?.method !== "stable-id"
+    || reconciliation.project?.catalogId !== expectedProjectId
+  ) {
+    throw new Error("FINAL_CUT_E2E_RECONCILIATION_FAILED: project.list did not prove stable project and sequence identity reconciliation");
+  }
+
   const sequenceId = requestedSequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
   if (!sequenceId) throw new Error("AMBIGUOUS_PROJECT_TARGET: set FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID for a multi-sequence project");
   if (!project.sequences.some((sequence) => sequence?.id === sequenceId)) {
     throw new Error(`FINAL_CUT_E2E_SEQUENCE_NOT_FOUND: ${sequenceId} is not in ${expectedProjectId}`);
+  }
+
+  const live = await callJson("editor.live.inspect");
+  if (
+    live.project?.id !== reconciliation.project.liveId
+    || live.sequence?.id !== reconciliation.sequence.liveId
+    || live.project?.id === undefined
+    || live.sequence?.id === undefined
+  ) {
+    throw new Error("FINAL_CUT_E2E_RECONCILIATION_LIVE_MISMATCH: live inspection did not match the reconciled identities");
   }
 
   const selected = await callJson("project.select", { projectId: expectedProjectId, sequenceId });
@@ -89,6 +109,27 @@ try {
       observedRevision: {
         id: selected.observedRevision.id,
         sequence: selected.observedRevision.sequence,
+      },
+    },
+    reconciliation: {
+      status: reconciliation.status,
+      project: {
+        method: reconciliation.project.method,
+        liveId: reconciliation.project.liveId,
+        catalogId: reconciliation.project.catalogId,
+      },
+      sequence: {
+        method: reconciliation.sequence.method,
+        liveId: reconciliation.sequence.liveId,
+        catalogId: reconciliation.sequence.catalogId,
+      },
+      liveInspection: {
+        projectId: live.project.id,
+        sequenceId: live.sequence.id,
+        revision: {
+          id: live.revision.id,
+          sequence: live.revision.sequence,
+        },
       },
     },
   };
