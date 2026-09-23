@@ -31,6 +31,8 @@ const bridgeCapabilities: RuntimeCapabilities = {
   },
 };
 
+const extensionFingerprint = { version: "0.1.7", commit: "test-commit" };
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
@@ -47,7 +49,12 @@ function metadataOnlyRuntime(): AgentVideoRuntime {
       id: request.id,
       ok: true,
       result: {
-        identity: { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" },
+        identity: {
+          name: "Final Cut Pro",
+          version: "10.7.1",
+          backend: "workflow-extension-ipc",
+          buildFingerprint: extensionFingerprint,
+        },
         capabilities: bridgeCapabilities,
       },
     }),
@@ -72,7 +79,12 @@ async function withClient(
       state: "ready",
       editorDetected: true,
       extensionInstalled: true,
-      identity: { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" },
+      identity: {
+        name: "Final Cut Pro",
+        version: "10.7.1",
+        backend: "workflow-extension-ipc",
+        buildFingerprint: extensionFingerprint,
+      },
       capabilities: bridgeCapabilities,
     }),
   });
@@ -104,6 +116,8 @@ test("connection status and editor inspection share effective preflight", async 
     assert.equal(status.capabilities.editor.projectRead, false);
     assert.equal(status.preflight.fingerprint.version, "0.1.7");
     assert.equal(status.preflight.fingerprint.commit, "test-commit");
+    assert.deepEqual(status.identity.buildFingerprint, extensionFingerprint);
+    assert.deepEqual(editor.identity.buildFingerprint, extensionFingerprint);
   });
 });
 
