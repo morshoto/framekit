@@ -41,12 +41,24 @@ export interface ProjectCatalogLiveSource {
   guarantee: "observed";
 }
 
-export type ProjectCatalogIdentityMatchMethod = "stable-id" | "name-only" | "unresolved";
+export type ProjectCatalogIdentityMatchMethod = "stable-id" | "name-only" | "ambiguous-name" | "unresolved";
+
+export type ProjectCatalogIdentityDiagnosticCode = "stable-id-mismatch" | "ambiguous-name" | "identity-unresolved";
+
+export interface ProjectCatalogIdentityDiagnostic {
+  scope: "project" | "sequence";
+  code: ProjectCatalogIdentityDiagnosticCode;
+  liveId?: string;
+  liveName?: string;
+  catalogId?: string;
+  candidateCatalogIds?: string[];
+}
 
 export interface ProjectCatalogIdentityMatch {
   method: ProjectCatalogIdentityMatchMethod;
   catalogId?: string;
   liveId?: string;
+  candidateCatalogIds?: string[];
 }
 
 export interface ProjectCatalogReconciliation {
@@ -55,6 +67,7 @@ export interface ProjectCatalogReconciliation {
   sequence: ProjectCatalogIdentityMatch;
   beforeRevision?: ContextRevision;
   afterRevision?: ContextRevision;
+  diagnostics?: ProjectCatalogIdentityDiagnostic[];
   reason?: string;
 }
 

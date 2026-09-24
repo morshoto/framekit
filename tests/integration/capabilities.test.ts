@@ -721,4 +721,5 @@ test("headed project selection gate verifies transition evidence", async () => {
   assert.match(runner, /requestedTarget/);
   assert.match(runner, /observedActiveTarget/);
   assert.match(runner, /observedRevision/);
+  assert.match(runner, /reconciliation\.sequence\?\.catalogId !== sequenceId/);
 });

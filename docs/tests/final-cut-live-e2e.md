@@ -153,6 +153,27 @@ These diagnostics are intentionally actionable and do not expose private paths
 or media. The runner remains fail-closed if Accessibility cannot verify the
 overlay before the native preflight.
 
+## Headed project and sequence reconciliation
+
+For a provider that advertises stable catalog discovery and project selection,
+use a disposable Final Cut project and run the read/selection evidence:
+
+```sh
+FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID="final-cut:project:example" \
+FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID="final-cut:sequence:example" \
+pnpm run test:final-cut-project-selection-headed \
+  > docs/tests/evidence/$(date +%F)-project-reconciliation.json
+```
+
+The runner calls `project.list` and requires `matched` reconciliation with
+`stable-id` methods for both project and sequence. It then calls
+`editor.live.inspect` and verifies that the live IDs match the reconciled
+provenance before requesting `project.select`. Name-only, ambiguous, stale, or
+missing identity evidence fails closed. The emitted allowlisted evidence keeps
+the catalog IDs, live IDs, and revision summary without raw snapshots or local
+paths. A metadata-only Workflow Extension remains unavailable for this proof
+until a supported catalog/selection provider is connected.
+
 ## Canonical live provider evidence
 
 When a live bridge advertises `canonicalTimelineMode: canonical-write`, open a

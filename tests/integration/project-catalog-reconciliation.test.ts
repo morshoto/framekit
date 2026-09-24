@@ -109,6 +109,120 @@ test("name-only matches remain unresolved and do not create active IDs", () => {
   assert.equal(reconciled.provenance?.reconciliation.status, "unresolved");
   assert.equal(reconciled.provenance?.reconciliation.project.method, "name-only");
   assert.equal(reconciled.provenance?.reconciliation.sequence.method, "name-only");
+  assert.deepEqual((reconciled.provenance?.reconciliation as { diagnostics?: unknown[] }).diagnostics, [
+    {
+      scope: "project",
+      code: "stable-id-mismatch",
+      liveId: "socket-project",
+      liveName: "Edit Project",
+      catalogId: "library-project",
+    },
+    {
+      scope: "sequence",
+      code: "stable-id-mismatch",
+      liveId: "socket-sequence",
+      liveName: "Main",
+      catalogId: "library-sequence",
+    },
+  ]);
+});
+
+test("ambiguous sequence names remain unresolved with candidate identities", () => {
+  const ambiguousCatalog: ProjectCatalog = {
+    projects: [{
+      id: "library-project",
+      name: "Edit Project",
+      sequences: [
+        { id: "library-sequence-main", name: "Main" },
+        { id: "library-sequence-copy", name: "Main" },
+      ],
+    }],
+  };
+  const state = liveState(
+    "library-project",
+    "Edit Project",
+    "socket-sequence",
+    "Main",
+    revision(4),
+  );
+
+  const reconciled = reconcileProjectCatalog(ambiguousCatalog, {
+    before: state,
+    after: state,
+    provenance,
+  });
+  const reconciliation = reconciled.provenance?.reconciliation;
+  assert.ok(reconciliation);
+  const detailedReconciliation = reconciliation as typeof reconciliation & {
+    diagnostics?: unknown[];
+  };
+
+  assert.equal(reconciled.activeProjectId, undefined);
+  assert.equal(reconciled.activeSequenceId, undefined);
+  assert.equal(detailedReconciliation.status, "unresolved");
+  assert.equal(detailedReconciliation.project.method, "stable-id");
+  assert.equal(detailedReconciliation.sequence.method, "ambiguous-name");
+  assert.deepEqual(detailedReconciliation.sequence.candidateCatalogIds, [
+    "library-sequence-main",
+    "library-sequence-copy",
+  ]);
+  assert.deepEqual(detailedReconciliation.diagnostics, [{
+    scope: "sequence",
+    code: "ambiguous-name",
+    liveId: "socket-sequence",
+    liveName: "Main",
+    candidateCatalogIds: ["library-sequence-main", "library-sequence-copy"],
+  }]);
+});
+
+test("ambiguous project names remain unresolved before sequence matching", () => {
+  const ambiguousCatalog: ProjectCatalog = {
+    projects: [
+      {
+        id: "library-project-one",
+        name: "Edit Project",
+        sequences: [{ id: "library-sequence-one", name: "Main" }],
+      },
+      {
+        id: "library-project-two",
+        name: "Edit Project",
+        sequences: [{ id: "library-sequence-two", name: "Main" }],
+      },
+    ],
+  };
+  const state = liveState(
+    "socket-project",
+    "Edit Project",
+    "socket-sequence",
+    "Main",
+    revision(4),
+  );
+
+  const reconciled = reconcileProjectCatalog(ambiguousCatalog, {
+    before: state,
+    after: state,
+    provenance,
+  });
+  const reconciliation = reconciled.provenance?.reconciliation;
+  assert.ok(reconciliation);
+  const detailedReconciliation = reconciliation as typeof reconciliation & {
+    diagnostics?: unknown[];
+  };
+
+  assert.equal(reconciled.activeProjectId, undefined);
+  assert.equal(reconciled.activeSequenceId, undefined);
+  assert.equal(detailedReconciliation.project.method, "ambiguous-name");
+  assert.deepEqual(detailedReconciliation.project.candidateCatalogIds, [
+    "library-project-one",
+    "library-project-two",
+  ]);
+  assert.deepEqual(detailedReconciliation.diagnostics, [{
+    scope: "project",
+    code: "ambiguous-name",
+    liveId: "socket-project",
+    liveName: "Edit Project",
+    candidateCatalogIds: ["library-project-one", "library-project-two"],
+  }]);
 });
 
 test("revision changes return a stale catalog that requires a fresh read", () => {
