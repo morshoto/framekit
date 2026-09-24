@@ -595,6 +595,65 @@ export interface NativeFinalCutEditResult {
   undoCommand?: string;
 }
 
+export interface NativeFinalCutRollbackEvidence {
+  beforeRevision?: string;
+  afterRevision?: string;
+  revisionAdvanced: boolean;
+  projectId?: string;
+  sequenceId?: string;
+  timelineScopeBound: boolean;
+  beforeTargetIdentity?: string;
+  afterTargetIdentity?: string;
+  targetBound: boolean;
+  beforeUndoCommand?: string;
+  afterUndoCommand?: string;
+  undoCommandChanged: boolean;
+  mutationObserved: boolean;
+  beforeDuration?: RationalTime;
+  afterDuration?: RationalTime;
+}
+
+export interface NativeFinalCutPartialMutationDetails {
+  operationId: string;
+  recoveryHandle: string;
+  operation: string;
+  mutationApplied: true;
+  safeToRetry: false;
+  recovery: {
+    tool: "editor.native.undo";
+    operationId: string;
+  };
+  evidence: NativeFinalCutRollbackEvidence;
+  cause: {
+    code: string;
+    message: string;
+  };
+}
+
+export class NativeFinalCutPartialMutationError extends Error {
+  public readonly code = "FINAL_CUT_NATIVE_PARTIAL_MUTATION" as const;
+
+  public constructor(public readonly details: NativeFinalCutPartialMutationDetails) {
+    super(`FINAL_CUT_NATIVE_PARTIAL_MUTATION: ${details.cause.message}; operationId=${details.operationId}; mutationApplied=true; safeToRetry=false; recoveryHandle=${details.recoveryHandle}`);
+    this.name = "NativeFinalCutPartialMutationError";
+  }
+}
+
+export interface NativeFinalCutPartialMutationErrorPayload {
+  code: NativeFinalCutPartialMutationError["code"];
+  message: string;
+  details: NativeFinalCutPartialMutationDetails;
+}
+
+export function serializeNativeFinalCutPartialMutationError(error: unknown): NativeFinalCutPartialMutationErrorPayload | undefined {
+  if (!(error instanceof NativeFinalCutPartialMutationError)) return undefined;
+  return {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+  };
+}
+
 export interface NativeFinalCutUndoResult {
   operationId: string;
   undone: boolean;
@@ -616,6 +675,7 @@ interface NativeOperationRecord {
   afterLive?: EditorLiveState;
   beforeDuration?: RationalTime;
   undoCommand?: string;
+  rollbackEvidence?: NativeFinalCutRollbackEvidence;
 }
 
 export interface NativeFinalCutAutomationOptions {
@@ -899,6 +959,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private rememberOperation(operationId: string, record: NativeOperationRecord): void {
+    record.rollbackEvidence ??= nativeRollbackEvidence(record);
     this.operations.set(operationId, record);
     this.latestOperationId = operationId;
   }
@@ -992,11 +1053,36 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const after = await this.requireTimelineContext();
     const afterLive = await this.readLiveState();
     const verification = verifyNativeEdit(operation, before, after);
+    const operationRecord = {
+      kind: "selection" as const,
+      before,
+      after,
+      beforeLive,
+      afterLive,
+      undoCommand: after.undoCommand,
+    } satisfies NativeOperationRecord;
     if (!verification.verified) {
+      const evidence = nativeRollbackEvidence(operationRecord);
+      if (evidence.mutationObserved) {
+        this.rememberOperation(operationId, operationRecord);
+        throw new NativeFinalCutPartialMutationError({
+          operationId,
+          recoveryHandle: operationId,
+          operation: command,
+          mutationApplied: true,
+          safeToRetry: false,
+          recovery: { tool: "editor.native.undo", operationId },
+          evidence,
+          cause: {
+            code: "FINAL_CUT_NATIVE_VERIFICATION_FAILED",
+            message: verification.detail,
+          },
+        });
+      }
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
     }
-    this.assertNativeRollbackReady(after, "native mutation");
-    this.rememberOperation(operationId, { kind: "selection", before, after, beforeLive, afterLive, undoCommand: after.undoCommand });
+    this.rememberOperation(operationId, operationRecord);
+    this.assertNativeRollbackReady(operationId, command, operationRecord);
     return { operationId, operation, command, before, after, verification, undoAvailable: after.undoAvailable, ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}) };
   }
 
@@ -1015,7 +1101,17 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: Final Cut timeline changed after the native edit");
     }
     if (!before.undoAvailable || !before.undoCommand) throw new Error("FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut has no available Undo command");
-    if (!operation.undoCommand || before.undoCommand !== operation.undoCommand) {
+    if ((operation.before.undoAvailable || operation.before.undoCommand)
+      && (!operation.before.undoCommand || operation.undoCommand === operation.before.undoCommand)) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_UNBOUND: operation does not have an Undo command distinct from pre-existing Final Cut history");
+    }
+    if (!operation.undoCommand) {
+      if (operation.before.undoAvailable || operation.before.undoCommand) {
+        throw new Error("FINAL_CUT_NATIVE_UNDO_UNBOUND: operation does not have an Undo command distinct from pre-existing Final Cut history");
+      }
+      operation.undoCommand = before.undoCommand;
+    }
+    if (before.undoCommand !== operation.undoCommand) {
       throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
     }
     try {
@@ -1603,6 +1699,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         undoCommand: observedAfter.undoCommand,
       } satisfies NativeOperationRecord;
       this.rememberOperation(operationId, operation);
+      this.assertNativeRollbackReady(operationId, "Mask", operation);
       return {
         operationId,
         previewToken,
@@ -1618,6 +1715,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         ...(observedAfter.undoCommand ? { undoCommand: observedAfter.undoCommand } : {}),
       };
     } catch (error) {
+      if (error instanceof NativeFinalCutPartialMutationError) throw error;
       const rollback = await this.rollbackFailedMask(before, beforeLive, previewToken, error, observedAfter, observedLive);
       const failure = `${nativeErrorCode(error)}: ${String(error)}`;
       if (rollback.rolledBack) throw new Error(`${failure}; mask placement was rolled back`);
@@ -1703,9 +1801,17 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (resultingSegments.length < 2) {
       throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
     }
-    this.assertNativeRollbackReady(after, "Blade");
     const operationId = opaqueHandle("native-blade");
-    this.rememberOperation(operationId, { kind: "blade", before, after, beforeLive: undefined, afterLive, undoCommand: after.undoCommand });
+    const operation = {
+      kind: "blade" as const,
+      before,
+      after,
+      beforeLive: undefined,
+      afterLive,
+      undoCommand: after.undoCommand,
+    } satisfies NativeOperationRecord;
+    this.rememberOperation(operationId, operation);
+    this.assertNativeRollbackReady(operationId, "Blade", operation);
     return {
       operationId,
       previewToken,
@@ -1995,6 +2101,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
     }
     this.rememberOperation(operationId, operation);
+    this.assertNativeRollbackReady(operationId, "Transition", operation);
     return {
       operationId,
       previewToken,
@@ -2134,6 +2241,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
 
     this.rememberOperation(operationId, operation);
+    this.assertNativeRollbackReady(operationId, "Title", operation);
     return {
       operationId,
       previewToken,
@@ -2308,6 +2416,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
       }
       this.rememberOperation(operationId, operation);
+      this.assertNativeRollbackReady(operationId, "Picture-in-picture", operation);
       return {
         operationId,
         previewToken,
@@ -2331,6 +2440,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
       };
     } catch (error) {
+      if (error instanceof NativeFinalCutPartialMutationError) throw error;
       const observedContext = after ?? await this.inspectRawNative();
       const observedLive = afterLive ?? await this.readLiveState();
       if (observedLive && observedLive.revision.id !== beforeLive.revision.id && observedContext.undoCommand) {
@@ -2489,8 +2599,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
       throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
     }
-    this.assertNativeRollbackReady(after, `${preview.operation} media insertion`);
     this.rememberOperation(operationId, operation);
+    this.assertNativeRollbackReady(operationId, `${preview.operation} media insertion`, operation);
     return {
       operationId,
       previewToken,
@@ -2627,9 +2737,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       afterLive.sequence?.frameDuration ?? beforeLive.sequence?.frameDuration,
     );
     if (!detail.verified) throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${detail.detail}`);
-    this.assertNativeRollbackReady(after, preview.operation);
     const operationId = opaqueHandle(`native-${preview.operation}`);
-    this.rememberOperation(operationId, {
+    const operation = {
       kind: "range",
       before,
       after,
@@ -2637,7 +2746,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       afterLive,
       beforeDuration: preview.beforeDuration,
       undoCommand: after.undoCommand,
-    });
+    } satisfies NativeOperationRecord;
+    this.rememberOperation(operationId, operation);
+    this.assertNativeRollbackReady(operationId, preview.operation, operation);
     return {
       operationId,
       previewToken,
@@ -3007,9 +3118,85 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
   }
 
-  private assertNativeRollbackReady(context: NativeFinalCutContext, operation: string): void {
-    if (!context.undoAvailable || !context.undoCommand) {
-      throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: Final Cut did not expose operation-specific Undo after ${operation}; transaction is not safely reversible`);
+  private assertNativeRollbackReady(operationId: string, operation: string, record: NativeOperationRecord): void {
+    const evidence = record.rollbackEvidence ?? nativeRollbackEvidence(record);
+    record.rollbackEvidence = evidence;
+    if (!evidence.timelineScopeBound) {
+      throw new NativeFinalCutPartialMutationError({
+        operationId,
+        recoveryHandle: operationId,
+        operation,
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId },
+        evidence,
+        cause: {
+          code: "FINAL_CUT_NATIVE_TARGET_CHANGED",
+          message: `Final Cut project or sequence changed during ${operation}; the applied mutation requires recovery before retry`,
+        },
+      });
+    }
+    if (!evidence.mutationObserved) {
+      throw new NativeFinalCutPartialMutationError({
+        operationId,
+        recoveryHandle: operationId,
+        operation,
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId },
+        evidence,
+        cause: {
+          code: "FINAL_CUT_NATIVE_MUTATION_EVIDENCE_UNAVAILABLE",
+          message: `Final Cut did not expose mutation-bound revision, target, or Undo evidence after ${operation}`,
+        },
+      });
+    }
+    if (!evidence.targetBound) {
+      throw new NativeFinalCutPartialMutationError({
+        operationId,
+        recoveryHandle: operationId,
+        operation,
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId },
+        evidence,
+        cause: {
+          code: "FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE",
+          message: `Final Cut did not preserve the native target binding after ${operation}; the applied mutation requires recovery before retry`,
+        },
+      });
+    }
+    if (!record.after.undoAvailable || !record.after.undoCommand) {
+      throw new NativeFinalCutPartialMutationError({
+        operationId,
+        recoveryHandle: operationId,
+        operation,
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId },
+        evidence,
+        cause: {
+          code: "FINAL_CUT_NATIVE_UNDO_UNAVAILABLE",
+          message: `Final Cut did not expose operation-specific Undo after ${operation}; the applied mutation requires recovery before retry`,
+        },
+      });
+    }
+    if ((record.before.undoAvailable || record.before.undoCommand) && (
+      !record.before.undoCommand || record.after.undoCommand === record.before.undoCommand
+    )) {
+      throw new NativeFinalCutPartialMutationError({
+        operationId,
+        recoveryHandle: operationId,
+        operation,
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId },
+        evidence,
+        cause: {
+          code: "FINAL_CUT_NATIVE_UNDO_UNBOUND",
+          message: `Final Cut's post-mutation Undo command was not distinguishable from pre-existing history after ${operation}; the applied mutation requires recovery before retry`,
+        },
+      });
     }
   }
 
@@ -3192,6 +3379,62 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       void execution.catch(() => {});
     }
   }
+}
+
+function nativeRollbackEvidence(record: NativeOperationRecord): NativeFinalCutRollbackEvidence {
+  const beforeRevision = record.beforeLive?.revision.id;
+  const afterRevision = record.afterLive?.revision.id;
+  const revisionAdvanced = Boolean(beforeRevision && afterRevision && beforeRevision !== afterRevision);
+  const timelineScopeBound = !record.beforeLive || !record.afterLive
+    || Boolean(
+      record.beforeLive.project?.id
+      && record.afterLive.project?.id
+      && record.beforeLive.project.id === record.afterLive.project.id
+      && record.beforeLive.sequence?.id
+      && record.afterLive.sequence?.id
+      && record.beforeLive.sequence.id === record.afterLive.sequence.id,
+    );
+  const beforeTargetIdentity = record.before.target.identity;
+  const afterTargetIdentity = record.after.target.identity;
+  const sameTargetBound = record.before.target.kind === record.after.target.kind
+    && (beforeTargetIdentity && afterTargetIdentity
+      ? beforeTargetIdentity === afterTargetIdentity
+      : !beforeTargetIdentity && !afterTargetIdentity
+        && record.before.target.kind !== "selected-clip"
+        && (record.before.target.kind === "playhead" || record.before.target.name === record.after.target.name));
+  const insertedTargetBound = (record.kind === "title-placement"
+    || record.kind === "picture-in-picture"
+    || record.kind === "transition-placement")
+    && (record.before.target.kind === "playhead" || record.before.target.kind === "selected-clip")
+    && record.after.target.kind === "selected-clip"
+    && Boolean(afterTargetIdentity);
+  const targetBound = sameTargetBound || insertedTargetBound;
+  const undoCommandChanged = record.before.undoCommand !== record.after.undoCommand;
+  const beforeDuration = record.beforeDuration;
+  const afterDuration = record.afterLive?.sequenceTimeRange?.duration ?? record.afterLive?.sequence?.duration;
+  const durationChanged = Boolean(
+    beforeDuration
+      && afterDuration
+      && compareRational(beforeDuration, afterDuration) !== 0,
+  );
+  const targetChanged = record.before.target.name !== record.after.target.name;
+  return {
+    ...(beforeRevision ? { beforeRevision } : {}),
+    ...(afterRevision ? { afterRevision } : {}),
+    revisionAdvanced,
+    ...(record.beforeLive?.project?.id ? { projectId: record.beforeLive.project.id } : {}),
+    ...(record.beforeLive?.sequence?.id ? { sequenceId: record.beforeLive.sequence.id } : {}),
+    timelineScopeBound,
+    ...(beforeTargetIdentity ? { beforeTargetIdentity } : {}),
+    ...(afterTargetIdentity ? { afterTargetIdentity } : {}),
+    targetBound,
+    ...(record.before.undoCommand ? { beforeUndoCommand: record.before.undoCommand } : {}),
+    ...(record.after.undoCommand ? { afterUndoCommand: record.after.undoCommand } : {}),
+    undoCommandChanged,
+    mutationObserved: revisionAdvanced || undoCommandChanged || targetChanged || durationChanged,
+    ...(beforeDuration ? { beforeDuration: structuredClone(beforeDuration) } : {}),
+    ...(afterDuration ? { afterDuration: structuredClone(afterDuration) } : {}),
+  };
 }
 
 function verifyNativeUndo(

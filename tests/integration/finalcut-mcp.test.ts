@@ -13,6 +13,7 @@ import {
   CommandMetadataAnalyzer,
   NativeFinalCutMediaImportDirectoryError,
   NativeFinalCutMediaImportError,
+  NativeFinalCutPartialMutationError,
 } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
@@ -823,6 +824,97 @@ test("Final Cut MCP forwards request cancellation to native probes and commands"
     await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
     assert.ok(inspectSignal);
     assert.ok(editSignal);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP returns structured native partial-mutation recovery state", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "selected-clip" as const, name: "Interview", identity: "clip-1" },
+    bladeAvailable: false,
+    undoAvailable: true,
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    edit: async () => {
+      throw new NativeFinalCutPartialMutationError({
+        operationId: "native-op-1",
+        recoveryHandle: "native-op-1",
+        operation: "Apply Custom Name",
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId: "native-op-1" },
+        evidence: {
+          beforeRevision: "rev-1",
+          afterRevision: "rev-2",
+          revisionAdvanced: true,
+          projectId: "project-1",
+          sequenceId: "sequence-1",
+          timelineScopeBound: true,
+          beforeTargetIdentity: "clip-1",
+          afterTargetIdentity: "clip-1",
+          targetBound: true,
+          beforeUndoCommand: "Undo Existing Change",
+          afterUndoCommand: "Undo Rename",
+          undoCommandChanged: true,
+          mutationObserved: true,
+        },
+        cause: {
+          code: "FINAL_CUT_NATIVE_UNDO_UNAVAILABLE",
+          message: "Final Cut did not expose operation-specific Undo",
+        },
+      });
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Partial Mutation Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "partial-mutation-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "editor.native.edit",
+      arguments: { type: "rename-selected-clip", name: "Interview Clean" },
+    });
+    assert.equal(response.isError, true);
+    const payload = JSON.parse(textFrom(response));
+    assert.equal(payload.code, "FINAL_CUT_NATIVE_PARTIAL_MUTATION");
+    assert.equal(payload.details.operationId, "native-op-1");
+    assert.equal(payload.details.recovery.tool, "editor.native.undo");
+    assert.equal(payload.details.safeToRetry, false);
+    assert.equal(payload.details.evidence.targetBound, true);
   } finally {
     await client.close();
     await server.close();
