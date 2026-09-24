@@ -632,6 +632,42 @@ test("Final Cut live adapter reads native state and incremental events", async (
   assert.deepEqual(transport.requests.map(({ method }) => method), ["state", "capabilities", "changes"]);
 });
 
+test("metadata-only live context stays source-bound without canonical timeline data", async () => {
+  const runtime = new AgentVideoRuntime(new FinalCutLiveAdapter(new FakeFinalCutLiveTransport()));
+  const context = await runtime.inspectContext();
+
+  assert.equal(context.project, undefined);
+  assert.deepEqual(context.cursor, {
+    revision: context.revision,
+    target: {
+      projectId: "project-live-1",
+      sequenceId: "sequence-live-1",
+    },
+  });
+  assert.deepEqual(context.provenance, {
+    source: "live-metadata",
+    provider: "workflow-extension-ipc",
+    evidenceTier: "metadata-only",
+    target: {
+      projectId: "project-live-1",
+      sequenceId: "sequence-live-1",
+    },
+  });
+
+  const changes = await runtime.contextChangesSince({ id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() });
+  assert.equal(changes.timeline, undefined);
+  assert.deepEqual(changes.changedScopes, ["playhead"]);
+  assert.deepEqual(changes.provenance, [{
+    source: "live-metadata",
+    provider: "workflow-extension-ipc",
+    evidenceTier: "metadata-only",
+    target: {
+      projectId: "project-live-1",
+      sequenceId: "sequence-live-1",
+    },
+  }]);
+});
+
 test("Final Cut live adapter rejects unavailable rational times", async () => {
   const adapter = new FinalCutLiveAdapter(new FakeFinalCutLiveTransport(true));
 

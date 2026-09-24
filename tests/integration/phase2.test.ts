@@ -134,3 +134,29 @@ test("context inspection exposes a source-bound cursor and compact scope envelop
   });
   assert.deepEqual(compact.changedScopes, []);
 });
+
+test("context changes return an ordered source-bound cursor and changed scope", async () => {
+  const runtime = new AgentVideoRuntime(phase2Fixture());
+  const before = await runtime.inspectContext();
+  await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Interview - Clean" });
+
+  const changes = await runtime.contextChangesSince(before.cursor.revision);
+
+  assert.deepEqual(changes.cursor, {
+    revision: changes.to,
+    target: {
+      projectId: "project-2",
+      sequenceId: "timeline-2",
+    },
+  });
+  assert.deepEqual(changes.provenance, [{
+    source: "deterministic-fixture",
+    provider: "fixture",
+    evidenceTier: "deterministic",
+    target: {
+      projectId: "project-2",
+      sequenceId: "timeline-2",
+    },
+  }]);
+  assert.deepEqual(changes.changedScopes, ["timeline"]);
+});
