@@ -85,6 +85,16 @@ export class ContextEngine {
         reason: `revision ${request.from.id} was not observed in the canonical context`,
       };
     }
+    if (!sameRevision(before.revision, request.from)) {
+      return {
+        status: "stale",
+        target: resolvedTarget.target,
+        source,
+        from: structuredClone(request.from),
+        changes: [],
+        reason: "requested revision does not match the observed canonical revision",
+      };
+    }
     if (before.projectId !== resolvedTarget.target.projectId || before.timeline.id !== resolvedTarget.target.sequenceId) {
       return {
         status: "stale",
