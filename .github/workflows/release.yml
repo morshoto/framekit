@@ -294,6 +294,7 @@ jobs:
                     lifecycle_status=""
                     if [ -n "${NPM_LIFECYCLE_TOKEN:-}" ]; then
                       if lifecycle_response="$(curl --fail --silent --show-error \
+                        --max-time 15 \
                         --oauth2-bearer "${NPM_LIFECYCLE_TOKEN}" \
                         "https://registry.npmjs.org/-/package/${encoded_package_name}/version/${expected_version}/status" \
                         2>"${lifecycle_error_log}")"; then
