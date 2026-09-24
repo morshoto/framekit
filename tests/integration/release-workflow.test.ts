@@ -385,6 +385,35 @@ test('release verification allows npm validation time to complete', async () => 
 	);
 });
 
+test('release verification treats authenticated npm validation as pending', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(
+		verification,
+		/NPM_LIFECYCLE_TOKEN: \$\{\{ secrets\.NPM_LIFECYCLE_TOKEN \}\}/,
+	);
+	assert.match(
+		verification,
+		/version\/\$\{expected_version\}\/status/,
+	);
+	assert.match(
+		verification,
+		/Authorization: Bearer \$\{NPM_LIFECYCLE_TOKEN\}/,
+	);
+	assert.match(
+		verification,
+		/\[ "\$\{lifecycle_status\}" = "validating" \]/,
+	);
+	assert.match(verification, /continue/);
+});
+
 test('release retries tolerate a duplicate npm publish after a visibility race', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
