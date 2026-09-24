@@ -173,6 +173,13 @@ sequence range, and incremental change events. Add `FRAMEKIT_FCPXML_PATH` to
 compose canonical project/timeline reads, artifact edits, read-after-write,
 diffs, verification, and undo. These edits update the FCPXML artifact rather
 than the open Final Cut timeline.
+
+The context surface preserves this boundary. A metadata-only live
+`context.inspect` result contains the live revision, active project/sequence
+target, provider, and `metadata-only` evidence tier without fabricating a
+canonical project snapshot. Its `context.changes` result reports live scopes
+such as `playhead` or `sequence` and leaves the canonical `timeline` diff
+absent. FCPXML-backed context reports the separate `fcpxml-artifact` tier.
 The artifact operation boundary is documented in the [FCPXML operation
 matrix](../final-cut/fcpxml-operation-matrix.md); those deterministic artifact
 results do not prove a live Final Cut timeline change.

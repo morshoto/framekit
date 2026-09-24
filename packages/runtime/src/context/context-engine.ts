@@ -65,7 +65,13 @@ export class ContextEngine {
       ? incremental?.assetChanges ?? []
       : [];
     const to = latestRevision(revision, timeline?.to, ...stateChanges.map((change) => change.revision), incremental?.to);
-    const target = contextTarget(this.snapshots.get(revision.id), stateChanges);
+    let target = contextTarget(this.snapshots.get(revision.id), stateChanges);
+    if (!target) {
+      const liveState = await this.optionalLiveState();
+      target = contextTarget(undefined, liveState ? [
+        { kind: "active-sequence-changed", revision: liveState.revision, state: liveState },
+      ] : []);
+    }
     const provenance = contextProvenanceSet(identity.backend, capabilities, target, {
       timeline,
       stateChanges,
@@ -199,6 +205,7 @@ function primaryContextProvenance(
   const artifact = capabilities.editor.timelineArtifactWrite && !capabilities.editor.timelineWrite;
   const canonical = capabilities.editor.canonicalTimelineMode === "canonical-read"
     || capabilities.editor.canonicalTimelineMode === "canonical-write";
+  const headedNative = canonical && provider.includes("native");
   const source = provider === "fixture"
     ? "deterministic-fixture" as const
     : artifact
@@ -210,6 +217,8 @@ function primaryContextProvenance(
     ? "deterministic" as const
     : source === "fcpxml-artifact"
       ? "fcpxml-artifact" as const
+      : headedNative
+        ? "headed-native" as const
       : source === "canonical-timeline"
         ? "canonical-live" as const
         : "metadata-only" as const;

@@ -102,8 +102,8 @@ is a separate, confirmed `artifact.publish` step.
 | `editor.native.delete-range.execute` | Execute a previewed primary-storyline ripple delete | Requires unchanged sequence revision and duration |
 | `editor.native.trim-to-duration.preview` | Preview removal of the sequence tail after a requested duration | Preserves the beginning; destructive; requires explicit execute and timeline focus |
 | `editor.native.trim-to-duration.execute` | Execute a previewed trim-to-duration operation | Requires unchanged sequence revision and duration |
-| `context.inspect` | Queryable agent editing context | Backend-dependent |
-| `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
+| `context.inspect` | Compact, source-bound agent context with a revision cursor | Backend-dependent; canonical project data remains available when supported |
+| `context.changes` | Incremental timeline, live-state, and asset changes with provenance and changed scopes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider advertised as `observation.library` |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
@@ -153,6 +153,40 @@ is a separate, confirmed `artifact.publish` step.
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
+
+### Context cursors and evidence
+
+`context.inspect` returns a `cursor` that can be passed directly to
+`context.changes`:
+
+```json
+{
+  "cursor": {
+    "revision": {
+      "id": "rev-12",
+      "sequence": 12,
+      "timestamp": "2026-09-25T00:00:00.000Z"
+    },
+    "target": {
+      "projectId": "project-1",
+      "sequenceId": "sequence-1"
+    }
+  }
+}
+```
+
+The older `{ "sequence": 12 }` input remains accepted for compatibility.
+Context results identify their `provenance` with a provider, source, target,
+and explicit `evidenceTier`. The supported tiers are `deterministic`,
+`metadata-only`, `fcpxml-artifact`, `canonical-live`, and `headed-native`.
+`changedScopes` reports only the affected `timeline`, `media`, `playhead`,
+`sequence`, or `assets` areas.
+
+Metadata-only live observations are source-bound but are not canonical timeline
+evidence: their changes use the `live-metadata` source and do not populate the
+canonical `timeline` diff. FCPXML artifact observations retain the
+`fcpxml-artifact` tier and must not be reported as headed or canonical-live
+proof.
 
 `editor.inspect` returns a versioned `capabilities` payload. Read
 `capabilities.families.<family>.<operation>.available` before choosing an
