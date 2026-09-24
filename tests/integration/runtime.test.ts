@@ -203,3 +203,46 @@ test("timeline diffs preserve target provenance and complete entity values", () 
   assert.equal(diff.mediaChanges[0]?.before?.sourceDigest, undefined);
   assert.equal(diff.mediaChanges[0]?.after?.sourceDigest, "sha256:after");
 });
+
+test("timeline diffs preserve exact duration and playhead changes", () => {
+  const before: ProjectSnapshot = {
+    projectId: "project-1",
+    projectName: "Rational fixture",
+    playheadTime: { value: "1", timescale: "24" },
+    timeline: {
+      id: "timeline-1",
+      name: "Main",
+      duration: 1 / 3,
+      durationTime: { value: "1", timescale: "3" },
+      clips: [{
+        id: "clip-1",
+        name: "Clip",
+        start: 0,
+        duration: 1 / 3,
+        track: 1,
+        startTime: { value: "0", timescale: "1" },
+        durationTime: { value: "1", timescale: "3" },
+      }],
+      storyElements: [],
+      markers: [],
+      captions: [],
+    },
+    media: [],
+    revision: { id: "rev-before", sequence: 1, timestamp: "2026-09-25T00:00:00.000Z" },
+  };
+  const after = structuredClone(before);
+  after.timeline.duration = 2 / 3;
+  after.timeline.durationTime = { value: "2", timescale: "3" };
+  after.playheadTime = { value: "5", timescale: "24" };
+  after.revision = { id: "rev-after", sequence: 2, timestamp: "2026-09-25T00:00:01.000Z" };
+
+  const diff = diffSnapshots(before, after);
+
+  assert.equal(diff.durationDelta, 1 / 3);
+  assert.deepEqual(diff.durationDeltaTime, { value: "1", timescale: "3" });
+  assert.deepEqual(diff.playheadChange, {
+    before: { value: "1", timescale: "24" },
+    after: { value: "5", timescale: "24" },
+  });
+  assert.equal(diffSnapshots(before, structuredClone(before)).playheadChange, undefined);
+});
