@@ -102,6 +102,7 @@ test("Phase 2 exposes a queryable agent context", async () => {
     visualAnalyzer: new FixtureVisualAnalyzer(),
   });
   const context = await runtime.inspectContext();
+  assert.ok(context.project);
   assert.equal(context.revision.id, "rev-0");
   assert.equal(context.project.projectName, "Phase 2 Fixture");
   assert.equal(context.media[0]?.mediaId, "media-1");
@@ -112,6 +113,7 @@ test("Phase 2 exposes a queryable agent context", async () => {
 test("context inspection exposes a source-bound cursor and compact scope envelope", async () => {
   const runtime = new AgentVideoRuntime(phase2Fixture());
   const context = await runtime.inspectContext();
+  assert.ok(context.project);
   const compact = context as unknown as Record<string, unknown>;
 
   assert.deepEqual(compact.cursor, {

@@ -155,9 +155,44 @@ export interface ContextChangeSet {
   assetChanges: AssetChange[];
 }
 
+export type ContextSource =
+  | "canonical-timeline"
+  | "live-metadata"
+  | "fcpxml-artifact"
+  | "deterministic-fixture";
+
+export type ContextEvidenceTier =
+  | "deterministic"
+  | "metadata-only"
+  | "fcpxml-artifact"
+  | "canonical-live"
+  | "headed-native";
+
+export interface ContextTarget {
+  projectId: string;
+  sequenceId: string;
+}
+
+export interface ContextCursor {
+  revision: ContextRevision;
+  target?: ContextTarget;
+}
+
+export interface ContextProvenance {
+  source: ContextSource;
+  provider: string;
+  evidenceTier: ContextEvidenceTier;
+  target?: ContextTarget;
+}
+
+export type ContextChangedScope = "project" | "sequence" | "timeline" | "playhead" | "assets" | "media";
+
 export interface ContextDiff {
   from: ContextRevision;
   to: ContextRevision;
+  cursor: ContextCursor;
+  provenance: ContextProvenance[];
+  changedScopes: ContextChangedScope[];
   timeline?: TimelineDiff;
   stateChanges: EditorChange[];
   assetChanges: AssetChange[];
@@ -165,7 +200,10 @@ export interface ContextDiff {
 
 export interface AgentContext {
   revision: ContextRevision;
-  project: ProjectSnapshot;
+  cursor: ContextCursor;
+  provenance: ContextProvenance;
+  changedScopes: ContextChangedScope[];
+  project?: ProjectSnapshot;
   editorState?: EditorLiveState;
   media: MediaContext[];
   recentChanges: ContextDiff;
