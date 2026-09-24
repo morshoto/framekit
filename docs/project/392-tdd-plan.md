@@ -1,8 +1,8 @@
 # TDD Plan: Expose compact source-bound agent context (#392)
 
-**Type**: Feature  
-**Issue**: https://github.com/morshoto/framekit/issues/392  
-**Complexity**: Medium  
+**Type**: Feature
+**Issue**: https://github.com/morshoto/framekit/issues/392
+**Complexity**: Medium
 **TDD Entry Point**: A context contract test asserting a revision cursor, target, provenance, evidence tier, and changed-scope envelope.
 
 ## Issue Summary
@@ -168,13 +168,13 @@ pnpm run check:boundaries
 
 ## Risks and Mitigations
 
-- **Risk**: Metadata-only live state could be mistaken for canonical timeline evidence.  
+- **Risk**: Metadata-only live state could be mistaken for canonical timeline evidence.
   **Mitigation**: Add an explicit evidence tier and a regression test that asserts `timeline` is absent for metadata-only changes.
-- **Risk**: Requiring a full cursor could break existing MCP clients.  
+- **Risk**: Requiring a full cursor could break existing MCP clients.
   **Mitigation**: Accept the new cursor and retain the existing sequence input in the same tool schema.
-- **Risk**: Making `project` optional could surprise consumers.  
+- **Risk**: Making `project` optional could surprise consumers.
   **Mitigation**: Preserve the field for canonical/fixture contexts and test live-only inspection separately.
-- **Risk**: Mixed canonical and live changes may be misclassified.  
+- **Risk**: Mixed canonical and live changes may be misclassified.
   **Mitigation**: Keep provenance per observation source and derive changed scopes independently.
 
 ## Rollout / Review Notes
