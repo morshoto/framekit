@@ -242,6 +242,7 @@ const server = createMcpServer(runtime, {
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
   sessionDirectory: join(framekitStateDirectory, "sessions"),
+  sessionChangeSource: { changesSince: (revision) => runtime.changesSince(revision) },
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   sqliteObservationProvider,
 });
