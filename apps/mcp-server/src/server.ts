@@ -1823,15 +1823,33 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (query) => jsonResult(await runtime.listAssets(query)));
 
   server.registerTool("timeline.changes", {
-    description: "Return the canonical timeline diff since a previously observed revision.",
-    inputSchema: { sequence: z.number().int().nonnegative() },
-  }, async ({ sequence }) => {
-    const project = await runtime.inspectProject();
-    return jsonResult(await runtime.changesSince({
-      id: `rev-${sequence}`,
-      sequence,
-      timestamp: new Date(0 + sequence).toISOString(),
-    }));
+    description: "Return ordered canonical timeline changes for one selected project and sequence.",
+    inputSchema: {
+      projectId: z.string().min(1).optional(),
+      sequenceId: z.string().min(1).optional(),
+      revision: revisionValueSchema.optional(),
+      /** Legacy cursor retained for existing MCP clients. */
+      sequence: z.number().int().nonnegative().optional(),
+    },
+  }, async ({ projectId, sequenceId, revision, sequence }) => {
+    const project = projectId && sequenceId && revision
+      ? undefined
+      : await runtime.inspectProject();
+    const from = revision ?? {
+      id: `rev-${sequence ?? project!.revision.sequence}`,
+      sequence: sequence ?? project!.revision.sequence,
+      timestamp: new Date(sequence ?? project!.revision.sequence).toISOString(),
+    };
+    const result = await runtime.timelineChangesSince({
+      target: {
+        projectId: projectId ?? project!.projectId,
+        sequenceId: sequenceId ?? project!.timeline.id,
+      },
+      from,
+    });
+    return jsonResult(result.status === "ready" && result.timeline
+      ? { ...result.timeline, ...result }
+      : result);
   });
 
   server.registerTool("timeline.edit", {
