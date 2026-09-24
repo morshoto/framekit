@@ -415,6 +415,19 @@ test('release verification treats authenticated npm validation as pending', asyn
 	assert.match(verification, /continue/);
 });
 
+test('release lifecycle status requests have a bounded timeout', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(verification, /--max-time 15/);
+});
+
 test('release retries tolerate a duplicate npm publish after a visibility race', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
