@@ -349,7 +349,8 @@ test('release verification retries transient npm registry visibility', async () 
 		statusCheck,
 		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
 	);
-	assert.match(verification, /max_attempts=6/);
+	assert.match(verification, /max_attempts=17/);
+	assert.match(verification, /retry_delay_seconds=60/);
 	assert.match(
 		verification,
 		/for attempt in \$\(seq 1 "\$\{max_attempts\}"\)/,
@@ -359,7 +360,7 @@ test('release verification retries transient npm registry visibility', async () 
 		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
 	);
 	assert.match(verification, /No match found for version/);
-	assert.match(verification, /sleep "\$\{delay\}"/);
+	assert.match(verification, /sleep "\$\{retry_delay_seconds\}"/);
 });
 
 test('release verification allows npm validation time to complete', async () => {
@@ -405,7 +406,7 @@ test('release verification treats authenticated npm validation as pending', asyn
 	);
 	assert.match(
 		verification,
-		/Authorization: Bearer \$\{NPM_LIFECYCLE_TOKEN\}/,
+		/--oauth2-bearer "\$\{NPM_LIFECYCLE_TOKEN\}"/,
 	);
 	assert.match(
 		verification,
