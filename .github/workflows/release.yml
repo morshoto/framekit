@@ -298,7 +298,12 @@ jobs:
                         --oauth2-bearer "${NPM_LIFECYCLE_TOKEN}" \
                         "https://registry.npmjs.org/-/package/${encoded_package_name}/version/${expected_version}/status" \
                         2>"${lifecycle_error_log}")"; then
-                        lifecycle_status="$(node -e 'const payload = JSON.parse(process.argv[1]); process.stdout.write(payload.status ?? "")' "${lifecycle_response}")"
+                        if lifecycle_status="$(node -e 'try { const payload = JSON.parse(process.argv[1]); process.stdout.write(typeof payload.status === "string" ? payload.status : ""); } catch { process.exit(1); }' "${lifecycle_response}")"; then
+                          :
+                        else
+                          lifecycle_status=""
+                          echo "npm lifecycle status response is invalid; using public registry verification."
+                        fi
                       else
                         echo "npm lifecycle status is unavailable; using public registry verification."
                       fi
