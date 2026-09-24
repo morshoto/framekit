@@ -241,7 +241,24 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       name: "timeline.changes",
       arguments: { sequence: 0 },
     });
-    assert.equal(JSON.parse(textFrom(changes)).modified[0].itemId, "clip-1");
+    const legacyChanges = JSON.parse(textFrom(changes));
+    assert.equal(legacyChanges.modified[0].itemId, "clip-1");
+    const canonicalChanges = await client.callTool({
+      name: "timeline.changes",
+      arguments: {
+        projectId: before.projectId,
+        sequenceId: before.timeline.id,
+        revision: before.revision,
+      },
+    });
+    const canonicalPayload = JSON.parse(textFrom(canonicalChanges));
+    assert.equal(canonicalPayload.status, "ready");
+    assert.deepEqual(canonicalPayload.target, {
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+    });
+    assert.equal(canonicalPayload.source.guarantee, "canonical-read");
+    assert.equal(canonicalPayload.changes[0].itemId, "clip-1");
     const contextChanges = await client.callTool({
       name: "context.changes",
       arguments: { sequence: 0 },
