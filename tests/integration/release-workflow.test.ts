@@ -362,6 +362,29 @@ test('release verification retries transient npm registry visibility', async () 
 	assert.match(verification, /sleep "\$\{delay\}"/);
 });
 
+test('release verification allows npm validation time to complete', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+	const maxAttempts = Number(
+		verification.match(/max_attempts=(\d+)/)?.[1] ?? 0,
+	);
+	const retryDelaySeconds = Number(
+		verification.match(/retry_delay_seconds=(\d+)/)?.[1] ?? 0,
+	);
+
+	assert.ok(maxAttempts > 1, 'verification should retry after publication');
+	assert.ok(
+		(maxAttempts - 1) * retryDelaySeconds >= 16 * 60,
+		'verification should allow npm validation and a safety buffer',
+	);
+});
+
 test('release retries tolerate a duplicate npm publish after a visibility race', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
