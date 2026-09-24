@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AgentVideoRuntime, type ProjectSelection } from "@framekit/runtime";
+import { AgentVideoRuntime, diffSnapshots, type ProjectSelection } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function fixture(options: {
@@ -114,4 +114,18 @@ test("canonical changes never promote metadata-only capability", async () => {
   assert.equal(result.status, "unavailable");
   assert.equal(result.source.guarantee, "metadata-only");
   assert.deepEqual(result.changes, []);
+});
+
+test("timeline diffs order changes by exact timeline position", async () => {
+  const before = await fixture().readProject();
+  const after = structuredClone(before);
+  after.revision = { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() };
+  after.timeline.clips = after.timeline.clips.map((clip) => ({
+    ...clip,
+    name: `${clip.name} updated`,
+  }));
+
+  const diff = diffSnapshots(before, after);
+
+  assert.deepEqual(diff.changes.map((change) => change.itemId), ["clip-a", "clip-b"]);
 });
