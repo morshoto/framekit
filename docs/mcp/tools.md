@@ -470,10 +470,14 @@ capabilities and never embed Final Cut-specific commands.
 ## Headless editing sessions
 
 The `session.create`, `session.inspect`, and `session.status` tools manage a
-provider-neutral Timeline IR session on disk. `session.edit.preview` is
+provider-neutral Timeline IR session on disk. When the canonical provider
+change stream is configured, session preview, execution, status, and
+materialization first check changes since BASE. `session.edit.preview` is
 non-mutating; `session.edit.execute` changes only the session's desired state.
-Use `session.reconcile` with a fresh provider Timeline IR before materializing
-any session that is possibly stale or conflicted.
+An external revision marks the session `possibly_stale` without changing BASE
+or desired/OURS and blocks both operations. Use `session.reconcile` with a
+fresh provider Timeline IR before materializing any session that is possibly
+stale or conflicted.
 
 `session.observe` binds read-only Final Cut SQLite evidence to session
 freshness. Its digest is explicitly non-canonical and can invalidate a session,

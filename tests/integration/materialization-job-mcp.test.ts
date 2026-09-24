@@ -515,5 +515,7 @@ test("documents session tools persistence and materialization evidence boundarie
   assert.match(architecture, /does not write.*SQLite/i);
   assert.match(architecture, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
   assert.match(architecture, /publishing/);
+  assert.match(architecture, /provider change stream/i);
+  assert.match(architecture, /possibly_stale/);
   assert.match(tools, /libraryUid.*eventUid.*projectUid.*sequenceUid/s);
 });
