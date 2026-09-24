@@ -1774,6 +1774,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.bladePreviews.delete(previewToken);
     if (this.now() > preview.expiresAt) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade preview has expired");
     const before = await this.requireNativeWriteContext();
+    const beforeLive = await this.readLiveState();
     if (!before.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (before.target.kind !== "selected-clip") throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: select exactly one timeline occurrence");
     if (before.target.name && before.target.name !== preview.occurrence.name) {
@@ -1806,7 +1807,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       kind: "blade" as const,
       before,
       after,
-      beforeLive: undefined,
+      beforeLive,
       afterLive,
       undoCommand: after.undoCommand,
     } satisfies NativeOperationRecord;
