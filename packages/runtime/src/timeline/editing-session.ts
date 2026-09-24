@@ -209,10 +209,17 @@ export class EditingSession {
     return stableJson(this.value);
   }
 
+  public observeProviderRevision(providerRevision: ContextRevision): "unchanged" | "changed" {
+    if (sameRevision(this.value.base.revision, providerRevision)) return "unchanged";
+    this.value.state = "possibly_stale";
+    return "changed";
+  }
+
   public preview(
     operations: TimelineIrEditOperation[],
     expectedRevision: ContextRevision = this.value.desired.revision,
   ): TimelineIrPreview {
+    this.assertEditable();
     assertRevision(this.value.desired.revision, expectedRevision);
     const before = structuredClone(this.value.desired);
     const after = this.nextTimeline(before, operations);
@@ -313,6 +320,12 @@ export class EditingSession {
     for (const operation of operations) applyOperation(after, operation);
     validateTimelineIr(after);
     return after;
+  }
+
+  private assertEditable(): void {
+    if (this.value.state === "possibly_stale" || this.value.state === "conflicted") {
+      throw new Error("RECONCILIATION_REQUIRED: session must be reconciled before editing");
+    }
   }
 }
 
