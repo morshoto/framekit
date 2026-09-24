@@ -388,10 +388,37 @@ Native errors include `FINAL_CUT_NATIVE_PERMISSION_REQUIRED`,
 `FINAL_CUT_NATIVE_MODAL_BLOCKED`, `FINAL_CUT_NATIVE_COMMAND_UNAVAILABLE`,
 `FINAL_CUT_NATIVE_VERIFICATION_FAILED`,
 `FINAL_CUT_NATIVE_UNDO_UNAVAILABLE`,
+`FINAL_CUT_NATIVE_UNDO_UNBOUND`,
+`FINAL_CUT_NATIVE_MUTATION_EVIDENCE_UNAVAILABLE`,
+`FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE`,
+`FINAL_CUT_NATIVE_TARGET_CHANGED`,
+`FINAL_CUT_NATIVE_PARTIAL_MUTATION`,
 `FINAL_CUT_NATIVE_UNDO_STALE`,
 `FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED`, and
 `FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED`. Native context diagnostics expose
 the operation-specific `undoCommand` when Final Cut has an enabled Undo item.
+
+When a native command has already changed Final Cut but its post-command
+verification or rollback proof is incomplete, mutation tools return a
+structured `FINAL_CUT_NATIVE_PARTIAL_MUTATION` error. Its `details` include
+the session-scoped `operationId`, `recoveryHandle`, `safeToRetry: false`, the
+`editor.native.undo` recovery tool, and revision/project/sequence/target/Undo
+evidence. Do not retry the edit; use the returned operation ID for recovery and
+verify restoration before continuing.
+
+```json
+{
+  "code": "FINAL_CUT_NATIVE_PARTIAL_MUTATION",
+  "details": {
+    "operationId": "native-op-...",
+    "recoveryHandle": "native-op-...",
+    "mutationApplied": true,
+    "safeToRetry": false,
+    "recovery": { "tool": "editor.native.undo", "operationId": "native-op-..." },
+    "evidence": { "revisionAdvanced": true, "targetBound": true }
+  }
+}
+```
 Range operations additionally use
 `FINAL_CUT_NATIVE_RANGE_OUT_OF_BOUNDS` and
 `FINAL_CUT_NATIVE_PLAYHEAD_VERIFICATION_FAILED` and

@@ -8,6 +8,7 @@ import {
   FinalCutNativeAutomationAdapter,
   NativeFinalCutMediaImportDirectoryError,
   NativeFinalCutMediaImportError,
+  NativeFinalCutPartialMutationError,
 } from "@framekit/final-cut";
 import { finalCutBrowserAccessibilityFixture } from "../fixtures/final-cut-browser-accessibility.js";
 import { finalCutBrowserSearchAccessibilityFixture } from "../fixtures/final-cut-browser-search-accessibility.js";
@@ -32,7 +33,7 @@ function context(
   focusTarget = timelineFocused ? "timeline" : timelineWindowAvailable ? "unknown" : "none",
   focusAttempts = 0,
   undoCommand = undo ? "Undo" : "",
-  targetIdentity = selectedCount === 1 && selectedName ? `test:${selectedName}` : "",
+  targetIdentity = selectedCount === 1 && selectedName ? "test:selected-clip" : "",
 ): string {
   return [
     frontmost ? "true" : "false",
@@ -129,10 +130,10 @@ function contextWithFocus(
 test("native Final Cut adapter edits the active selection and uses native undo", async () => {
   const scripts: string[] = [];
   const contextOutputs = [
-    context(true, "Final Cut Pro", "Interview", 1, true),
-    context(true, "Final Cut Pro", "Interview Clean", 1, true),
-    context(true, "Final Cut Pro", "Interview Clean", 1, true),
-    context(true, "Final Cut Pro", "Interview", 1, true),
+    context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, "Undo Existing Change"),
+    context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename"),
+    context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename"),
+    context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, "Undo Existing Change"),
   ];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
@@ -157,8 +158,29 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
   assert.equal(undone.context.target.name, "Interview");
-  assert.equal(scripts.some((script) => script.includes('click menu item "Undo" of menu "Edit"')), true);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Rename" of menu "Edit"')), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
+});
+
+test("native Final Cut adapter allows the first edit to establish operation Undo", async () => {
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) renamed = true;
+      if (script.includes('click menu item "Undo Rename"')) renamed = false;
+      return script.includes("timelineWindowAvailable")
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, renamed, true, true, "timeline", 1, renamed ? "Undo Rename" : "")
+        : "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.undoAvailable, true);
+  assert.equal(result.undoCommand, "Undo Rename");
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.context.target.name, "Interview");
 });
 
 test("native Final Cut adapter trims a selected clip to an exact canonical range", async () => {
@@ -369,7 +391,7 @@ test("native Final Cut adapter previews and inserts a title at the playhead with
           "Final Cut Pro",
           titleAdded ? "Lower Third" : "",
           titleAdded ? 1 : 0,
-          true,
+          titleAdded,
           true,
           true,
           "timeline",
@@ -778,7 +800,7 @@ test("native Final Cut Undo recovers when frontmost is lost after preflight", as
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
-        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true);
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo" : "Undo Existing Change");
       }
       if (script.includes("Apply Custom Name")) {
         renamed = true;
@@ -829,7 +851,7 @@ test("native range undo uses Final Cut's Undo Delete Range command and restores 
         revision = 3;
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Delete Range")
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, duration === "15" ? "Undo Delete Range" : "Undo Existing Change")
         : "";
     },
   });
@@ -846,15 +868,61 @@ test("native range undo uses Final Cut's Undo Delete Range command and restores 
   assert.equal(scripts.some((script) => script.includes('menu items of menu "Edit" of menu bar 1')), true);
 });
 
+test("native range mutation establishes operation Undo after the first command", async () => {
+  let revision = 1;
+  let duration = "20";
+  let playhead = "0";
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("00:00:10:00")) playhead = "10";
+      if (script.includes("00:00:15:00")) playhead = "15";
+      if (script.includes("key code 51")) {
+        duration = "15";
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Delete Range"')) {
+        duration = "20";
+        revision = 3;
+      }
+      const operationUndoAvailable = duration === "15";
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, operationUndoAvailable, true, true, "timeline", 1, operationUndoAvailable ? "Undo Delete Range" : "")
+        : "";
+    },
+  });
+
+  const preview = await adapter.previewDeleteRange({ start: { value: "10", timescale: "1" }, end: { value: "15", timescale: "1" } });
+  const result = await adapter.executeDeleteRange(preview.previewToken);
+  assert.equal(result.undoAvailable, true);
+  assert.equal(result.undoCommand, "Undo Delete Range");
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
+});
+
 test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   const recordSeparator = String.fromCharCode(30);
   const scripts: string[] = [];
+  let bladed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
       scripts.push(script);
+      if (script.includes('click menu item "Blade" of menu "Trim"')) {
+        bladed = true;
+      }
       if (script.includes('set frontWindow to window "Final Cut Pro"')) {
-        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Blade");
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
       }
       if (script.includes("collectTimelineClipMatches")) {
         return `Interview${separator}AXRow${separator}media-source-1${separator}800${separator}0/1${separator}10/1${recordSeparator}Interview${separator}AXRow${separator}media-source-1${separator}1120${separator}10/1${separator}10/1${recordSeparator}`;
@@ -875,8 +943,9 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
 });
 
-test("native Undo fails closed when Final Cut has no enabled Undo command", async () => {
+test("native edit fails closed when operation Undo is unavailable after mutation", async () => {
   let renamed = false;
+  let failure: unknown;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
@@ -886,12 +955,38 @@ test("native Undo fails closed when Final Cut has no enabled Undo command", asyn
         : "";
     },
   });
-  await assert.rejects(
-    adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }),
-    /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/,
-  );
-  assert.equal(renamed, false);
-  await assert.rejects(adapter.undo("native-op-missing"), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
+  await assert.rejects(adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }), (error: unknown) => {
+    failure = error;
+    return error instanceof NativeFinalCutPartialMutationError
+      && error.details.cause.code === "FINAL_CUT_NATIVE_UNDO_UNAVAILABLE"
+      && error.details.mutationApplied === true
+      && error.details.safeToRetry === false;
+  });
+  assert.equal(renamed, true);
+  assert.ok(failure instanceof NativeFinalCutPartialMutationError);
+  assert.match(failure.message, /operationId=native-op-/);
+  await assert.rejects(adapter.undo(failure.details.operationId), /FINAL_CUT_NATIVE_UNDO_UNAVAILABLE/);
+});
+
+test("native edit rejects a pre-existing Undo command that remains unchanged after mutation", async () => {
+  let renamed = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("Apply Custom Name")) renamed = true;
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, "Undo")
+        : "";
+    },
+  });
+
+  await assert.rejects(adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" }), (error: unknown) => (
+    error instanceof NativeFinalCutPartialMutationError
+      && error.details.cause.code === "FINAL_CUT_NATIVE_UNDO_UNBOUND"
+      && error.details.evidence.beforeUndoCommand === "Undo"
+      && error.details.evidence.afterUndoCommand === "Undo"
+  ));
+  assert.equal(renamed, true);
 });
 
 test("native Undo rejects an operation after the timeline revision changes", async () => {
@@ -913,7 +1008,7 @@ test("native Undo rejects an operation after the timeline revision changes", asy
         revision = 2;
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, "Undo")
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, renamed ? "Undo Rename" : "Undo Existing Change")
         : "";
     },
   });
@@ -923,12 +1018,15 @@ test("native Undo rejects an operation after the timeline revision changes", asy
 });
 
 test("native Undo rejects when Final Cut changes the current Undo command", async () => {
-  let undoCommand = "Undo Rename";
+  let undoCommand = "Undo Existing Change";
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
-      if (script.includes("Apply Custom Name")) renamed = true;
+      if (script.includes("Apply Custom Name")) {
+        renamed = true;
+        undoCommand = "Undo Rename";
+      }
       return script.includes('set frontWindow to window "Final Cut Pro"')
         ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, undoCommand)
         : "";
@@ -961,7 +1059,7 @@ test("native Undo reports failed restoration when Final Cut exposes no new revis
         revision = 2;
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, "Undo")
+        ? context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 1, renamed ? "Undo Rename" : "Undo Existing Change")
         : "";
     },
   });
@@ -1096,7 +1194,7 @@ test("native inspect propagates caller cancellation to the native executor", asy
   assert.equal(inspected.readiness.firstMissing, undefined);
 });
 
-test("native inspect blocks readiness without a target or Undo", async () => {
+test("native inspect distinguishes missing target from operation Undo readiness", async () => {
   const noTarget = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
@@ -1116,10 +1214,11 @@ test("native inspect blocks readiness without a target or Undo", async () => {
       : "",
   });
   const noUndoInspection = await noUndo.inspect();
-  assert.equal(noUndoInspection.readiness.state, "unavailable");
-  assert.equal(noUndoInspection.readiness.firstMissing, "undo");
+  assert.equal(noUndoInspection.readiness.state, "ready");
+  assert.equal(noUndoInspection.readiness.firstMissing, undefined);
   assert.equal(noUndoInspection.readiness.selectedTarget, true);
   assert.equal(noUndoInspection.readiness.undo, "unavailable");
+  assert.equal(noUndoInspection.readiness.guidance, "Native Final Cut is ready for a guarded mutation; verify operation-specific Undo after execution");
 });
 
 test("native inspect retries a transient partial result after focus recovery", async () => {
@@ -1535,14 +1634,14 @@ test("native timeline preflight retries a focus race before editing", async () =
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
         return preflightCalls < 3
-          ? context(false, "Final Cut Pro", "Interview", 1, true, true, false, "unknown")
-          : context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true);
+          ? context(false, "Final Cut Pro", "Interview", 1, true, true, false, "unknown", 0, "Undo Existing Change")
+          : context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
       }
       if (script.includes("Apply Custom Name")) {
         renamed = true;
         return "";
       }
-      return script.includes("entire contents") ? context(true, "Final Cut Pro", "Interview Clean", 1, true) : "";
+      return script.includes("entire contents") ? context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename") : "";
     },
   });
 
@@ -1562,7 +1661,7 @@ test("native Final Cut recovers when frontmost is lost after preflight", async (
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
-        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true);
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
       }
       if (script.includes("Apply Custom Name")) {
         editCalls += 1;
@@ -1751,6 +1850,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const recordSeparator = String.fromCharCode(30);
   const scripts: string[] = [];
   let occurrenceReads = 0;
+  let bladed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     now: () => 1_000,
@@ -1772,7 +1872,10 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
     }),
     executor: async (script) => {
       scripts.push(script);
-      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('click menu item "Blade" of menu "Trim"')) bladed = true;
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+      }
       if (script.includes('AXBrowserMedia')) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
       if (script.includes("collectTimelineClipMatches")) {
         occurrenceReads += 1;
@@ -3384,7 +3487,7 @@ test("native Final Cut previews and executes a primary-storyline delete range", 
         duration = "15";
         revision = 2;
       }
-      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, duration === "15" ? "Undo Delete Range" : "Undo Existing Change");
       return "";
     },
   });
@@ -3427,7 +3530,7 @@ test("native range recovery restarts positioning before deleting", async () => {
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
-        return context(true, "Final Cut Pro", "Interview", 1, true);
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, duration === "15" ? "Undo Delete Range" : "Undo Existing Change");
       }
       if (script.includes("00:00:10:00")) {
         startPlayheadCalls += 1;
@@ -3489,7 +3592,7 @@ test("native Final Cut trim-to-duration deletes the tail and is idempotent when 
         revision = 2;
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", "Interview", 1, true)
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, duration === "12" ? "Undo Trim to Duration" : "Undo Existing Change")
         : "";
     },
   });
@@ -3532,7 +3635,7 @@ test("native trim rejects a changed target before mutation", async () => {
         revision = 2;
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Delete Range", targetIdentity)
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, duration === "12" ? "Undo Trim to Duration" : "Undo Existing Change", targetIdentity)
         : "";
     },
   });
@@ -3577,7 +3680,7 @@ test("native trim Undo rejects a changed target identity", async () => {
         targetIdentity = "target-b";
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Delete Range", targetIdentity)
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, duration === "12" ? "Undo Delete Range" : "Undo Existing Change", targetIdentity)
         : "";
     },
   });
@@ -3617,7 +3720,7 @@ test("native trim verifies execution and Undo restoration", async () => {
         revision = 3;
       }
       return script.includes('set frontWindow to window "Final Cut Pro"')
-        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Delete Range", "target-a")
+        ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, duration === "12" ? "Undo Delete Range" : "Undo Existing Change", "target-a")
         : "";
     },
   });

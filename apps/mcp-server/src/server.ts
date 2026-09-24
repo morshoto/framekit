@@ -34,6 +34,7 @@ import {
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
   type NativeOperationSession,
+  serializeNativeFinalCutPartialMutationError,
 } from "@framekit/final-cut";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
@@ -775,6 +776,19 @@ function nativeMediaImportErrorResult(error: unknown) {
   };
 }
 
+async function nativeMutationResult(action: () => Promise<unknown>) {
+  try {
+    return jsonResult(await action());
+  } catch (error) {
+    const serialized = serializeNativeFinalCutPartialMutationError(error);
+    if (!serialized) throw error;
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: JSON.stringify(serialized) }],
+    };
+  }
+}
+
 function capabilityUnavailableErrorResult(error: unknown) {
   const serialized = serializeCapabilityUnavailableError(error);
   if (!serialized) throw error;
@@ -1259,7 +1273,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (input, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are not configured");
     const operation = nativeEditSchema.parse(input);
-    return jsonResult(await options.nativeEditor.edit(operation, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.edit(operation, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.disposable.preview", {
@@ -1332,7 +1346,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native title placement is not configured");
-    return jsonResult(await options.nativeEditor.executeTitleAdd(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeTitleAdd(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.picture-in-picture.preview", {
@@ -1350,7 +1364,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native picture-in-picture placement is not configured");
     await requireEditingRoute(runtime, options, "editor.native.picture-in-picture");
-    return jsonResult(await options.nativeEditor.executePictureInPicture(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executePictureInPicture(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.transition.search", {
@@ -1385,7 +1399,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native transition placement is not configured");
-    return jsonResult(await options.nativeEditor.executeTransitionAdd(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeTransitionAdd(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.mask.preview", {
@@ -1401,7 +1415,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().trim().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native masking is not configured");
-    return jsonResult(await options.nativeEditor.executeMask(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeMask(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.undo", {
@@ -1441,7 +1455,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media append is not configured");
-    return jsonResult(await options.nativeEditor.executeAppendMedia(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeAppendMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.append.selected.preview", {
@@ -1457,7 +1471,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native selected-media append is not configured");
-    return jsonResult(await options.nativeEditor.executeAppendSelectedMedia(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeAppendSelectedMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.media.insert.preview", {
@@ -1473,7 +1487,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media insert is not configured");
-    return jsonResult(await options.nativeEditor.executeInsertMedia(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeInsertMedia(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.timeline.locate", {
@@ -1505,7 +1519,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native Blade is not configured");
-    return jsonResult(await options.nativeEditor.executeBlade(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeBlade(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.delete-range.preview", {
@@ -1521,7 +1535,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native range deletion is not configured");
-    return jsonResult(await options.nativeEditor.executeDeleteRange(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeDeleteRange(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("editor.native.trim-to-duration.preview", {
@@ -1537,7 +1551,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native duration trimming is not configured");
-    return jsonResult(await options.nativeEditor.executeTrimToDuration(previewToken, { signal: extra.signal }));
+    return nativeMutationResult(() => options.nativeEditor!.executeTrimToDuration(previewToken, { signal: extra.signal }));
   });
 
   server.registerTool("artifact.publish.preview", {
