@@ -132,3 +132,23 @@ test("timeline diffs order changes by exact timeline position", async () => {
 
   assert.deepEqual(diff.changes.map((change) => change.itemId), ["clip-a", "clip-b"]);
 });
+
+test("ordered changes preserve after values for added timeline items", async () => {
+  const before = await fixture().readProject();
+  const after = structuredClone(before);
+  after.revision = { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() };
+  after.timeline.markers.push({
+    id: "marker-added",
+    start: 1,
+    duration: 0,
+    name: "Added",
+    startTime: { value: "1", timescale: "1" },
+    durationTime: { value: "0", timescale: "1" },
+  });
+
+  const diff = diffSnapshots(before, after);
+  const change = diff.changes.find((candidate) => candidate.itemId === "marker-added");
+
+  assert.equal(change?.scope, "marker");
+  assert.equal(change?.after?.id, "marker-added");
+});
