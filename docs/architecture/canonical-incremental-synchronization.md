@@ -79,9 +79,9 @@ and leaves the target unmodified.
 ## Ordered change semantics
 
 Each change has a contiguous zero-based `order`, a revision, an entity, an
-operation, and a stable entity ID. The canonical total-order key is:
-The result guarantees deterministic order across repeated reads of the same
-revision range.
+operation, and a stable entity ID. The result guarantees deterministic order
+across repeated reads of the same revision range. The canonical total-order key
+is:
 
 1. `revision.sequence` ascending;
 2. entity kind in this order: `clip`, `connected-item`, `marker`, `caption`,
