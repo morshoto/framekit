@@ -24,7 +24,7 @@ function completeResult(
   changes: CanonicalSyncChange[] = [],
 ): CanonicalSyncSuccess {
   const from = { target, revision: revision("rev-1", 1) };
-  const to = { target, revision: revision("rev-1", 1) };
+  const to = { target, revision: changes.at(-1)?.revision ?? revision("rev-1", 1) };
   return {
     contractVersion: 1,
     ok: true,

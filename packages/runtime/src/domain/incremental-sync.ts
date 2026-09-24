@@ -118,6 +118,7 @@ export function assertCanonicalSyncResult(result: CanonicalSyncResult): void {
   if (result.provenance.source.evidenceTier === "metadata-only") {
     throw new Error("CANONICAL_SYNC_INVALID: metadata-only evidence cannot return canonical changes");
   }
+  assertChanges(result.changes, result.from.revision, result.to.revision);
 }
 
 function assertFailure(result: CanonicalSyncFailure): void {
@@ -166,6 +167,64 @@ function assertProvenance(provenance: CanonicalSyncProvenance): void {
   if (!Number.isFinite(Date.parse(provenance.observedAt))) {
     throw new Error("CANONICAL_SYNC_INVALID: observation timestamp is invalid");
   }
+}
+
+function assertChanges(
+  changes: CanonicalSyncChange[],
+  from: ContextRevision,
+  to: ContextRevision,
+): void {
+  let previous: CanonicalSyncChange | undefined;
+  changes.forEach((change, index) => {
+    if (change.order !== index) {
+      throw new Error("CANONICAL_SYNC_INVALID: change order must be contiguous");
+    }
+    assertRevision(change.revision);
+    if (change.revision.sequence < from.sequence || change.revision.sequence > to.sequence) {
+      throw new Error("CANONICAL_SYNC_INVALID: change revision is outside the result cursor");
+    }
+    if (!change.entityId.trim()) {
+      throw new Error("CANONICAL_SYNC_INVALID: change entity identity is required");
+    }
+    const hasBefore = Object.prototype.hasOwnProperty.call(change, "before");
+    const hasAfter = Object.prototype.hasOwnProperty.call(change, "after");
+    if (change.operation === "added" && (!hasAfter || hasBefore)) {
+      throw new Error("CANONICAL_SYNC_INVALID: added change must have after only");
+    }
+    if (change.operation === "removed" && (!hasBefore || hasAfter)) {
+      throw new Error("CANONICAL_SYNC_INVALID: removed change must have before only");
+    }
+    if (change.operation === "modified" && (!hasBefore || !hasAfter)) {
+      throw new Error("CANONICAL_SYNC_INVALID: modified change must have before and after");
+    }
+    if (previous && compareChanges(previous, change) > 0) {
+      throw new Error("CANONICAL_SYNC_INVALID: changes must be deterministically ordered");
+    }
+    previous = change;
+  });
+}
+
+const ENTITY_ORDER: Record<CanonicalChangeEntity, number> = {
+  clip: 0,
+  "connected-item": 1,
+  marker: 2,
+  caption: 3,
+  role: 4,
+  audio: 5,
+  playhead: 6,
+};
+
+const OPERATION_ORDER: Record<CanonicalChangeOperation, number> = {
+  added: 0,
+  modified: 1,
+  removed: 2,
+};
+
+function compareChanges(left: CanonicalSyncChange, right: CanonicalSyncChange): number {
+  return left.revision.sequence - right.revision.sequence
+    || ENTITY_ORDER[left.entity] - ENTITY_ORDER[right.entity]
+    || left.entityId.localeCompare(right.entityId)
+    || OPERATION_ORDER[left.operation] - OPERATION_ORDER[right.operation];
 }
 
 function sameTarget(left: CanonicalSyncTarget, right: CanonicalSyncTarget): boolean {
