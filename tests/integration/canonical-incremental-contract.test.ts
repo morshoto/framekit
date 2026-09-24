@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { join } from "node:path";
 import {
   assertCanonicalSyncResult,
   type CanonicalSyncChange,
@@ -11,6 +13,11 @@ const target = {
   projectId: "project-1",
   sequenceId: "sequence-1",
 } as const;
+
+const contractDocumentation = readFileSync(join(
+  process.cwd(),
+  "docs/architecture/canonical-incremental-synchronization.md",
+), "utf8");
 
 function revision(id: string, sequence: number) {
   return {
@@ -155,4 +162,22 @@ test("rejects a failure whose target disagrees with its cursor", () => {
     () => assertCanonicalSyncResult(result),
     /failure target does not match its cursor/,
   );
+});
+
+test("documents the canonical incremental synchronization guarantees", () => {
+  for (const requirement of [
+    "revision cursor",
+    "stable project and sequence identities",
+    "deterministic order",
+    "before and after",
+    "provider and backend provenance",
+    "metadata-only",
+    "stale",
+    "ambiguous",
+    "unavailable",
+    "timeline.changes",
+    "context.changes",
+  ]) {
+    assert.match(contractDocumentation, new RegExp(requirement.replace(".", "\\."), "i"));
+  }
 });
