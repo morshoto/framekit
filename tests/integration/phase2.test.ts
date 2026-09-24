@@ -108,3 +108,27 @@ test("Phase 2 exposes a queryable agent context", async () => {
   assert.equal(context.recentChanges.from.id, "rev-0");
   assert.equal(context.capabilities.analyzers.visualTrack, true);
 });
+
+test("context inspection exposes a source-bound cursor and compact scope envelope", async () => {
+  const runtime = new AgentVideoRuntime(phase2Fixture());
+  const context = await runtime.inspectContext();
+  const compact = context as unknown as Record<string, unknown>;
+
+  assert.deepEqual(compact.cursor, {
+    revision: context.revision,
+    target: {
+      projectId: context.project.projectId,
+      sequenceId: context.project.timeline.id,
+    },
+  });
+  assert.deepEqual(compact.provenance, {
+    source: "deterministic-fixture",
+    provider: "fixture",
+    evidenceTier: "deterministic",
+    target: {
+      projectId: context.project.projectId,
+      sequenceId: context.project.timeline.id,
+    },
+  });
+  assert.deepEqual(compact.changedScopes, []);
+});
