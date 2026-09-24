@@ -196,7 +196,10 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(JSON.parse(textFrom(assets))[0].name, "Cross Dissolve");
 
     const context = await client.callTool({ name: "context.inspect", arguments: {} });
-    assert.equal(JSON.parse(textFrom(context)).project.projectName, "Phase 2 Fixture");
+    const contextPayload = JSON.parse(textFrom(context));
+    assert.equal(contextPayload.project.projectName, "Phase 2 Fixture");
+    assert.equal(contextPayload.provenance.evidenceTier, "deterministic");
+    assert.deepEqual(contextPayload.changedScopes, []);
 
     const inspected = await client.callTool({ name: "project.inspect", arguments: {} });
     const before = JSON.parse(textFrom(inspected));
@@ -244,7 +247,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(JSON.parse(textFrom(changes)).modified[0].itemId, "clip-1");
     const contextChanges = await client.callTool({
       name: "context.changes",
-      arguments: { sequence: 0 },
+      arguments: { cursor: contextPayload.cursor },
     });
     assert.equal(JSON.parse(textFrom(contextChanges)).timeline.modified[0].itemId, "clip-1");
 
