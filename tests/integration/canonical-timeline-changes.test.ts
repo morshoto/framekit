@@ -65,6 +65,27 @@ test("canonical changes report a stale result for a different active target", as
   assert.deepEqual(result.changes, []);
 });
 
+test("canonical changes report a stale result for a mismatched revision cursor", async () => {
+  const adapter = fixture();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+
+  const result = await runtime.timelineChangesSince({
+    target: {
+      projectId: before.projectId,
+      sequenceId: before.timeline.id,
+    },
+    from: {
+      ...before.revision,
+      sequence: before.revision.sequence + 1,
+    },
+  });
+
+  assert.equal(result.status, "stale");
+  assert.match(result.reason ?? "", /revision/i);
+  assert.deepEqual(result.changes, []);
+});
+
 test("canonical changes report ambiguity when a project has multiple sequences", async () => {
   const projects: NonNullable<ConstructorParameters<typeof InMemoryEditorAdapter>[0]>["projects"] = [
     {
