@@ -246,3 +246,45 @@ test("timeline diffs preserve exact duration and playhead changes", () => {
   });
   assert.equal(diffSnapshots(before, structuredClone(before)).playheadChange, undefined);
 });
+
+test("timeline diffs omit equivalent state and reject ambiguous targets", () => {
+  const before: ProjectSnapshot = {
+    projectId: "project-1",
+    projectName: "Identity fixture",
+    timeline: {
+      id: "timeline-1",
+      name: "Main",
+      duration: 2,
+      clips: [{
+        id: "clip-1",
+        name: "Clip",
+        start: 0,
+        duration: 2,
+        track: 1,
+        startTime: { value: "0", timescale: "1" },
+        durationTime: { value: "2", timescale: "1" },
+      }],
+      storyElements: [],
+      markers: [],
+      captions: [],
+    },
+    media: [],
+    revision: { id: "rev-before", sequence: 1, timestamp: "2026-09-25T00:00:00.000Z" },
+  };
+  const equivalent = structuredClone(before);
+  equivalent.timeline.clips[0] = { ...equivalent.timeline.clips[0]!, gainDb: undefined };
+  equivalent.revision = { id: "rev-equivalent", sequence: 2, timestamp: "2026-09-25T00:00:01.000Z" };
+
+  const diff = diffSnapshots(before, equivalent);
+  assert.deepEqual(diff.added, []);
+  assert.deepEqual(diff.removed, []);
+  assert.deepEqual(diff.modified, []);
+
+  const duplicate = structuredClone(before);
+  duplicate.timeline.clips.push(structuredClone(duplicate.timeline.clips[0]!));
+  assert.throws(() => diffSnapshots(before, duplicate), /AMBIGUOUS_TIMELINE_IDENTITY/);
+
+  const differentTarget = structuredClone(before);
+  differentTarget.timeline.id = "timeline-2";
+  assert.throws(() => diffSnapshots(before, differentTarget), /TARGET_MISMATCH/);
+});
