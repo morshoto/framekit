@@ -114,6 +114,24 @@ test("requires reconciliation after a provider revision changes and records stat
   assert.doesNotThrow(() => session.assertMaterializationReady(providerState.revision));
 });
 
+test("blocks previews and applies while reconciliation remains conflicted", () => {
+  const base = timeline();
+  const session = EditingSession.create({ base });
+  session.apply([{ type: "rename-occurrence", occurrenceId: "a", name: "Agent rename" }]);
+
+  const providerState = copy(base);
+  providerState.revision = { id: "provider-revision", sequence: 2, timestamp: "2026-09-14T00:02:00.000Z" };
+  providerState.sequence.occurrences[0]!.name = "Provider rename";
+  const result = session.reconcile(providerState);
+
+  assert.equal(result.status, "conflicted");
+  assert.equal(session.state(), "conflicted");
+  const operation = [{ type: "set-gain" as const, occurrenceId: "a", gainDb: -3 }];
+  assert.throws(() => session.preview(operation), /RECONCILIATION_REQUIRED/);
+  assert.throws(() => session.apply(operation), /RECONCILIATION_REQUIRED/);
+  assert.equal(session.desired().sequence.occurrences[0]?.name, "Agent rename");
+});
+
 test("turns ambiguous duplicate identities into explicit conflicts", () => {
   const base = timeline();
   const ours = copy(base);
