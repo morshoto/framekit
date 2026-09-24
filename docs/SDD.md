@@ -704,14 +704,31 @@ PASS ───────→ ACCEPT
 The diff engine compares canonical models.
 
 interface TimelineDiff {
+  from: ContextRevision;
+  to: ContextRevision;
+  provenance: {
+    source: "project-snapshot";
+    projectId: string;
+    sequenceId: string;
+    fromRevision: ContextRevision;
+    toRevision: ContextRevision;
+  };
   added: TimelineChange[];
   removed: TimelineChange[];
   modified: TimelineChange[];
-  durationDelta: RationalTime;
+  durationDelta: number;
+  durationDeltaTime: RationalTime;
+  playheadChange?: {
+    before?: RationalTime;
+    after?: RationalTime;
+  };
   affectedRanges: TimeRange[];
 }
 
-The diff should be deterministic and independent of the LLM.
+Every changed entity carries a stable identity and deterministic before/after
+values. Marker, caption, story-element, and media changes use the same shape as
+clip changes. Unchanged state, including equivalent rational playhead values,
+must not be reported. The diff is deterministic and independent of the LLM.
 
 ⸻
 

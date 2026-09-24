@@ -66,7 +66,7 @@ export interface TimelineDiff {
   removed: ClipChange[];
   modified: ClipChange[];
   durationDelta: number;
-  durationDeltaTime?: RationalTime;
+  durationDeltaTime: RationalTime;
   playheadChange?: PlayheadChange;
   markerChanges: MarkerChange[];
   captionChanges: CaptionChange[];
