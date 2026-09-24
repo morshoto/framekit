@@ -40,8 +40,11 @@ test("canonical changes bind the selected target and preserve ordered provenance
   });
   assert.equal(result.source.guarantee, "canonical-read");
   assert.deepEqual(result.changes.map((change) => change.itemId), ["clip-b"]);
-  assert.equal(result.changes[0]?.after?.name, "B updated");
-  assert.deepEqual(result.changes[0]?.before?.name, "B");
+  const [change] = result.changes;
+  assert.equal(change?.scope, "clip");
+  if (!change || change.scope !== "clip") throw new Error("expected a clip change");
+  assert.equal(change.after?.name, "B updated");
+  assert.deepEqual(change.before?.name, "B");
 });
 
 test("canonical changes report a stale result for a different active target", async () => {

@@ -33,6 +33,8 @@ import type {
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
+  TimelineChangesRequest,
+  TimelineChangesResult,
   TimelineFrameCapture,
   TimeRange,
   VerificationPolicy,
@@ -252,6 +254,10 @@ export class AgentVideoRuntime {
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
     return this.contexts.changesSince(revision);
+  }
+
+  public async timelineChangesSince(request: TimelineChangesRequest): Promise<TimelineChangesResult> {
+    return this.contexts.timelineChangesSince(request);
   }
 
   public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {

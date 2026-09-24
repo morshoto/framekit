@@ -1,4 +1,11 @@
-import type { AgentContext, ContextDiff, EditorChange, EditorLiveState } from "../domain/context.js";
+import type {
+  AgentContext,
+  ContextDiff,
+  EditorChange,
+  EditorLiveState,
+  TimelineChangesRequest,
+  TimelineChangesResult,
+} from "../domain/context.js";
 import type { ContextRevision } from "../domain/primitives.js";
 import type { EditorPort, LiveEditorStatePort } from "../domain/ports.js";
 import type { RuntimeCapabilities } from "../domain/capabilities.js";
@@ -25,6 +32,10 @@ export class ContextService {
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
     return this.context.changesSince(revision);
+  }
+
+  public async timelineChangesSince(request: TimelineChangesRequest): Promise<TimelineChangesResult> {
+    return this.context.timelineChangesSince(request);
   }
 
   public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {

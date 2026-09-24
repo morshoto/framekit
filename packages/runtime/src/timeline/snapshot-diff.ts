@@ -1,7 +1,7 @@
 import type { Caption, Clip, Marker, ProjectSnapshot, StoryElement } from "../domain/project.js";
 import type { MediaContext } from "../domain/media.js";
 import type { TimeRange } from "../domain/primitives.js";
-import type { TimelineDiff } from "../domain/diff.js";
+import type { TimelineChange, TimelineDiff } from "../domain/diff.js";
 
 function withoutId<T extends { id: string }>(value: T): Omit<T, "id"> {
   const { id: _id, ...content } = value;
@@ -102,6 +102,56 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     })),
   ];
 
+  const changes = [
+    ...added.map((change): TimelineChange => ({
+      scope: "clip",
+      type: change.type,
+      itemId: change.itemId,
+      after: change.after,
+    })),
+    ...removed.map((change): TimelineChange => ({
+      scope: "clip",
+      type: change.type,
+      itemId: change.itemId,
+      before: change.before,
+    })),
+    ...modified.map((change): TimelineChange => ({
+      scope: "clip",
+      type: change.type,
+      itemId: change.itemId,
+      before: change.before,
+      after: change.after,
+    })),
+    ...markerChanges.map((change): TimelineChange => ({
+      scope: "marker",
+      type: change.type,
+      itemId: change.after?.id ?? change.before?.id ?? change.marker.id,
+      ...(change.before ? { before: change.before } : {}),
+      ...(change.after ? { after: change.after } : {}),
+    })),
+    ...captionChanges.map((change): TimelineChange => ({
+      scope: "caption",
+      type: change.type,
+      itemId: change.after?.id ?? change.before?.id ?? change.caption.id,
+      ...(change.before ? { before: change.before } : {}),
+      ...(change.after ? { after: change.after } : {}),
+    })),
+    ...storyElementChanges.map((change): TimelineChange => ({
+      scope: "story-element",
+      type: change.type,
+      itemId: change.after?.id ?? change.before?.id ?? change.element.id,
+      ...(change.before ? { before: change.before } : {}),
+      ...(change.after ? { after: change.after } : {}),
+    })),
+    ...mediaChanges.map((change): TimelineChange => ({
+      scope: "media",
+      type: change.type,
+      itemId: change.after?.mediaId ?? change.before?.mediaId ?? change.media.mediaId,
+      ...(change.before ? { before: change.before } : {}),
+      ...(change.after ? { after: change.after } : {}),
+    })),
+  ].sort(compareTimelineChanges);
+
   const affectedRanges = uniqueRanges([
     ...added.flatMap((change) => rangesForClip(change.after)),
     ...removed.flatMap((change) => rangesForClip(change.before)),
@@ -136,8 +186,39 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     captionChanges,
     storyElementChanges,
     mediaChanges,
+    changes,
     affectedRanges,
   };
+}
+
+function compareTimelineChanges(left: TimelineChange, right: TimelineChange): number {
+  const leftPosition = changePosition(left);
+  const rightPosition = changePosition(right);
+  if (leftPosition && rightPosition) {
+    const comparison = compareRational(leftPosition, rightPosition);
+    if (comparison !== 0) return comparison;
+  } else if (leftPosition) {
+    return -1;
+  } else if (rightPosition) {
+    return 1;
+  }
+
+  const scopeComparison = left.scope.localeCompare(right.scope);
+  if (scopeComparison !== 0) return scopeComparison;
+  return left.itemId.localeCompare(right.itemId);
+}
+
+function changePosition(change: TimelineChange) {
+  const item = change.after ?? change.before;
+  if (!item || change.scope === "media") return undefined;
+  if ("startTime" in item && item.startTime) return item.startTime;
+  return undefined;
+}
+
+function compareRational(left: { value: string; timescale: string }, right: { value: string; timescale: string }): number {
+  const leftValue = BigInt(left.value) * BigInt(right.timescale);
+  const rightValue = BigInt(right.value) * BigInt(left.timescale);
+  return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
 }
 
 function uniqueRanges(ranges: TimeRange[]): TimeRange[] {

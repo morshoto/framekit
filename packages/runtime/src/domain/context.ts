@@ -4,7 +4,7 @@ import type { ProjectSnapshot } from "./project.js";
 
 import type { MediaContext } from "./media.js";
 
-import type { TimelineDiff, AssetChange } from "./diff.js";
+import type { TimelineDiff, TimelineChange, AssetChange } from "./diff.js";
 
 import type { ProjectSelectionMode, RuntimeCapabilities } from "./capabilities.js";
 
@@ -106,6 +106,30 @@ export interface ProjectCatalog {
 export interface ProjectSelection {
   projectId: string;
   sequenceId?: string;
+}
+
+export interface TimelineChangesRequest {
+  target: ProjectSelection;
+  from: ContextRevision;
+}
+
+export type TimelineChangesStatus = "ready" | "stale" | "ambiguous" | "unavailable";
+
+export interface TimelineChangesSource {
+  source: string;
+  backend: string;
+  guarantee: "canonical-read" | "metadata-only";
+}
+
+export interface TimelineChangesResult {
+  status: TimelineChangesStatus;
+  target: ProjectSelection;
+  source: TimelineChangesSource;
+  from: ContextRevision;
+  to?: ContextRevision;
+  changes: TimelineChange[];
+  timeline?: TimelineDiff;
+  reason?: string;
 }
 
 export interface ProjectSelectionResult extends ProjectCatalog {
