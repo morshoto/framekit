@@ -132,11 +132,17 @@ function assertFailure(result: CanonicalSyncFailure): void {
   if (result.status === "stale" && result.failure.code !== "STALE_CURSOR") {
     throw new Error("CANONICAL_SYNC_INVALID: stale result has the wrong failure code");
   }
+  if (result.status === "stale" && !result.cursor) {
+    throw new Error("CANONICAL_SYNC_INVALID: stale result requires a revision cursor");
+  }
   if (result.status === "ambiguous" && result.failure.code !== "AMBIGUOUS_TARGET") {
     throw new Error("CANONICAL_SYNC_INVALID: ambiguous result has the wrong failure code");
   }
   if (result.target) assertTarget(result.target);
   if (result.cursor) assertCursor(result.cursor);
+  if (result.target && result.cursor && !sameTarget(result.target, result.cursor.target)) {
+    throw new Error("CANONICAL_SYNC_INVALID: failure target does not match its cursor");
+  }
   if (result.provenance) assertProvenance(result.provenance);
 }
 
