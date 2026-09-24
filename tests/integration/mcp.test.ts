@@ -249,7 +249,15 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
       name: "context.changes",
       arguments: { cursor: contextPayload.cursor },
     });
-    assert.equal(JSON.parse(textFrom(contextChanges)).timeline.modified[0].itemId, "clip-1");
+    const contextChangesPayload = JSON.parse(textFrom(contextChanges));
+    assert.equal(contextChangesPayload.timeline.modified[0].itemId, "clip-1");
+    assert.deepEqual(contextChangesPayload.changedScopes, ["timeline"]);
+    assert.equal(contextChangesPayload.provenance[0].evidenceTier, "deterministic");
+    const legacyContextChanges = await client.callTool({
+      name: "context.changes",
+      arguments: { sequence: 0 },
+    });
+    assert.equal(JSON.parse(textFrom(legacyContextChanges)).timeline.modified[0].itemId, "clip-1");
 
     const speech = await client.callTool({ name: "speech.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(speech)).words[0].filler, true);
