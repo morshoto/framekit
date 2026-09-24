@@ -479,6 +479,18 @@ test('release documentation provides the exact npm trust command', async () => {
 	assert.match(documentation, /--yes/);
 });
 
+test('release documentation explains npm lifecycle verification fallback', async () => {
+	const documentation = await readFile(
+		resolve(repository, 'docs/releasing.md'),
+		'utf8',
+	);
+
+	assert.match(documentation, /NPM_LIFECYCLE_TOKEN/);
+	assert.match(documentation, /validating/i);
+	assert.match(documentation, /public registry/i);
+	assert.match(documentation, /16 minutes/i);
+});
+
 test('release documentation explains manual native asset recovery', async () => {
 	const documentation = await readFile(
 		resolve(repository, 'docs/releasing.md'),
