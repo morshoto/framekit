@@ -122,34 +122,50 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
       before: change.before,
       after: change.after,
     })),
-    ...markerChanges.map((change): TimelineChange => ({
-      scope: "marker",
-      type: change.type,
-      itemId: change.after?.id ?? change.before?.id ?? change.marker.id,
-      ...(change.before ? { before: change.before } : {}),
-      ...(change.after ? { after: change.after } : {}),
-    })),
-    ...captionChanges.map((change): TimelineChange => ({
-      scope: "caption",
-      type: change.type,
-      itemId: change.after?.id ?? change.before?.id ?? change.caption.id,
-      ...(change.before ? { before: change.before } : {}),
-      ...(change.after ? { after: change.after } : {}),
-    })),
-    ...storyElementChanges.map((change): TimelineChange => ({
-      scope: "story-element",
-      type: change.type,
-      itemId: change.after?.id ?? change.before?.id ?? change.element.id,
-      ...(change.before ? { before: change.before } : {}),
-      ...(change.after ? { after: change.after } : {}),
-    })),
-    ...mediaChanges.map((change): TimelineChange => ({
-      scope: "media",
-      type: change.type,
-      itemId: change.after?.mediaId ?? change.before?.mediaId ?? change.media.mediaId,
-      ...(change.before ? { before: change.before } : {}),
-      ...(change.after ? { after: change.after } : {}),
-    })),
+    ...markerChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "MARKER_REMOVED" ? change.marker : undefined);
+      const after = change.after ?? (change.type === "MARKER_ADDED" ? change.marker : undefined);
+      return {
+        scope: "marker",
+        type: change.type,
+        itemId: after?.id ?? before?.id ?? change.marker.id,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+    ...captionChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "CAPTION_REMOVED" ? change.caption : undefined);
+      const after = change.after ?? (change.type === "CAPTION_ADDED" ? change.caption : undefined);
+      return {
+        scope: "caption",
+        type: change.type,
+        itemId: after?.id ?? before?.id ?? change.caption.id,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+    ...storyElementChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "STORY_ELEMENT_REMOVED" ? change.element : undefined);
+      const after = change.after ?? (change.type === "STORY_ELEMENT_ADDED" ? change.element : undefined);
+      return {
+        scope: "story-element",
+        type: change.type,
+        itemId: after?.id ?? before?.id ?? change.element.id,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+    ...mediaChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "MEDIA_REMOVED" ? change.media : undefined);
+      const after = change.after ?? (change.type === "MEDIA_ADDED" ? change.media : undefined);
+      return {
+        scope: "media",
+        type: change.type,
+        itemId: after?.mediaId ?? before?.mediaId ?? change.media.mediaId,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
   ].sort(compareTimelineChanges);
 
   const affectedRanges = uniqueRanges([
