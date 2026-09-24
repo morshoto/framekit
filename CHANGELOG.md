@@ -1,5 +1,37 @@
 # Changelog
 
+## [v0.1.12](https://github.com/morshoto/framekit/compare/v0.1.11...v0.1.12) - 2026-09-24
+
+### Feature changes
+- feat: add canonical native markers by @morshoto in https://github.com/morshoto/framekit/pull/348
+- feat: add canonical live readiness preflight by @morshoto in https://github.com/morshoto/framekit/pull/353
+- feat: add canonical native gain by @morshoto in https://github.com/morshoto/framekit/pull/349
+- feat: add SQLite experiment for Final Cut Pro by @morshoto in https://github.com/morshoto/framekit/pull/367
+- feat: add canonical native ripple delete by @morshoto in https://github.com/morshoto/framekit/pull/350
+- feat: add canonical readback verifier by @morshoto in https://github.com/morshoto/framekit/pull/352
+- feat: bind dialogue measurement provenance by @morshoto in https://github.com/morshoto/framekit/pull/355
+- feat: add canonical native trim by @morshoto in https://github.com/morshoto/framekit/pull/347
+- feat: add canonical rollback recovery by @morshoto in https://github.com/morshoto/framekit/pull/358
+- feat: record filler analysis provenance by @morshoto in https://github.com/morshoto/framekit/pull/357
+- feat: configure local speech VAD provider by @morshoto in https://github.com/morshoto/framekit/pull/356
+- feat: verify dialogue Skill measurements by @morshoto in https://github.com/morshoto/framekit/pull/351
+- feat: add v0112 acceptance corpus by @morshoto in https://github.com/morshoto/framekit/pull/354
+- feat: add headed Skill acceptance by @morshoto in https://github.com/morshoto/framekit/pull/378
+### Patch changes
+- fix: protect linked worktree Git config by @morshoto in https://github.com/morshoto/framekit/pull/372
+- fix: traverse Final Cut save controls by @morshoto in https://github.com/morshoto/framekit/pull/376
+- fix: align native trim Undo readiness by @morshoto in https://github.com/morshoto/framekit/pull/377
+- fix: reconcile active Final Cut catalog identities by @morshoto in https://github.com/morshoto/framekit/pull/384
+- fix: allow first native mutation without Undo history by @morshoto in https://github.com/morshoto/framekit/pull/383
+### Maintenance and internal
+- chore(deps): update dependency @types/node to v24.13.5 by @renovate[bot] in https://github.com/morshoto/framekit/pull/362
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/364
+- chore(deps): update dependency c8 to v12 by @renovate[bot] in https://github.com/morshoto/framekit/pull/359
+- chore: label Renovate pull requests by @morshoto in https://github.com/morshoto/framekit/pull/369
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/365
+- chore(deps): update pnpm to v12.5.1 by @renovate[bot] in https://github.com/morshoto/framekit/pull/366
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/361
+
 ## [v0.1.11](https://github.com/morshoto/framekit/compare/v0.1.10...v0.1.11) - 2026-09-16
 
 ### Feature changes
