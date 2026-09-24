@@ -48,7 +48,7 @@ import {
   FRAMEKIT_VERSION,
   type FramekitBuildFingerprint,
 } from "./version.js";
-import { EditingSessionRepository } from "./headless-sessions.js";
+import { EditingSessionRepository, type EditingSessionChangeSource } from "./headless-sessions.js";
 import {
   SessionMaterializationJobs,
   type SessionMaterializationPublisher,
@@ -920,6 +920,7 @@ export interface McpServerOptions {
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
   sessionDirectory?: string;
+  sessionChangeSource?: EditingSessionChangeSource;
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
@@ -932,7 +933,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
-  const sessions = options.sessionDirectory ? new EditingSessionRepository(options.sessionDirectory) : undefined;
+  const sessions = options.sessionDirectory
+    ? new EditingSessionRepository(options.sessionDirectory, options.sessionChangeSource)
+    : undefined;
   const materializations = sessions && options.materializationDirectory
     ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
     : undefined;

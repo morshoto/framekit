@@ -16,8 +16,20 @@ export interface StoredEditingSession {
   document: EditingSessionDocument;
 }
 
+export interface EditingSessionProviderChange {
+  from: ContextRevision;
+  to: ContextRevision;
+}
+
+export interface EditingSessionChangeSource {
+  changesSince(revision: ContextRevision): Promise<EditingSessionProviderChange>;
+}
+
 export class EditingSessionRepository {
-  public constructor(private readonly directory: string) {}
+  public constructor(
+    private readonly directory: string,
+    private readonly changeSource?: EditingSessionChangeSource,
+  ) {}
 
   public async create(input: {
     sessionId?: string;
@@ -41,6 +53,7 @@ export class EditingSessionRepository {
     expectedRevision?: ContextRevision,
   ) {
     const session = await this.load(sessionId);
+    await this.refreshLoaded(sessionId, session);
     return session.preview(operations, expectedRevision);
   }
 
@@ -50,12 +63,15 @@ export class EditingSessionRepository {
     expectedRevision?: ContextRevision,
   ): Promise<StoredEditingSession> {
     const session = await this.load(sessionId);
+    await this.refreshLoaded(sessionId, session);
     session.apply(operations, expectedRevision);
     return this.save(sessionId, session);
   }
 
   public async status(sessionId: string) {
-    const { document } = await this.inspect(sessionId);
+    const session = await this.load(sessionId);
+    await this.refreshLoaded(sessionId, session);
+    const document = session.document();
     return {
       sessionId,
       state: document.state,
@@ -107,8 +123,22 @@ export class EditingSessionRepository {
     return { ...stored, observation, change };
   }
 
-  public loadForMaterialization(sessionId: string): Promise<EditingSession> {
-    return this.load(sessionId);
+  public async refresh(sessionId: string) {
+    const session = await this.load(sessionId);
+    if (!this.changeSource) throw new Error("CAPABILITY_UNAVAILABLE: session provider change stream");
+    const change = await this.refreshLoaded(sessionId, session);
+    return {
+      sessionId,
+      document: session.document(),
+      providerRevision: change!.to,
+      change: sameRevision(change!.from, change!.to) ? "unchanged" as const : "changed" as const,
+    };
+  }
+
+  public async loadForMaterialization(sessionId: string): Promise<EditingSession> {
+    const session = await this.load(sessionId);
+    await this.refreshLoaded(sessionId, session);
+    return session;
   }
 
   public checkpoint(sessionId: string, session: EditingSession): Promise<StoredEditingSession> {
@@ -124,6 +154,20 @@ export class EditingSessionRepository {
       }
       throw error;
     }
+  }
+
+  private async refreshLoaded(
+    sessionId: string,
+    session: EditingSession,
+  ): Promise<EditingSessionProviderChange | undefined> {
+    if (!this.changeSource) return undefined;
+    const change = await this.changeSource.changesSince(session.base().revision);
+    if (!sameRevision(change.from, session.base().revision)) {
+      throw new Error("SESSION_CHANGE_STREAM_BASE_MISMATCH: provider change stream did not start at the session base");
+    }
+    const freshness = session.observeProviderRevision(change.to);
+    if (freshness === "changed") await this.save(sessionId, session);
+    return change;
   }
 
   private async save(sessionId: string, session: EditingSession): Promise<StoredEditingSession> {
@@ -150,4 +194,8 @@ export class EditingSessionRepository {
     }
     return join(this.directory, `${sessionId}.json`);
   }
+}
+
+function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
+  return left.id === right.id && left.sequence === right.sequence;
 }
