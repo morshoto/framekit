@@ -280,13 +280,41 @@ jobs:
             - name: Verify npm publication
               env:
                   RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+                  NPM_LIFECYCLE_TOKEN: ${{ secrets.NPM_LIFECYCLE_TOKEN }}
               run: |
                   set -euo pipefail
                   expected_version="${RELEASE_TAG#v}"
                   package_name="$(node -p "require('./package.json').name")"
+                  encoded_package_name="${package_name//\//%2F}"
                   error_log="${RUNNER_TEMP}/npm-verify-error.log"
-                  max_attempts=6
+                  lifecycle_error_log="${RUNNER_TEMP}/npm-lifecycle-status-error.log"
+                  max_attempts=17
+                  retry_delay_seconds=60
                   for attempt in $(seq 1 "${max_attempts}"); do
+                    lifecycle_status=""
+                    if [ -n "${NPM_LIFECYCLE_TOKEN:-}" ]; then
+                      if lifecycle_response="$(curl --fail --silent --show-error \
+                        --max-time 15 \
+                        --oauth2-bearer "${NPM_LIFECYCLE_TOKEN}" \
+                        "https://registry.npmjs.org/-/package/${encoded_package_name}/version/${expected_version}/status" \
+                        2>"${lifecycle_error_log}")"; then
+                        if lifecycle_status="$(node -e 'try { const payload = JSON.parse(process.argv[1]); process.stdout.write(typeof payload.status === "string" ? payload.status : ""); } catch { process.exit(1); }' "${lifecycle_response}")"; then
+                          :
+                        else
+                          lifecycle_status=""
+                          echo "npm lifecycle status response is invalid; using public registry verification."
+                        fi
+                      else
+                        echo "npm lifecycle status is unavailable; using public registry verification."
+                      fi
+                    fi
+                    if [ "${lifecycle_status}" = "validating" ]; then
+                      if [ "${attempt}" -lt "${max_attempts}" ]; then
+                        echo "npm ${package_name}@${expected_version} is still validating; retrying in ${retry_delay_seconds}s (attempt ${attempt}/${max_attempts})."
+                        sleep "${retry_delay_seconds}"
+                        continue
+                      fi
+                    fi
                     if published_version="$(npm view --prefer-online "${package_name}@${expected_version}" version 2>"${error_log}")"; then
                       if [ "${published_version}" != "${expected_version}" ]; then
                         echo "Unexpected npm version: ${published_version}" >&2
@@ -300,9 +328,8 @@ jobs:
                       exit 1
                     fi
                     if [ "${attempt}" -lt "${max_attempts}" ]; then
-                      delay=$((attempt * 5))
-                      echo "npm ${package_name}@${expected_version} is not visible yet; retrying in ${delay}s (attempt ${attempt}/${max_attempts})."
-                      sleep "${delay}"
+                      echo "npm ${package_name}@${expected_version} is not visible yet; retrying in ${retry_delay_seconds}s (attempt ${attempt}/${max_attempts})."
+                      sleep "${retry_delay_seconds}"
                     fi
                   done
                   cat "${error_log}" >&2
