@@ -47,11 +47,21 @@ function payload(result: unknown): any {
   return JSON.parse(content?.[0]?.text ?? "null");
 }
 
-async function connect(directory: string, publisher?: SessionMaterializationPublisher) {
+async function connect(
+  directory: string,
+  publisher?: SessionMaterializationPublisher,
+  sessionChangeSource?: {
+    changesSince(revision: TimelineIr["revision"]): Promise<{
+      from: TimelineIr["revision"];
+      to: TimelineIr["revision"];
+    }>;
+  },
+) {
   const server = createMcpServer(runtime(), {
     sessionDirectory: join(directory, "sessions"),
     materializationDirectory: join(directory, "materializations"),
     ...(publisher ? { sessionMaterializationPublisher: publisher } : {}),
+    ...(sessionChangeSource ? { sessionChangeSource } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "materialization-test", version: "0.1.0" });
@@ -332,6 +342,49 @@ test("atomically claims a retry so concurrent attempts publish once", async () =
   }
 });
 
+test("blocks materialization preview and execute after provider drift", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-drift-"));
+  const providerRevision = {
+    id: "provider-revision-2",
+    sequence: 2,
+    timestamp: "2026-09-15T00:02:00.000Z",
+  };
+  let publisherCalls = 0;
+  try {
+    const connected = await connect(directory, {
+      publish: async () => {
+        publisherCalls += 1;
+        return { state: "blocked", code: "UNEXPECTED", message: "must not publish", retryable: false };
+      },
+    }, {
+      changesSince: async (revision) => ({ from: revision, to: providerRevision }),
+    });
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-provider-drift", provider: { id: "final-cut" }, base: timeline() },
+    });
+
+    const preview = await connected.client.callTool({
+      name: "session.materialize.preview",
+      arguments: { sessionId: "session-provider-drift", target },
+    });
+    assert.equal(preview.isError, true);
+    assert.equal(payload(preview).code, "RECONCILIATION_REQUIRED");
+
+    const execute = await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-provider-drift", target, confirm: true },
+    });
+    assert.equal(execute.isError, true);
+    assert.equal(payload(execute).code, "RECONCILIATION_REQUIRED");
+    assert.equal(publisherCalls, 0);
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when the session changes after staging", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-session-drift-"));
   try {
@@ -462,5 +515,7 @@ test("documents session tools persistence and materialization evidence boundarie
   assert.match(architecture, /does not write.*SQLite/i);
   assert.match(architecture, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
   assert.match(architecture, /publishing/);
+  assert.match(architecture, /provider change stream/i);
+  assert.match(architecture, /possibly_stale/);
   assert.match(tools, /libraryUid.*eventUid.*projectUid.*sequenceUid/s);
 });

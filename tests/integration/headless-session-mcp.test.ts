@@ -6,7 +6,8 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
+import { createCanonicalSessionChangeSource } from "../../apps/mcp-server/src/headless-sessions.js";
+import { AgentVideoRuntime, type EditorPort, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import type { FinalCutSqliteInspectionProvider } from "@framekit/final-cut";
 
@@ -49,16 +50,46 @@ function runtime(): AgentVideoRuntime {
   }));
 }
 
+function runtimeWithoutIncrementalChanges(): AgentVideoRuntime {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "fixture-project",
+    projectName: "Fixture",
+    timelineId: "fixture-sequence",
+    timelineName: "Main",
+    clips: [],
+    media: [],
+  });
+  const canonicalReader = new Proxy(adapter, {
+    get(target, property) {
+      if (property === "readChanges") return undefined;
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return new AgentVideoRuntime(canonicalReader as unknown as EditorPort);
+}
+
 function payload(result: unknown): any {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
   assert.equal(content?.[0]?.type, "text");
   return JSON.parse(content?.[0]?.text ?? "null");
 }
 
-async function connect(sessionDirectory: string, sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">) {
-  const server = createMcpServer(runtime(), {
+async function connect(
+  sessionDirectory: string,
+  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">,
+  sessionChangeSource?: {
+    changesSince(revision: TimelineIr["revision"]): Promise<{
+      from: TimelineIr["revision"];
+      to: TimelineIr["revision"];
+    }>;
+  },
+  sessionRuntime: AgentVideoRuntime = runtime(),
+) {
+  const server = createMcpServer(sessionRuntime, {
     sessionDirectory,
     ...(sqliteObservationProvider ? { sqliteObservationProvider } : {}),
+    ...(sessionChangeSource ? { sessionChangeSource } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "headless-session-test", version: "0.1.0" });
@@ -110,6 +141,149 @@ test("creates previews executes and reloads a provider-neutral session", async (
     assert.equal(restored.document.desired.sequence.occurrences[0].durationTime.value, "1001");
     await second.client.close();
     await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("refreshes a persisted session after restart from a fresh canonical snapshot", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-restart-refresh-"));
+  try {
+    const firstRuntime = runtimeWithoutIncrementalChanges();
+    const base = timeline();
+    base.revision = (await firstRuntime.inspectProject()).revision;
+    const first = await connect(directory, undefined, undefined, firstRuntime);
+    await first.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-restart", provider: { id: "final-cut" }, base },
+    });
+    await first.client.close();
+    await first.server.close();
+
+    const secondRuntime = runtimeWithoutIncrementalChanges();
+    const second = await connect(
+      directory,
+      undefined,
+      createCanonicalSessionChangeSource(() => secondRuntime.inspectProject()),
+      secondRuntime,
+    );
+    const status = payload(await second.client.callTool({
+      name: "session.status",
+      arguments: { sessionId: "session-restart" },
+    }));
+    assert.equal(status.state, "clean");
+    assert.equal(status.baseRevision.id, base.revision.id);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("refreshes provider drift before preview and execution", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-provider-drift-"));
+  const providerRevision = {
+    id: "provider-revision-2",
+    sequence: 5,
+    timestamp: "2026-09-15T00:02:00.000Z",
+  };
+  const calls: string[] = [];
+  try {
+    const connected = await connect(directory, undefined, {
+      changesSince: async (revision) => {
+        calls.push(revision.id);
+        return { from: revision, to: providerRevision };
+      },
+    });
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-provider-drift", provider: { id: "final-cut" }, base: timeline() },
+    });
+
+    const operation = { type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Blocked" };
+    const preview = await connected.client.callTool({
+      name: "session.edit.preview",
+      arguments: { sessionId: "session-provider-drift", operations: [operation] },
+    });
+    assert.equal(preview.isError, true);
+    assert.equal(payload(preview).code, "RECONCILIATION_REQUIRED");
+
+    const stale = payload(await connected.client.callTool({
+      name: "session.inspect",
+      arguments: { sessionId: "session-provider-drift" },
+    }));
+    assert.equal(stale.document.state, "possibly_stale");
+    assert.equal(stale.document.base.revision.id, timeline().revision.id);
+    assert.equal(stale.document.desired.sequence.occurrences[0].name, "Opening");
+
+    const execute = await connected.client.callTool({
+      name: "session.edit.execute",
+      arguments: { sessionId: "session-provider-drift", operations: [operation] },
+    });
+    assert.equal(execute.isError, true);
+    assert.equal(payload(execute).code, "RECONCILIATION_REQUIRED");
+
+    const providerState = timeline();
+    providerState.revision = providerRevision;
+    providerState.sequence.occurrences[0]!.gainDb = -6;
+    const reconciled = payload(await connected.client.callTool({
+      name: "session.reconcile",
+      arguments: { sessionId: "session-provider-drift", provider: { id: "final-cut" }, providerState },
+    }));
+    assert.equal(reconciled.reconciliation.status, "rebased");
+
+    const resumed = payload(await connected.client.callTool({
+      name: "session.edit.execute",
+      arguments: { sessionId: "session-provider-drift", operations: [operation] },
+    }));
+    assert.equal(resumed.document.state, "rebased");
+    assert.equal(resumed.document.desired.sequence.occurrences[0].name, "Blocked");
+    assert.deepEqual(calls, [timeline().revision.id, timeline().revision.id, providerRevision.id]);
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("preserves conflicted status during repeated provider refresh", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-conflict-refresh-"));
+  const baseRevision = timeline().revision;
+  let providerRevision = baseRevision;
+  try {
+    const connected = await connect(directory, undefined, {
+      changesSince: async (revision) => ({ from: revision, to: providerRevision }),
+    });
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-conflict-refresh", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const executed = payload(await connected.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-conflict-refresh",
+        operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Agent rename" }],
+      },
+    }));
+    assert.equal(executed.document.state, "dirty");
+
+    providerRevision = { id: "provider-revision-2", sequence: 5, timestamp: "2026-09-15T00:02:00.000Z" };
+    const providerState = timeline();
+    providerState.revision = providerRevision;
+    providerState.sequence.occurrences[0]!.name = "Provider rename";
+    const reconciled = payload(await connected.client.callTool({
+      name: "session.reconcile",
+      arguments: { sessionId: "session-conflict-refresh", provider: { id: "final-cut" }, providerState },
+    }));
+    assert.equal(reconciled.reconciliation.status, "conflicted");
+
+    const status = payload(await connected.client.callTool({
+      name: "session.status",
+      arguments: { sessionId: "session-conflict-refresh" },
+    }));
+    assert.equal(status.state, "conflicted");
+    await connected.client.close();
+    await connected.server.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
