@@ -108,6 +108,17 @@ export class ContextEngine {
 
     try {
       const timeline = await this.changesSince(request.from);
+      const current = await this.inspectProject();
+      if (current.projectId !== resolvedTarget.target.projectId || current.timeline.id !== resolvedTarget.target.sequenceId) {
+        return {
+          status: "stale",
+          target: resolvedTarget.target,
+          source,
+          from: structuredClone(request.from),
+          changes: [],
+          reason: "active target changed while reading the canonical timeline",
+        };
+      }
       return {
         status: "ready",
         target: resolvedTarget.target,
