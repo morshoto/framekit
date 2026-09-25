@@ -216,6 +216,26 @@ test("timeline diffs order changes by exact timeline position", async () => {
   assert.deepEqual(diff.changes.map((change) => change.itemId), ["clip-a", "clip-b"]);
 });
 
+test("timeline diffs use code-point order for equal positions", async () => {
+  const before = await fixture().readProject();
+  before.timeline.clips = before.timeline.clips.map((clip, index) => ({
+    ...clip,
+    id: index === 0 ? "clip-Z" : "clip-a",
+    start: 0,
+    startTime: { value: "0", timescale: "1" },
+  }));
+  const after = structuredClone(before);
+  after.revision = { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() };
+  after.timeline.clips = after.timeline.clips.map((clip) => ({
+    ...clip,
+    name: `${clip.name} updated`,
+  }));
+
+  const diff = diffSnapshots(before, after);
+
+  assert.deepEqual(diff.changes.map((change) => change.itemId), ["clip-Z", "clip-a"]);
+});
+
 test("ordered changes preserve after values for added timeline items", async () => {
   const before = await fixture().readProject();
   const after = structuredClone(before);
