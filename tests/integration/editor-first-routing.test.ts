@@ -12,6 +12,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  BACKGROUND_EDITING_WORKFLOW,
   resolveEditingRoute,
   type EditorRoutingContext,
 } from "../../apps/mcp-server/src/routing.js";
@@ -347,6 +348,26 @@ test("routing selects the explicit background artifact workflow offline", () => 
   assert.ok(route.requiredCapabilities.includes("editor.timelineArtifactWrite"));
   assert.match(route.reason.message, /artifact/i);
   assert.equal(route.reason.connectionState, "disconnected");
+});
+
+test("routing prefers a background editing session when materialization is supported", () => {
+  const capabilities = structuredClone(canonicalCapabilities);
+  capabilities.editor.timelineWrite = false;
+  capabilities.editor.timelineArtifactWrite = true;
+
+  const route = resolveEditingRoute({ operation: "background.edit" }, context({
+    connection: { state: "disconnected" },
+    editor: {
+      identity: { name: "FCPXML Document", version: "FCPXML", backend: "fcpxml-document" },
+      capabilities,
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "background");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.deepEqual(route.workflow, BACKGROUND_EDITING_WORKFLOW);
+  assert.match(route.reason.message, /background editing session/i);
 });
 
 test("routing only selects an external renderer when explicitly requested", () => {
