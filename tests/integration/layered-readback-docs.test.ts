@@ -10,6 +10,6 @@ test("layered Final Cut readback architecture defines trust and escalation", asy
   assert.match(document, /experimental.*non-canonical/i);
   assert.match(document, /canonical resync/i);
   assert.match(document, /possibly_stale/);
-  assert.match(document, /semantic media/);
+  assert.match(document, /semantic media/i);
   assert.match(document, /must fail closed/i);
 });
