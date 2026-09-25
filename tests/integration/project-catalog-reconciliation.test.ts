@@ -141,13 +141,15 @@ test("stable-ID mismatches require explicit target selection", () => {
     after: state,
     provenance,
   });
-  const reconciliation = reconciled.provenance?.reconciliation as typeof reconciled.provenance.reconciliation & {
+  const reconciliation = reconciled.provenance?.reconciliation;
+  assert.ok(reconciliation);
+  const detailedReconciliation = reconciliation as typeof reconciliation & {
     blocker?: { code: string; message: string };
   };
 
   assert.equal(reconciled.activeProjectId, undefined);
   assert.equal(reconciled.activeSequenceId, undefined);
-  assert.deepEqual(reconciliation.blocker, {
+  assert.deepEqual(detailedReconciliation.blocker, {
     code: "target-selection-required",
     message: "target selection is required before canonical operations",
   });

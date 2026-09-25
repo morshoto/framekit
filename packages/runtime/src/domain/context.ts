@@ -61,6 +61,13 @@ export interface ProjectCatalogIdentityMatch {
   candidateCatalogIds?: string[];
 }
 
+export type ProjectCatalogReconciliationBlockerCode = "target-selection-required";
+
+export interface ProjectCatalogReconciliationBlocker {
+  code: ProjectCatalogReconciliationBlockerCode;
+  message: string;
+}
+
 export interface ProjectCatalogReconciliation {
   status: "matched" | "unresolved" | "stale";
   project: ProjectCatalogIdentityMatch;
@@ -68,6 +75,7 @@ export interface ProjectCatalogReconciliation {
   beforeRevision?: ContextRevision;
   afterRevision?: ContextRevision;
   diagnostics?: ProjectCatalogIdentityDiagnostic[];
+  blocker?: ProjectCatalogReconciliationBlocker;
   reason?: string;
 }
 
