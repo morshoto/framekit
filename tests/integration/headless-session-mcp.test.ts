@@ -6,7 +6,8 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
+import { createCanonicalSessionChangeSource } from "../../apps/mcp-server/src/headless-sessions.js";
+import { AgentVideoRuntime, type EditorPort, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import type { FinalCutSqliteInspectionProvider } from "@framekit/final-cut";
 
@@ -49,6 +50,25 @@ function runtime(): AgentVideoRuntime {
   }));
 }
 
+function runtimeWithoutIncrementalChanges(): AgentVideoRuntime {
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "fixture-project",
+    projectName: "Fixture",
+    timelineId: "fixture-sequence",
+    timelineName: "Main",
+    clips: [],
+    media: [],
+  });
+  const canonicalReader = new Proxy(adapter, {
+    get(target, property) {
+      if (property === "readChanges") return undefined;
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return new AgentVideoRuntime(canonicalReader as unknown as EditorPort);
+}
+
 function payload(result: unknown): any {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
   assert.equal(content?.[0]?.type, "text");
@@ -64,8 +84,9 @@ async function connect(
       to: TimelineIr["revision"];
     }>;
   },
+  sessionRuntime: AgentVideoRuntime = runtime(),
 ) {
-  const server = createMcpServer(runtime(), {
+  const server = createMcpServer(sessionRuntime, {
     sessionDirectory,
     ...(sqliteObservationProvider ? { sqliteObservationProvider } : {}),
     ...(sessionChangeSource ? { sessionChangeSource } : {}),
@@ -118,6 +139,40 @@ test("creates previews executes and reloads a provider-neutral session", async (
     assert.equal(restored.document.provider.id, "final-cut");
     assert.equal(restored.document.desired.sequence.occurrences[0].sourceStartTime.timescale, "48000");
     assert.equal(restored.document.desired.sequence.occurrences[0].durationTime.value, "1001");
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("refreshes a persisted session after restart from a fresh canonical snapshot", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-restart-refresh-"));
+  try {
+    const firstRuntime = runtimeWithoutIncrementalChanges();
+    const base = timeline();
+    base.revision = (await firstRuntime.inspectProject()).revision;
+    const first = await connect(directory, undefined, undefined, firstRuntime);
+    await first.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-restart", provider: { id: "final-cut" }, base },
+    });
+    await first.client.close();
+    await first.server.close();
+
+    const secondRuntime = runtimeWithoutIncrementalChanges();
+    const second = await connect(
+      directory,
+      undefined,
+      createCanonicalSessionChangeSource(() => secondRuntime.inspectProject()),
+      secondRuntime,
+    );
+    const status = payload(await second.client.callTool({
+      name: "session.status",
+      arguments: { sessionId: "session-restart" },
+    }));
+    assert.equal(status.state, "clean");
+    assert.equal(status.baseRevision.id, base.revision.id);
     await second.client.close();
     await second.server.close();
   } finally {
