@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
 import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
-import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
+import { AgentVideoRuntime, timelineIrDigest, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function timeline(): TimelineIr {

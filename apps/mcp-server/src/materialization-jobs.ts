@@ -69,8 +69,12 @@ export class SessionMaterializationJobs {
     const artifact = compileTimelineIrToFcxmlVersioned(session.desired(), target);
     return {
       sessionId,
+      workflow: "background-edit-session" as const,
       mutating: false,
       sessionState: session.state(),
+      baseDigest: timelineIrDigest(session.base()),
+      baseRevision: session.base().revision,
+      desiredDigest: timelineIrDigest(session.desired()),
       target: artifact.target,
       destination: artifact.destination,
       collisionPolicy: "create-only",
