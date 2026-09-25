@@ -79,6 +79,12 @@ evidence and future provider contract.
 The current-version native write and Undo investigation is recorded in
 [Native write and Undo investigation](../../../../docs/final-cut/native-write-undo-investigation.md).
 
+The external background FCPXML publisher uses a `document-open` delivery
+route. Its completed response includes `delivery.activation` and
+`delivery.interaction` as `not-activated`, `activated`, or `unknown`; an
+unknown value is preserved as unknown and never promoted to unattended native
+proof. A blocked response remains a structured retryable boundary.
+
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`
 installs the containing app into the user's Applications directory and
