@@ -290,6 +290,35 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.deepEqual(shot?.range, fixture.usableRange);
   assert.deepEqual(shot?.matchedProperties, ["subject:person"]);
   assert.match(shot?.rationale ?? "", /subject "person"/);
+  assert.equal(shot?.reviewRequired, true);
+  assert.deepEqual(shot?.contentEvidence, [
+    "subject \"person\"",
+    "scene \"interview\"",
+    "environment \"studio\"",
+    "timeOfDay \"day\"",
+    "mood \"focused\"",
+    "transcript \"hello\"",
+    "audio present",
+  ]);
+});
+
+test("rough-cut planning rejects duration-only usable ranges", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({
+    metadata: { usableRanges: [fixture.usableRange] },
+    speech: undefined,
+    audio: undefined,
+    visual: undefined,
+  });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({});
+
+  assert.deepEqual(plan.shots, []);
+  assert.deepEqual(plan.warnings, ["No matching media has content analysis for strong segment selection"]);
 });
 
 test("rough-cut planning excludes audio-only media from shots", async () => {
