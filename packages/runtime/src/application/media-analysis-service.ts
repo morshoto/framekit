@@ -418,10 +418,14 @@ function mergeRanges(ranges: TimeRange[]): TimeRange[] {
   for (const range of [...ranges].sort((left, right) => left.start - right.start || left.end - right.end)) {
     const previous = merged[merged.length - 1];
     if (!previous || range.start > previous.end) {
-      merged.push({ start: range.start, end: range.end });
+      merged.push(structuredClone(range));
       continue;
     }
-    previous.end = Math.max(previous.end, range.end);
+    if (range.end > previous.end) {
+      previous.end = range.end;
+      delete previous.startTime;
+      delete previous.durationTime;
+    }
   }
   return merged;
 }
@@ -442,6 +446,11 @@ function semanticFromAnalyses(
   visual: VisualAnalysis | undefined,
   metadata: MetadataAnalysis | undefined,
 ): MediaSemanticDescription {
+  const usableRanges = mergeRanges([
+    ...(metadata?.usableRanges ?? []),
+    ...(visual?.scenes ?? []).map((scene) => ({ start: scene.start, end: scene.end })),
+    ...(speech?.vadSegments ?? []).filter((segment) => segment.kind === "speech").map((segment) => ({ start: segment.start, end: segment.end })),
+  ]);
   return {
     subjects: [
       ...(visual?.subjects ?? []).map((subject) => ({ value: subject.label, confidence: subject.confidence })),
@@ -455,7 +464,7 @@ function semanticFromAnalyses(
     timeOfDay: metadata?.timeOfDay ? structuredClone(metadata.timeOfDay) : [],
     moods: metadata?.moods ? structuredClone(metadata.moods) : [],
     ...(visual?.motion ? { motion: structuredClone(visual.motion) } : {}),
-    usableRanges: metadata?.usableRanges ? structuredClone(metadata.usableRanges) : [],
+    usableRanges,
     ...(speech ? { transcript: speech.words.map((word) => word.text).join(" ") } : {}),
     ...(audio ? {
       audio: {

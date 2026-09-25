@@ -147,6 +147,8 @@ export interface RoughCutShot {
   range: TimeRange;
   confidence: number;
   matchedProperties: string[];
+  contentEvidence: string[];
+  reviewRequired: true;
   rationale: string;
 }
 
