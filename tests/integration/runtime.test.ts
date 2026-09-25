@@ -245,6 +245,12 @@ test("timeline diffs preserve exact duration and playhead changes", () => {
     after: { value: "5", timescale: "24" },
   });
   assert.equal(diffSnapshots(before, structuredClone(before)).playheadChange, undefined);
+
+  const malformedBefore = structuredClone(before);
+  const malformedAfter = structuredClone(before);
+  malformedBefore.playheadTime = { value: "1", timescale: "0" };
+  malformedAfter.playheadTime = { value: "1", timescale: "0" };
+  assert.throws(() => diffSnapshots(malformedBefore, malformedAfter), /INVALID_PROJECT_STATE/);
 });
 
 test("timeline diffs omit equivalent state and reject ambiguous targets", () => {
