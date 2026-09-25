@@ -149,6 +149,27 @@ test("rejects changes that are not contiguous and deterministically ordered", ()
   );
 });
 
+test("uses code-point order for stable entity IDs", () => {
+  assert.doesNotThrow(() => assertCanonicalSyncResult(completeResult("canonical-live", [
+    {
+      order: 0,
+      revision: revision("rev-2", 2),
+      entity: "clip",
+      operation: "added",
+      entityId: "z",
+      after: { name: "Z" },
+    },
+    {
+      order: 1,
+      revision: revision("rev-2", 2),
+      entity: "clip",
+      operation: "added",
+      entityId: "ä",
+      after: { name: "A" },
+    },
+  ])));
+});
+
 test("rejects added and removed changes without exact before-after provenance", () => {
   assert.throws(
     () => assertCanonicalSyncResult(completeResult("canonical-live", [{
