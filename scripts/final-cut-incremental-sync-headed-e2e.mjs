@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { evidenceEnvironment, sanitizeIncrementalSyncEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,6 +15,7 @@ const expectedSequenceId = requireEnvironment("FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_I
 if (process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_EXTERNAL_EDIT !== "1") {
   throw new Error("FINAL_CUT_E2E_EXTERNAL_EDIT_CONSENT_REQUIRED: set FRAMEKIT_FINAL_CUT_E2E_ALLOW_EXTERNAL_EDIT=1 for the disposable human-edit step");
 }
+const { createTimelineIrFromProjectSnapshot } = await import("@framekit/runtime");
 
 const stateDirectory = await mkdtemp(join(tmpdir(), "framekit-v013-incremental-sync-"));
 const transport = new StdioClientTransport({

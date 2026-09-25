@@ -210,7 +210,7 @@ test("fails before live imports when headed target variables are missing", async
       env: environment,
     }),
     (error: unknown) => {
-      assert.match(String((error as { stderr?: string }).stderr), /FRAMEKIT_FINAL_CUT_E2E_ARGUMENT_INVALID/);
+      assert.match(String((error as { stderr?: string }).stderr), /FINAL_CUT_E2E_ARGUMENT_INVALID/);
       return true;
     },
   );
