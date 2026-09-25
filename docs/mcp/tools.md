@@ -154,6 +154,33 @@ is a separate, confirmed `artifact.publish` step.
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.undo` | Restore a transaction | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 
+## Ordered canonical timeline changes
+
+Call `timeline.changes` with the explicitly selected target and the revision
+returned by `project.inspect` or `context.inspect`:
+
+```json
+{
+  "projectId": "project-1",
+  "sequenceId": "sequence-1",
+  "revision": {
+    "id": "rev-4",
+    "sequence": 4,
+    "timestamp": "2026-09-25T00:00:00.000Z"
+  }
+}
+```
+
+The response is source-bound and includes `status`, `target`, `source`,
+`from`, `to`, and an ordered `changes` array. Each change identifies its
+scope and stable item ID and preserves `before`/`after` values. `status` is
+`ready` only when the provider supplies canonical timeline evidence;
+`stale`, `ambiguous`, and `unavailable` results contain no promoted changes
+and explain the reason. A source with `guarantee: "metadata-only"` cannot
+produce a ready canonical result. The legacy `sequence` cursor remains
+accepted for existing clients, but new callers should send the explicit
+target and full revision.
+
 ### Context cursors and evidence
 
 `context.inspect` returns a `cursor` that can be passed directly to

@@ -1,7 +1,7 @@
 import type { Caption, Clip, Marker, ProjectSnapshot, StoryElement } from "../domain/project.js";
 import type { MediaContext } from "../domain/media.js";
 import type { TimeRange } from "../domain/primitives.js";
-import type { TimelineDiff } from "../domain/diff.js";
+import type { TimelineChange, TimelineDiff } from "../domain/diff.js";
 import { parseRational, subtractRationalTimes } from "./rational-time.js";
 
 function withoutId<T extends { id: string }>(value: T): Omit<T, "id"> {
@@ -113,6 +113,72 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     })),
   ];
 
+  const changes = [
+    ...added.map((change): TimelineChange => ({
+      scope: "clip",
+      type: change.type,
+      itemId: change.itemId,
+      after: change.after,
+    })),
+    ...removed.map((change): TimelineChange => ({
+      scope: "clip",
+      type: change.type,
+      itemId: change.itemId,
+      before: change.before,
+    })),
+    ...modified.map((change): TimelineChange => ({
+      scope: "clip",
+      type: change.type,
+      itemId: change.itemId,
+      before: change.before,
+      after: change.after,
+    })),
+    ...markerChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "MARKER_REMOVED" ? change.marker : undefined);
+      const after = change.after ?? (change.type === "MARKER_ADDED" ? change.marker : undefined);
+      return {
+        scope: "marker",
+        type: change.type,
+        itemId: after?.id ?? before?.id ?? change.marker.id,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+    ...captionChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "CAPTION_REMOVED" ? change.caption : undefined);
+      const after = change.after ?? (change.type === "CAPTION_ADDED" ? change.caption : undefined);
+      return {
+        scope: "caption",
+        type: change.type,
+        itemId: after?.id ?? before?.id ?? change.caption.id,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+    ...storyElementChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "STORY_ELEMENT_REMOVED" ? change.element : undefined);
+      const after = change.after ?? (change.type === "STORY_ELEMENT_ADDED" ? change.element : undefined);
+      return {
+        scope: "story-element",
+        type: change.type,
+        itemId: after?.id ?? before?.id ?? change.element.id,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+    ...mediaChanges.map((change): TimelineChange => {
+      const before = change.before ?? (change.type === "MEDIA_REMOVED" ? change.media : undefined);
+      const after = change.after ?? (change.type === "MEDIA_ADDED" ? change.media : undefined);
+      return {
+        scope: "media",
+        type: change.type,
+        itemId: after?.mediaId ?? before?.mediaId ?? change.media.mediaId,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    }),
+  ].sort(compareTimelineChanges);
+
   const affectedRanges = uniqueRanges([
     ...added.flatMap((change) => rangesForClip(change.after)),
     ...removed.flatMap((change) => rangesForClip(change.before)),
@@ -166,8 +232,50 @@ export function diffSnapshots(before: ProjectSnapshot, after: ProjectSnapshot): 
     captionChanges,
     storyElementChanges,
     mediaChanges,
+    changes,
     affectedRanges,
   };
+}
+
+function compareTimelineChanges(left: TimelineChange, right: TimelineChange): number {
+  const leftPosition = changePosition(left);
+  const rightPosition = changePosition(right);
+  if (leftPosition && rightPosition) {
+    const comparison = compareRational(leftPosition, rightPosition);
+    if (comparison !== 0) return comparison;
+  } else if (leftPosition) {
+    return -1;
+  } else if (rightPosition) {
+    return 1;
+  }
+
+  const scopeComparison = compareCodePoints(left.scope, right.scope);
+  if (scopeComparison !== 0) return scopeComparison;
+  return compareCodePoints(left.itemId, right.itemId);
+}
+
+function changePosition(change: TimelineChange) {
+  const item = change.after ?? change.before;
+  if (!item || change.scope === "media") return undefined;
+  if ("startTime" in item && item.startTime) return item.startTime;
+  return undefined;
+}
+
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
+  const rightPoints = Array.from(right, (character) => character.codePointAt(0)!);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = leftPoints[index]! - rightPoints[index]!;
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
+function compareRational(left: { value: string; timescale: string }, right: { value: string; timescale: string }): number {
+  const leftValue = BigInt(left.value) * BigInt(right.timescale);
+  const rightValue = BigInt(right.value) * BigInt(left.timescale);
+  return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
 }
 
 function assertUniqueKeys<T>(items: T[], keyOf: (item: T) => string, side: string): void {
