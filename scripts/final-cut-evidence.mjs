@@ -673,6 +673,145 @@ export function sanitizeCanonicalReadEvidence(run, environment) {
   };
 }
 
+export function sanitizeIncrementalSyncEvidence(run, environment) {
+  assert(run?.passed === true, "headed incremental synchronization run did not pass");
+  assert(run.editor, "editor identity is missing");
+  const capabilities = sanitizeCapabilities(run.capabilities);
+  assert(run.editor.name === "Final Cut Pro", "Final Cut Pro identity is required");
+  assert(run.editor.backend === "final-cut-live", "final-cut-live backend is required");
+  assert(
+    capabilities.editor.canonicalTimelineMode === "canonical-read"
+      || capabilities.editor.canonicalTimelineMode === "canonical-write",
+    "canonical headed capability is required",
+  );
+  for (const key of ["projectRead", "timelineSnapshotRead", "incrementalChanges", "projectCatalogRead", "projectSelection"]) {
+    assert(capabilities.editor[key] === true, `${key} capability is required`);
+  }
+
+  const target = sanitizeIncrementalTarget(run.target);
+  const beforeRevision = summarizeRevision(run.revisions?.before);
+  const afterRevision = summarizeRevision(run.revisions?.after);
+  assert(afterRevision.sequence > beforeRevision.sequence, "incremental synchronization revision did not advance");
+
+  const timelineChanges = sanitizeIncrementalTimelineChanges(run.timelineChanges, target, beforeRevision, afterRevision);
+  const contextChanges = sanitizeIncrementalContextChanges(run.contextChanges, target, beforeRevision, afterRevision);
+  const session = sanitizeIncrementalSession(run.session, beforeRevision, afterRevision);
+
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-incremental-sync",
+    passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"),
+    environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor),
+    capabilities,
+    target,
+    revisions: { before: beforeRevision, after: afterRevision },
+    timelineChanges,
+    contextChanges,
+    session,
+    sanitization: {
+      strategy: "allowlisted-summary",
+      omitted: ["raw snapshots", "media sources", "operation identifiers", "private diagnostics", "session paths"],
+    },
+  };
+}
+
+function sanitizeIncrementalTarget(value) {
+  assert(value && typeof value === "object", "incremental synchronization target is missing");
+  return {
+    projectId: requireSafeIdentity(value.projectId, "project id"),
+    projectName: requireString(value.projectName, "project name"),
+    sequenceId: requireSafeIdentity(value.sequenceId, "sequence id"),
+  };
+}
+
+function sanitizeIncrementalTimelineChanges(value, target, beforeRevision, afterRevision) {
+  assert(value?.status === "ready", "canonical timeline changes are not ready");
+  assert(value.target?.projectId === target.projectId && value.target?.sequenceId === target.sequenceId, "timeline changes target does not match the bound target");
+  assert(value.source?.guarantee === "canonical-read", "timeline changes lack canonical-read provenance");
+  const from = summarizeRevision(value.from);
+  const to = summarizeRevision(value.to);
+  assert(sameSummarizedRevision(from, beforeRevision), "timeline changes do not start at R0");
+  assert(sameSummarizedRevision(to, afterRevision), "timeline changes do not end at R1");
+  assert(Array.isArray(value.changes) && value.changes.length > 0, "timeline changes are empty");
+  const changes = value.changes.map((change) => {
+    const type = requireSafeIdentity(change?.type, "timeline change type");
+    const operation = type.endsWith("_ADDED") ? "added" : type.endsWith("_REMOVED") ? "removed" : type.endsWith("_MODIFIED") ? "modified" : undefined;
+    assert(operation, `unsupported timeline change type ${type}`);
+    const hasBefore = Object.prototype.hasOwnProperty.call(change, "before");
+    const hasAfter = Object.prototype.hasOwnProperty.call(change, "after");
+    assert(operation === "added" ? hasAfter && !hasBefore : operation === "removed" ? hasBefore && !hasAfter : hasBefore && hasAfter, `${operation} timeline change has incomplete before/after provenance`);
+    return {
+      scope: requireSafeIdentity(change?.scope, "timeline change scope"),
+      operation,
+      itemId: requireSafeIdentity(change?.itemId, "timeline change item id"),
+      hasBefore,
+      hasAfter,
+    };
+  });
+  return {
+    status: "ready",
+    target: { projectId: target.projectId, sequenceId: target.sequenceId },
+    source: {
+      backend: requireSafeIdentity(value.source.backend, "timeline change backend"),
+      guarantee: "canonical-read",
+    },
+    from,
+    to,
+    count: changes.length,
+    scopes: [...new Set(changes.map((change) => change.scope))],
+    itemIds: changes.map((change) => change.itemId),
+    provenance: changes.map(({ operation, hasBefore, hasAfter }) => ({ operation, hasBefore, hasAfter })),
+  };
+}
+
+function sanitizeIncrementalContextChanges(value, target, beforeRevision, afterRevision) {
+  assert(value && typeof value === "object", "context changes are missing");
+  const from = summarizeRevision(value.from);
+  const to = summarizeRevision(value.to);
+  assert(sameSummarizedRevision(from, beforeRevision), "context changes do not start at R0");
+  assert(sameSummarizedRevision(to, afterRevision), "context changes do not end at R1");
+  assert(Array.isArray(value.changedScopes) && value.changedScopes.includes("timeline"), "context changes do not identify the timeline scope");
+  assert(Array.isArray(value.provenance) && value.provenance.length > 0, "context change provenance is missing");
+  const allowedScopes = new Set(["project", "sequence", "timeline", "playhead", "assets", "media"]);
+  const changedScopes = value.changedScopes.map((scope) => {
+    assert(allowedScopes.has(scope), `unsupported context scope ${scope}`);
+    return scope;
+  });
+  const evidenceTiers = [...new Set(value.provenance.map((entry) => {
+    assert(entry?.target?.projectId === target.projectId && entry?.target?.sequenceId === target.sequenceId, "context provenance target does not match the bound target");
+    assert(["canonical-live", "headed-native", "metadata-only"].includes(entry?.evidenceTier), "context provenance evidence tier is invalid");
+    return entry.evidenceTier;
+  }))];
+  assert(evidenceTiers.some((tier) => tier === "canonical-live" || tier === "headed-native"), "context changes lack canonical provenance");
+  return { from, to, changedScopes, evidenceTiers };
+}
+
+function sanitizeIncrementalSession(value, beforeRevision, afterRevision) {
+  assert(value?.createdState === "clean", "session did not start clean");
+  assert(value.staleState === "possibly_stale", "session did not become possibly_stale");
+  assert(value.blockedCode === "RECONCILIATION_REQUIRED", "session reconciliation blocker is missing");
+  assert(value.reconciledState === "rebased", "session did not reconcile to the provider revision");
+  assert(value.resumedState === "rebased" || value.resumedState === "dirty", "session did not resume after reconciliation");
+  const baseRevision = summarizeRevision(value.baseRevision);
+  const providerRevision = summarizeRevision(value.providerRevision);
+  assert(sameSummarizedRevision(baseRevision, beforeRevision), "session base is not bound to R0");
+  assert(sameSummarizedRevision(providerRevision, afterRevision), "session provider revision is not bound to R1");
+  return {
+    staleBlocked: true,
+    blockedCode: "RECONCILIATION_REQUIRED",
+    reconciled: true,
+    resumed: true,
+    baseRevision,
+    providerRevision,
+  };
+}
+
+function sameSummarizedRevision(left, right) {
+  return left.id === right.id && left.sequence === right.sequence && left.timestamp === right.timestamp;
+}
+
 function validateReadSnapshot(snapshot) {
   requireString(snapshot.projectId, "snapshot project id");
   requireString(snapshot.projectName, "snapshot project name");

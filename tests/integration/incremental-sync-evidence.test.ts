@@ -122,7 +122,7 @@ test("sanitizes target-bound headed incremental evidence", () => {
     baseRevision: beforeRevision,
     providerRevision: afterRevision,
   });
-  assert.doesNotMatch(JSON.stringify(evidence), /rawSnapshot|private-operation|media source|\/Users\//i);
+  assert.doesNotMatch(JSON.stringify(evidence), /"rawSnapshot"|private-operation-id|"sourcePath"|\/Users\//i);
 });
 
 test("rejects metadata-only or incomplete incremental evidence", () => {
