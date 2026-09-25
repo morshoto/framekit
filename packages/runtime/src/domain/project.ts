@@ -84,6 +84,8 @@ export interface Caption {
 export interface ProjectSnapshot {
   projectId: string;
   projectName: string;
+  /** Optional editor playhead observed with the canonical snapshot. */
+  playheadTime?: RationalTime;
   timeline: {
     id: string;
     name: string;

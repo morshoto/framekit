@@ -27,7 +27,9 @@ the complete resulting IR without mutating the session. `apply()` repeats the
 same operation against the expected desired revision and then advances the
 desired revision. The supported deterministic operations are rename, trim,
 move, gain, remove, and marker insertion. These operations do not call an
-editor or require Final Cut to be running.
+editor or require Final Cut to be running. A provider revision observed after
+the session BASE marks the session `possibly_stale`; preview and apply reject
+the plan before changing OURS/desired until reconciliation supplies THEIRS.
 
 Session states are explicit: `clean`, `dirty`, `possibly_stale`, `conflicted`,
 `rebased`, and `waiting_for_materialization`. A stale revision is rejected

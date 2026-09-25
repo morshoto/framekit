@@ -102,8 +102,8 @@ is a separate, confirmed `artifact.publish` step.
 | `editor.native.delete-range.execute` | Execute a previewed primary-storyline ripple delete | Requires unchanged sequence revision and duration |
 | `editor.native.trim-to-duration.preview` | Preview removal of the sequence tail after a requested duration | Preserves the beginning; destructive; requires explicit execute and timeline focus |
 | `editor.native.trim-to-duration.execute` | Execute a previewed trim-to-duration operation | Requires unchanged sequence revision and duration |
-| `context.inspect` | Queryable agent editing context | Backend-dependent |
-| `context.changes` | Incremental timeline, live-state, and asset changes | Backend-dependent; fails closed when unavailable |
+| `context.inspect` | Compact, source-bound agent context with a revision cursor | Backend-dependent; canonical project data remains available when supported |
+| `context.changes` | Incremental timeline, live-state, and asset changes with provenance and changed scopes | Backend-dependent; fails closed when unavailable |
 | `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider advertised as `observation.library` |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
@@ -129,7 +129,7 @@ is a separate, confirmed `artifact.publish` step.
 | `timeline.mask.add.execute` | Execute one mask preview token and verify the requested mask state | Requires an unexpired, single-use preview token; person cutout remains unavailable |
 | `timeline.inspect` | Canonical timeline snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
-| `timeline.changes` | Canonical timeline diff | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
+| `timeline.changes` | Canonical timeline diff with stable IDs, source/revision provenance, exact rational timing, and deterministic before/after values | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `speech.filler.remove.preview` | Analyze a selected canonical timeline range and preview high-confidence filler removal with safe rational ranges | Requires speech analysis, canonical timeline snapshot/write, read-after-write, and rollback |
 | `speech.filler.remove.execute` | Execute a filler-removal preview, re-analyze adjacent speech, verify the diff, and return a verified or rolled-back transaction | Requires the same canonical live write guarantees; use `edit.undo` for a later explicit reversal |
 | `music.add` | Preview a searched or imported music bed with placement, gain, and fades | Deterministic fixture; execute the returned token with `music.add.execute` |
@@ -180,6 +180,43 @@ and explain the reason. A source with `guarantee: "metadata-only"` cannot
 produce a ready canonical result. The legacy `sequence` cursor remains
 accepted for existing clients, but new callers should send the explicit
 target and full revision.
+
+### Context cursors and evidence
+
+`context.inspect` returns a `cursor` that can be passed directly to
+`context.changes`:
+
+```json
+{
+  "cursor": {
+    "revision": {
+      "id": "rev-12",
+      "sequence": 12,
+      "timestamp": "2026-09-25T00:00:00.000Z"
+    },
+    "target": {
+      "projectId": "project-1",
+      "sequenceId": "sequence-1"
+    }
+  }
+}
+```
+
+The runtime rejects a cursor whose target does not match the observed source
+with `TARGET_MISMATCH` before reading changes.
+
+The older `{ "sequence": 12 }` input remains accepted for compatibility.
+Context results identify their `provenance` with a provider, source, target,
+and explicit `evidenceTier`. The supported tiers are `deterministic`,
+`metadata-only`, `fcpxml-artifact`, `canonical-live`, and `headed-native`.
+`changedScopes` reports only the affected `timeline`, `media`, `playhead`,
+`sequence`, or `assets` areas.
+
+Metadata-only live observations are source-bound but are not canonical timeline
+evidence: their changes use the `live-metadata` source and do not populate the
+canonical `timeline` diff. FCPXML artifact observations retain the
+`fcpxml-artifact` tier and must not be reported as headed or canonical-live
+proof.
 
 `editor.inspect` returns a versioned `capabilities` payload. Read
 `capabilities.families.<family>.<operation>.available` before choosing an
@@ -497,10 +534,14 @@ capabilities and never embed Final Cut-specific commands.
 ## Headless editing sessions
 
 The `session.create`, `session.inspect`, and `session.status` tools manage a
-provider-neutral Timeline IR session on disk. `session.edit.preview` is
+provider-neutral Timeline IR session on disk. When the canonical provider
+change stream is configured, session preview, execution, status, and
+materialization first check changes since BASE. `session.edit.preview` is
 non-mutating; `session.edit.execute` changes only the session's desired state.
-Use `session.reconcile` with a fresh provider Timeline IR before materializing
-any session that is possibly stale or conflicted.
+An external revision marks the session `possibly_stale` without changing BASE
+or desired/OURS and blocks both operations. Use `session.reconcile` with a
+fresh provider Timeline IR before materializing any session that is possibly
+stale or conflicted.
 
 `session.observe` binds read-only Final Cut SQLite evidence to session
 freshness. Its digest is explicitly non-canonical and can invalidate a session,

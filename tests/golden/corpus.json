@@ -301,6 +301,21 @@
             "sequence": 1,
             "timestamp": "1970-01-01T00:00:00.001Z"
           },
+          "provenance": {
+            "source": "project-snapshot",
+            "projectId": "golden-project",
+            "sequenceId": "golden-timeline",
+            "fromRevision": {
+              "id": "rev-0",
+              "sequence": 0,
+              "timestamp": "1970-01-01T00:00:00.000Z"
+            },
+            "toRevision": {
+              "id": "rev-1",
+              "sequence": 1,
+              "timestamp": "1970-01-01T00:00:00.001Z"
+            }
+          },
           "added": [],
           "removed": [],
           "modified": [
@@ -636,6 +651,21 @@
             "sequence": 1,
             "timestamp": "1970-01-01T00:00:00.001Z"
           },
+          "provenance": {
+            "source": "project-snapshot",
+            "projectId": "golden-project",
+            "sequenceId": "golden-timeline",
+            "fromRevision": {
+              "id": "rev-0",
+              "sequence": 0,
+              "timestamp": "1970-01-01T00:00:00.000Z"
+            },
+            "toRevision": {
+              "id": "rev-1",
+              "sequence": 1,
+              "timestamp": "1970-01-01T00:00:00.001Z"
+            }
+          },
           "added": [],
           "removed": [],
           "modified": [
@@ -686,6 +716,7 @@
           "storyElementChanges": [
             {
               "type": "STORY_ELEMENT_MODIFIED",
+              "itemId": "clip-main",
               "element": {
                 "id": "clip-main",
                 "kind": "asset-clip",
@@ -1039,6 +1070,21 @@
             "id": "rev-1",
             "sequence": 1,
             "timestamp": "1970-01-01T00:00:00.001Z"
+          },
+          "provenance": {
+            "source": "project-snapshot",
+            "projectId": "golden-project",
+            "sequenceId": "golden-timeline",
+            "fromRevision": {
+              "id": "rev-0",
+              "sequence": 0,
+              "timestamp": "1970-01-01T00:00:00.000Z"
+            },
+            "toRevision": {
+              "id": "rev-1",
+              "sequence": 1,
+              "timestamp": "1970-01-01T00:00:00.001Z"
+            }
           },
           "added": [],
           "removed": [],
@@ -1592,6 +1638,21 @@
             "sequence": 1,
             "timestamp": "1970-01-01T00:00:00.001Z"
           },
+          "provenance": {
+            "source": "project-snapshot",
+            "projectId": "golden-project",
+            "sequenceId": "golden-timeline",
+            "fromRevision": {
+              "id": "rev-0",
+              "sequence": 0,
+              "timestamp": "1970-01-01T00:00:00.000Z"
+            },
+            "toRevision": {
+              "id": "rev-1",
+              "sequence": 1,
+              "timestamp": "1970-01-01T00:00:00.001Z"
+            }
+          },
           "added": [],
           "removed": [],
           "modified": [
@@ -1712,6 +1773,7 @@
           "markerChanges": [
             {
               "type": "MARKER_MODIFIED",
+              "itemId": "marker-after",
               "marker": {
                 "id": "marker-after",
                 "start": 4,
@@ -1759,6 +1821,7 @@
           "captionChanges": [
             {
               "type": "CAPTION_MODIFIED",
+              "itemId": "caption-after",
               "caption": {
                 "id": "caption-after",
                 "start": 4,
@@ -1806,6 +1869,7 @@
           "storyElementChanges": [
             {
               "type": "STORY_ELEMENT_MODIFIED",
+              "itemId": "clip-before",
               "element": {
                 "id": "clip-before",
                 "kind": "asset-clip",
@@ -1857,6 +1921,7 @@
             },
             {
               "type": "STORY_ELEMENT_MODIFIED",
+              "itemId": "clip-middle",
               "element": {
                 "id": "clip-middle",
                 "kind": "asset-clip",
@@ -1908,6 +1973,7 @@
             },
             {
               "type": "STORY_ELEMENT_MODIFIED",
+              "itemId": "clip-after",
               "element": {
                 "id": "clip-after",
                 "kind": "asset-clip",
@@ -2348,6 +2414,21 @@
             "sequence": 1,
             "timestamp": "1970-01-01T00:00:00.001Z"
           },
+          "provenance": {
+            "source": "project-snapshot",
+            "projectId": "golden-project",
+            "sequenceId": "golden-timeline",
+            "fromRevision": {
+              "id": "rev-0",
+              "sequence": 0,
+              "timestamp": "1970-01-01T00:00:00.000Z"
+            },
+            "toRevision": {
+              "id": "rev-1",
+              "sequence": 1,
+              "timestamp": "1970-01-01T00:00:00.001Z"
+            }
+          },
           "added": [],
           "removed": [],
           "modified": [],
@@ -2359,7 +2440,22 @@
           "markerChanges": [
             {
               "type": "MARKER_ADDED",
+              "itemId": "marker-cut",
               "marker": {
+                "id": "marker-cut",
+                "start": 4.5,
+                "duration": 0.5,
+                "name": "Cut here",
+                "startTime": {
+                  "value": "45",
+                  "timescale": "10"
+                },
+                "durationTime": {
+                  "value": "5",
+                  "timescale": "10"
+                }
+              },
+              "after": {
                 "id": "marker-cut",
                 "start": 4.5,
                 "duration": 0.5,
@@ -2657,6 +2753,21 @@
             "sequence": 1,
             "timestamp": "1970-01-01T00:00:00.001Z"
           },
+          "provenance": {
+            "source": "project-snapshot",
+            "projectId": "golden-project",
+            "sequenceId": "golden-timeline",
+            "fromRevision": {
+              "id": "rev-0",
+              "sequence": 0,
+              "timestamp": "1970-01-01T00:00:00.000Z"
+            },
+            "toRevision": {
+              "id": "rev-1",
+              "sequence": 1,
+              "timestamp": "1970-01-01T00:00:00.001Z"
+            }
+          },
           "added": [
             {
               "type": "ITEM_ADDED",
@@ -2732,6 +2843,7 @@
           "storyElementChanges": [
             {
               "type": "STORY_ELEMENT_ADDED",
+              "itemId": "clip-video",
               "element": {
                 "id": "clip-video",
                 "kind": "asset-clip",
@@ -2767,6 +2879,7 @@
             },
             {
               "type": "STORY_ELEMENT_ADDED",
+              "itemId": "clip-music",
               "element": {
                 "id": "clip-music",
                 "kind": "asset-clip",
@@ -2802,6 +2915,7 @@
             },
             {
               "type": "STORY_ELEMENT_ADDED",
+              "itemId": "title-opening",
               "element": {
                 "id": "title-opening",
                 "kind": "title",
@@ -2841,6 +2955,7 @@
           "mediaChanges": [
             {
               "type": "MEDIA_ADDED",
+              "itemId": "media-video",
               "media": {
                 "mediaId": "media-video",
                 "source": "/fixtures/interview.mov",
@@ -2858,6 +2973,7 @@
             },
             {
               "type": "MEDIA_ADDED",
+              "itemId": "media-music",
               "media": {
                 "mediaId": "media-music",
                 "source": "/fixtures/music.wav",

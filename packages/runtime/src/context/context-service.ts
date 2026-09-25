@@ -1,5 +1,6 @@
 import type {
   AgentContext,
+  ContextCursor,
   ContextDiff,
   EditorChange,
   EditorLiveState,
@@ -38,8 +39,8 @@ export class ContextService {
     return this.context.timelineChangesSince(request);
   }
 
-  public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
-    return this.context.contextChangesSince(revision, waitMs);
+  public async contextChangesSince(cursorOrRevision: ContextCursor | ContextRevision, waitMs = 0): Promise<ContextDiff> {
+    return this.context.contextChangesSince(cursorOrRevision, waitMs);
   }
 
   private liveAdapter(): LiveEditorStatePort {

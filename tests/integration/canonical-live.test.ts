@@ -16,6 +16,7 @@ import {
 } from "@framekit/final-cut";
 import type { EditOperation, ProjectCatalog, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { createCanonicalSessionChangeSource } from "../../apps/mcp-server/src/headless-sessions.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -274,6 +275,26 @@ const canonicalSnapshot: ProjectSnapshot = {
   media: [{ mediaId: "final-cut:media:shared", source: "final-cut://media/shared" }],
   revision: { id: "live-rev-7", sequence: 7, timestamp: new Date(7).toISOString() },
 };
+
+test("refreshes persisted session revisions after a runtime restart", async () => {
+  const live = {
+    getIdentity: async () => ({ name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" }),
+    getCapabilities: async () => canonicalReadCapabilities,
+    readProject: async () => structuredClone(canonicalSnapshot),
+    readLiveState: async () => { throw new Error("not used"); },
+    liveChangesSince: async () => [],
+  };
+  const beforeRestart = new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
+  const persistedBase = await beforeRestart.inspectProject();
+  const afterRestart = new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
+
+  await assert.rejects(afterRestart.changesSince(persistedBase.revision), /REVISION_NOT_FOUND/);
+  const changeSource = createCanonicalSessionChangeSource(() => afterRestart.inspectProject());
+  assert.deepEqual(await changeSource.changesSince(persistedBase.revision), {
+    from: persistedBase.revision,
+    to: persistedBase.revision,
+  });
+});
 
 test("canonical-read live sessions expose complete snapshots with explicit stable targets", async () => {
   const requests: FinalCutLiveRequest[] = [];

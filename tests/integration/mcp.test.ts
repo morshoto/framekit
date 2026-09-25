@@ -196,7 +196,10 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(JSON.parse(textFrom(assets))[0].name, "Cross Dissolve");
 
     const context = await client.callTool({ name: "context.inspect", arguments: {} });
-    assert.equal(JSON.parse(textFrom(context)).project.projectName, "Phase 2 Fixture");
+    const contextPayload = JSON.parse(textFrom(context));
+    assert.equal(contextPayload.project.projectName, "Phase 2 Fixture");
+    assert.equal(contextPayload.provenance.evidenceTier, "deterministic");
+    assert.deepEqual(contextPayload.changedScopes, []);
 
     const inspected = await client.callTool({ name: "project.inspect", arguments: {} });
     const before = JSON.parse(textFrom(inspected));
@@ -261,9 +264,28 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(canonicalPayload.changes[0].itemId, "clip-1");
     const contextChanges = await client.callTool({
       name: "context.changes",
+      arguments: { cursor: contextPayload.cursor },
+    });
+    const contextChangesPayload = JSON.parse(textFrom(contextChanges));
+    assert.equal(contextChangesPayload.timeline.modified[0].itemId, "clip-1");
+    assert.deepEqual(contextChangesPayload.changedScopes, ["timeline"]);
+    assert.equal(contextChangesPayload.provenance[0].evidenceTier, "deterministic");
+    const mismatchedContextChanges = await client.callTool({
+      name: "context.changes",
+      arguments: {
+        cursor: {
+          ...contextPayload.cursor,
+          target: { projectId: "other-project", sequenceId: "other-sequence" },
+        },
+      },
+    });
+    assert.equal(mismatchedContextChanges.isError, true);
+    assert.match(textFrom(mismatchedContextChanges), /TARGET_MISMATCH/);
+    const legacyContextChanges = await client.callTool({
+      name: "context.changes",
       arguments: { sequence: 0 },
     });
-    assert.equal(JSON.parse(textFrom(contextChanges)).timeline.modified[0].itemId, "clip-1");
+    assert.equal(JSON.parse(textFrom(legacyContextChanges)).timeline.modified[0].itemId, "clip-1");
 
     const speech = await client.callTool({ name: "speech.analyze", arguments: { mediaId: "media-1" } });
     assert.equal(JSON.parse(textFrom(speech)).words[0].filler, true);

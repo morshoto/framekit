@@ -1,7 +1,11 @@
 import { diffSnapshots } from "../timeline/snapshot-diff.js";
 import type {
   AgentContext,
+  ContextChangedScope,
+  ContextCursor,
   ContextDiff,
+  ContextProvenance,
+  ContextTarget,
   EditorChange,
   EditorLiveState,
   TimelineChangesRequest,
@@ -14,6 +18,7 @@ import { sameRevision } from "./revision.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { RuntimeCapabilities } from "../domain/capabilities.js";
 import type { TimelineDiff } from "../domain/diff.js";
+import { withCanonicalTimelineMode, withCapabilityFamilies } from "../capabilities.js";
 
 export class ContextEngine {
   private readonly snapshots = new Map<string, ProjectSnapshot>();
@@ -130,7 +135,7 @@ export class ContextEngine {
       };
     } catch (error) {
       const reason = String(error);
-      if (reason.includes("REVISION_NOT_FOUND") || reason.includes("STALE_CONTEXT")) {
+      if (reason.includes("REVISION_NOT_FOUND") || reason.includes("STALE_CONTEXT") || reason.includes("TARGET_MISMATCH")) {
         return {
           status: "stale",
           target: resolvedTarget.target,
@@ -154,39 +159,100 @@ export class ContextEngine {
     }
   }
 
-  public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
-    const capabilities = await this.editor.getCapabilities();
+  public async contextChangesSince(
+    cursorOrRevision: ContextCursor | ContextRevision,
+    waitMs = 0,
+  ): Promise<ContextDiff> {
+    const cursor = isContextCursor(cursorOrRevision) ? cursorOrRevision : undefined;
+    const revision = isContextCursor(cursorOrRevision) ? cursorOrRevision.revision : cursorOrRevision;
+    if (cursor?.target) await this.validateCursorTarget(revision, cursor.target);
+    const identity = await this.editor.getIdentity();
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities(), {
+      backend: identity.backend,
+    }));
     const incremental = capabilities.editor.incrementalChanges
       ? await this.editor.readChanges?.(revision)
       : undefined;
-    const timeline = incremental?.timeline ?? await this.optionalTimelineChanges(revision);
+    const timeline = canonicalTimelineAvailable(capabilities)
+      ? incremental?.timeline ?? await this.optionalTimelineChanges(revision)
+      : undefined;
     const stateChanges = [
       ...(incremental?.stateChanges ?? []),
       ...(await this.liveChangesSince(revision, waitMs)),
     ];
-    const assetChanges = incremental?.assetChanges ?? [];
+    const assetChanges = canonicalTimelineAvailable(capabilities)
+      ? incremental?.assetChanges ?? []
+      : [];
     const to = latestRevision(revision, timeline?.to, ...stateChanges.map((change) => change.revision), incremental?.to);
+    let target = contextTarget(this.snapshots.get(revision.id), stateChanges);
+    if (!target) {
+      const liveState = await this.optionalLiveState();
+      target = contextTarget(undefined, liveState ? [
+        { kind: "active-sequence-changed", revision: liveState.revision, state: liveState },
+      ] : []);
+    }
+    const provenance = contextProvenanceSet(identity.backend, capabilities, target, {
+      timeline,
+      stateChanges,
+      assetChanges,
+    });
     return {
       from: revision,
       to,
+      cursor: { revision: to, ...(target ? { target } : {}) },
+      provenance,
+      changedScopes: changedScopes(timeline, stateChanges, assetChanges),
       timeline,
       stateChanges: dedupeStateChanges(stateChanges),
       assetChanges,
     };
   }
 
+  private async validateCursorTarget(revision: ContextRevision, target: ContextTarget): Promise<void> {
+    const revisionTarget = contextTarget(this.snapshots.get(revision.id), []);
+    if (revisionTarget) {
+      if (!sameContextTarget(revisionTarget, target)) {
+        throw new Error(`TARGET_MISMATCH: cursor target ${formatContextTarget(target)} does not match revision target ${formatContextTarget(revisionTarget)}`);
+      }
+      return;
+    }
+
+    const liveState = await this.optionalLiveState();
+    const activeTarget = contextTarget(undefined, liveState ? [
+      { kind: "active-sequence-changed", revision: liveState.revision, state: liveState },
+    ] : []);
+    if (!activeTarget || !sameContextTarget(activeTarget, target)) {
+      throw new Error(`TARGET_MISMATCH: cursor target ${formatContextTarget(target)} does not match the active target`);
+    }
+  }
+
   public async inspectContext(capabilities: RuntimeCapabilities): Promise<AgentContext> {
-    const project = await this.inspectProject();
+    const identity = await this.editor.getIdentity();
+    const project = canonicalTimelineAvailable(capabilities)
+      ? await this.inspectProject()
+      : undefined;
     const editorState = await this.optionalLiveState();
-    const revision = project.revision;
+    const revision = project?.revision ?? editorState?.revision;
+    if (!revision) throw new Error("CAPABILITY_UNAVAILABLE: context revision");
+    const target = contextTarget(project, editorState ? [
+      { kind: "active-sequence-changed", revision: editorState.revision, state: editorState },
+    ] : []);
+    const provenance = primaryContextProvenance(identity.backend, capabilities, target);
+    const cursor: ContextCursor = { revision, ...(target ? { target } : {}) };
     return {
       revision,
-      project,
+      cursor,
+      provenance,
+      changedScopes: [],
+      ...(project ? { project } : {}),
       ...(editorState ? { editorState } : {}),
-      media: project.media,
+      media: project?.media ?? [],
       recentChanges: {
         from: revision,
         to: revision,
+        cursor,
+        provenance: [provenance],
+        changedScopes: [],
         stateChanges: [],
         assetChanges: [],
       },
@@ -303,6 +369,122 @@ export class ContextEngine {
     });
     return next;
   }
+}
+
+function canonicalTimelineAvailable(capabilities: RuntimeCapabilities): boolean {
+  return Boolean(
+    capabilities.editor.projectRead
+    && capabilities.editor.timelineSnapshotRead
+    && capabilities.editor.canonicalTimelineMode !== "metadata-only",
+  );
+}
+
+function primaryContextProvenance(
+  provider: string,
+  capabilities: RuntimeCapabilities,
+  target?: ContextTarget,
+): ContextProvenance {
+  const artifact = capabilities.editor.timelineArtifactWrite && !capabilities.editor.timelineWrite;
+  const canonical = capabilities.editor.canonicalTimelineMode === "canonical-read"
+    || capabilities.editor.canonicalTimelineMode === "canonical-write";
+  const headedNative = canonical && provider.includes("native");
+  const source = provider === "fixture"
+    ? "deterministic-fixture" as const
+    : artifact
+      ? "fcpxml-artifact" as const
+      : canonical
+        ? "canonical-timeline" as const
+        : "live-metadata" as const;
+  const evidenceTier = source === "deterministic-fixture"
+    ? "deterministic" as const
+    : source === "fcpxml-artifact"
+      ? "fcpxml-artifact" as const
+      : headedNative
+        ? "headed-native" as const
+      : source === "canonical-timeline"
+        ? "canonical-live" as const
+        : "metadata-only" as const;
+  return {
+    source,
+    provider,
+    evidenceTier,
+    ...(target ? { target } : {}),
+  };
+}
+
+function contextProvenanceSet(
+  provider: string,
+  capabilities: RuntimeCapabilities,
+  target: ContextTarget | undefined,
+  changes: {
+    timeline?: TimelineDiff;
+    stateChanges: EditorChange[];
+    assetChanges: ContextDiff["assetChanges"];
+  },
+): ContextProvenance[] {
+  const base = primaryContextProvenance(provider, capabilities, target);
+  const result: ContextProvenance[] = [];
+  if (changes.timeline || changes.assetChanges.length > 0) result.push(base);
+  if (changes.stateChanges.length > 0) {
+    result.push({
+      source: "live-metadata",
+      provider,
+      evidenceTier: "metadata-only",
+      ...(target ? { target } : {}),
+    });
+  }
+  if (result.length === 0) result.push(base);
+  return dedupeProvenance(result);
+}
+
+function contextTarget(
+  project: ProjectSnapshot | undefined,
+  stateChanges: EditorChange[],
+): ContextTarget | undefined {
+  if (project) return { projectId: project.projectId, sequenceId: project.timeline.id };
+  const state = stateChanges.at(-1)?.state;
+  if (!state?.project?.id || !state.sequence?.id) return undefined;
+  return { projectId: state.project.id, sequenceId: state.sequence.id };
+}
+
+function isContextCursor(value: ContextCursor | ContextRevision): value is ContextCursor {
+  return "revision" in value;
+}
+
+function sameContextTarget(left: ContextTarget, right: ContextTarget): boolean {
+  return left.projectId === right.projectId && left.sequenceId === right.sequenceId;
+}
+
+function formatContextTarget(target: ContextTarget): string {
+  return `${target.projectId}/${target.sequenceId}`;
+}
+
+function changedScopes(
+  timeline: TimelineDiff | undefined,
+  stateChanges: EditorChange[],
+  assetChanges: ContextDiff["assetChanges"],
+): ContextChangedScope[] {
+  const scopes: ContextChangedScope[] = [];
+  if (timeline) scopes.push("timeline");
+  if (timeline && timeline.mediaChanges.length > 0) scopes.push("media");
+  if (assetChanges.length > 0) scopes.push("assets");
+  for (const change of stateChanges) {
+    if (change.kind === "playhead-changed") scopes.push("playhead");
+    if (change.kind === "active-sequence-changed" || change.kind === "sequence-time-range-changed") {
+      scopes.push("sequence");
+    }
+  }
+  return [...new Set(scopes)];
+}
+
+function dedupeProvenance(provenance: ContextProvenance[]): ContextProvenance[] {
+  const seen = new Set<string>();
+  return provenance.filter((entry) => {
+    const key = `${entry.source}:${entry.provider}:${entry.evidenceTier}:${entry.target?.projectId ?? ""}:${entry.target?.sequenceId ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isCurrentUnderstanding(

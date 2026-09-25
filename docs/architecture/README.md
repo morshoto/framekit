@@ -9,6 +9,7 @@ contracts separate from MCP transport and editor adapters.
 - [Final Cut provider boundaries](./final-cut-provider-boundaries.md)
 - [Provider-neutral editing session](./editing-session.md)
 - [Drift detection and reconciliation](./drift-reconciliation.md)
+- [Canonical incremental synchronization](./canonical-incremental-synchronization.md)
 - [Timeline IR to versioned FCPXML](./timeline-ir-fcpxml.md)
 - [Locked-console FCPXML experiment](./locked-console-fcpxml-experiment.md)
 - [Unattended editing workflow](./unattended-editing.md)
