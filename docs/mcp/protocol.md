@@ -50,10 +50,13 @@ When present, `project.list` can return library projects while Final Cut is not
 frontmost; the result retains catalog provenance, observed live revision and
 rational timing values, and stable-ID reconciliation status. This source does
 not enable `select-project` and does not upgrade metadata-only state to a
-canonical timeline snapshot. An unresolved result includes per-scope
+canonical timeline snapshot. An unresolved or stale result includes per-scope
 diagnostics such as `stable-id-mismatch` or `ambiguous-name`, along with the
-live and candidate catalog identities needed to explain the fail-closed result;
-it clears active IDs and leaves canonical read/write capabilities unavailable.
+live and candidate catalog identities needed to explain the fail-closed result.
+It also includes `reconciliation.blocker.code: "target-selection-required"`
+and clears active IDs. When selection is unavailable, the same actionable
+blocker is prefixed to `selection.unavailableReason`. These results leave
+canonical read/write capabilities unavailable.
 
 The canonical native provider does not fall back to its headed canonical
 snapshot to construct `project.list`. Without a background catalog provider,

@@ -79,6 +79,7 @@ test("stable project and sequence IDs reconcile with observed live timing", () =
   assert.equal(reconciled.activeSequenceId, "library-sequence");
   assert.equal(reconciled.provenance?.reconciliation.status, "matched");
   assert.equal(reconciled.provenance?.reconciliation.project.method, "stable-id");
+  assert.equal(reconciled.provenance?.reconciliation.blocker, undefined);
   assert.deepEqual(reconciled.provenance?.live?.state.sequence?.duration, {
     value: "240",
     timescale: "24",
@@ -277,6 +278,7 @@ test("revision changes return a stale catalog that requires a fresh read", () =>
 
   assert.equal(reconciled.activeProjectId, undefined);
   assert.equal(reconciled.provenance?.reconciliation.status, "stale");
+  assert.equal(reconciled.provenance?.reconciliation.blocker?.code, "target-selection-required");
   assert.match(reconciled.provenance?.reconciliation.reason ?? "", /revision changed/);
 });
 

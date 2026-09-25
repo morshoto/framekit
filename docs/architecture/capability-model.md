@@ -100,10 +100,13 @@ the catalog source, live Workflow Extension revision/timing source, and
 reconciliation status explicit. It returns active IDs only after stable project
 and sequence IDs match across both observations; name-only matches and any
 revision or target drift fail closed by returning unresolved/stale metadata.
-Unresolved results retain per-scope diagnostics for stable-ID mismatch,
-ambiguous names, or unavailable identity, including the candidate catalog IDs
-when a name is ambiguous. These diagnostics are provenance only and never
-change the metadata-only canonical capability boundary.
+Unresolved and stale results retain per-scope diagnostics for stable-ID
+mismatch, ambiguous names, or unavailable identity, including the candidate
+catalog IDs when a name is ambiguous. They also expose a
+`target-selection-required` reconciliation blocker, and an unavailable
+selection reason carries the same actionable context. These diagnostics are
+provenance only and never change the metadata-only canonical capability
+boundary.
 
 The background library contract is explicit. A provider sets
 `editor.backgroundLibraryInspection` to `true` and reports
