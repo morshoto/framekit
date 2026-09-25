@@ -179,7 +179,7 @@ test("publishes the v0.1.13 incremental synchronization command", async () => {
   const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
   assert.equal(
     packageJson.scripts["test:final-cut-incremental-sync-headed"],
-    "node scripts/final-cut-incremental-sync-headed-e2e.mjs",
+    "node --import tsx scripts/final-cut-incremental-sync-headed-e2e.mjs",
   );
   const validation = await readFile(join(process.cwd(), "docs/validation/README.md"), "utf8");
   for (const requirement of [
