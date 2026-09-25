@@ -81,6 +81,81 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   pollIntervalMs?: number;
 }
 
+export type FinalCutCanonicalExportCleanup = "complete" | "incomplete";
+
+export type FinalCutCanonicalExportResult =
+  | { status: "export-requested" }
+  | {
+      status: "retryable" | "failed";
+      code: string;
+      message: string;
+      cleanup: FinalCutCanonicalExportCleanup;
+    };
+
+/** Structured failure returned when headed Export XML recovery can be retried. */
+export class FinalCutCanonicalExportError extends Error {
+  public readonly code: string;
+  public readonly retryable: boolean;
+  public readonly cleanup: FinalCutCanonicalExportCleanup;
+
+  public constructor(result: Extract<FinalCutCanonicalExportResult, { status: "retryable" | "failed" }>) {
+    super(`${result.code}: ${result.message}`);
+    this.name = "FinalCutCanonicalExportError";
+    this.code = result.code;
+    this.retryable = result.status === "retryable";
+    this.cleanup = result.cleanup;
+  }
+
+  public toJSON(): {
+    code: string;
+    message: string;
+    retryable: boolean;
+    cleanup: FinalCutCanonicalExportCleanup;
+  } {
+    return {
+      code: this.code,
+      message: this.message,
+      retryable: this.retryable,
+      cleanup: this.cleanup,
+    };
+  }
+}
+
+/** Parse the JSON envelope returned by the headed canonical export workflow. */
+export function parseFinalCutCanonicalExportResult(input: string | unknown): FinalCutCanonicalExportResult {
+  if (input === "canonical-export-requested") return { status: "export-requested" };
+
+  let payload: unknown;
+  try {
+    payload = typeof input === "string" ? JSON.parse(input) : input;
+  } catch (error) {
+    throw new Error(`FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response was not valid JSON (${String(error)})`);
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response must be an object");
+  }
+  const result = payload as Record<string, unknown>;
+  if (result.status === "export-requested") return { status: "export-requested" };
+  if (result.status !== "retryable" && result.status !== "failed") {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response status is unsupported");
+  }
+  if (typeof result.code !== "string" || !result.code.trim()) {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response code is required");
+  }
+  if (typeof result.message !== "string" || !result.message.trim()) {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response message is required");
+  }
+  if (result.cleanup !== "complete" && result.cleanup !== "incomplete") {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response cleanup status is unsupported");
+  }
+  return {
+    status: result.status,
+    code: result.code,
+    message: result.message,
+    cleanup: result.cleanup,
+  };
+}
+
 export interface CanonicalLiveReadiness {
   ready: boolean;
   mode: ReturnType<typeof canonicalTimelineMode>;
@@ -119,7 +194,10 @@ export class FinalCutCanonicalSnapshotSource {
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-canonical-"));
     const exportPath = join(directory, "active.fcpxml");
     try {
-      await this.executor(buildFinalCutCanonicalExportScript(exportPath));
+      const result = parseFinalCutCanonicalExportResult(
+        await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
+      );
+      if (result.status !== "export-requested") throw new FinalCutCanonicalExportError(result);
       return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
