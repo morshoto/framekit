@@ -8,6 +8,7 @@ export * from "./capabilities.js";
 export * from "./timeline/snapshot-digest.js";
 export * from "./timeline/editing-session.js";
 export * from "./timeline/drift-reconciliation.js";
+export * from "./timeline/fast-observation.js";
 export * from "./context/project-catalog.js";
 export * from "./speech/filler-removal.js";
 export * from "./audio/dialogue-normalization.js";
