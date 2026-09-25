@@ -31,6 +31,12 @@ export interface TimelineIrToFcpxmlOptions {
   version?: typeof FRAMEKIT_FCPXML_VERSION;
 }
 
+export interface TimelineIrMaterializationCoverage {
+  exact: string[];
+  degraded: string[];
+  unsupported: string[];
+}
+
 export interface TimelineIrToFcpxmlResult {
   format: "fcpxml";
   version: typeof FRAMEKIT_FCPXML_VERSION;
@@ -45,6 +51,7 @@ export interface TimelineIrToFcpxmlResult {
     sequenceName: string;
   };
   resourceIds: Record<string, string>;
+  coverage: TimelineIrMaterializationCoverage;
 }
 
 interface RenderableElement {
@@ -132,6 +139,20 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
+    coverage: {
+      exact: [
+        "project",
+        "sequence",
+        "resources",
+        "source-ranges",
+        "primary-storyline-order",
+        "connected-elements",
+        "markers",
+        "captions",
+      ],
+      degraded: [],
+      unsupported: [],
+    },
   };
 }
 
