@@ -133,6 +133,7 @@ export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
   "5. Resolve intent when needed, then preview before execute; never mutate on an unavailable capability.",
   "6. Observe the result, then use edit.diff and edit.verify to confirm the change.",
   "Background project and live metadata may use project.list and editor.live.inspect without canonical timeline proof.",
+  "For repeated agent readback, use the bound session or complete fast observation; force canonical resync for initial binding, stale/conflicted state, incomplete evidence, explicit canonical inspection, and final verification.",
   "For an explicit FCPXML artifact, select artifact.edit; its background workflow uses artifact.inspect, artifact.edit.preview, artifact.edit.execute, artifact.edit.diff, artifact.edit.verify, and artifact.edit.undo, and never claims to change the open Final Cut timeline.",
   "An external renderer is never an implicit substitute for a connected editor. Select fallback: external-renderer explicitly and report the structured reason returned by editing.route.",
 ].join("\n");
