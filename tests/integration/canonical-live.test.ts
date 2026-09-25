@@ -16,7 +16,7 @@ import {
 } from "@framekit/final-cut";
 import type { EditOperation, ProjectCatalog, ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { createSessionChangeSource } from "../../apps/mcp-server/src/session-change-source.js";
+import { createCanonicalSessionChangeSource } from "../../apps/mcp-server/src/headless-sessions.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -289,7 +289,7 @@ test("refreshes persisted session revisions after a runtime restart", async () =
   const afterRestart = new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
 
   await assert.rejects(afterRestart.changesSince(persistedBase.revision), /REVISION_NOT_FOUND/);
-  const changeSource = createSessionChangeSource(afterRestart);
+  const changeSource = createCanonicalSessionChangeSource(() => afterRestart.inspectProject());
   assert.deepEqual(await changeSource.changesSince(persistedBase.revision), {
     from: persistedBase.revision,
     to: persistedBase.revision,

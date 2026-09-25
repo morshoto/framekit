@@ -28,7 +28,7 @@ import {
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
-import { createSessionChangeSource } from "./session-change-source.js";
+import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
@@ -243,7 +243,7 @@ const server = createMcpServer(runtime, {
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
   sessionDirectory: join(framekitStateDirectory, "sessions"),
-  sessionChangeSource: createSessionChangeSource(runtime),
+  sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   sqliteObservationProvider,
 });

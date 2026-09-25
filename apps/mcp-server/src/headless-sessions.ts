@@ -25,6 +25,17 @@ export interface EditingSessionChangeSource {
   changesSince(revision: ContextRevision): Promise<EditingSessionProviderChange>;
 }
 
+export function createCanonicalSessionChangeSource(
+  readCurrent: () => Promise<Pick<TimelineIr, "revision">>,
+): EditingSessionChangeSource {
+  return {
+    changesSince: async (revision) => ({
+      from: revision,
+      to: (await readCurrent()).revision,
+    }),
+  };
+}
+
 export class EditingSessionRepository {
   public constructor(
     private readonly directory: string,
