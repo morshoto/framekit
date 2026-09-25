@@ -108,6 +108,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "rough-cut.construction.preview",
         "rough-cut.plan",
         "session.create",
+        "session.edit.confirm",
         "session.edit.execute",
         "session.edit.preview",
         "session.inspect",
