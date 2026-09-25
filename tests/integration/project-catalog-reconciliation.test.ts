@@ -79,6 +79,7 @@ test("stable project and sequence IDs reconcile with observed live timing", () =
   assert.equal(reconciled.activeSequenceId, "library-sequence");
   assert.equal(reconciled.provenance?.reconciliation.status, "matched");
   assert.equal(reconciled.provenance?.reconciliation.project.method, "stable-id");
+  assert.equal(reconciled.provenance?.reconciliation.blocker, undefined);
   assert.deepEqual(reconciled.provenance?.live?.state.sequence?.duration, {
     value: "240",
     timescale: "24",
@@ -125,6 +126,34 @@ test("name-only matches remain unresolved and do not create active IDs", () => {
       catalogId: "library-sequence",
     },
   ]);
+});
+
+test("stable-ID mismatches require explicit target selection", () => {
+  const state = liveState(
+    "socket-project",
+    "Edit Project",
+    "socket-sequence",
+    "Main",
+    revision(4),
+  );
+
+  const reconciled = reconcileProjectCatalog(catalog, {
+    before: state,
+    after: state,
+    provenance,
+  });
+  const reconciliation = reconciled.provenance?.reconciliation;
+  assert.ok(reconciliation);
+  const detailedReconciliation = reconciliation as typeof reconciliation & {
+    blocker?: { code: string; message: string };
+  };
+
+  assert.equal(reconciled.activeProjectId, undefined);
+  assert.equal(reconciled.activeSequenceId, undefined);
+  assert.deepEqual(detailedReconciliation.blocker, {
+    code: "target-selection-required",
+    message: "target selection is required before canonical operations",
+  });
 });
 
 test("ambiguous sequence names remain unresolved with candidate identities", () => {
@@ -249,6 +278,7 @@ test("revision changes return a stale catalog that requires a fresh read", () =>
 
   assert.equal(reconciled.activeProjectId, undefined);
   assert.equal(reconciled.provenance?.reconciliation.status, "stale");
+  assert.equal(reconciled.provenance?.reconciliation.blocker?.code, "target-selection-required");
   assert.match(reconciled.provenance?.reconciliation.reason ?? "", /revision changed/);
 });
 

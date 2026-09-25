@@ -85,6 +85,16 @@ export function reconcileProjectCatalog(
   }
 
   const result = structuredClone(catalog);
+  const blocker = status === "matched"
+    ? undefined
+    : {
+      code: "target-selection-required" as const,
+      message: "target selection is required before canonical operations",
+    };
+  const selection = { ...options.provenance.selection };
+  if (blocker && !selection.available) {
+    selection.unavailableReason = `${blocker.message}: ${reason ?? "project and sequence identities did not reconcile"}`;
+  }
   if (status === "matched" && state?.project && state.sequence) {
     result.activeProjectId = project.catalogId;
     result.activeSequenceId = sequence.catalogId;
@@ -104,9 +114,10 @@ export function reconcileProjectCatalog(
       ...(beforeRevision ? { beforeRevision: { ...beforeRevision } } : {}),
       ...(afterRevision ? { afterRevision: { ...afterRevision } } : {}),
       ...(diagnostics.length > 0 ? { diagnostics } : {}),
+      ...(blocker ? { blocker } : {}),
       ...(reason ? { reason } : {}),
     },
-    selection: { ...options.provenance.selection },
+    selection,
   };
   return result;
 }
