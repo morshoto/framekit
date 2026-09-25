@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   assertCanonicalSyncResult,
   type CanonicalSyncChange,
+  type CanonicalSyncSurface,
   type CanonicalSyncFailure,
   type CanonicalSyncSuccess,
 } from "@framekit/runtime";
@@ -28,8 +29,9 @@ function revision(id: string, sequence: number) {
 }
 
 function completeResult(
-  evidenceTier: CanonicalSyncSuccess["provenance"]["source"]["evidenceTier"] = "canonical-live",
+  evidenceTier: CanonicalSyncSuccess["provenance"]["source"]["evidenceTier"] = "fixture",
   changes: CanonicalSyncChange[] = [],
+  surface: CanonicalSyncSurface = surfaceForEvidence(evidenceTier),
 ): CanonicalSyncSuccess {
   const from = { target, revision: revision("rev-1", 1) };
   const to = { target, revision: changes.at(-1)?.revision ?? revision("rev-1", 1) };
@@ -45,12 +47,20 @@ function completeResult(
       source: {
         provider: "fixture-provider",
         backend: "fixture",
-        surface: "fixture",
+        surface,
         evidenceTier,
       },
       observedAt: "2026-09-25T00:00:00.000Z",
     },
   };
+}
+
+function surfaceForEvidence(
+  evidenceTier: CanonicalSyncSuccess["provenance"]["source"]["evidenceTier"],
+): CanonicalSyncSurface {
+  if (evidenceTier === "fixture") return "fixture";
+  if (evidenceTier === "artifact-only" || evidenceTier === "canonical-read") return "artifact";
+  return "live";
 }
 
 function failureResult(
@@ -78,6 +88,20 @@ test("rejects metadata-only observations as canonical changes", () => {
   assert.throws(
     () => assertCanonicalSyncResult(completeResult("metadata-only")),
     /metadata-only evidence cannot return canonical changes/,
+  );
+});
+
+test("rejects canonical-live evidence from an artifact surface", () => {
+  assert.throws(
+    () => assertCanonicalSyncResult(completeResult("canonical-live", [], "artifact")),
+    /evidence tier canonical-live is incompatible with surface artifact/,
+  );
+});
+
+test("rejects headed-native evidence from a fixture surface", () => {
+  assert.throws(
+    () => assertCanonicalSyncResult(completeResult("headed-native", [], "fixture")),
+    /evidence tier headed-native is incompatible with surface fixture/,
   );
 });
 
