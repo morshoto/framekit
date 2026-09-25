@@ -4,6 +4,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 const runnerPath = join(process.cwd(), "scripts/final-cut-overlay-headed-e2e.mjs");
+const mediaInsertRunnerPath = join(process.cwd(), "scripts/final-cut-headed-e2e.mjs");
 const e2eDocsPath = join(process.cwd(), "docs/tests/final-cut-live-e2e.md");
 const accessibilityModulePath = "../../scripts/final-cut-overlay-accessibility.mjs";
 
@@ -82,6 +83,14 @@ test("headed runner delegates overlay preparation to the bounded probe", async (
   assert.match(runner, /ensureFramekitWindowVisible/);
   assert.doesNotMatch(runner, /window "Framekit"/);
   assert.ok(runner.indexOf("ensureFramekitWindowVisible()") < runner.indexOf('callJson("editor.native.trim-to-duration.preview"'));
+});
+
+test("media-insert runner recovers the overlay before native preflight", async () => {
+  const runner = await readFile(mediaInsertRunnerPath, "utf8");
+
+  assert.match(runner, /final-cut-overlay-accessibility\.mjs/);
+  assert.match(runner, /ensureFramekitWindowVisible/);
+  assert.ok(runner.indexOf("ensureFramekitWindowVisible()") < runner.indexOf("waitForNativeReady()"));
 });
 
 test("headed overlay documentation explains Accessibility recovery diagnostics", async () => {

@@ -4,6 +4,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { ensureFramekitWindowVisible } from "./final-cut-overlay-accessibility.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const execFile = promisify(execFileCallback);
@@ -44,6 +45,7 @@ const client = new Client({ name: "framekit-headed-e2e", version: "0.1.0" });
 try {
   await client.connect(transport);
   await activateFinalCut();
+  await ensureFramekitWindowVisible();
   const native = await waitForNativeReady();
   if (!native.available || !native.frontmost || !native.timelineWindowAvailable || !native.timelineFocused || native.focusTarget !== "timeline") {
     throw new Error(`FINAL_CUT_NATIVE_NOT_READY: ${native.error?.code ?? nativePreflightError(native)}: ${native.error?.message ?? "Final Cut timeline preflight did not establish a focused timeline"}`);
