@@ -170,3 +170,23 @@ test("headed runner covers observe drift and reconciliation", async () => {
     assert.match(runner, new RegExp(requirement.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), requirement);
   }
 });
+
+test("publishes the v0.1.13 incremental synchronization command", async () => {
+  const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
+  assert.equal(
+    packageJson.scripts["test:final-cut-incremental-sync-headed"],
+    "node scripts/final-cut-incremental-sync-headed-e2e.mjs",
+  );
+  const validation = await readFile(join(process.cwd(), "docs/validation/README.md"), "utf8");
+  for (const requirement of [
+    "v0.1.13 incremental synchronization",
+    "FRAMEKIT_FINAL_CUT_E2E_PROJECT",
+    "FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID",
+    "FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID",
+    "FRAMEKIT_FINAL_CUT_E2E_ALLOW_EXTERNAL_EDIT",
+    "test:final-cut-incremental-sync-headed",
+    "headed-native",
+  ]) {
+    assert.match(validation, new RegExp(requirement.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), requirement);
+  }
+});
