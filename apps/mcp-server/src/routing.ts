@@ -13,6 +13,7 @@ export type EditingRouteOperation =
   | "timeline.inspect"
   | "editor.live.inspect"
   | "timeline.edit"
+  | "background.edit"
   | "timeline.mask.add"
   | "editor.native.edit"
   | "editor.native.picture-in-picture"
@@ -124,8 +125,21 @@ export const BACKGROUND_ARTIFACT_WORKFLOW = [
   "artifact.edit.undo",
 ];
 
+export const BACKGROUND_EDITING_WORKFLOW = [
+  "connection.status",
+  "editor.inspect",
+  "project.inspect",
+  "editing.route",
+  "session.create",
+  "session.edit.preview",
+  "session.edit.confirm",
+  "session.materialize.preview",
+  "session.materialize.execute",
+  "canonical resync before continuation",
+];
+
 export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
-  "Framekit uses an editor-first workflow for every editing request.",
+  "Framekit uses an editor-first, background-first workflow for supported editing requests.",
   "1. Call connection.status to establish whether the expected editor is connected.",
   "2. Call editor.inspect to read the selected editor identity and capabilities.",
   "3. Inspect the active project with project.inspect before selecting an editing path.",
@@ -134,6 +148,7 @@ export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
   "6. Observe the result, then use edit.diff and edit.verify to confirm the change.",
   "Background project and live metadata may use project.list and editor.live.inspect without canonical timeline proof.",
   "For an explicit FCPXML artifact, select artifact.edit; its background workflow uses artifact.inspect, artifact.edit.preview, artifact.edit.execute, artifact.edit.diff, artifact.edit.verify, and artifact.edit.undo, and never claims to change the open Final Cut timeline.",
+  "For supported editable-project work, select background.edit; it prefers EditingSession preview/confirmation and one explicit versioned materialization before any headed-native fallback.",
   "An external renderer is never an implicit substitute for a connected editor. Select fallback: external-renderer explicitly and report the structured reason returned by editing.route.",
 ].join("\n");
 
@@ -157,6 +172,11 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     editorArtifactWriteRequirement(),
     editorRequirement("readAfterWrite"),
     editorRequirement("rollback"),
+  ],
+  "background.edit": [
+    editorRequirement("projectRead"),
+    editorRequirement("timelineSnapshotRead"),
+    editorArtifactWriteRequirement(),
   ],
   "timeline.mask.add": [
     editorRequirement("projectRead"),
@@ -210,7 +230,9 @@ export function resolveEditingRoute(
   const missingCapabilities = missingRequirements.map((requirement) => requirement.label);
   const editor = context.editor?.identity;
   const readiness = routingReadiness(context);
-  const workflow = request.operation === "artifact.edit"
+  const workflow = request.operation === "background.edit"
+    ? BACKGROUND_EDITING_WORKFLOW
+    : request.operation === "artifact.edit"
     ? BACKGROUND_ARTIFACT_WORKFLOW
     : request.operation === "project.list"
       ? BACKGROUND_LIBRARY_WORKFLOW
@@ -236,7 +258,7 @@ export function resolveEditingRoute(
     };
   }
 
-  const offlineArtifactEdit = (request.operation === "artifact.edit" || request.operation === "timeline.edit")
+  const offlineArtifactEdit = (request.operation === "artifact.edit" || request.operation === "timeline.edit" || request.operation === "background.edit")
     && Boolean(
       context.editor?.capabilities.editor.timelineArtifactWrite
       && (context.editor.capabilities.families?.canonicalDocument.artifactWrite.available ?? true),
@@ -457,6 +479,7 @@ function selectedPath(
   operation: EditingRouteOperation,
   provider: EditingRouteProvider | undefined,
 ): EditingRoute["selectedPath"] {
+  if (operation === "background.edit") return "background";
   if (operation === "artifact.edit") return "artifact";
   if (operation === "project.list" || operation === "editor.live.inspect") {
     return provider?.guarantee === "observed" ? "background" : "editor";
@@ -468,6 +491,9 @@ function selectedPath(
 function selectedMessage(operation: EditingRouteOperation): string {
   if (operation === "project.list" || operation === "editor.live.inspect") {
     return "The background observation provider satisfies the requested metadata fields; no canonical timeline proof is implied.";
+  }
+  if (operation === "background.edit") {
+    return "The editor advertises the required materialization coverage; prefer a background editing session and explicit versioned handoff before headed-native fallback.";
   }
   if (operation === "artifact.edit") {
     return "The managed FCPXML artifact satisfies the required capabilities; continue with its background preview and execute contract without Final Cut UI access.";
