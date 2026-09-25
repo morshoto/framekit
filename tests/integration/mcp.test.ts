@@ -253,6 +253,17 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.equal(contextChangesPayload.timeline.modified[0].itemId, "clip-1");
     assert.deepEqual(contextChangesPayload.changedScopes, ["timeline"]);
     assert.equal(contextChangesPayload.provenance[0].evidenceTier, "deterministic");
+    const mismatchedContextChanges = await client.callTool({
+      name: "context.changes",
+      arguments: {
+        cursor: {
+          ...contextPayload.cursor,
+          target: { projectId: "other-project", sequenceId: "other-sequence" },
+        },
+      },
+    });
+    assert.equal(mismatchedContextChanges.isError, true);
+    assert.match(textFrom(mismatchedContextChanges), /TARGET_MISMATCH/);
     const legacyContextChanges = await client.callTool({
       name: "context.changes",
       arguments: { sequence: 0 },

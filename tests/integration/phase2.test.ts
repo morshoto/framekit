@@ -140,6 +140,13 @@ test("context changes return an ordered source-bound cursor and changed scope", 
   const before = await runtime.inspectContext();
   await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Interview - Clean" });
 
+  await assert.rejects(
+    runtime.contextChangesSince({
+      revision: before.cursor.revision,
+      target: { projectId: "other-project", sequenceId: "other-sequence" },
+    }),
+    /TARGET_MISMATCH/,
+  );
   const changes = await runtime.contextChangesSince(before.cursor.revision);
 
   assert.deepEqual(changes.cursor, {
