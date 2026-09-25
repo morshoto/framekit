@@ -5,6 +5,7 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function fixture(options: {
   projects?: NonNullable<ConstructorParameters<typeof InMemoryEditorAdapter>[0]>["projects"];
+  projectSnapshots?: NonNullable<ConstructorParameters<typeof InMemoryEditorAdapter>[0]>["projectSnapshots"];
 } = {}) {
   return new InMemoryEditorAdapter({
     projectId: "project-389",
@@ -16,6 +17,7 @@ function fixture(options: {
       { id: "clip-a", name: "A", start: 0, duration: 2, track: 1 },
     ],
     projects: options.projects,
+    projectSnapshots: options.projectSnapshots,
   });
 }
 
@@ -83,6 +85,66 @@ test("canonical changes report a stale result for a mismatched revision cursor",
 
   assert.equal(result.status, "stale");
   assert.match(result.reason ?? "", /revision/i);
+  assert.deepEqual(result.changes, []);
+});
+
+test("canonical changes report target drift during the current read", async () => {
+  const projects = [
+    {
+      id: "project-389",
+      name: "Ordered Changes",
+      sequences: [{ id: "sequence-389", name: "Main Edit" }],
+    },
+    {
+      id: "project-other",
+      name: "Other Project",
+      sequences: [{ id: "sequence-other", name: "Other Edit" }],
+    },
+  ];
+  const adapter = fixture({
+    projects,
+    projectSnapshots: [
+      {
+        projectId: "project-389",
+        projectName: "Ordered Changes",
+        timelineId: "sequence-389",
+        timelineName: "Main Edit",
+        clips: [{ id: "clip-389", name: "Original", start: 0, duration: 2, track: 1 }],
+      },
+      {
+        projectId: "project-other",
+        projectName: "Other Project",
+        timelineId: "sequence-other",
+        timelineName: "Other Edit",
+        clips: [{ id: "clip-other", name: "Other", start: 0, duration: 2, track: 1 }],
+      },
+    ],
+  });
+  const originalGetCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => {
+    const capabilities = await originalGetCapabilities();
+    return {
+      ...capabilities,
+      editor: { ...capabilities.editor, incrementalChanges: false },
+    };
+  };
+  const originalReadProject = adapter.readProject.bind(adapter);
+  let readCount = 0;
+  adapter.readProject = async () => {
+    readCount += 1;
+    if (readCount === 2) await adapter.selectProject?.({ projectId: "project-other", sequenceId: "sequence-other" });
+    return originalReadProject();
+  };
+
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const result = await runtime.timelineChangesSince({
+    target: { projectId: "project-389", sequenceId: "sequence-389" },
+    from: before.revision,
+  });
+
+  assert.equal(result.status, "stale");
+  assert.match(result.reason ?? "", /target/i);
   assert.deepEqual(result.changes, []);
 });
 
