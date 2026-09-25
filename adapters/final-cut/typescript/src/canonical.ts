@@ -258,18 +258,7 @@ on findDescendantByRole(container, expectedRole, timeoutSeconds, timeoutMessage)
 end findDescendantByRole
 
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    try
-      repeat with candidate in (entire contents of saveWindow)
-        try
-          if role of candidate is "AXTextField" then return candidate
-        end try
-      end repeat
-    end try
-    if (current date) > deadline then error timeoutMessage
-    delay 0.1
-  end repeat
+  return my findDescendantByRole(saveWindow, "AXTextField", timeoutSeconds, timeoutMessage)
 end findSavePathField
 
 on pressDescendantButtonIfPresent(container, expectedNames)
