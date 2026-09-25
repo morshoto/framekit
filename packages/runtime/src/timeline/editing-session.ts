@@ -211,7 +211,7 @@ export class EditingSession {
 
   public observeProviderRevision(providerRevision: ContextRevision): "unchanged" | "changed" {
     if (sameRevision(this.value.base.revision, providerRevision)) return "unchanged";
-    this.value.state = "possibly_stale";
+    if (this.value.state !== "conflicted") this.value.state = "possibly_stale";
     return "changed";
   }
 

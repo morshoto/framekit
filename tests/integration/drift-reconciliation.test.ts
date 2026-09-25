@@ -132,6 +132,19 @@ test("blocks previews and applies while reconciliation remains conflicted", () =
   assert.equal(session.desired().sequence.occurrences[0]?.name, "Agent rename");
 });
 
+test("preserves conflicted state when provider refresh repeats the changed revision", () => {
+  const base = timeline();
+  const session = EditingSession.create({ base });
+  session.apply([{ type: "rename-occurrence", occurrenceId: "a", name: "Agent rename" }]);
+
+  const providerState = copy(base);
+  providerState.revision = { id: "provider-revision", sequence: 2, timestamp: "2026-09-14T00:02:00.000Z" };
+  providerState.sequence.occurrences[0]!.name = "Provider rename";
+  assert.equal(session.reconcile(providerState).status, "conflicted");
+  assert.equal(session.observeProviderRevision(providerState.revision), "changed");
+  assert.equal(session.state(), "conflicted");
+});
+
 test("turns ambiguous duplicate identities into explicit conflicts", () => {
   const base = timeline();
   const ours = copy(base);
