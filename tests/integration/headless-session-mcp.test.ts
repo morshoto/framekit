@@ -246,6 +246,49 @@ test("refreshes provider drift before preview and execution", async () => {
   }
 });
 
+test("preserves conflicted status during repeated provider refresh", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-conflict-refresh-"));
+  const baseRevision = timeline().revision;
+  let providerRevision = baseRevision;
+  try {
+    const connected = await connect(directory, undefined, {
+      changesSince: async (revision) => ({ from: revision, to: providerRevision }),
+    });
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-conflict-refresh", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const executed = payload(await connected.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-conflict-refresh",
+        operations: [{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Agent rename" }],
+      },
+    }));
+    assert.equal(executed.document.state, "dirty");
+
+    providerRevision = { id: "provider-revision-2", sequence: 5, timestamp: "2026-09-15T00:02:00.000Z" };
+    const providerState = timeline();
+    providerState.revision = providerRevision;
+    providerState.sequence.occurrences[0]!.name = "Provider rename";
+    const reconciled = payload(await connected.client.callTool({
+      name: "session.reconcile",
+      arguments: { sessionId: "session-conflict-refresh", provider: { id: "final-cut" }, providerState },
+    }));
+    assert.equal(reconciled.reconciliation.status, "conflicted");
+
+    const status = payload(await connected.client.callTool({
+      name: "session.status",
+      arguments: { sessionId: "session-conflict-refresh" },
+    }));
+    assert.equal(status.state, "conflicted");
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("binds read-only SQLite evidence and invalidates only session freshness", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-sqlite-"));
   let digest = "a".repeat(64);
