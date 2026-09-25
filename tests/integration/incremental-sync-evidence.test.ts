@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { sanitizeIncrementalSyncEvidence } from "../../scripts/final-cut-evidence.mjs";
+
+const execFile = promisify(execFileCallback);
 
 const environment = {
   framekitVersion: "0.1.13",
@@ -189,4 +193,25 @@ test("publishes the v0.1.13 incremental synchronization command", async () => {
   ]) {
     assert.match(validation, new RegExp(requirement.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), requirement);
   }
+});
+
+test("fails before live imports when headed target variables are missing", async () => {
+  const environment = { ...process.env };
+  for (const name of [
+    "FRAMEKIT_FINAL_CUT_E2E_PROJECT",
+    "FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID",
+    "FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID",
+    "FRAMEKIT_FINAL_CUT_E2E_ALLOW_EXTERNAL_EDIT",
+  ]) delete environment[name];
+
+  await assert.rejects(
+    execFile(process.execPath, ["scripts/final-cut-incremental-sync-headed-e2e.mjs"], {
+      cwd: process.cwd(),
+      env: environment,
+    }),
+    (error: unknown) => {
+      assert.match(String((error as { stderr?: string }).stderr), /FRAMEKIT_FINAL_CUT_E2E_ARGUMENT_INVALID/);
+      return true;
+    },
+  );
 });
