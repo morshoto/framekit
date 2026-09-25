@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   EditingSession,
   createTimelineIrFromProjectSnapshot,
+  registerLocalMediaResource,
   type TimelineIr,
 } from "@framekit/runtime";
 
@@ -56,6 +57,46 @@ test("serializes and loads a provider-neutral session without losing rational id
     kind: "resource",
     identity: "asset-1",
   });
+});
+
+test("registers one explicitly selected local source with bound identity metadata", () => {
+  const registered = registerLocalMediaResource(baseTimeline(), {
+    mediaId: "media-background",
+    name: "background.mov",
+    source: "/tmp/background.mov",
+    sourceDigest: "sha256:background",
+    mediaKind: "video",
+    duration: 12.5,
+  });
+
+  assert.deepEqual(registered.resources.at(-1), {
+    id: "media-background",
+    name: "background.mov",
+    mediaKind: "video",
+    source: "/tmp/background.mov",
+    sourceDigest: "sha256:background",
+    duration: 12.5,
+    binding: {
+      provider: "framekit-local-media",
+      kind: "resource",
+      identity: "media-background@sha256:background",
+    },
+  });
+  assert.doesNotThrow(() => EditingSession.create({ base: registered }));
+});
+
+test("rejects ambiguous local source registration", () => {
+  assert.throws(
+    () => registerLocalMediaResource(baseTimeline(), {
+      mediaId: "media-background",
+      name: "background.mov",
+      source: "background.mov",
+      sourceDigest: "sha256:background",
+      mediaKind: "video",
+      duration: 12.5,
+    }),
+    /LOCAL_MEDIA_SOURCE_INVALID: source must be an absolute path or file URL/,
+  );
 });
 
 test("previews and applies deterministic edits while Final Cut is unavailable", () => {
