@@ -51,6 +51,13 @@ test("video exporter uses a supported preset and returns verified output metadat
   }).exportVideo({
     outputPath,
     preset: "master",
+    target: {
+      libraryUid: "library-1",
+      eventUid: "event-1",
+      projectUid: "project-1",
+      sequenceUid: "sequence-1",
+      revision: { id: "revision-1", sequence: 7, timestamp: "2026-09-15T00:00:00.000Z" },
+    },
     expected: {
       durationSeconds: 12,
       width: 1920,
@@ -84,6 +91,15 @@ test("video exporter uses a supported preset and returns verified output metadat
     `sha256:${createHash("sha256").update(await readFile(outputPath)).digest("hex")}`,
   );
   assert.equal(result.verification.passed, true);
+  assert.deepEqual(result.manifest?.target, {
+    libraryUid: "library-1",
+    eventUid: "event-1",
+    projectUid: "project-1",
+    sequenceUid: "sequence-1",
+    revision: { id: "revision-1", sequence: 7, timestamp: "2026-09-15T00:00:00.000Z" },
+  });
+  assert.equal(result.manifest?.output.digest, result.metadata.outputDigest);
+  assert.equal(result.manifest?.verification.status, "passed");
   assert.deepEqual(result.verification.checks.map((check) => check.name), [
     "audio-audibility",
     "audio-coverage",
