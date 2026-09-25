@@ -191,13 +191,9 @@ function stableJson(value: unknown): string {
 
 function sameRationalTime(left: ProjectSnapshot["playheadTime"], right: ProjectSnapshot["playheadTime"]): boolean {
   if (!left || !right) return left === right;
-  try {
-    const leftParts = parseRational(left, "INVALID_PROJECT_STATE");
-    const rightParts = parseRational(right, "INVALID_PROJECT_STATE");
-    return leftParts.value * rightParts.timescale === rightParts.value * leftParts.timescale;
-  } catch {
-    return stableJson(left) === stableJson(right);
-  }
+  const leftParts = parseRational(left, "INVALID_PROJECT_STATE");
+  const rightParts = parseRational(right, "INVALID_PROJECT_STATE");
+  return leftParts.value * rightParts.timescale === rightParts.value * leftParts.timescale;
 }
 
 function uniqueRanges(ranges: TimeRange[]): TimeRange[] {
