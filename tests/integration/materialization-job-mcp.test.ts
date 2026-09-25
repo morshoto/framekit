@@ -159,6 +159,61 @@ test("previews without mutation and resumes a blocked immutable materialization 
   }
 });
 
+test("integrates three background edits into one versioned handoff checkpoint", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-integrated-"));
+  try {
+    const connected = await connect(directory);
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-integrated", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const edited = payload(await connected.client.callTool({
+      name: "session.edit.execute",
+      arguments: {
+        sessionId: "session-integrated",
+        expectedRevision: timeline().revision,
+        operations: [
+          { type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Reviewed opening" },
+          { type: "trim-occurrence", occurrenceId: "occurrence-1", durationTime: { value: "60", timescale: "30" } },
+          { type: "add-marker", marker: {
+            id: "marker-integrated",
+            name: "Checkpoint",
+            startTime: { value: "30", timescale: "30" },
+            durationTime: { value: "0", timescale: "1" },
+          } },
+        ],
+      },
+    }));
+    assert.equal(edited.document.desired.sequence.occurrences[0].name, "Reviewed opening");
+    const preview = payload(await connected.client.callTool({
+      name: "session.materialize.preview",
+      arguments: { sessionId: "session-integrated", target },
+    }));
+    assert.equal(preview.workflow, "background-edit-session");
+    assert.equal(preview.baseDigest, timelineIrDigest(timeline()));
+    assert.deepEqual(preview.baseRevision, timeline().revision);
+    assert.equal(preview.desiredDigest, timelineIrDigest(edited.document.desired));
+    assert.equal(preview.mutating, false);
+
+    const blocked = payload(await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-integrated", target, confirm: true },
+    }));
+    assert.equal(blocked.state, "blocked");
+    assert.equal(blocked.evidence.canonicalReadback, false);
+    const inspected = payload(await connected.client.callTool({
+      name: "session.inspect",
+      arguments: { sessionId: "session-integrated" },
+    }));
+    assert.equal(inspected.document.base.sequence.occurrences[0].name, "Opening");
+    assert.equal(inspected.document.desired.sequence.occurrences[0].name, "Reviewed opening");
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("completes only after matching canonical provider readback", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-"));
   const published: Array<{ artifactPath: string; projectUid: string }> = [];
