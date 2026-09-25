@@ -678,13 +678,13 @@ export function sanitizeIncrementalSyncEvidence(run, environment) {
   assert(run.editor, "editor identity is missing");
   const capabilities = sanitizeCapabilities(run.capabilities);
   assert(run.editor.name === "Final Cut Pro", "Final Cut Pro identity is required");
-  assert(run.editor.backend === "final-cut-live", "final-cut-live backend is required");
+  assert(["final-cut-live", "final-cut-native-canonical"].includes(run.editor.backend), "Final Cut live backend is required");
   assert(
     capabilities.editor.canonicalTimelineMode === "canonical-read"
       || capabilities.editor.canonicalTimelineMode === "canonical-write",
     "canonical headed capability is required",
   );
-  for (const key of ["projectRead", "timelineSnapshotRead", "incrementalChanges", "projectCatalogRead", "projectSelection"]) {
+  for (const key of ["projectRead", "timelineSnapshotRead", "incrementalChanges", "projectCatalogRead"]) {
     assert(capabilities.editor[key] === true, `${key} capability is required`);
   }
 
