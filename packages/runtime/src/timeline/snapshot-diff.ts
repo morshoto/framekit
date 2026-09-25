@@ -219,9 +219,9 @@ function compareTimelineChanges(left: TimelineChange, right: TimelineChange): nu
     return 1;
   }
 
-  const scopeComparison = left.scope.localeCompare(right.scope);
+  const scopeComparison = compareCodePoints(left.scope, right.scope);
   if (scopeComparison !== 0) return scopeComparison;
-  return left.itemId.localeCompare(right.itemId);
+  return compareCodePoints(left.itemId, right.itemId);
 }
 
 function changePosition(change: TimelineChange) {
@@ -229,6 +229,17 @@ function changePosition(change: TimelineChange) {
   if (!item || change.scope === "media") return undefined;
   if ("startTime" in item && item.startTime) return item.startTime;
   return undefined;
+}
+
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
+  const rightPoints = Array.from(right, (character) => character.codePointAt(0)!);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = leftPoints[index]! - rightPoints[index]!;
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
 }
 
 function compareRational(left: { value: string; timescale: string }, right: { value: string; timescale: string }): number {
