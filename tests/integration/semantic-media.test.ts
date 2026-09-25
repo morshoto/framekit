@@ -107,6 +107,64 @@ test("media understanding preserves source identity and analyzer provenance", as
   assert.deepEqual(metadata?.provenance?.ranges, [fixture.usableRange]);
 });
 
+test("local speech and audio analysis return source-bound range evidence", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: {
+      descriptor: { id: "local.audio", provider: "local", version: "1" },
+      analyze: async () => ({
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+  const range = { start: 2, end: 5 };
+
+  const speech = await runtime.analyzeSpeech("media-semantic-1", range);
+  const audio = await runtime.analyzeAudio("media-semantic-1", range);
+
+  assert.deepEqual(speech.sourceIdentity, {
+    mediaId: "media-semantic-1",
+    source: "/fixtures/interview.mov",
+    sourceDigest: "sha256:interview",
+    mediaKind: "video",
+    duration: 12,
+  });
+  assert.deepEqual(speech.requestedRange, range);
+  assert.deepEqual(audio.sourceIdentity, speech.sourceIdentity);
+  assert.deepEqual(audio.requestedRange, range);
+  assert.deepEqual(audio.measuredRange, range);
+  assert.deepEqual(audio.revision, speech.revision);
+  assert.deepEqual(audio.provider, { id: "local.audio", provider: "local", version: "1" });
+});
+
+test("local audio analysis rejects a source identity mismatch", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async () => ({
+        sourceIdentity: {
+          mediaId: "media-semantic-1",
+          source: "/fixtures/other.mov",
+          sourceDigest: "sha256:other",
+          mediaKind: "video" as const,
+          duration: 12,
+        },
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+
+  await assert.rejects(
+    runtime.analyzeAudio("media-semantic-1", { start: 2, end: 5 }),
+    /TARGET_MISMATCH: audio analysis source identity does not match the requested media/,
+  );
+});
+
 test("media understanding cache rejects changed source identities", async () => {
   for (const patch of [
     { sourceDigest: "sha256:replacement" },

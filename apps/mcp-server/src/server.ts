@@ -2063,9 +2063,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => jsonResult(await runtime.executeFillerRemoval(previewToken)));
 
   server.registerTool("audio.analyze", {
-    description: "Analyze loudness, true peak, and silence for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.analyzeAudio(mediaId)));
+    description: "Analyze loudness, true peak, and silence for one media item or source range.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeAudio(mediaId, range)));
 
   server.registerTool("audio.noise.analyze", {
     description: "Analyze unwanted background noise for one media item when a noise analyzer is configured.",
