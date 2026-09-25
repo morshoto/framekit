@@ -81,6 +81,81 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   pollIntervalMs?: number;
 }
 
+export type FinalCutCanonicalExportCleanup = "complete" | "incomplete";
+
+export type FinalCutCanonicalExportResult =
+  | { status: "export-requested" }
+  | {
+      status: "retryable" | "failed";
+      code: string;
+      message: string;
+      cleanup: FinalCutCanonicalExportCleanup;
+    };
+
+/** Structured failure returned when headed Export XML recovery can be retried. */
+export class FinalCutCanonicalExportError extends Error {
+  public readonly code: string;
+  public readonly retryable: boolean;
+  public readonly cleanup: FinalCutCanonicalExportCleanup;
+
+  public constructor(result: Extract<FinalCutCanonicalExportResult, { status: "retryable" | "failed" }>) {
+    super(`${result.code}: ${result.message}`);
+    this.name = "FinalCutCanonicalExportError";
+    this.code = result.code;
+    this.retryable = result.status === "retryable";
+    this.cleanup = result.cleanup;
+  }
+
+  public toJSON(): {
+    code: string;
+    message: string;
+    retryable: boolean;
+    cleanup: FinalCutCanonicalExportCleanup;
+  } {
+    return {
+      code: this.code,
+      message: this.message,
+      retryable: this.retryable,
+      cleanup: this.cleanup,
+    };
+  }
+}
+
+/** Parse the JSON envelope returned by the headed canonical export workflow. */
+export function parseFinalCutCanonicalExportResult(input: string | unknown): FinalCutCanonicalExportResult {
+  if (input === "canonical-export-requested") return { status: "export-requested" };
+
+  let payload: unknown;
+  try {
+    payload = typeof input === "string" ? JSON.parse(input) : input;
+  } catch (error) {
+    throw new Error(`FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response was not valid JSON (${String(error)})`);
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response must be an object");
+  }
+  const result = payload as Record<string, unknown>;
+  if (result.status === "export-requested") return { status: "export-requested" };
+  if (result.status !== "retryable" && result.status !== "failed") {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response status is unsupported");
+  }
+  if (typeof result.code !== "string" || !result.code.trim()) {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response code is required");
+  }
+  if (typeof result.message !== "string" || !result.message.trim()) {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response message is required");
+  }
+  if (result.cleanup !== "complete" && result.cleanup !== "incomplete") {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_RESULT_INVALID: response cleanup status is unsupported");
+  }
+  return {
+    status: result.status,
+    code: result.code,
+    message: result.message,
+    cleanup: result.cleanup,
+  };
+}
+
 export interface CanonicalLiveReadiness {
   ready: boolean;
   mode: ReturnType<typeof canonicalTimelineMode>;
@@ -119,7 +194,10 @@ export class FinalCutCanonicalSnapshotSource {
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-canonical-"));
     const exportPath = join(directory, "active.fcpxml");
     try {
-      await this.executor(buildFinalCutCanonicalExportScript(exportPath));
+      const result = parseFinalCutCanonicalExportResult(
+        await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
+      );
+      if (result.status !== "export-requested") throw new FinalCutCanonicalExportError(result);
       return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -179,6 +257,10 @@ on findDescendantByRole(container, expectedRole, timeoutSeconds, timeoutMessage)
   end repeat
 end findDescendantByRole
 
+on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
+  return my findDescendantByRole(saveWindow, "AXTextField", timeoutSeconds, timeoutMessage)
+end findSavePathField
+
 on pressDescendantButtonIfPresent(container, expectedNames)
   try
     set candidates to entire contents of container
@@ -201,49 +283,109 @@ on pressDescendantButtonIfPresent(container, expectedNames)
   return false
 end pressDescendantButtonIfPresent
 
+on cancelCanonicalWindowIfOpen(finalCut, windowName)
+  repeat 20 times
+    try
+      if not (exists window windowName of finalCut) then return true
+      set targetWindow to window windowName of finalCut
+      if not my pressDescendantButtonIfPresent(targetWindow, {"Cancel", "Close"}) then key code 53
+    end try
+    delay 0.1
+  end repeat
+  try
+    return not (exists window windowName of finalCut)
+  on error
+    return false
+  end try
+end cancelCanonicalWindowIfOpen
+
+on cleanupCanonicalExport(finalCut)
+  repeat 5 times
+    set foundWindow to false
+    repeat with candidateName in {"Save", "Export XML", "XML"}
+      try
+        set candidateNameText to candidateName as text
+        if exists window candidateNameText of finalCut then
+          set foundWindow to true
+          my cancelCanonicalWindowIfOpen(finalCut, candidateNameText)
+        end if
+      end try
+    end repeat
+    if not foundWindow then exit repeat
+  end repeat
+  repeat with candidateName in {"Save", "Export XML", "XML"}
+    try
+      if exists window (candidateName as text) of finalCut then return false
+    end try
+  end repeat
+  return true
+end cleanupCanonicalExport
+
+on canonicalExportCode(errorMessage)
+  if errorMessage contains "not authorized" or errorMessage contains "-1743" or errorMessage contains "-25211" then return "FINAL_CUT_CANONICAL_PERMISSION_REQUIRED"
+  set knownCodes to {"FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE", "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE"}
+  repeat with candidateCode in knownCodes
+    set candidateCodeText to candidateCode as text
+    if errorMessage contains candidateCodeText then return candidateCodeText
+  end repeat
+  return "FINAL_CUT_CANONICAL_EXPORT_RECOVERY_REQUIRED"
+end canonicalExportCode
+
+on canonicalExportResponse(statusValue, codeValue, messageValue, cleanupValue)
+  return "{" & quote & "status" & quote & ":" & quote & statusValue & quote & "," & quote & "code" & quote & ":" & quote & codeValue & quote & "," & quote & "message" & quote & ":" & quote & messageValue & quote & "," & quote & "cleanup" & quote & ":" & quote & cleanupValue & quote & "}"
+end canonicalExportResponse
+
 end using terms from
 
 tell application "System Events"
   tell process "Final Cut Pro"
-    set frontmost to true
-    delay 0.1
-    if not frontmost then error "FINAL_CUT_CANONICAL_NOT_FRONTMOST: Final Cut Pro must be frontmost"
     set finalCut to it
-    set fileMenu to menu "File" of menu bar 1
-    set exportCommand to missing value
     try
-      set exportCommand to my findMenuItem(fileMenu, {"Export XML…", "Export XML..."}, 10, "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: File > Export XML was not exposed")
-    on error
-      set exportMenuItem to my findMenuItem(fileMenu, {"Export"}, 10, "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: File > Export was not exposed")
-      perform action "AXPress" of exportMenuItem
-      set exportMenu to missing value
-      repeat 100 times
-        try
-          if exists menu "Export" of exportMenuItem then
-            set exportMenu to menu "Export" of exportMenuItem
-            exit repeat
-          end if
-        end try
-        delay 0.1
-      end repeat
-      if exportMenu is missing value then error "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: Export submenu was not exposed"
-      set exportCommand to my findMenuItem(exportMenu, {"XML…", "XML..."}, 10, "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: Export XML command was not exposed")
+      set frontmost to true
+      delay 0.1
+      if not frontmost then error "FINAL_CUT_CANONICAL_NOT_FRONTMOST: Final Cut Pro must be frontmost"
+      set fileMenu to menu "File" of menu bar 1
+      set exportCommand to missing value
+      try
+        set exportCommand to my findMenuItem(fileMenu, {"Export XML…", "Export XML..."}, 10, "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: File > Export XML was not exposed")
+      on error
+        set exportMenuItem to my findMenuItem(fileMenu, {"Export"}, 10, "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: File > Export was not exposed")
+        perform action "AXPress" of exportMenuItem
+        set exportMenu to missing value
+        repeat 100 times
+          try
+            if exists menu "Export" of exportMenuItem then
+              set exportMenu to menu "Export" of exportMenuItem
+              exit repeat
+            end if
+          end try
+          delay 0.1
+        end repeat
+        if exportMenu is missing value then error "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: Export submenu was not exposed"
+        set exportCommand to my findMenuItem(exportMenu, {"XML…", "XML..."}, 10, "FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE: Export XML command was not exposed")
+      end try
+      perform action "AXPress" of exportCommand
+      set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
+      my pressDescendantButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
+      delay 0.2
+      set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+      keystroke "g" using {command down, shift down}
+      set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
+      set value of pathField to ${appleScriptString(exportPath)}
+      key code 36
+      delay 0.2
+      my pressDescendantButtonIfPresent(saveWindow, {"Save"})
+      delay 0.2
+      my pressDescendantButtonIfPresent(saveWindow, {"Replace"})
+      return my canonicalExportResponse("export-requested", "", "", "complete")
+    on error errorMessage number errorNumber
+      set cleanupComplete to my cleanupCanonicalExport(finalCut)
+      set codeValue to my canonicalExportCode(errorMessage as text)
+      if cleanupComplete and codeValue is not "FINAL_CUT_CANONICAL_PERMISSION_REQUIRED" then
+        return my canonicalExportResponse("retryable", codeValue, "Final Cut Export XML did not complete; generated dialogs were closed and retry is safe", "complete")
+      end if
+      return my canonicalExportResponse("failed", codeValue, "Final Cut Export XML recovery could not complete safely", "incomplete")
     end try
-    perform action "AXPress" of exportCommand
-    set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-    my pressDescendantButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
-    delay 0.2
-    set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-    keystroke "g" using {command down, shift down}
-    set pathSheet to my findDescendantByRole(saveWindow, "AXSheet", 5, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: save path sheet did not appear")
-    set pathField to my findDescendantByRole(pathSheet, "AXTextField", 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
-    set value of pathField to ${appleScriptString(exportPath)}
-    key code 36
-    delay 0.2
-    my pressDescendantButtonIfPresent(saveWindow, {"Save"})
-    delay 0.2
-    my pressDescendantButtonIfPresent(saveWindow, {"Replace"})
-    return "canonical-export-requested"
   end tell
 end tell`;
 }
