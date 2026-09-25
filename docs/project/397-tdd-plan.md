@@ -1,8 +1,8 @@
 # TDD Plan: Background catalog and live Final Cut project IDs do not reconcile (#397)
 
-**Type**: Bug  
-**Issue**: https://github.com/morshoto/framekit/issues/397  
-**Complexity**: Low  
+**Type**: Bug
+**Issue**: https://github.com/morshoto/framekit/issues/397
+**Complexity**: Low
 **TDD Entry Point**: Add a focused reconciliation assertion that a stable-ID mismatch exposes a machine-readable target-selection blocker.
 
 ## Issue Summary
@@ -149,11 +149,11 @@ The headed command is evidence-gated. If unavailable, report the exact native ca
 
 ## Risks and Mitigations
 
-- **Risk**: a name-only match becomes an authorized target.  
+- **Risk**: a name-only match becomes an authorized target.
   **Mitigation**: assert no active IDs and require `target-selection-required` for unresolved results.
-- **Risk**: a stale target is presented as current.  
+- **Risk**: a stale target is presented as current.
   **Mitigation**: retain before/after target and revision tests and require the blocker on stale results.
-- **Risk**: metadata is mistaken for canonical proof.  
+- **Risk**: metadata is mistaken for canonical proof.
   **Mitigation**: retain canonical capability assertions and document the evidence boundary.
 
 ## Definition of Done
