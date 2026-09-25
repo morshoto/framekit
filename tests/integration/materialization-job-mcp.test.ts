@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
 import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
-import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
+import { AgentVideoRuntime, timelineIrDigest, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function timeline(): TimelineIr {
@@ -161,10 +161,10 @@ test("previews without mutation and resumes a blocked immutable materialization 
 
 test("completes only after matching canonical provider readback", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-"));
-  const published: Array<{ artifactPath: string; projectUid: string }> = [];
+  const published: Array<{ artifactPath: string; projectUid: string; baseDigest: string; baseRevision: TimelineIr["revision"] }> = [];
   const publisher: SessionMaterializationPublisher = {
     publish: async (request) => {
-      published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid });
+      published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid, baseDigest: request.baseDigest, baseRevision: request.baseRevision });
       return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
     },
   };
@@ -182,6 +182,8 @@ test("completes only after matching canonical provider readback", async () => {
     assert.equal(completed.evidence.headedNative, false);
     assert.equal(published.length, 1);
     assert.notEqual(published[0]?.projectUid, target.projectUid);
+    assert.equal(published[0]?.baseDigest, timelineIrDigest(timeline()));
+    assert.deepEqual(published[0]?.baseRevision, timeline().revision);
     await connected.client.close();
     await connected.server.close();
   } finally {
