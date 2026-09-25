@@ -87,6 +87,20 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.notEqual(first.destination.projectUid, target.projectUid);
   assert.deepEqual(first.target, target);
   assert.deepEqual(first.resourceIds, { "media-1": "resource-media-1" });
+  assert.deepEqual(first.coverage, {
+    exact: [
+      "project",
+      "sequence",
+      "resources",
+      "source-ranges",
+      "primary-storyline-order",
+      "connected-elements",
+      "markers",
+      "captions",
+    ],
+    degraded: [],
+    unsupported: [],
+  });
 });
 
 test("sanitizes versioned destination IDs without regex backtracking", () => {
