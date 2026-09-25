@@ -539,9 +539,11 @@ change stream is configured, session preview, execution, status, and
 materialization first check changes since BASE. `session.edit.preview` is
 non-mutating; `session.edit.execute` changes only the session's desired state.
 An external revision marks the session `possibly_stale` without changing BASE
-or desired/OURS and blocks both operations. Use `session.reconcile` with a
+or desired/OURS and blocks all edit operations. Use `session.reconcile` with a
 fresh provider Timeline IR before materializing any session that is possibly
-stale or conflicted.
+stale or conflicted. Use `session.edit.preview` for the exact non-mutating
+diff, then `session.edit.confirm` with `confirmation: true` to apply a
+reviewed batch to desired Timeline IR; this still does not touch Final Cut.
 
 `session.observe` binds read-only Final Cut SQLite evidence to session
 freshness. Its digest is explicitly non-canonical and can invalidate a session,

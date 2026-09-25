@@ -146,6 +146,47 @@ test("creates previews executes and reloads a provider-neutral session", async (
   }
 });
 
+test("confirms a reviewed multi-operation batch without touching the live editor", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-reviewed-"));
+  try {
+    const connected = await connect(directory);
+    const tools = await connected.client.listTools();
+    assert.ok(tools.tools.some((tool) => tool.name === "session.edit.confirm"));
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-reviewed", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const operations = [
+      { type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Reviewed opening" },
+      { type: "trim-occurrence", occurrenceId: "occurrence-1", durationTime: { value: "1001", timescale: "24000" } },
+      { type: "add-marker", marker: {
+        id: "marker-reviewed",
+        name: "Review complete",
+        startTime: { value: "1001", timescale: "24000" },
+        durationTime: { value: "0", timescale: "1" },
+      } },
+    ];
+    const preview = payload(await connected.client.callTool({
+      name: "session.edit.preview",
+      arguments: { sessionId: "session-reviewed", expectedRevision: timeline().revision, operations },
+    }));
+    assert.equal(preview.after.sequence.occurrences[0].name, "Reviewed opening");
+    assert.equal(preview.after.sequence.markers[0].id, "marker-reviewed");
+
+    const confirmed = payload(await connected.client.callTool({
+      name: "session.edit.confirm",
+      arguments: { sessionId: "session-reviewed", expectedRevision: timeline().revision, operations, confirmation: true },
+    }));
+    assert.equal(confirmed.document.state, "dirty");
+    assert.equal(confirmed.document.desired.sequence.occurrences[0].name, "Reviewed opening");
+    assert.equal(confirmed.document.desired.sequence.markers[0].id, "marker-reviewed");
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("refreshes a persisted session after restart from a fresh canonical snapshot", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-restart-refresh-"));
   try {

@@ -1003,6 +1003,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     expectedRevision,
   )));
 
+  server.registerTool("session.edit.confirm", {
+    description: "Confirm a reviewed edit batch and apply it only to the persisted session desired state.",
+    inputSchema: {
+      sessionId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      operations: sessionOperationSchema,
+      confirmation: z.literal(true),
+    },
+  }, async ({ sessionId, expectedRevision, operations }) => sessionResult(async () => requireSessions().execute(
+    sessionId,
+    operations as TimelineIrEditOperation[],
+    expectedRevision,
+  )));
+
   server.registerTool("session.status", {
     description: "Read editing-session readiness, provider binding, and revisions.",
     inputSchema: { sessionId: z.string().min(1) },
