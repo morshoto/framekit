@@ -275,6 +275,14 @@ test("unresolved catalog reconciliation keeps canonical capabilities unavailable
   assert.equal(listed.activeSequenceId, undefined);
   assert.equal(reconciliation.status, "unresolved");
   assert.equal(reconciliation.diagnostics?.[0]?.code, "stable-id-mismatch");
+  assert.deepEqual(reconciliation.blocker, {
+    code: "target-selection-required",
+    message: "target selection is required before canonical operations",
+  });
+  assert.match(
+    listed.provenance?.selection.unavailableReason ?? "",
+    /^target selection is required before canonical operations:/,
+  );
   assert.equal(sessionCapabilities.editor.canonicalTimelineMode, "metadata-only");
   assert.equal(sessionCapabilities.families?.canonicalDocument.read.available, false);
   assert.equal(sessionCapabilities.families?.canonicalDocument.write.available, false);
