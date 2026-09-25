@@ -11,3 +11,4 @@ export * from "./timeline-target.js";
 export * from "./rough-cut.js";
 export * from "./duration.js";
 export * from "./skills.js";
+export * from "./incremental-sync.js";
