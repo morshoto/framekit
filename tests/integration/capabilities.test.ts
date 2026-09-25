@@ -563,6 +563,9 @@ test("capability documentation describes the versioned operation contract", asyn
   assert.match(mcp, /discovery: \"native\"/);
   assert.match(architecture, /`editor\.projectRead` is disabled/);
   assert.match(mcp, /"projectRead": false/);
+  assert.match(mcp, /targetKind/);
+  assert.match(mcp, /targetBound/);
+  assert.match(mcp, /AXIdentifier/);
 });
 
 test("MCP connection status normalizes injected capability payloads", async () => {

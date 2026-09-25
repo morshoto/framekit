@@ -49,6 +49,8 @@ export interface NativeRoutingReadiness {
   frontmost: boolean;
   timelineFocus: boolean;
   selectedTarget: boolean;
+  targetKind?: "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
+  targetBound?: boolean;
   overlay: "clear" | "blocked" | "unknown";
   permission: "granted" | "required" | "unknown";
   guidance: string;
@@ -84,7 +86,7 @@ export interface EditingRoute {
   requiredCapabilities: string[];
   missingCapabilities: string[];
   provider?: EditingRouteProvider;
-  readiness?: Pick<NativeRoutingReadiness, "state" | "nextAction" | "retryable" | "firstMissing" | "guidance">;
+  readiness?: Pick<NativeRoutingReadiness, "state" | "nextAction" | "retryable" | "firstMissing" | "targetKind" | "targetBound" | "guidance">;
   editor?: EditorIdentity;
   workflow: string[];
   reason: EditingRouteReason;
@@ -298,6 +300,8 @@ function routingReadiness(
     nextAction: readiness.nextAction,
     retryable: readiness.retryable,
     ...(readiness.firstMissing ? { firstMissing: readiness.firstMissing } : {}),
+    ...(readiness.targetKind ? { targetKind: readiness.targetKind } : {}),
+    ...(readiness.targetBound !== undefined ? { targetBound: readiness.targetBound } : {}),
     guidance: readiness.guidance,
   };
 }
