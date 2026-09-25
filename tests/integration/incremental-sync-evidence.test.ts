@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { sanitizeIncrementalSyncEvidence } from "../../scripts/final-cut-evidence.mjs";
 
@@ -139,4 +141,32 @@ test("rejects metadata-only or incomplete incremental evidence", () => {
     () => sanitizeIncrementalSyncEvidence(incomplete, environment),
     /reconciliation blocker/,
   );
+});
+
+test("headed runner covers observe drift and reconciliation", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-incremental-sync-headed-e2e.mjs"), "utf8");
+
+  for (const requirement of [
+    "FRAMEKIT_FINAL_CUT_E2E_PROJECT",
+    "FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID",
+    "FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID",
+    "FRAMEKIT_FINAL_CUT_E2E_ALLOW_EXTERNAL_EDIT",
+    "FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER",
+    "createTimelineIrFromProjectSnapshot",
+    'name: \"project.inspect\"',
+    'name: \"context.inspect\"',
+    'name: \"timeline.changes\"',
+    'name: \"context.changes\"',
+    'name: \"session.create\"',
+    'name: \"session.status\"',
+    'name: \"session.edit.preview\"',
+    'name: \"session.reconcile\"',
+    'name: \"session.edit.execute\"',
+    "RECONCILIATION_REQUIRED",
+    "sanitizeIncrementalSyncEvidence",
+    "mkdtemp",
+    "FRAMEKIT_STATE_DIR",
+  ]) {
+    assert.match(runner, new RegExp(requirement.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), requirement);
+  }
 });
