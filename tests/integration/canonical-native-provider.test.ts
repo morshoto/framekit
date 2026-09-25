@@ -6,9 +6,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   buildFinalCutCanonicalExportScript,
   createFinalCutNativeTargetResolver,
+  FinalCutCanonicalExportError,
   FinalCutCanonicalSnapshotSource,
   FinalCutCanonicalNativeProvider,
   FinalCutSessionAdapter,
+  parseFinalCutCanonicalExportResult,
   type FinalCutBackgroundCatalogProvider,
   type CanonicalNativeTargetResolver,
   type CanonicalNativeMutationPort,
@@ -815,6 +817,56 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /my pressDescendantButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
   assert.doesNotMatch(script, /exists sheet 1 of saveWindow/);
   assert.doesNotMatch(script, /text field 1 of pathSheet/);
+});
+
+test("canonical export parses a structured retryable recovery result", () => {
+  const result = parseFinalCutCanonicalExportResult(JSON.stringify({
+    status: "retryable",
+    code: "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE",
+    message: "Final Cut export dialogs were closed; retry the canonical read",
+    cleanup: "complete",
+  }));
+
+  assert.deepEqual(result, {
+    status: "retryable",
+    code: "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE",
+    message: "Final Cut export dialogs were closed; retry the canonical read",
+    cleanup: "complete",
+  });
+
+  const error = new FinalCutCanonicalExportError(result);
+  assert.equal(error.code, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE");
+  assert.equal(error.retryable, true);
+  assert.equal(error.cleanup, "complete");
+});
+
+test("canonical export surfaces retryable recovery results", async () => {
+  const source = new FinalCutCanonicalSnapshotSource({
+    executor: async () => JSON.stringify({
+      status: "retryable",
+      code: "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE",
+      message: "Final Cut export dialogs were closed; retry the canonical read",
+      cleanup: "complete",
+    }),
+  });
+
+  await assert.rejects(source.readSnapshot(), (error: unknown) => {
+    assert.ok(error instanceof FinalCutCanonicalExportError);
+    assert.equal(error.retryable, true);
+    assert.equal(error.cleanup, "complete");
+    return true;
+  });
+});
+
+test("canonical export recovers generated dialogs on UI failure", () => {
+  const script = buildFinalCutCanonicalExportScript("/tmp/framekit-canonical.fcpxml");
+
+  assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
+  assert.match(script, /on cleanupCanonicalExport\(finalCut\)/);
+  assert.match(script, /on error errorMessage number errorNumber/);
+  assert.match(script, /my cleanupCanonicalExport\(finalCut\)/);
+  assert.match(script, /"status":"retryable"/);
+  assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
 test("canonical Final Cut export waits for a complete FCPXML file", async () => {
