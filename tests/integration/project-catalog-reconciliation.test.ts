@@ -127,6 +127,32 @@ test("name-only matches remain unresolved and do not create active IDs", () => {
   ]);
 });
 
+test("stable-ID mismatches require explicit target selection", () => {
+  const state = liveState(
+    "socket-project",
+    "Edit Project",
+    "socket-sequence",
+    "Main",
+    revision(4),
+  );
+
+  const reconciled = reconcileProjectCatalog(catalog, {
+    before: state,
+    after: state,
+    provenance,
+  });
+  const reconciliation = reconciled.provenance?.reconciliation as typeof reconciled.provenance.reconciliation & {
+    blocker?: { code: string; message: string };
+  };
+
+  assert.equal(reconciled.activeProjectId, undefined);
+  assert.equal(reconciled.activeSequenceId, undefined);
+  assert.deepEqual(reconciliation.blocker, {
+    code: "target-selection-required",
+    message: "target selection is required before canonical operations",
+  });
+});
+
 test("ambiguous sequence names remain unresolved with candidate identities", () => {
   const ambiguousCatalog: ProjectCatalog = {
     projects: [{
