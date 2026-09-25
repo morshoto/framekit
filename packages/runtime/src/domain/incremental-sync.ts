@@ -241,8 +241,20 @@ const OPERATION_ORDER: Record<CanonicalChangeOperation, number> = {
 function compareChanges(left: CanonicalSyncChange, right: CanonicalSyncChange): number {
   return left.revision.sequence - right.revision.sequence
     || ENTITY_ORDER[left.entity] - ENTITY_ORDER[right.entity]
-    || left.entityId.localeCompare(right.entityId)
+    || compareCodePointStrings(left.entityId, right.entityId)
     || OPERATION_ORDER[left.operation] - OPERATION_ORDER[right.operation];
+}
+
+function compareCodePointStrings(left: string, right: string): number {
+  const leftCodePoints = Array.from(left, (character) => character.codePointAt(0)!);
+  const rightCodePoints = Array.from(right, (character) => character.codePointAt(0)!);
+  const length = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftCodePoints[index]! !== rightCodePoints[index]!) {
+      return leftCodePoints[index]! < rightCodePoints[index]! ? -1 : 1;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
 }
 
 function sameTarget(left: CanonicalSyncTarget, right: CanonicalSyncTarget): boolean {
