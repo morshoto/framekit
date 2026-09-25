@@ -52,11 +52,39 @@ export class MediaAnalysisService {
     return this.analyzeSpeechForProject(project, media, range);
   }
 
-  public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
+  public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
     if (!this.options.audioAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
-    return this.options.audioAnalyzer.analyze({ project, media });
+    const requestedRange = range ?? (media.duration === undefined ? undefined : { start: 0, end: media.duration });
+    const analysis = await this.options.audioAnalyzer.analyze({ project, media }, requestedRange);
+    validateAudioProvenance(analysis, {
+      media,
+      mediaId,
+      project,
+      provider: this.options.audioAnalyzer.descriptor,
+      requestedRange,
+    });
+    const measuredRange = analysis.measuredRange ?? (requestedRange ? structuredClone(requestedRange) : undefined);
+    if (measuredRange && requestedRange) validateAudioRange(measuredRange, requestedRange, "measured audio range");
+    const analyzedDurationSeconds = measuredRange
+      ? analysis.analyzedDurationSeconds ?? measuredRange.end - measuredRange.start
+      : analysis.analyzedDurationSeconds;
+    if (measuredRange && analyzedDurationSeconds !== undefined
+      && Math.abs(analyzedDurationSeconds - (measuredRange.end - measuredRange.start)) > 0.000001) {
+      throw new Error("ANALYSIS_INVALID: audio measured duration does not match its measured range");
+    }
+    return {
+      ...structuredClone(analysis),
+      schemaVersion: 1,
+      mediaId,
+      sourceIdentity: sourceIdentityOf(media),
+      ...(requestedRange ? { requestedRange: structuredClone(requestedRange) } : {}),
+      ...(measuredRange ? { measuredRange: structuredClone(measuredRange) } : {}),
+      revision: project.revision,
+      provider: analysis.provider ?? this.options.audioAnalyzer.descriptor ?? { id: "framekit.audio", provider: "unknown" },
+      ...(analyzedDurationSeconds !== undefined ? { analyzedDurationSeconds } : {}),
+    };
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
@@ -569,7 +597,7 @@ function validateAudioProvenance(
     mediaId: string;
     project: ProjectSnapshot;
     provider?: AnalyzerDescriptor;
-    requestedRange: TimeRange;
+    requestedRange?: TimeRange;
   },
 ): void {
   if (analysis.schemaVersion !== undefined && analysis.schemaVersion !== 1) {
@@ -582,7 +610,8 @@ function validateAudioProvenance(
     && !sameMediaSourceIdentity(analysis.sourceIdentity, sourceIdentityOf(expected.media))) {
     throw new Error("TARGET_MISMATCH: audio analysis source identity does not match the requested media");
   }
-  if (analysis.requestedRange !== undefined && !sameRange(analysis.requestedRange, expected.requestedRange)) {
+  if (analysis.requestedRange !== undefined && expected.requestedRange !== undefined
+    && !sameRange(analysis.requestedRange, expected.requestedRange)) {
     throw new Error("ANALYSIS_INVALID: audio requested range does not match the runtime request");
   }
   if (analysis.revision !== undefined
