@@ -269,8 +269,8 @@ export class AgentVideoRuntime {
     return this.media.analyzeSpeech(mediaId, range);
   }
 
-  public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
-    return this.media.analyzeAudio(mediaId);
+  public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
+    return this.media.analyzeAudio(mediaId, range);
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
