@@ -20,6 +20,7 @@ export function planRoughCut(
 
   const candidates = entries
     .filter((entry) => entry.sourceIdentity.mediaKind !== "audio")
+    .filter((entry) => hasContentEvidence(entry.semantic))
     .flatMap((entry) => entry.semantic.usableRanges.map((range) => ({ entry, range })))
     .sort((left, right) => {
       const mediaOrder = left.entry.sourceIdentity.mediaId.localeCompare(right.entry.sourceIdentity.mediaId);
@@ -34,7 +35,7 @@ export function planRoughCut(
   const warnings = excludedAudioMediaIds.length > 0
     ? [`Excluded audio-only media from rough-cut shot candidates: ${excludedAudioMediaIds.join(", ")}`]
     : entries.length > 0 && candidates.length === 0
-      ? ["No matching media has an explicitly analyzed usable range"]
+      ? ["No matching media has content analysis for strong segment selection"]
       : [];
 
   return {
@@ -73,18 +74,51 @@ function shotFor(
     ? activeAnnotations.flatMap(({ query, tags }) => tags.filter((tag) => tag.value.toLowerCase() === query!.trim().toLowerCase()))
     : semanticAnnotations.flatMap(({ tags }) => tags);
   const confidence = Math.max(0, ...confidenceTags.map((tag) => tag.confidence));
+  const contentEvidence = contentEvidenceFor(entry.semantic, range);
   const reason = matchedProperties.length > 0
     ? `matches ${matchedProperties.map((property) => {
       const [kind, ...value] = property.split(":");
       return `${kind} "${value.join(":")}"`;
-    }).join(", ")}`
-    : "has an explicitly analyzed usable range";
+    }).join(", ")}; content evidence: ${contentEvidence.join(", ")}`
+    : `has content evidence: ${contentEvidence.join(", ")}`;
   return {
     order,
     sourceIdentity: structuredClone(entry.sourceIdentity),
     range: structuredClone(range),
     confidence,
     matchedProperties,
-    rationale: `Selected ${entry.sourceIdentity.mediaId} because it ${reason}.`,
+    contentEvidence,
+    reviewRequired: true,
+    rationale: `Selected ${entry.sourceIdentity.mediaId} because it ${reason}. Review is required before applying a trim.`,
   };
+}
+
+function hasContentEvidence(semantic: MediaIndexEntry["semantic"]): boolean {
+  return contentEvidenceFor(semantic).length > 0;
+}
+
+function contentEvidenceFor(
+  semantic: MediaIndexEntry["semantic"],
+  range?: RoughCutShot["range"],
+): string[] {
+  const evidence: string[] = [];
+  for (const [kind, tags] of [
+    ["subject", semantic.subjects],
+    ["scene", semantic.scenes],
+    ["environment", semantic.environments],
+    ["timeOfDay", semantic.timeOfDay],
+    ["mood", semantic.moods],
+  ] as const) {
+    for (const tag of tags) evidence.push(`${kind} "${tag.value}"`);
+  }
+  if (semantic.transcript?.trim()) {
+    const words = semantic.transcript.trim().split(/\s+/).slice(0, 8).join(" ");
+    evidence.push(`transcript "${words}"`);
+  }
+  if (semantic.motion) evidence.push(`motion ${semantic.motion.label ?? "observed"}`);
+  if (semantic.audio?.present) evidence.push("audio present");
+  if (range && evidence.length === 0 && semantic.usableRanges.some((candidate) => candidate.start === range.start && candidate.end === range.end)) {
+    return [];
+  }
+  return evidence;
 }

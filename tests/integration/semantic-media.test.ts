@@ -270,6 +270,8 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
     metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: new FixtureAudioAnalyzer(),
     visualAnalyzer: new FixtureVisualAnalyzer(),
   });
 
