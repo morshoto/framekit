@@ -18,6 +18,8 @@ export interface SessionMaterializationPublishRequest {
   collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
+  baseDigest: string;
+  baseRevision: TimelineIr["revision"];
 }
 
 export interface SessionMaterializationPublisher {
@@ -44,6 +46,8 @@ export interface SessionMaterializationJob {
   destination: TimelineIrToFcpxmlResult["destination"];
   desired: TimelineIr;
   desiredDigest: string;
+  baseDigest: string;
+  baseRevision: TimelineIr["revision"];
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   evidence: {
@@ -85,6 +89,7 @@ export class SessionMaterializationJobs {
     this.assertProvider(session.document().provider?.id, target.provider);
     session.assertMaterializationReady(session.base().revision);
     const desired = session.desired();
+    const base = session.base();
     const artifact = compileTimelineIrToFcxmlVersioned(desired, target);
     const jobId = `materialization-${randomUUID()}`;
     const artifactPath = join(this.directory, "artifacts", `${jobId}.fcpxml`);
@@ -106,6 +111,8 @@ export class SessionMaterializationJobs {
       destination: artifact.destination,
       desired: structuredClone(desired),
       desiredDigest: timelineIrDigest(desired),
+      baseDigest: timelineIrDigest(base),
+      baseRevision: structuredClone(base.revision),
       sessionDigest: digestSession(session),
       evidence: {
         artifact: { verified: true, format: "fcpxml", digest: artifact.digest },
@@ -163,6 +170,8 @@ export class SessionMaterializationJobs {
         collisionPolicy: "create-only",
         desired: structuredClone(claimed.desired),
         desiredDigest: claimed.desiredDigest,
+        baseDigest: claimed.baseDigest,
+        baseRevision: structuredClone(claimed.baseRevision),
       });
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
@@ -237,6 +246,13 @@ export class SessionMaterializationJobs {
     }
     try {
       const session = await this.sessions.loadForMaterialization(job.sessionId);
+      if (!job.baseDigest || timelineIrDigest(session.base()) !== job.baseDigest || !sameRevision(session.base().revision, job.baseRevision)) {
+        return {
+          code: "MATERIALIZATION_BASE_CHANGED",
+          message: "The bound base project, sequence, or revision changed after materialization staging",
+          retryable: false,
+        };
+      }
       if (digestSession(session) !== job.sessionDigest) {
         return {
           code: "MATERIALIZATION_SESSION_CHANGED",
@@ -384,4 +400,11 @@ function sameTarget(
     && actual.eventUid === expected.eventUid
     && actual.projectUid === expected.projectUid
     && actual.sequenceUid === expected.sequenceUid;
+}
+
+function sameRevision(left: TimelineIr["revision"], right: TimelineIr["revision"] | undefined): boolean {
+  return right !== undefined
+    && left.id === right.id
+    && left.sequence === right.sequence
+    && left.timestamp === right.timestamp;
 }
