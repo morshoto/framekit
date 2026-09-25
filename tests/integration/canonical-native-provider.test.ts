@@ -878,6 +878,7 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
     executor: async (script) => {
       const match = script.match(/set value of pathField to "([^"]+)"/);
       assert.ok(match?.[1]);
+      assert.match(script, /my canonicalExportResponse\("export-requested"/);
       const exportPath = match[1];
       const partialDocument = completeDocument.slice(0, Math.floor(completeDocument.length / 2));
       await writeFile(exportPath, partialDocument);
@@ -888,7 +889,12 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
             .finally(resolve);
         }, 40);
       });
-      return "canonical-export-requested";
+      return JSON.stringify({
+        status: "export-requested",
+        code: "",
+        message: "",
+        cleanup: "complete",
+      });
     },
   });
 
