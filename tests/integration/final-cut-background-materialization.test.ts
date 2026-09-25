@@ -80,6 +80,11 @@ test("publishes a verified artifact with an explicit target and canonical readba
     assert.equal(received.destination.mode, "versioned");
     assert.equal(received.collisionPolicy, "create-only");
     assert.equal(received.desired.project.id, "project-1");
+    assert.deepEqual(result.delivery, {
+      route: "document-open",
+      activation: "unknown",
+      interaction: "unknown",
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
