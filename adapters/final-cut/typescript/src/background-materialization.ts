@@ -22,12 +22,19 @@ export interface FinalCutBackgroundMaterializationRequest {
   desiredDigest: string;
 }
 
+export interface FinalCutBackgroundDeliveryProvenance {
+  route: "document-open";
+  activation: "not-activated" | "activated" | "unknown";
+  interaction: "not-required" | "required" | "unknown";
+}
+
 export type FinalCutBackgroundMaterializationResult =
   | {
       state: "completed";
       canonicalReadback: TimelineIr;
       canonicalTarget: FinalCutTargetIdentity;
       headedNativeVerified: boolean;
+      delivery?: FinalCutBackgroundDeliveryProvenance;
     }
   | { state: "blocked"; code: string; message: string; retryable: boolean };
 
@@ -117,7 +124,16 @@ function validateResult(result: FinalCutBackgroundMaterializationResult): FinalC
   if (result.headedNativeVerified !== false) {
     throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_RESPONSE_INVALID: background publisher cannot claim headed-native verification");
   }
-  return result;
+  return result.state === "completed"
+    ? {
+        ...result,
+        delivery: result.delivery ?? {
+          route: "document-open",
+          activation: "unknown",
+          interaction: "unknown",
+        },
+      }
+    : result;
 }
 
 function validateTargetIdentity(target: FinalCutTargetIdentity): void {
