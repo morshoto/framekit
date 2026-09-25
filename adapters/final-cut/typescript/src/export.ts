@@ -5,7 +5,7 @@ import { createReadStream } from "node:fs";
 import { access, constants, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { AudioAnalysis, VerificationReport, VisualAnalysis } from "@framekit/runtime";
+import type { AudioAnalysis, ContextRevision, VerificationReport, VisualAnalysis } from "@framekit/runtime";
 import type { NativeFinalCutContext } from "./native.js";
 import type { NativeOperationLease } from "./native-operation.js";
 
@@ -73,7 +73,16 @@ export interface FinalCutVideoExportRequest {
   outputPath: string;
   preset: FinalCutExportPreset;
   overwrite?: boolean;
+  target?: FinalCutVideoExportTarget;
   expected?: FinalCutVideoExportExpectation;
+}
+
+export interface FinalCutVideoExportTarget {
+  libraryUid: string;
+  eventUid: string;
+  projectUid: string;
+  sequenceUid: string;
+  revision: ContextRevision;
 }
 
 export interface FinalCutVideoProbeResult {
@@ -101,6 +110,27 @@ export interface FinalCutVideoExportResult {
   verified: true;
   metadata: FinalCutVideoMetadata;
   verification: VerificationReport;
+  manifest?: FinalCutVideoExportManifest;
+}
+
+export interface FinalCutVideoExportManifest {
+  schemaVersion: 1;
+  target: FinalCutVideoExportTarget;
+  output: {
+    path: string;
+    digest: string;
+    sizeBytes: number;
+    format: string;
+    durationSeconds: number;
+    width: number;
+    height: number;
+    frameRate: number;
+    hasAudio: boolean;
+  };
+  verification: {
+    status: "passed" | "failed" | "unavailable";
+    checks: Array<{ name: string; status: "passed" | "failed" | "unavailable"; detail: string }>;
+  };
 }
 
 export interface FinalCutVideoExporterOptions {
@@ -176,6 +206,7 @@ export class FinalCutVideoExporter {
     const outputPath = resolve(request.outputPath.trim());
     const preset = FINAL_CUT_EXPORT_PRESETS[request.preset];
     if (!preset) throw new Error(`INVALID_EXPORT_PRESET: unsupported Final Cut export preset ${String(request.preset)}`);
+    if (request.target) validateExportTarget(request.target);
     validateExpectation(request.expected);
     if (this.probeAvailability && !(await this.probeAvailability())) {
       throw new Error("FINAL_CUT_EXPORT_METADATA_UNAVAILABLE: ffprobe is required to verify exported video metadata");
@@ -209,6 +240,7 @@ export class FinalCutVideoExporter {
           verified: true as const,
           metadata,
           verification,
+          ...(request.target ? { manifest: createExportManifest(request.target, metadata, verification) } : {}),
         };
       });
       return result;
@@ -378,6 +410,50 @@ function validateExpectation(expectation: FinalCutVideoExportExpectation | undef
     throw new Error("INVALID_EXPORT: frameRateTolerance must be a non-negative finite number");
   }
   for (const assertion of expectation.assertions ?? []) validateExportAssertion(assertion);
+}
+
+function validateExportTarget(target: FinalCutVideoExportTarget): void {
+  for (const [field, value] of Object.entries(target)) {
+    if (field === "revision") continue;
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`INVALID_EXPORT_TARGET: ${field} is required`);
+    }
+  }
+  if (!target.revision || typeof target.revision.id !== "string" || target.revision.id.trim().length === 0
+    || !Number.isSafeInteger(target.revision.sequence) || target.revision.sequence < 0
+    || typeof target.revision.timestamp !== "string" || target.revision.timestamp.trim().length === 0) {
+    throw new Error("INVALID_EXPORT_TARGET: revision must be a stable context revision");
+  }
+}
+
+function createExportManifest(
+  target: FinalCutVideoExportTarget,
+  metadata: FinalCutVideoMetadata,
+  verification: VerificationReport,
+): FinalCutVideoExportManifest {
+  return {
+    schemaVersion: 1,
+    target: structuredClone(target),
+    output: {
+      path: metadata.outputPath,
+      digest: metadata.outputDigest,
+      sizeBytes: metadata.sizeBytes,
+      format: metadata.format,
+      durationSeconds: metadata.durationSeconds,
+      width: metadata.width,
+      height: metadata.height,
+      frameRate: metadata.frameRate,
+      hasAudio: metadata.hasAudio,
+    },
+    verification: {
+      status: verification.passed ? "passed" : "failed",
+      checks: verification.checks.map((check) => ({
+        name: check.name,
+        status: check.status ?? (check.passed ? "passed" : "failed"),
+        detail: check.detail,
+      })),
+    },
+  };
 }
 
 function validateExportAssertion(assertion: FinalCutVideoExportAssertion): void {
