@@ -1217,6 +1217,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         "timeline.inspect",
         "editor.live.inspect",
         "timeline.edit",
+        "background.edit",
         "artifact.edit",
         "timeline.mask.add",
         "editor.native.edit",
