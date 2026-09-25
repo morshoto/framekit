@@ -30,7 +30,7 @@ pnpm run build
 pnpm run test
 pnpm run check:boundaries
 .agents/skills/verify-final-cut-native/scripts/run-headed-check.sh canonical-read
-.agents/skills/verify-final-cut-native/scripts/run-headed-check.sh project-selection
+pnpm run test:final-cut-project-selection-headed
 ```
 
 Set `FRAMEKIT_FINAL_CUT_E2E_PROJECT`,

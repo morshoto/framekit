@@ -192,6 +192,8 @@ xcodebuild -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/Fr
 ```bash
 .agents/skills/verify-final-cut-native/scripts/run-headed-check.sh --help
 .agents/skills/verify-final-cut-native/scripts/run-headed-check.sh canonical-read
+FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID=... FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID=... \
+  pnpm run test:final-cut-project-selection-headed
 FRAMEKIT_FINAL_CUT_E2E_ALLOW_EXTERNAL_EDIT=1 pnpm run test:final-cut-incremental-sync-headed
 ```
 
