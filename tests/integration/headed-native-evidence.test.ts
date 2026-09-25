@@ -45,7 +45,7 @@ test("headed PIP evidence keeps the exact target and removes native secrets", ()
       undoRevision: "rev-3",
       undoVerified: { verified: true },
       anchorOccurrence: { handle: "private-handle" },
-      pipMedia: { sourceIdentity: "/private/media/guest.mov" },
+      pipMedia: { sourceIdentity: "fixtures/media/guest.mov" },
       operationId: "private-operation",
     },
     toolResults: [
@@ -58,7 +58,7 @@ test("headed PIP evidence keeps the exact target and removes native secrets", ()
   assert.equal(evidence.target.occurrenceId, "occurrence-anchor");
   assert.deepEqual(evidence.revisions, { before: "rev-1", after: "rev-2", restored: "rev-3" });
   assert.deepEqual(evidence.verification, { execute: true, undo: true });
-  assert.doesNotMatch(JSON.stringify(evidence), /private-handle|sourceIdentity|private-operation|\/private\/media/);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-handle|sourceIdentity|private-operation|fixtures\/media/);
 });
 
 test("headed PIP evidence rejects a no-op mutation revision", () => {
@@ -199,7 +199,7 @@ test("headed filler evidence keeps rollback proof without private state", () => 
         rollback: true,
         projectCatalogRead: true,
         projectSelection: true,
-        privateDiagnostic: "/Users/private/diagnostic.log",
+        privateDiagnostic: "diagnostics/diagnostic.log",
       },
       analyzers: { speechTranscribe: true },
     },
@@ -232,7 +232,7 @@ test("headed filler evidence keeps rollback proof without private state", () => 
       status: "VERIFIED",
       restored: true,
       restoredRevision: { id: "rev-12" },
-      rawSnapshot: { source: "/private/media/audio.wav" },
+      rawSnapshot: { source: "fixtures/media/audio.wav" },
     },
   }, environment);
 
@@ -243,7 +243,7 @@ test("headed filler evidence keeps rollback proof without private state", () => 
     occurrenceId: "occurrence-filler",
   });
   assert.deepEqual(evidence.revisions, { before: "rev-10", after: "rev-11", restored: "rev-12" });
-  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|\/private\/media/);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|fixtures\/media/);
 });
 
 test("headed dialogue evidence keeps measurements and rollback proof", () => {

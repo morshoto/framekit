@@ -4,4 +4,6 @@ packages:
   - adapters/*/typescript
 
 allowBuilds:
+  '@parcel/watcher': true
   esbuild: true
+  unrs-resolver: true

@@ -5,7 +5,7 @@ import { runRepositoryChecks } from "./repository-checks.js";
 test("repository release checks run the frozen install and each required gate independently", async () => {
   const commands: string[] = [];
   const report = await runRepositoryChecks({
-    rootDirectory: "/private/framekit",
+    rootDirectory: "fixtures/framekit",
     run: async (command, args) => {
       commands.push([command, ...args].join(" "));
       return { code: 0 };
@@ -31,7 +31,7 @@ test("repository release checks run the frozen install and each required gate in
 
 test("repository release checks preserve a failed gate without hiding other results", async () => {
   const report = await runRepositoryChecks({
-    rootDirectory: "/private/framekit",
+    rootDirectory: "fixtures/framekit",
     run: async (_command, args) => ({ code: args.includes("build") ? 1 : 0 }),
   });
 

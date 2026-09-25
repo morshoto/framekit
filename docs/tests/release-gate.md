@@ -111,7 +111,7 @@ repository-check statuses, and provenance status.
 Headed records must include the disposable target identity, Final Cut and
 Framekit versions, the before/after/restored revisions, and verified execute and
 Undo results. Published summaries omit private paths, credentials, native
-handles, operation IDs, source identities, and raw diagnostics. Raw machine
+handles, operation IDs, source identities, and diagnostic details. Raw machine
 evidence remains an operator-local input rather than a committed artifact.
 
 Release provenance keeps package, MCP server, plugin, tag, GitHub release,

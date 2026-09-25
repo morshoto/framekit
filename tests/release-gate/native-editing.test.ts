@@ -65,7 +65,7 @@ test("headed evidence is reduced to a target, revision, verification, and restor
     placement: {
       project: "Disposable PIP",
       anchorOccurrence: { handle: "private-occurrence-handle", start: "0/1", duration: "10/1" },
-      pipMedia: { name: "Guest", sourceIdentity: "/private/media/guest.mov" },
+      pipMedia: { name: "Guest", sourceIdentity: "fixtures/media/guest.mov" },
       beforeRevision: "rev-1",
       afterRevision: "rev-2",
       undoRevision: "rev-3",
@@ -117,7 +117,7 @@ test("headed evidence rejects path-like project identities", () => {
   const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "picture-in-picture");
   assert.ok(workflow);
 
-  for (const project of ["file:///private/project", "../private/project"]) {
+  for (const project of ["file:///fixtures/project", "../fixtures/project"]) {
     assert.throws(
       () => summarizeHeadedEvidence({
         evidenceType: "headed-native-picture-in-picture",
@@ -141,8 +141,8 @@ test("headed evidence rejects path-like project identities", () => {
     evidenceType: "headed-native-picture-in-picture",
     passed: true,
     environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "a".repeat(40) },
-    project: "file:///private/project",
-    target: { project: "../private/project", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
+    project: "file:///fixtures/project",
+    target: { project: "../fixtures/project", sequenceId: "sequence-1", occurrenceId: "occurrence-1" },
     placement: {
       project: "Disposable PIP",
       beforeRevision: "rev-1",

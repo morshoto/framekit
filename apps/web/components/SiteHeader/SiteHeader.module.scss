@@ -1,0 +1,122 @@
+.header {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  border-bottom: 1px solid rgba(157, 255, 210, 0.13);
+  background: rgba(5, 10, 20, 0.82);
+  backdrop-filter: blur(20px);
+}
+
+.inner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2rem;
+  align-items: center;
+  width: min(1180px, calc(100% - 2rem));
+  min-height: 4.5rem;
+  margin: 0 auto;
+}
+
+.brand {
+  display: inline-flex;
+  gap: 0.7rem;
+  align-items: center;
+  color: var(--color-text);
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  text-decoration: none;
+
+  small {
+    margin-left: 0.35rem;
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 560;
+    letter-spacing: 0;
+  }
+}
+
+.mark {
+  display: grid;
+  width: 2.05rem;
+  height: 2.05rem;
+  place-items: center;
+  border: 1px solid rgba(132, 255, 196, 0.45);
+  border-radius: 0.62rem;
+  background: linear-gradient(145deg, rgba(55, 246, 156, 0.24), rgba(93, 152, 255, 0.13));
+  box-shadow: inset 0 0 20px rgba(55, 246, 156, 0.08);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.navigation {
+  display: flex;
+  justify-content: center;
+  gap: clamp(0.8rem, 2vw, 1.65rem);
+
+  a {
+    color: var(--color-muted);
+    font-size: 0.88rem;
+    font-weight: 610;
+    text-decoration: none;
+    transition: color 160ms ease;
+  }
+
+  a:hover {
+    color: var(--color-text);
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.language,
+.cta {
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 690;
+  text-decoration: none;
+}
+
+.language {
+  padding: 0.6rem 0.75rem;
+  color: var(--color-muted);
+}
+
+.cta {
+  padding: 0.66rem 0.95rem;
+  background: var(--color-accent);
+  color: #03120a;
+  box-shadow: 0 0 28px rgba(55, 246, 156, 0.14);
+}
+
+.docs {
+  border-bottom-color: rgba(122, 173, 255, 0.18);
+}
+
+@media (max-width: 880px) {
+  .inner {
+    grid-template-columns: 1fr auto;
+  }
+
+  .navigation {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .inner {
+    min-height: 4rem;
+  }
+
+  .language {
+    display: none;
+  }
+
+  .cta {
+    padding-inline: 0.8rem;
+  }
+}

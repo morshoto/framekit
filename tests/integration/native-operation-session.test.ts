@@ -298,7 +298,7 @@ test("native session sanitizes arbitrary executor diagnostics", async () => {
   const session = new NativeOperationSession({
     executor: executor({
       execute: async () => {
-        throw new Error("PERMISSION_DENIED: credential=secret path=/Users/private/interview.mov");
+        throw new Error("PERMISSION_DENIED: credential=secret path=fixtures/interview.mov");
       },
     }),
   });
@@ -307,7 +307,7 @@ test("native session sanitizes arbitrary executor diagnostics", async () => {
   await eventually(() => session.status(accepted.jobId).state === "failed", "unsafe executor error did not fail");
   const status = session.status(accepted.jobId);
   assert.equal(status.error?.code, "PERMISSION_DENIED");
-  assert.doesNotMatch(status.error?.message ?? "", /secret|interview\.mov|\/Users\/private/);
+  assert.doesNotMatch(status.error?.message ?? "", /secret|interview\.mov|fixtures\/interview/);
   assert.match(status.error?.message ?? "", /native operation failed/i);
 });
 

@@ -334,7 +334,7 @@ test("binds read-only SQLite evidence and invalidates only session freshness", a
     });
     const first = payload(await connected.client.callTool({
       name: "session.observe",
-      arguments: { sessionId: "session-observed", sourcePath: "/private/library/CurrentVersion.fcpevent" },
+      arguments: { sessionId: "session-observed", sourcePath: "fixtures/library/CurrentVersion.fcpevent" },
     }));
     assert.equal(first.observation.canonical, false);
     assert.equal(first.observation.digest, digest);
@@ -344,7 +344,7 @@ test("binds read-only SQLite evidence and invalidates only session freshness", a
 
     const unchanged = payload(await connected.client.callTool({
       name: "session.observe",
-      arguments: { sessionId: "session-observed", sourcePath: "/private/library/CurrentVersion.fcpevent" },
+      arguments: { sessionId: "session-observed", sourcePath: "fixtures/library/CurrentVersion.fcpevent" },
     }));
     assert.equal(unchanged.change, "unchanged");
     assert.equal(unchanged.document.state, "clean");
@@ -352,7 +352,7 @@ test("binds read-only SQLite evidence and invalidates only session freshness", a
     digest = "b".repeat(64);
     const changed = payload(await connected.client.callTool({
       name: "session.observe",
-      arguments: { sessionId: "session-observed", sourcePath: "/private/library/CurrentVersion.fcpevent" },
+      arguments: { sessionId: "session-observed", sourcePath: "fixtures/library/CurrentVersion.fcpevent" },
     }));
     assert.equal(changed.change, "changed");
     assert.equal(changed.document.state, "possibly_stale");

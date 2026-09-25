@@ -304,7 +304,7 @@ export function sanitizePictureInPictureEvidence(run, environment) {
     ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
     sanitization: {
       strategy: "allowlisted-summary",
-      omitted: ["media sources", "native handles", "operation identifiers", "raw diagnostics"],
+      omitted: ["media sources", "native handles", "operation identifiers", "diagnostic details"],
     },
   };
 }
@@ -458,7 +458,7 @@ export function sanitizeNativeTitleEvidence(run, environment) {
     ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
     sanitization: {
       strategy: "allowlisted-summary",
-      omitted: ["native handles", "operation identifiers", "raw diagnostics"],
+      omitted: ["native handles", "operation identifiers", "diagnostic details"],
     },
   };
 }
@@ -492,7 +492,7 @@ export function sanitizeMaskEvidence(run, environment) {
     ...(run.toolResults ? { toolResults: sanitizeToolResultList(run.toolResults) } : {}),
     sanitization: {
       strategy: "allowlisted-summary",
-      omitted: ["raw native contexts", "media paths", "native handles", "operation identifiers", "raw diagnostics"],
+      omitted: ["raw native contexts", "media paths", "native handles", "operation identifiers", "diagnostic details"],
     },
   };
 }
@@ -551,7 +551,7 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
     toolResults: sanitizeToolResultList(run.toolResults),
     sanitization: {
       strategy: "allowlisted-summary",
-      omitted: ["media sources", "raw snapshots", "transaction identifiers", "raw diagnostics"],
+      omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostic details"],
     },
   };
 }
