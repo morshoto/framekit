@@ -30,7 +30,17 @@ export interface TimelineIrResource {
   mediaKind: TimelineIrResourceKind;
   source?: string;
   sourceDigest?: string;
+  duration?: number;
   binding?: TimelineIrBinding;
+}
+
+export interface LocalMediaRegistration {
+  mediaId: string;
+  name: string;
+  source: string;
+  sourceDigest: string;
+  mediaKind: Exclude<TimelineIrResourceKind, "unknown">;
+  duration: number;
 }
 
 export interface TimelineIrOccurrence {
@@ -252,6 +262,15 @@ export class EditingSession {
     };
   }
 
+  public registerLocalMedia(input: LocalMediaRegistration): TimelineIrResource {
+    this.assertEditable();
+    this.value.desired = registerLocalMediaResource(this.value.desired, input);
+    const resource = this.value.desired.resources.at(-1)!;
+    this.value.desired.revision = nextRevision(this.value.desired, this.value.desired.revision, this.clock());
+    this.value.state = editState(this.value.state);
+    return structuredClone(resource);
+  }
+
   public assertMaterializationReady(providerRevision: ContextRevision): void {
     if (!sameRevision(this.value.base.revision, providerRevision)) {
       this.value.state = "possibly_stale";
@@ -344,6 +363,7 @@ export function createTimelineIrFromProjectSnapshot(
     mediaKind: media.mediaKind ?? "unknown",
     source: media.source,
     ...(media.sourceDigest ? { sourceDigest: media.sourceDigest } : {}),
+    ...(media.duration !== undefined ? { duration: media.duration } : {}),
     ...(binding ? { binding: binding("resource", media.mediaId) } : {}),
   } satisfies TimelineIrResource));
   const occurrences = snapshot.timeline.clips.map((clip) => ({
@@ -398,6 +418,43 @@ export function createTimelineIrFromProjectSnapshot(
   };
 }
 
+export function registerLocalMediaResource(
+  timeline: TimelineIr,
+  input: LocalMediaRegistration,
+): TimelineIr {
+  validateTimelineIr(timeline);
+  requireText(input.mediaId, "local media id");
+  requireText(input.name, "local media name");
+  requireText(input.source, "local media source");
+  requireText(input.sourceDigest, "local media source digest");
+  if (!input.source.startsWith("/") && !input.source.startsWith("file:///")) {
+    throw new Error("LOCAL_MEDIA_SOURCE_INVALID: source must be an absolute path or file URL");
+  }
+  if (!Number.isFinite(input.duration) || input.duration < 0) {
+    throw new Error("LOCAL_MEDIA_DURATION_INVALID: duration must be a non-negative finite number");
+  }
+  if (timeline.resources.some(({ id }) => id === input.mediaId)) {
+    throw new Error(`LOCAL_MEDIA_ID_CONFLICT: resource already exists: ${input.mediaId}`);
+  }
+  const resource: TimelineIrResource = {
+    id: input.mediaId,
+    name: input.name,
+    mediaKind: input.mediaKind,
+    source: input.source,
+    sourceDigest: input.sourceDigest,
+    duration: input.duration,
+    binding: {
+      provider: "framekit-local-media",
+      kind: "resource",
+      identity: `${input.mediaId}@${input.sourceDigest}`,
+    },
+  };
+  const registered = structuredClone(timeline);
+  registered.resources.push(resource);
+  validateTimelineIr(registered);
+  return registered;
+}
+
 export function validateTimelineIr(timeline: TimelineIr): void {
   if (!timeline || typeof timeline !== "object" || timeline.schemaVersion !== TIMELINE_IR_SCHEMA_VERSION) {
     throw new Error("TIMELINE_IR_INVALID: schemaVersion must be 1");
@@ -424,6 +481,9 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     requireText(resource.name, `resource ${resource.id}.name`);
     if (!["video", "audio", "unknown"].includes(resource.mediaKind)) {
       throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id} has unsupported mediaKind`);
+    }
+    if (resource.duration !== undefined && (!Number.isFinite(resource.duration) || resource.duration < 0)) {
+      throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id}.duration must be a non-negative finite number`);
     }
     validateBinding(resource.binding, `resource ${resource.id}.binding`);
   }
