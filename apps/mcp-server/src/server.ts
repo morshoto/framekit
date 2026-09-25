@@ -1722,7 +1722,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       waitMs: z.number().int().min(0).max(30_000).optional(),
     },
   }, async ({ cursor, revision, sequence, waitMs }) => {
-    const after = cursor?.revision ?? revision ?? (sequence === undefined ? undefined : {
+    const after = cursor ?? revision ?? (sequence === undefined ? undefined : {
       id: `rev-${sequence}`,
       sequence,
       timestamp: new Date(sequence).toISOString(),

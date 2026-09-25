@@ -46,7 +46,13 @@ export class ContextEngine {
     return diffSnapshots(before, await this.inspectProject());
   }
 
-  public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
+  public async contextChangesSince(
+    cursorOrRevision: ContextCursor | ContextRevision,
+    waitMs = 0,
+  ): Promise<ContextDiff> {
+    const cursor = isContextCursor(cursorOrRevision) ? cursorOrRevision : undefined;
+    const revision = cursor?.revision ?? cursorOrRevision;
+    if (cursor?.target) await this.validateCursorTarget(revision, cursor.target);
     const identity = await this.editor.getIdentity();
     const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities(), {
       backend: identity.backend,
@@ -87,6 +93,24 @@ export class ContextEngine {
       stateChanges: dedupeStateChanges(stateChanges),
       assetChanges,
     };
+  }
+
+  private async validateCursorTarget(revision: ContextRevision, target: ContextTarget): Promise<void> {
+    const revisionTarget = contextTarget(this.snapshots.get(revision.id), []);
+    if (revisionTarget) {
+      if (!sameContextTarget(revisionTarget, target)) {
+        throw new Error(`TARGET_MISMATCH: cursor target ${formatContextTarget(target)} does not match revision target ${formatContextTarget(revisionTarget)}`);
+      }
+      return;
+    }
+
+    const liveState = await this.optionalLiveState();
+    const activeTarget = contextTarget(undefined, liveState ? [
+      { kind: "active-sequence-changed", revision: liveState.revision, state: liveState },
+    ] : []);
+    if (!activeTarget || !sameContextTarget(activeTarget, target)) {
+      throw new Error(`TARGET_MISMATCH: cursor target ${formatContextTarget(target)} does not match the active target`);
+    }
   }
 
   public async inspectContext(capabilities: RuntimeCapabilities): Promise<AgentContext> {
@@ -263,6 +287,18 @@ function contextTarget(
   const state = stateChanges.at(-1)?.state;
   if (!state?.project?.id || !state.sequence?.id) return undefined;
   return { projectId: state.project.id, sequenceId: state.sequence.id };
+}
+
+function isContextCursor(value: ContextCursor | ContextRevision): value is ContextCursor {
+  return "revision" in value;
+}
+
+function sameContextTarget(left: ContextTarget, right: ContextTarget): boolean {
+  return left.projectId === right.projectId && left.sequenceId === right.sequenceId;
+}
+
+function formatContextTarget(target: ContextTarget): string {
+  return `${target.projectId}/${target.sequenceId}`;
 }
 
 function changedScopes(

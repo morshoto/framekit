@@ -175,6 +175,9 @@ is a separate, confirmed `artifact.publish` step.
 }
 ```
 
+The runtime rejects a cursor whose target does not match the observed source
+with `TARGET_MISMATCH` before reading changes.
+
 The older `{ "sequence": 12 }` input remains accepted for compatibility.
 Context results identify their `provenance` with a provider, source, target,
 and explicit `evidenceTier`. The supported tiers are `deterministic`,

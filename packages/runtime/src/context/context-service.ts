@@ -1,4 +1,4 @@
-import type { AgentContext, ContextDiff, EditorChange, EditorLiveState } from "../domain/context.js";
+import type { AgentContext, ContextCursor, ContextDiff, EditorChange, EditorLiveState } from "../domain/context.js";
 import type { ContextRevision } from "../domain/primitives.js";
 import type { EditorPort, LiveEditorStatePort } from "../domain/ports.js";
 import type { RuntimeCapabilities } from "../domain/capabilities.js";
@@ -27,8 +27,8 @@ export class ContextService {
     return this.context.changesSince(revision);
   }
 
-  public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
-    return this.context.contextChangesSince(revision, waitMs);
+  public async contextChangesSince(cursorOrRevision: ContextCursor | ContextRevision, waitMs = 0): Promise<ContextDiff> {
+    return this.context.contextChangesSince(cursorOrRevision, waitMs);
   }
 
   private liveAdapter(): LiveEditorStatePort {

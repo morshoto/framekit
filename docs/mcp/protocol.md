@@ -68,7 +68,9 @@ as a source-bound cursor. `context.inspect` returns the current revision,
 project/sequence target when available, provider provenance, an evidence tier,
 and an initially empty `changedScopes` list. Pass its `cursor` object to
 `context.changes` to request incremental results. The legacy `sequence` input
-is retained for compatibility, but it does not carry target metadata.
+is retained for compatibility, but it does not carry target metadata. A
+source-bound cursor with a mismatching target fails closed with
+`TARGET_MISMATCH` before changes are read.
 
 Each context result identifies whether an observation came from a
 `canonical-timeline`, `live-metadata`, `fcpxml-artifact`, or
