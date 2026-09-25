@@ -62,6 +62,14 @@ const revisionValueSchema = z.object({
   timestamp: z.string(),
 });
 const revisionSchema = revisionValueSchema.optional();
+const contextTargetSchema = z.object({
+  projectId: z.string().min(1),
+  sequenceId: z.string().min(1),
+}).strict();
+const contextCursorSchema = z.object({
+  revision: revisionValueSchema,
+  target: contextTargetSchema.optional(),
+}).strict();
 const rationalTimeSchema = z.object({
   value: z.string().regex(/^-?\d+$/),
   timescale: z.string().regex(/^\d+$/).refine((value) => Number(value) > 0),
@@ -1711,14 +1719,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("context.changes", {
     description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
     inputSchema: {
-      sequence: z.number().int().nonnegative(),
+      cursor: contextCursorSchema.optional(),
+      revision: revisionValueSchema.optional(),
+      sequence: z.number().int().nonnegative().optional(),
       waitMs: z.number().int().min(0).max(30_000).optional(),
     },
-  }, async ({ sequence, waitMs }) => jsonResult(await runtime.contextChangesSince({
-    id: `rev-${sequence}`,
-    sequence,
-    timestamp: new Date(sequence).toISOString(),
-  }, waitMs ?? 0)));
+  }, async ({ cursor, revision, sequence, waitMs }) => {
+    const after = cursor ?? revision ?? (sequence === undefined ? undefined : {
+      id: `rev-${sequence}`,
+      sequence,
+      timestamp: new Date(sequence).toISOString(),
+    });
+    if (!after) throw new Error("INVALID_CONTEXT_CURSOR: cursor, revision, or sequence is required");
+    return jsonResult(await runtime.contextChangesSince(after, waitMs ?? 0));
+  });
 
   server.registerTool("editor.live.inspect", {
     description: "Read observed live Final Cut state without requiring canonical timeline snapshot capability.",
