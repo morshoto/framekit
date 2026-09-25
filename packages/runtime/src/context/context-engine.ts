@@ -51,7 +51,7 @@ export class ContextEngine {
     waitMs = 0,
   ): Promise<ContextDiff> {
     const cursor = isContextCursor(cursorOrRevision) ? cursorOrRevision : undefined;
-    const revision = cursor?.revision ?? cursorOrRevision;
+    const revision = isContextCursor(cursorOrRevision) ? cursorOrRevision.revision : cursorOrRevision;
     if (cursor?.target) await this.validateCursorTarget(revision, cursor.target);
     const identity = await this.editor.getIdentity();
     const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities(), {
