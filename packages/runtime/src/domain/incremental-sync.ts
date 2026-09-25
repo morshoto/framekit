@@ -173,7 +173,19 @@ function assertProvenance(provenance: CanonicalSyncProvenance): void {
   if (!Number.isFinite(Date.parse(provenance.observedAt))) {
     throw new Error("CANONICAL_SYNC_INVALID: observation timestamp is invalid");
   }
+  const allowedTiers = SURFACE_EVIDENCE_TIERS[provenance.source.surface];
+  if (!allowedTiers.includes(provenance.source.evidenceTier)) {
+    throw new Error(
+      `CANONICAL_SYNC_INVALID: evidence tier ${provenance.source.evidenceTier} is incompatible with surface ${provenance.source.surface}`,
+    );
+  }
 }
+
+const SURFACE_EVIDENCE_TIERS: Record<CanonicalSyncSurface, readonly CanonicalSyncEvidenceTier[]> = {
+  live: ["metadata-only", "canonical-read", "canonical-live", "headed-native"],
+  artifact: ["artifact-only", "canonical-read"],
+  fixture: ["fixture"],
+};
 
 function assertChanges(
   changes: CanonicalSyncChange[],
