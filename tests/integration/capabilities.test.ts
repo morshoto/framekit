@@ -680,7 +680,8 @@ test("Workflow Extension avoids unsupported project catalog proxy properties", a
   assert.doesNotMatch(swift, /stableSequenceID\(.*\.uid\)/);
   assert.doesNotMatch(swift, /\$0\.uid/);
   assert.doesNotMatch(shim, /NSString \*uid/);
-  assert.match(swift, /responds\(to:/);
+  assert.match(shim, /NSString \*UID/);
+  assert.match(swift, /NSSelectorFromString\("UID"\)/);
   assert.match(swift, /final-cut:project:unavailable/);
 });
 
@@ -691,6 +692,7 @@ test("CodeQL shim exposes only documented project proxy properties", async () =>
   ), "utf8");
 
   assert.doesNotMatch(shim, /class FCPXObject[^{]*\{[^}]*var uid:/);
+  assert.match(shim, /class FCPXObject[^{]*\{[^}]*var UID:/);
   assert.doesNotMatch(shim, /class FCPXEvent/);
   assert.doesNotMatch(shim, /class FCPXLibrary/);
   assert.doesNotMatch(shim, /class FCPXProject[^{]*\{[^}]*var uid:/);
