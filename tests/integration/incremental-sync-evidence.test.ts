@@ -158,6 +158,7 @@ test("headed runner covers observe drift and reconciliation", async () => {
     "FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER",
     "createTimelineIrFromProjectSnapshot",
     'callJson("project.inspect")',
+    'callJson("editor.native.focus")',
     'callJson("context.inspect")',
     "timeline.changes",
     "context.changes",

@@ -79,6 +79,7 @@ try {
       + "(rename a clip or add a marker, without switching targets), then press Enter. ",
   );
 
+  await callJson("editor.native.focus");
   const after = await callJson("project.inspect");
   assert(after.projectId === expectedProjectId, "canonical R1 project identity changed");
   assert(after.projectName === expectedProject, "canonical R1 project name changed");
