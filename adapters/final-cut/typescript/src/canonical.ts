@@ -284,15 +284,77 @@ on findAccessibilityDescendant(container, expectedRoles, depth)
   return missing value
 end findAccessibilityDescendant
 
+on accessibilityContainsPathMarker(candidate)
+  repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
+    try
+      set candidateLabel to value of attribute (attributeName as text) of candidate as text
+      if candidateLabel contains "Go to the folder" or candidateLabel contains "path" or candidateLabel contains "Path" or candidateLabel contains "location" or candidateLabel contains "Location" then return true
+    end try
+  end repeat
+  try
+    set candidateLabel to name of candidate as text
+    if candidateLabel contains "Go to the folder" or candidateLabel contains "path" or candidateLabel contains "Path" or candidateLabel contains "location" or candidateLabel contains "Location" then return true
+  end try
+  return false
+end accessibilityContainsPathMarker
+
+on matchesCanonicalPathField(candidate)
+  try
+    if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  try
+    set candidateIdentifier to value of attribute "AXIdentifier" of candidate as text
+    if candidateIdentifier is "path" or candidateIdentifier is "location" then return true
+  end try
+  return my accessibilityContainsPathMarker(candidate)
+end matchesCanonicalPathField
+
+on findFocusedCanonicalPathField(container, focusedCandidate, depth, insidePathContainer)
+  if depth > 12 then return missing value
+  set candidateInsidePathContainer to insidePathContainer
+  try
+    set candidateRole to role of container as text
+    if candidateRole is "AXSheet" or candidateRole is "AXDialog" then set candidateInsidePathContainer to true
+    if my accessibilityContainsPathMarker(container) then set candidateInsidePathContainer to true
+    if my roleIsExpected(candidateRole, {"AXTextField", "AXTextArea", "AXComboBox"}) and candidateInsidePathContainer then
+      if container is focusedCandidate then return container
+    end if
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findFocusedCanonicalPathField(candidate, focusedCandidate, depth + 1, candidateInsidePathContainer)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findFocusedCanonicalPathField
+
+on findCanonicalPathField(container, depth)
+  if depth > 12 then return missing value
+  try
+    if my matchesCanonicalPathField(container) then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findCanonicalPathField(candidate, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findCanonicalPathField
+
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
-  set pathFieldRoles to {"AXTextField", "AXTextArea", "AXComboBox"}
   set deadline to (current date) + timeoutSeconds
   repeat
+    set focusedCandidate to missing value
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
-      if my roleIsExpected(role of focusedCandidate as text, pathFieldRoles) then return focusedCandidate
     end try
-    set candidate to my findAccessibilityDescendant(saveWindow, pathFieldRoles, 0)
+    set candidate to my findFocusedCanonicalPathField(saveWindow, focusedCandidate, 0, false)
+    if candidate is not missing value then return candidate
+    set candidate to my findCanonicalPathField(saveWindow, 0)
     if candidate is not missing value then return candidate
     if (current date) > deadline then error timeoutMessage
     delay 0.1
