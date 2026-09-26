@@ -278,16 +278,6 @@ on findAccessibilityDescendant(container, expectedRoles, depth)
   return missing value
 end findAccessibilityDescendant
 
-on findAccessibilityDescendantUntil(container, expectedRoles, timeoutSeconds, timeoutMessage)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    set candidate to my findAccessibilityDescendant(container, expectedRoles, 0)
-    if candidate is not missing value then return candidate
-    if (current date) > deadline then error timeoutMessage
-    delay 0.1
-  end repeat
-end findAccessibilityDescendantUntil
-
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
   set pathFieldRoles to {"AXTextField", "AXTextArea", "AXComboBox"}
   set deadline to (current date) + timeoutSeconds
