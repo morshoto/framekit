@@ -242,53 +242,105 @@ on findWindow(finalCut, expectedNames, timeoutSeconds, timeoutMessage)
   end repeat
 end findWindow
 
-on findDescendantByRole(container, expectedRole, timeoutSeconds, timeoutMessage)
+on roleIsExpected(candidateRole, expectedRoles)
+  repeat with expectedRole in expectedRoles
+    if candidateRole is (expectedRole as text) then return true
+  end repeat
+  return false
+end roleIsExpected
+
+on accessibilityLabel(candidate)
+  repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
+    try
+      set candidateLabel to value of attribute (attributeName as text) of candidate as text
+      if candidateLabel is not "" then return candidateLabel
+    end try
+  end repeat
+  try
+    return name of candidate as text
+  on error
+    return ""
+  end try
+end accessibilityLabel
+
+on findAccessibilityDescendant(container, expectedRoles, depth)
+  if depth > 12 then return missing value
+  try
+    if my roleIsExpected(role of container as text, expectedRoles) then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findAccessibilityDescendant(candidate, expectedRoles, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findAccessibilityDescendant
+
+on findAccessibilityDescendantUntil(container, expectedRoles, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
-    try
-      repeat with candidate in (entire contents of container)
-        try
-          if role of candidate is expectedRole then return candidate
-        end try
-      end repeat
-    end try
+    set candidate to my findAccessibilityDescendant(container, expectedRoles, 0)
+    if candidate is not missing value then return candidate
     if (current date) > deadline then error timeoutMessage
     delay 0.1
   end repeat
-end findDescendantByRole
+end findAccessibilityDescendantUntil
 
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
-  return my findDescendantByRole(saveWindow, "AXTextField", timeoutSeconds, timeoutMessage)
+  set pathFieldRoles to {"AXTextField", "AXTextArea", "AXComboBox"}
+  set deadline to (current date) + timeoutSeconds
+  repeat
+    try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      if my roleIsExpected(role of focusedCandidate as text, pathFieldRoles) then return focusedCandidate
+    end try
+    set candidate to my findAccessibilityDescendant(saveWindow, pathFieldRoles, 0)
+    if candidate is not missing value then return candidate
+    if (current date) > deadline then error timeoutMessage
+    delay 0.1
+  end repeat
 end findSavePathField
 
-on pressDescendantButtonIfPresent(container, expectedNames)
+on findAccessibilityButton(container, expectedNames, depth)
+  if depth > 12 then return missing value
   try
-    set candidates to entire contents of container
-  on error
-    return false
+    if (role of container as text) is "AXButton" then
+      set candidateLabel to my accessibilityLabel(container)
+      repeat with expectedName in expectedNames
+        if candidateLabel is (expectedName as text) then return container
+      end repeat
+    end if
   end try
-  repeat with candidate in candidates
-    try
-      if role of candidate is "AXButton" then
-        set candidateName to name of candidate as text
-        repeat with expectedName in expectedNames
-          if candidateName is (expectedName as text) and enabled of candidate then
-            perform action "AXPress" of candidate
-            return true
-          end if
-        end repeat
-      end if
-    end try
-  end repeat
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findAccessibilityButton(candidate, expectedNames, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findAccessibilityButton
+
+on pressAccessibilityButtonIfPresent(container, expectedNames)
+  set candidate to my findAccessibilityButton(container, expectedNames, 0)
+  if candidate is missing value then return false
+  try
+    if enabled of candidate then
+      perform action "AXPress" of candidate
+      return true
+    end if
+  end try
   return false
-end pressDescendantButtonIfPresent
+end pressAccessibilityButtonIfPresent
 
 on cancelCanonicalWindowIfOpen(finalCut, windowName)
   repeat 20 times
     try
       if not (exists window windowName of finalCut) then return true
       set targetWindow to window windowName of finalCut
-      if not my pressDescendantButtonIfPresent(targetWindow, {"Cancel", "Close"}) then key code 53
+      if not my pressAccessibilityButtonIfPresent(targetWindow, {"Cancel", "Close"}) then key code 53
     end try
     delay 0.1
   end repeat
@@ -366,7 +418,7 @@ tell application "System Events"
       end try
       perform action "AXPress" of exportCommand
       set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-      my pressDescendantButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
+      my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
       delay 0.2
       set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
       keystroke "g" using {command down, shift down}
@@ -374,9 +426,9 @@ tell application "System Events"
       set value of pathField to ${appleScriptString(exportPath)}
       key code 36
       delay 0.2
-      my pressDescendantButtonIfPresent(saveWindow, {"Save"})
+      my pressAccessibilityButtonIfPresent(saveWindow, {"Save"})
       delay 0.2
-      my pressDescendantButtonIfPresent(saveWindow, {"Replace"})
+      my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
       set cleanupComplete to my cleanupCanonicalExport(finalCut)
