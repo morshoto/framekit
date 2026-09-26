@@ -426,12 +426,16 @@ on pressAccessibilityButtonIfPresent(container, expectedNames)
   set candidate to my findAccessibilityButton(container, expectedNames, 0)
   if candidate is missing value then return false
   try
-    if enabled of candidate then
-      perform action "AXPress" of candidate
+    perform action "AXPress" of candidate
+    return true
+  on error
+    try
+      click candidate
       return true
-    end if
+    on error
+      return false
+    end try
   end try
-  return false
 end pressAccessibilityButtonIfPresent
 
 on cancelCanonicalWindowIfOpen(finalCut, windowName)
@@ -525,10 +529,14 @@ tell application "System Events"
           set value of pathField to ${appleScriptString(exportDirectory)}
           key code 36
           delay 0.2
-          set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
-          set value of nameField to ${appleScriptString(exportName)}
-          if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
-          delay 0.2
+          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+              set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
+              set value of nameField to ${appleScriptString(exportName)}
+              if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
+              delay 0.2
+              try
+                if exists window "Export XML" of finalCut then key code 36
+              end try
       my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
