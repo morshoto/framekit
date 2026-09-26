@@ -822,6 +822,10 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /if container is focusedCandidate then return container/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
+  assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
+  assert.match(script, /saveAsNameTextField/);
+  assert.match(script, /set value of pathField to "\/tmp"/);
+  assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
