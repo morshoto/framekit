@@ -540,10 +540,21 @@ tell application "System Events"
               set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
               set value of nameField to ${appleScriptString(exportName)}
               if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
-              delay 0.2
-              try
-                if exists window "Export XML" of finalCut then key code 36
-              end try
+              repeat 10 times
+                set savePanelOpen to false
+                repeat with saveWindowName in {"Save", "Export XML"}
+                  try
+                    if exists window (saveWindowName as text) of finalCut then
+                      set savePanelOpen to true
+                      set saveWindow to window (saveWindowName as text) of finalCut
+                      exit repeat
+                    end if
+                  end try
+                end repeat
+                if not savePanelOpen then exit repeat
+                if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then key code 36
+                delay 0.2
+              end repeat
       my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber

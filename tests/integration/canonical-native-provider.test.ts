@@ -835,6 +835,7 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
+  assert.match(script, /repeat 10 times[\s\S]*pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -920,7 +921,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /if exists window "Export XML" of finalCut then key code 36/);
+  assert.match(script, /if not my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\) then key code 36/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
