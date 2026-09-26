@@ -812,6 +812,8 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /on findAccessibilityDescendant\(container, expectedRoles, depth\)/);
   assert.match(script, /UI elements of container/);
   assert.match(script, /if depth > 12 then return missing value/);
+  assert.match(script, /on accessibilityMatchesExpectedName\(candidate, expectedNames\)/);
+  assert.match(script, /\{"AXDescription", "AXTitle", "AXIdentifier"\}/);
   assert.match(script, /\{"AXTextField", "AXTextArea", "AXComboBox"\}/);
   assert.match(script, /value of attribute "AXFocusedUIElement"/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
