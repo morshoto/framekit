@@ -54,10 +54,12 @@ Supported metadata requests are `capabilities`, `state`, and `changes`. The
 additive canonical requests `snapshot`, `apply`, and `restore` are recognized
 but fail with `CAPABILITY_UNAVAILABLE` because this bridge reports
 `canonicalTimelineMode: metadata-only`. The bridge
-reports active project metadata and a project-scoped sequence identity derived
-from the current sequence name, plus rational playhead time, selected sequence
-range, and observer-backed change events. The sequence identity is not an
-immutable host identifier; native handles fail closed when it changes. It
+reports active project metadata when the host exposes a supported immutable
+project identifier, and otherwise reports the project identity as unavailable.
+It reports a project-scoped sequence identity derived from the current sequence
+name only when that project identity is available, plus rational playhead time,
+selected sequence range, and observer-backed change events. The sequence
+identity is not an immutable host identifier; native handles fail closed when it changes. It
 deliberately reports
 `editor.timelineSnapshotRead: false`: the public Workflow Extension proxy does not promise a
 complete clip/media enumeration API, so Framekit fails closed instead of

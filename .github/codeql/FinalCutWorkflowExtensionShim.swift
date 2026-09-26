@@ -69,7 +69,6 @@ class FCPXSequence: FCPXObject {
 }
 
 class FCPXProject: FCPXObject {
-    var uid: String! = ""
     var sequence = FCPXSequence()
 }
 

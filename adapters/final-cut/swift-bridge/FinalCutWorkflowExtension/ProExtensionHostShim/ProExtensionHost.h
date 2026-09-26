@@ -24,7 +24,6 @@
 @end
 
 @interface FCPXProject : FCPXObject
-@property(nonatomic, readonly) NSString *uid;
 @property(nonatomic, readonly) FCPXSequence *sequence;
 @end
 
