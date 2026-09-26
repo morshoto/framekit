@@ -703,6 +703,31 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
     const readiness = assessCanonicalLiveReadiness(capabilities);
     if (readiness.ready) return capabilities;
+    const canonicalReadReady = capabilities.editor.projectRead
+      && capabilities.editor.timelineSnapshotRead
+      && capabilities.editor.projectCatalogRead;
+    if (canonicalReadReady) {
+      return withCapabilityFamilies({
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          timelineWrite: false,
+          readAfterWrite: false,
+          rollback: false,
+          compositeTransactions: false,
+          semanticOperations: {},
+        },
+      }, {
+        canonicalDocument: {
+          read: true,
+          write: false,
+          artifactWrite: false,
+        },
+        editing: {
+          compositeTransactions: false,
+        },
+      });
+    }
     return withCapabilityFamilies({
       ...capabilities,
       editor: {
