@@ -530,27 +530,38 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         }
         let project = (sequence.container as? FCPXProject).flatMap(stableProject)
         let projectID = project?.id ?? "final-cut:project:unavailable"
-        // The public host API exposes no immutable sequence identifier. This
-        // project-scoped name identity is intentionally treated as mutable;
-        // native handles fail closed when the identity changes.
         let sequenceName = sequence.name ?? "active-sequence"
-        let sequenceID = project == nil ? "final-cut:sequence:unavailable" : "\(projectID):sequence:\(sequenceName)"
+        let sequenceUID = stableUID(sequence)
+        let sequenceID: String
+        if let project, let sequenceUID {
+            sequenceID = "\(project.id):sequence:\(sequenceUID)"
+        } else if project == nil {
+            sequenceID = "final-cut:sequence:unavailable"
+        } else {
+            // The public host API may omit an immutable sequence UID; native
+            // handles fail closed if this mutable name identity changes.
+            sequenceID = "\(projectID):sequence:\(sequenceName)"
+        }
         let liveSequence = LiveState.Sequence(id: sequenceID, name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
         let currentRevision = stateLock.withLock { revision }
         return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
     }
 
-        private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
-            let object = project as NSObject
-            let uidSelector = NSSelectorFromString("UID")
-            guard object.responds(to: uidSelector),
-                  let uidValue = object.perform(uidSelector)?.takeUnretainedValue() as? String,
-                  !uidValue.isEmpty else {
-                return nil
-            }
-            return LiveState.Project(id: "final-cut:project:\(uidValue)", name: project.name)
+    private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
+        guard let uidValue = stableUID(project) else { return nil }
+        return LiveState.Project(id: "final-cut:project:\(uidValue)", name: project.name)
+    }
+
+    private func stableUID(_ object: NSObject) -> String? {
+        let uidSelector = NSSelectorFromString("UID")
+        guard object.responds(to: uidSelector),
+              let uidValue = object.perform(uidSelector)?.takeUnretainedValue() as? String,
+              !uidValue.isEmpty else {
+            return nil
         }
+        return uidValue
+    }
 
     private func usable(_ time: CMTime) -> Bool {
         time.isValid && time.isNumeric && time.timescale > 0

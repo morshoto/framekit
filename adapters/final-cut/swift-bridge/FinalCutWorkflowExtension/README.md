@@ -56,10 +56,11 @@ but fail with `CAPABILITY_UNAVAILABLE` because this bridge reports
 `canonicalTimelineMode: metadata-only`. The bridge
 reports active project metadata when the host exposes a supported immutable
 project identifier, and otherwise reports the project identity as unavailable.
-It reports a project-scoped sequence identity derived from the current sequence
-name only when that project identity is available, plus rational playhead time,
-selected sequence range, and observer-backed change events. The sequence
-identity is not an immutable host identifier; native handles fail closed when it changes. It
+It reports an immutable project-scoped sequence identity when the host exposes
+the shared UID selector, and otherwise a name-derived identity only when that
+project identity is available. Native handles fail closed if that mutable
+fallback changes. It also reports rational playhead time, selected sequence
+range, and observer-backed change events. It
 deliberately reports
 `editor.timelineSnapshotRead: false`: the public Workflow Extension proxy does not promise a
 complete clip/media enumeration API, so Framekit fails closed instead of

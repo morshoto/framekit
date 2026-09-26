@@ -683,7 +683,7 @@ test("Workflow Extension avoids unsupported project catalog proxy properties", a
   assert.match(shim, /NSString \*UID/);
   assert.match(swift, /NSSelectorFromString\("UID"\)/);
   assert.match(swift, /let sequenceUID = stableUID\(sequence\)/);
-  assert.match(swift, /sequenceUID\.map/);
+  assert.match(swift, /if let project, let sequenceUID/);
   assert.match(swift, /final-cut:project:unavailable/);
 });
 
