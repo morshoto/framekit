@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -923,6 +923,27 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
     await finishExport;
   }
   assert.equal(project!.projectName, "Exported");
+});
+
+test("canonical Final Cut export reads the native directory package", async () => {
+  const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-package\" name=\"Packaged\"><sequence uid=\"sequence-package\" name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
+  const source = new FinalCutCanonicalSnapshotSource({
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
+      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
+      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      await mkdir(packagePath);
+      await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  const project = await source.readSnapshot();
+  assert.equal(project.projectName, "Packaged");
 });
 
 test("canonical target resolver requires one exact native occurrence", async () => {
