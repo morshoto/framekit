@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.1.13](https://github.com/morshoto/framekit/compare/v0.1.12...v0.1.13) - 2026-09-26
+
+### Feature changes
+- feat: expose compact source-bound agent context by @morshoto in https://github.com/morshoto/framekit/pull/413
+- perf: add complete timeline diff provenance by @morshoto in https://github.com/morshoto/framekit/pull/412
+- feat: expose ordered canonical timeline changes by @morshoto in https://github.com/morshoto/framekit/pull/414
+### Patch changes
+- fix: wait for npm publication validation by @morshoto in https://github.com/morshoto/framekit/pull/386
+- fix: expose background catalog target blocker by @morshoto in https://github.com/morshoto/framekit/pull/430
+- fix: recover Final Cut export dialogs by @morshoto in https://github.com/morshoto/framekit/pull/429
+- fix: robust Final Cut save-panel traversal by @morshoto in https://github.com/morshoto/framekit/pull/451
+### Maintenance and internal
+- feat: Gate session execution on external drift reconciliation by @morshoto in https://github.com/morshoto/framekit/pull/410
+- design: define canonical incremental sync contract by @morshoto in https://github.com/morshoto/framekit/pull/411
+- chore: add QA issue template by @morshoto in https://github.com/morshoto/framekit/pull/431
+
 ## [v0.1.12](https://github.com/morshoto/framekit/compare/v0.1.11...v0.1.12) - 2026-09-24
 
 ### Feature changes
