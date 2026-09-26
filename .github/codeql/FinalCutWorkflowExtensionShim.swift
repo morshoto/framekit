@@ -60,6 +60,7 @@ protocol FCPXTimelineObserver: AnyObject {
 class FCPXObject: NSObject {
     var container: FCPXObject?
     var name: String! = ""
+    var UID: String! = ""
 }
 
 class FCPXSequence: FCPXObject {

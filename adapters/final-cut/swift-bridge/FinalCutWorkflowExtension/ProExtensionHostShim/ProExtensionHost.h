@@ -15,6 +15,7 @@
 @interface FCPXObject : NSObject
 @property(nonatomic, readonly) FCPXObject * _Nullable container;
 @property(nonatomic, readonly) NSString *name;
+@property(nonatomic, readonly) NSString *UID;
 @end
 
 @interface FCPXSequence : FCPXObject

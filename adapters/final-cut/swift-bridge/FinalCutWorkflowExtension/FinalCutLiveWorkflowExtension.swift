@@ -543,7 +543,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
 
         private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
             let object = project as NSObject
-            let uidSelector = NSSelectorFromString("uid")
+            let uidSelector = NSSelectorFromString("UID")
             guard object.responds(to: uidSelector),
                   let uidValue = object.perform(uidSelector)?.takeUnretainedValue() as? String,
                   !uidValue.isEmpty else {
