@@ -533,14 +533,10 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         let sequenceName = sequence.name ?? "active-sequence"
         let sequenceUID = stableUID(sequence)
         let sequenceID: String
-        if let project, let sequenceUID {
-            sequenceID = "\(project.id):sequence:\(sequenceUID)"
-        } else if project == nil {
-            sequenceID = "final-cut:sequence:unavailable"
+        if let sequenceUID {
+            sequenceID = sequenceUID
         } else {
-            // The public host API may omit an immutable sequence UID; native
-            // handles fail closed if this mutable name identity changes.
-            sequenceID = "\(projectID):sequence:\(sequenceName)"
+            sequenceID = "final-cut:sequence:unavailable"
         }
         let liveSequence = LiveState.Sequence(id: sequenceID, name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
@@ -550,7 +546,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
 
     private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
         guard let uidValue = stableUID(project) else { return nil }
-        return LiveState.Project(id: "final-cut:project:\(uidValue)", name: project.name)
+        return LiveState.Project(id: uidValue, name: project.name)
     }
 
     private func stableUID(_ object: NSObject) -> String? {

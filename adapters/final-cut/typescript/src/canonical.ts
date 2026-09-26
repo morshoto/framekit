@@ -40,7 +40,7 @@ import type {
 } from "./native.js";
 import { recoverCanonicalNativeMutation } from "./canonical-recovery.js";
 import { verifyCanonicalReadback } from "./canonical-verification.js";
-import { FcpxmlDocumentAdapter } from "./fcpxml.js";
+import { FcpxmlDocumentAdapter, type FcpxmlTargetBinding } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -79,6 +79,7 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   executor?: (script: string) => Promise<string>;
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
+  target?: FcpxmlTargetBinding;
 }
 
 export type FinalCutCanonicalExportCleanup = "complete" | "incomplete";
@@ -183,11 +184,13 @@ export class FinalCutCanonicalSnapshotSource {
   private readonly executor: (script: string) => Promise<string>;
   private readonly exportTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly target?: FcpxmlTargetBinding;
 
   public constructor(options: FinalCutCanonicalSnapshotSourceOptions = {}) {
     this.executor = options.executor ?? executeCanonicalAppleScript;
     this.exportTimeoutMs = Math.max(1_000, options.exportTimeoutMs ?? 30_000);
     this.pollIntervalMs = Math.max(10, options.pollIntervalMs ?? 100);
+    this.target = options.target;
   }
 
   public async readSnapshot(): Promise<ProjectSnapshot> {
@@ -198,10 +201,10 @@ export class FinalCutCanonicalSnapshotSource {
         await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
       );
       if (result.status !== "export-requested") throw new FinalCutCanonicalExportError(result);
-      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs);
+      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (detail.includes("FINAL_CUT_CANONICAL_")) throw error;
+      if (detail.includes("FINAL_CUT_CANONICAL_") || detail.includes("TARGET_MISMATCH")) throw error;
       throw new Error(`FINAL_CUT_CANONICAL_EXPORT_FAILED: ${detail}`);
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -1555,7 +1558,12 @@ async function executeCanonicalAppleScript(script: string): Promise<string> {
   }
 }
 
-async function readCanonicalExport(path: string, timeoutMs: number, pollIntervalMs: number): Promise<ProjectSnapshot> {
+async function readCanonicalExport(
+  path: string,
+  timeoutMs: number,
+  pollIntervalMs: number,
+  target?: FcpxmlTargetBinding,
+): Promise<ProjectSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let previousSignature: string | undefined;
   let lastReadError: unknown;
@@ -1578,9 +1586,10 @@ async function readCanonicalExport(path: string, timeoutMs: number, pollInterval
 
     if (readablePath && signature && signature === previousSignature) {
       try {
-        return await new FcpxmlDocumentAdapter(readablePath).readProject();
+        return await new FcpxmlDocumentAdapter(readablePath, target).readProject();
       } catch (error) {
         lastReadError = error;
+        if (error instanceof Error && error.message.includes("TARGET_MISMATCH")) throw error;
       }
     }
     previousSignature = signature;
