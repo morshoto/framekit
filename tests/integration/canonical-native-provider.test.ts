@@ -879,6 +879,36 @@ test("canonical export surfaces retryable recovery results", async () => {
   });
 });
 
+test("canonical export retries a cleaned-up recovery result", async () => {
+  const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-retry\" name=\"Retry\"><sequence uid=\"sequence-retry\" name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
+  let attempts = 0;
+  const source = new FinalCutCanonicalSnapshotSource({
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return JSON.stringify({
+          status: "retryable",
+          code: "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE",
+          message: "Final Cut export dialogs were closed; retry the canonical read",
+          cleanup: "complete",
+        });
+      }
+      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
+      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
+      await writeFile(join(directoryMatch[1], nameMatch[1]), completeDocument);
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  const project = await source.readSnapshot();
+  assert.equal(project.projectName, "Retry");
+  assert.equal(attempts, 2);
+});
+
 test("canonical export recovers generated dialogs on UI failure", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit-canonical.fcpxml");
 

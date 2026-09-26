@@ -197,11 +197,18 @@ export class FinalCutCanonicalSnapshotSource {
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-canonical-"));
     const exportPath = join(directory, "active.fcpxml");
     try {
-      const result = parseFinalCutCanonicalExportResult(
-        await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
-      );
-      if (result.status !== "export-requested") throw new FinalCutCanonicalExportError(result);
-      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const result = parseFinalCutCanonicalExportResult(
+          await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
+        );
+        if (result.status === "export-requested") {
+          return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
+        }
+        const error = new FinalCutCanonicalExportError(result);
+        if (!error.retryable || error.cleanup !== "complete" || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("FINAL_CUT_CANONICAL_EXPORT_FAILED: retry attempts exhausted");
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       if (detail.includes("FINAL_CUT_CANONICAL_") || detail.includes("TARGET_MISMATCH")) throw error;
