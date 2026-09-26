@@ -26,3 +26,4 @@ export function sanitizeFillerRemovalEvidence(run: unknown, environment: Evidenc
 export function sanitizeDialogueNormalizationEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeRoughCutEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeCanonicalReadEvidence(run: unknown, environment: EvidenceEnvironment): unknown;
+export function sanitizeIncrementalSyncEvidence(run: unknown, environment: EvidenceEnvironment): any;
