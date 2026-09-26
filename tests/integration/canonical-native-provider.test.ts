@@ -884,6 +884,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /my canonicalExportResponse\("retryable"/);
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
+  assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
