@@ -885,6 +885,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
+  assert.match(script, /if exists window "Export XML" of finalCut then key code 36/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
