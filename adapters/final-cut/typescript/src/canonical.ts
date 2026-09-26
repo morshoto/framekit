@@ -1561,19 +1561,24 @@ async function readCanonicalExport(path: string, timeoutMs: number, pollInterval
   let lastReadError: unknown;
 
   while (Date.now() <= deadline) {
+    let readablePath: string | undefined;
     let signature: string | undefined;
-    try {
-      const details = await stat(path);
-      if (details.isFile() && details.size > 0) {
-        signature = `${details.size}:${details.mtimeMs}`;
+    for (const candidatePath of [path, join(`${path}.fcpxmld`, "Info.fcpxml")]) {
+      try {
+        const details = await stat(candidatePath);
+        if (details.isFile() && details.size > 0) {
+          readablePath = candidatePath;
+          signature = `${candidatePath}:${details.size}:${details.mtimeMs}`;
+          break;
+        }
+      } catch {
+        // The Save dialog or Final Cut directory package may still be open.
       }
-    } catch {
-      // The Save dialog may still be open.
     }
 
-    if (signature && signature === previousSignature) {
+    if (readablePath && signature && signature === previousSignature) {
       try {
-        return await new FcpxmlDocumentAdapter(path).readProject();
+        return await new FcpxmlDocumentAdapter(readablePath).readProject();
       } catch (error) {
         lastReadError = error;
       }
