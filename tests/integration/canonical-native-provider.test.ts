@@ -946,6 +946,58 @@ test("canonical Final Cut export reads the native directory package", async () =
   assert.equal(project.projectName, "Packaged");
 });
 
+test("canonical export binds missing sequence UID to the live target", async () => {
+  const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-package\" name=\"Packaged\"><sequence name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
+  const source = new FinalCutCanonicalSnapshotSource({
+    target: {
+      projectId: "project-live",
+      projectUid: "project-package",
+      sequenceId: "sequence-live",
+    },
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
+      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
+      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      await mkdir(packagePath);
+      await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  const project = await source.readSnapshot();
+  assert.equal(project.projectId, "project-live");
+  assert.equal(project.timeline.id, "sequence-live");
+});
+
+test("canonical export rejects a live target from another project", async () => {
+  const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-package\" name=\"Packaged\"><sequence name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
+  const source = new FinalCutCanonicalSnapshotSource({
+    target: {
+      projectId: "project-live",
+      projectUid: "project-other",
+      sequenceId: "sequence-live",
+    },
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
+      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
+      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      await mkdir(packagePath);
+      await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  await assert.rejects(source.readSnapshot(), /TARGET_MISMATCH/);
+});
+
 test("canonical target resolver requires one exact native occurrence", async () => {
   const native = {
     searchMedia: async () => [{
