@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
@@ -891,10 +892,12 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const match = script.match(/set value of pathField to "([^"]+)"/);
-      assert.ok(match?.[1]);
+      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
+      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
       assert.match(script, /my canonicalExportResponse\("export-requested"/);
-      const exportPath = match[1];
+      const exportPath = join(directoryMatch[1], nameMatch[1]);
       const partialDocument = completeDocument.slice(0, Math.floor(completeDocument.length / 2));
       await writeFile(exportPath, partialDocument);
       finishExport = new Promise((resolve) => {

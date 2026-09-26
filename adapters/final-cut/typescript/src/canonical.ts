@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
@@ -210,6 +210,9 @@ export class FinalCutCanonicalSnapshotSource {
 }
 
 export function buildFinalCutCanonicalExportScript(exportPath: string): string {
+  const exportDirectory = dirname(exportPath);
+  const exportName = basename(exportPath);
+
   return `
 using terms from application "System Events"
 
@@ -361,6 +364,44 @@ on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
   end repeat
 end findSavePathField
 
+on matchesCanonicalSaveNameField(candidate)
+  try
+    if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  repeat with attributeName in {"AXIdentifier", "AXDescription", "AXTitle"}
+    try
+      set candidateLabel to value of attribute (attributeName as text) of candidate as text
+      if candidateLabel is "saveAsNameTextField" or candidateLabel is "Save As:" or candidateLabel is "Save As" then return true
+    end try
+  end repeat
+  return false
+end matchesCanonicalSaveNameField
+
+on findCanonicalSaveNameFieldDescendant(container, depth)
+  if depth > 12 then return missing value
+  try
+    if my matchesCanonicalSaveNameField(container) then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findCanonicalSaveNameFieldDescendant(candidate, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findCanonicalSaveNameFieldDescendant
+
+on findCanonicalSaveNameField(saveWindow, timeoutSeconds, timeoutMessage)
+  set deadline to (current date) + timeoutSeconds
+  repeat
+    set candidate to my findCanonicalSaveNameFieldDescendant(saveWindow, 0)
+    if candidate is not missing value then return candidate
+    if (current date) > deadline then error timeoutMessage
+    delay 0.1
+  end repeat
+end findCanonicalSaveNameField
+
 on findAccessibilityButton(container, expectedNames, depth)
   if depth > 12 then return missing value
   try
@@ -430,7 +471,7 @@ end cleanupCanonicalExport
 
 on canonicalExportCode(errorMessage)
   if errorMessage contains "not authorized" or errorMessage contains "-1743" or errorMessage contains "-25211" then return "FINAL_CUT_CANONICAL_PERMISSION_REQUIRED"
-  set knownCodes to {"FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE", "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE"}
+  set knownCodes to {"FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE", "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE"}
   repeat with candidateCode in knownCodes
     set candidateCodeText to candidateCode as text
     if errorMessage contains candidateCodeText then return candidateCodeText
@@ -475,14 +516,16 @@ tell application "System Events"
       set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
       my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
       delay 0.2
-      set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-      keystroke "g" using {command down, shift down}
-      set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
-      set value of pathField to ${appleScriptString(exportPath)}
-      key code 36
-      delay 0.2
-      my pressAccessibilityButtonIfPresent(saveWindow, {"Save"})
-      delay 0.2
+          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+          keystroke "g" using {command down, shift down}
+          set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
+          set value of pathField to ${appleScriptString(exportDirectory)}
+          key code 36
+          delay 0.2
+          set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
+          set value of nameField to ${appleScriptString(exportName)}
+          if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
+          delay 0.2
       my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
