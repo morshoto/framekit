@@ -38,6 +38,7 @@ let prompt;
 
 try {
   await client.connect(transport);
+  await callJson("editor.native.focus");
   const editor = await callJson("editor.inspect");
   const mode = editor.capabilities?.editor?.canonicalTimelineMode;
   if (mode !== "canonical-read" && mode !== "canonical-write") {

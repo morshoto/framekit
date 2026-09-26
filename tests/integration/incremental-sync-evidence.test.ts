@@ -174,6 +174,10 @@ test("headed runner covers observe drift and reconciliation", async () => {
   ]) {
     assert.match(runner, new RegExp(requirement.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), requirement);
   }
+  assert.ok(
+    runner.indexOf('callJson("editor.native.focus")') < runner.indexOf('const editor = await callJson("editor.inspect")'),
+    "headed runner focuses timeline before capability probe",
+  );
 });
 
 test("publishes the v0.1.13 incremental synchronization command", async () => {
