@@ -345,6 +345,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     if (this.target && projectUid !== this.target.projectUid) {
       throw new Error(`TARGET_MISMATCH: exported project UID ${projectUid} does not match live project UID ${this.target.projectUid}`);
     }
+    const exportedSequenceUid = sequence ? attribute(sequence, "uid") : undefined;
+    if (this.target && exportedSequenceUid !== undefined && String(exportedSequenceUid) !== this.target.sequenceId) {
+      throw new Error(`TARGET_MISMATCH: exported sequence UID ${String(exportedSequenceUid)} does not match live sequence UID ${this.target.sequenceId}`);
+    }
     return {
       projectId: this.target?.projectId ?? `fcpxml:project:${projectUid}`,
       sequenceId: this.target?.sequenceId ?? stableSequenceId(sequence),
