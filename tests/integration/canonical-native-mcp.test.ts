@@ -134,17 +134,18 @@ async function connect(runtime: AgentVideoRuntime) {
   return { client, server };
 }
 
-test("canonical native provider fails closed without an explicit selection guarantee", async () => {
+test("canonical native provider exposes reads without selection", async () => {
   const calls: string[] = [];
   const { client, server } = await connect(createRuntime(calls));
 
   try {
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.identity.backend, "final-cut-native-canonical");
-    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "metadata-only");
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-read");
     assert.equal(editor.capabilities.editor.projectCatalogRead, true);
     assert.equal(editor.capabilities.editor.projectSelection, false);
-    assert.equal(editor.capabilities.editor.projectRead, false);
+    assert.equal(editor.capabilities.editor.projectRead, true);
+    assert.equal(editor.capabilities.editor.timelineSnapshotRead, true);
     assert.equal(editor.capabilities.editor.timelineWrite, false);
 
     const selection = await client.callTool({
@@ -177,8 +178,10 @@ test("canonical native provider fails closed without an explicit selection guara
     assert.equal(catalog.provenance.catalog.source, "background-library");
 
     const project = await client.callTool({ name: "project.inspect", arguments: {} });
-    assert.equal(project.isError, true);
-    assert.match(textFrom(project), /project\.inspect requires canonicalDocument\.read/);
+    assert.equal(project.isError, undefined);
+    const inspected = JSON.parse(textFrom(project));
+    assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
+    assert.equal(inspected.timeline.id, "final-cut:sequence:canonical-mcp");
     assert.deepEqual(calls, []);
   } finally {
     await client.close();
@@ -195,8 +198,10 @@ test("canonical native provider disables preview transactions without canonical-
     assert.equal(editor.capabilities.editor.compositeTransactions, false);
     assert.equal(editor.capabilities.families.editing.compositeTransactions.available, false);
     const project = await client.callTool({ name: "project.inspect", arguments: {} });
-    assert.equal(project.isError, true);
-    assert.match(textFrom(project), /project\.inspect requires canonicalDocument\.read/);
+    assert.equal(project.isError, undefined);
+    const inspected = JSON.parse(textFrom(project));
+    assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
+    assert.equal(inspected.timeline.id, "final-cut:sequence:canonical-mcp");
     assert.deepEqual(calls, []);
   } finally {
     await client.close();
