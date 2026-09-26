@@ -809,14 +809,18 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
 test("canonical Final Cut export discovers nested save controls", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit-canonical.fcpxml");
 
-  assert.match(script, /on findDescendantByRole\(container, expectedRole, timeoutSeconds, timeoutMessage\)/);
-  assert.match(script, /entire contents of container/);
+  assert.match(script, /on findAccessibilityDescendant\(container, expectedRoles, depth\)/);
+  assert.match(script, /UI elements of container/);
+  assert.match(script, /if depth > 12 then return missing value/);
+  assert.match(script, /\{"AXTextField", "AXTextArea", "AXComboBox"\}/);
+  assert.match(script, /value of attribute "AXFocusedUIElement"/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
-  assert.match(script, /my pressDescendantButtonIfPresent\(saveWindow, \{"Save"\}\)/);
-  assert.match(script, /my pressDescendantButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
+  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
+  assert.doesNotMatch(script, /entire contents of container/);
 });
 
 test("canonical export parses a structured retryable recovery result", () => {
