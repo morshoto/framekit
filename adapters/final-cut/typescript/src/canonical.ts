@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
@@ -40,7 +40,7 @@ import type {
 } from "./native.js";
 import { recoverCanonicalNativeMutation } from "./canonical-recovery.js";
 import { verifyCanonicalReadback } from "./canonical-verification.js";
-import { FcpxmlDocumentAdapter } from "./fcpxml.js";
+import { FcpxmlDocumentAdapter, type FcpxmlTargetBinding } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -79,6 +79,7 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   executor?: (script: string) => Promise<string>;
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
+  target?: FcpxmlTargetBinding;
 }
 
 export type FinalCutCanonicalExportCleanup = "complete" | "incomplete";
@@ -183,11 +184,13 @@ export class FinalCutCanonicalSnapshotSource {
   private readonly executor: (script: string) => Promise<string>;
   private readonly exportTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly target?: FcpxmlTargetBinding;
 
   public constructor(options: FinalCutCanonicalSnapshotSourceOptions = {}) {
     this.executor = options.executor ?? executeCanonicalAppleScript;
     this.exportTimeoutMs = Math.max(1_000, options.exportTimeoutMs ?? 30_000);
     this.pollIntervalMs = Math.max(10, options.pollIntervalMs ?? 100);
+    this.target = options.target;
   }
 
   public async readSnapshot(): Promise<ProjectSnapshot> {
@@ -198,10 +201,10 @@ export class FinalCutCanonicalSnapshotSource {
         await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
       );
       if (result.status !== "export-requested") throw new FinalCutCanonicalExportError(result);
-      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs);
+      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (detail.includes("FINAL_CUT_CANONICAL_")) throw error;
+      if (detail.includes("FINAL_CUT_CANONICAL_") || detail.includes("TARGET_MISMATCH")) throw error;
       throw new Error(`FINAL_CUT_CANONICAL_EXPORT_FAILED: ${detail}`);
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -210,6 +213,9 @@ export class FinalCutCanonicalSnapshotSource {
 }
 
 export function buildFinalCutCanonicalExportScript(exportPath: string): string {
+  const exportDirectory = dirname(exportPath);
+  const exportName = basename(exportPath);
+
   return `
 using terms from application "System Events"
 
@@ -242,53 +248,202 @@ on findWindow(finalCut, expectedNames, timeoutSeconds, timeoutMessage)
   end repeat
 end findWindow
 
-on findDescendantByRole(container, expectedRole, timeoutSeconds, timeoutMessage)
-  set deadline to (current date) + timeoutSeconds
-  repeat
+on roleIsExpected(candidateRole, expectedRoles)
+  repeat with expectedRole in expectedRoles
+    if candidateRole is (expectedRole as text) then return true
+  end repeat
+  return false
+end roleIsExpected
+
+on accessibilityMatchesExpectedName(candidate, expectedNames)
+  repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
     try
-      repeat with candidate in (entire contents of container)
-        try
-          if role of candidate is expectedRole then return candidate
-        end try
+      set candidateLabel to value of attribute (attributeName as text) of candidate as text
+      repeat with expectedName in expectedNames
+        if candidateLabel is (expectedName as text) then return true
       end repeat
     end try
-    if (current date) > deadline then error timeoutMessage
-    delay 0.1
   end repeat
-end findDescendantByRole
-
-on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
-  return my findDescendantByRole(saveWindow, "AXTextField", timeoutSeconds, timeoutMessage)
-end findSavePathField
-
-on pressDescendantButtonIfPresent(container, expectedNames)
   try
-    set candidates to entire contents of container
+    set candidateLabel to name of candidate as text
+    repeat with expectedName in expectedNames
+      if candidateLabel is (expectedName as text) then return true
+    end repeat
   on error
     return false
   end try
-  repeat with candidate in candidates
+  return false
+end accessibilityMatchesExpectedName
+
+on findAccessibilityDescendant(container, expectedRoles, depth)
+  if depth > 12 then return missing value
+  try
+    if my roleIsExpected(role of container as text, expectedRoles) then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findAccessibilityDescendant(candidate, expectedRoles, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findAccessibilityDescendant
+
+on accessibilityContainsPathMarker(candidate)
+  repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
     try
-      if role of candidate is "AXButton" then
-        set candidateName to name of candidate as text
-        repeat with expectedName in expectedNames
-          if candidateName is (expectedName as text) and enabled of candidate then
-            perform action "AXPress" of candidate
-            return true
-          end if
-        end repeat
-      end if
+      set candidateLabel to value of attribute (attributeName as text) of candidate as text
+      if candidateLabel contains "Go to the folder" or candidateLabel contains "path" or candidateLabel contains "Path" or candidateLabel contains "location" or candidateLabel contains "Location" then return true
+    end try
+  end repeat
+  try
+    set candidateLabel to name of candidate as text
+    if candidateLabel contains "Go to the folder" or candidateLabel contains "path" or candidateLabel contains "Path" or candidateLabel contains "location" or candidateLabel contains "Location" then return true
+  end try
+  return false
+end accessibilityContainsPathMarker
+
+on matchesCanonicalPathField(candidate)
+  try
+    if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  try
+    set candidateIdentifier to value of attribute "AXIdentifier" of candidate as text
+    if candidateIdentifier is "path" or candidateIdentifier is "location" then return true
+  end try
+  return my accessibilityContainsPathMarker(candidate)
+end matchesCanonicalPathField
+
+on findFocusedCanonicalPathField(container, focusedCandidate, depth, insidePathContainer)
+  if depth > 12 then return missing value
+  set candidateInsidePathContainer to insidePathContainer
+  try
+    set candidateRole to role of container as text
+    if candidateRole is "AXSheet" or candidateRole is "AXDialog" then set candidateInsidePathContainer to true
+    if my accessibilityContainsPathMarker(container) then set candidateInsidePathContainer to true
+    if my roleIsExpected(candidateRole, {"AXTextField", "AXTextArea", "AXComboBox"}) and candidateInsidePathContainer then
+      if container is focusedCandidate then return container
+    end if
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findFocusedCanonicalPathField(candidate, focusedCandidate, depth + 1, candidateInsidePathContainer)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findFocusedCanonicalPathField
+
+on findCanonicalPathField(container, depth)
+  if depth > 12 then return missing value
+  try
+    if my matchesCanonicalPathField(container) then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findCanonicalPathField(candidate, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findCanonicalPathField
+
+on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
+  set deadline to (current date) + timeoutSeconds
+  repeat
+    set focusedCandidate to missing value
+    try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+    end try
+    set candidate to my findFocusedCanonicalPathField(saveWindow, focusedCandidate, 0, false)
+    if candidate is not missing value then return candidate
+    set candidate to my findCanonicalPathField(saveWindow, 0)
+    if candidate is not missing value then return candidate
+    if (current date) > deadline then error timeoutMessage
+    delay 0.1
+  end repeat
+end findSavePathField
+
+on matchesCanonicalSaveNameField(candidate)
+  try
+    if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  repeat with attributeName in {"AXIdentifier", "AXDescription", "AXTitle"}
+    try
+      set candidateLabel to value of attribute (attributeName as text) of candidate as text
+      if candidateLabel is "saveAsNameTextField" or candidateLabel is "Save As:" or candidateLabel is "Save As" then return true
     end try
   end repeat
   return false
-end pressDescendantButtonIfPresent
+end matchesCanonicalSaveNameField
+
+on findCanonicalSaveNameFieldDescendant(container, depth)
+  if depth > 12 then return missing value
+  try
+    if my matchesCanonicalSaveNameField(container) then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findCanonicalSaveNameFieldDescendant(candidate, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findCanonicalSaveNameFieldDescendant
+
+on findCanonicalSaveNameField(saveWindow, timeoutSeconds, timeoutMessage)
+  set deadline to (current date) + timeoutSeconds
+  repeat
+    set candidate to my findCanonicalSaveNameFieldDescendant(saveWindow, 0)
+    if candidate is not missing value then return candidate
+    if (current date) > deadline then error timeoutMessage
+    delay 0.1
+  end repeat
+end findCanonicalSaveNameField
+
+on findAccessibilityButton(container, expectedNames, depth)
+  if depth > 12 then return missing value
+  try
+    if (role of container as text) is "AXButton" then
+      if my accessibilityMatchesExpectedName(container, expectedNames) then return container
+    end if
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findAccessibilityButton(candidate, expectedNames, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findAccessibilityButton
+
+on pressAccessibilityButtonIfPresent(container, expectedNames)
+  set candidate to my findAccessibilityButton(container, expectedNames, 0)
+  if candidate is missing value then return false
+  try
+    perform action "AXPress" of candidate
+    return true
+  on error
+    try
+      click candidate
+      return true
+    on error
+      return false
+    end try
+  end try
+end pressAccessibilityButtonIfPresent
 
 on cancelCanonicalWindowIfOpen(finalCut, windowName)
   repeat 20 times
     try
       if not (exists window windowName of finalCut) then return true
       set targetWindow to window windowName of finalCut
-      if not my pressDescendantButtonIfPresent(targetWindow, {"Cancel", "Close"}) then key code 53
+      if not my pressAccessibilityButtonIfPresent(targetWindow, {"Cancel", "Close"}) then key code 53
     end try
     delay 0.1
   end repeat
@@ -323,7 +478,7 @@ end cleanupCanonicalExport
 
 on canonicalExportCode(errorMessage)
   if errorMessage contains "not authorized" or errorMessage contains "-1743" or errorMessage contains "-25211" then return "FINAL_CUT_CANONICAL_PERMISSION_REQUIRED"
-  set knownCodes to {"FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE", "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE"}
+  set knownCodes to {"FINAL_CUT_CANONICAL_EXPORT_MENU_UNAVAILABLE", "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE", "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE"}
   repeat with candidateCode in knownCodes
     set candidateCodeText to candidateCode as text
     if errorMessage contains candidateCodeText then return candidateCodeText
@@ -366,17 +521,23 @@ tell application "System Events"
       end try
       perform action "AXPress" of exportCommand
       set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-      my pressDescendantButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
+      my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
       delay 0.2
-      set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-      keystroke "g" using {command down, shift down}
-      set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
-      set value of pathField to ${appleScriptString(exportPath)}
-      key code 36
-      delay 0.2
-      my pressDescendantButtonIfPresent(saveWindow, {"Save"})
-      delay 0.2
-      my pressDescendantButtonIfPresent(saveWindow, {"Replace"})
+          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+          keystroke "g" using {command down, shift down}
+          set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
+          set value of pathField to ${appleScriptString(exportDirectory)}
+          key code 36
+          delay 0.2
+          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+              set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
+              set value of nameField to ${appleScriptString(exportName)}
+              if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
+              delay 0.2
+              try
+                if exists window "Export XML" of finalCut then key code 36
+              end try
+      my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
       set cleanupComplete to my cleanupCanonicalExport(finalCut)
@@ -542,6 +703,31 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
     const readiness = assessCanonicalLiveReadiness(capabilities);
     if (readiness.ready) return capabilities;
+    const canonicalReadReady = capabilities.editor.projectRead
+      && capabilities.editor.timelineSnapshotRead
+      && capabilities.editor.projectCatalogRead;
+    if (canonicalReadReady) {
+      return withCapabilityFamilies({
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          timelineWrite: false,
+          readAfterWrite: false,
+          rollback: false,
+          compositeTransactions: false,
+          semanticOperations: {},
+        },
+      }, {
+        canonicalDocument: {
+          read: true,
+          write: false,
+          artifactWrite: false,
+        },
+        editing: {
+          compositeTransactions: false,
+        },
+      });
+    }
     return withCapabilityFamilies({
       ...capabilities,
       editor: {
@@ -1405,27 +1591,38 @@ async function executeCanonicalAppleScript(script: string): Promise<string> {
   }
 }
 
-async function readCanonicalExport(path: string, timeoutMs: number, pollIntervalMs: number): Promise<ProjectSnapshot> {
+async function readCanonicalExport(
+  path: string,
+  timeoutMs: number,
+  pollIntervalMs: number,
+  target?: FcpxmlTargetBinding,
+): Promise<ProjectSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let previousSignature: string | undefined;
   let lastReadError: unknown;
 
   while (Date.now() <= deadline) {
+    let readablePath: string | undefined;
     let signature: string | undefined;
-    try {
-      const details = await stat(path);
-      if (details.isFile() && details.size > 0) {
-        signature = `${details.size}:${details.mtimeMs}`;
+    for (const candidatePath of [path, join(`${path}.fcpxmld`, "Info.fcpxml")]) {
+      try {
+        const details = await stat(candidatePath);
+        if (details.isFile() && details.size > 0) {
+          readablePath = candidatePath;
+          signature = `${candidatePath}:${details.size}:${details.mtimeMs}`;
+          break;
+        }
+      } catch {
+        // The Save dialog or Final Cut directory package may still be open.
       }
-    } catch {
-      // The Save dialog may still be open.
     }
 
-    if (signature && signature === previousSignature) {
+    if (readablePath && signature && signature === previousSignature) {
       try {
-        return await new FcpxmlDocumentAdapter(path).readProject();
+        return await new FcpxmlDocumentAdapter(readablePath, target).readProject();
       } catch (error) {
         lastReadError = error;
+        if (error instanceof Error && error.message.includes("TARGET_MISMATCH")) throw error;
       }
     }
     previousSignature = signature;

@@ -38,6 +38,12 @@ type TimelineEntry = {
   parentStartTime: RationalTime;
 };
 
+export interface FcpxmlTargetBinding {
+  projectId: string;
+  projectUid: string;
+  sequenceId: string;
+}
+
 const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "mc-clip", "audio", "video"]);
 const TIMELINE_KINDS = new Set([
   ...CLIP_KINDS,
@@ -72,7 +78,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   private fileSignature?: string;
   private readonly history = new Map<string, OrderedXml>();
 
-  public constructor(private readonly filePath: string) {}
+  public constructor(
+    private readonly filePath: string,
+    private readonly target?: FcpxmlTargetBinding,
+  ) {}
 
   public async getIdentity(): Promise<EditorIdentity> {
     return { name: "Final Cut Pro", version: "FCPXML", backend: "fcpxml-document" };
@@ -163,9 +172,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const sequence = sequenceNode ?? {};
     const spine = findElement(sequence, "spine") ?? {};
     const projectName = String(attribute(project, "name") ?? "Final Cut Project");
-    const projectId = stableProjectId(project);
+    const identity = this.identity(project, sequenceNode);
+    const projectId = identity.projectId;
     const sequenceName = String(attribute(sequenceNode ?? {}, "name") ?? projectName);
-    const timelineId = stableTimelineId(project, sequenceNode);
+    const timelineId = identity.sequenceId;
     const elements = timelineEntries(spine);
     const storyElements = elements
       .map((entry) => ({ kind: entry.kind, element: this.storyElementFromXml(entry, timelineId) }))
@@ -201,10 +211,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     await this.ensureLoaded();
     const project = this.projectNode();
     const projectName = String(attribute(project, "name") ?? "Final Cut Project");
-    const projectId = stableProjectId(project);
     const sequence = findElement(project, "sequence");
+    const identity = this.identity(project, sequence);
+    const projectId = identity.projectId;
     const sequenceName = String(attribute(sequence ?? {}, "name") ?? projectName);
-    const sequenceId = stableSequenceId(sequence);
+    const sequenceId = identity.sequenceId;
     return {
       projects: [{
         id: projectId,
@@ -329,6 +340,21 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     }
   }
 
+  private identity(project: XmlNode, sequence: XmlNode | undefined): { projectId: string; sequenceId: string } {
+    const projectUid = immutableUid(project, "PROJECT");
+    if (this.target && projectUid !== this.target.projectUid) {
+      throw new Error(`TARGET_MISMATCH: exported project UID ${projectUid} does not match live project UID ${this.target.projectUid}`);
+    }
+    const exportedSequenceUid = sequence ? attribute(sequence, "uid") : undefined;
+    if (this.target && exportedSequenceUid !== undefined && String(exportedSequenceUid) !== this.target.sequenceId) {
+      throw new Error(`TARGET_MISMATCH: exported sequence UID ${String(exportedSequenceUid)} does not match live sequence UID ${this.target.sequenceId}`);
+    }
+    return {
+      projectId: this.target?.projectId ?? `fcpxml:project:${projectUid}`,
+      sequenceId: this.target?.sequenceId ?? stableSequenceId(sequence),
+    };
+  }
+
   private applyOperation(operation: WorkflowOperation): void {
     const project = this.projectNode();
     const sequenceNode = findElement(project, "sequence");
@@ -336,7 +362,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const spine = findElement(sequenceNode, "spine");
     if (!spine) throw new Error("FCPXML_SCHEMA_UNSUPPORTED: sequence spine is required");
     const sequence = sequenceNode;
-    const timelineId = stableTimelineId(project, sequenceNode);
+    const timelineId = this.identity(project, sequenceNode).sequenceId;
 
     if (operation.type === "timeline.picture-in-picture.add") {
       this.applyPictureInPicture(spine, timelineId, operation);
