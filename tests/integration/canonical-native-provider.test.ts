@@ -815,7 +815,10 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /on accessibilityMatchesExpectedName\(candidate, expectedNames\)/);
   assert.match(script, /\{"AXDescription", "AXTitle", "AXIdentifier"\}/);
   assert.match(script, /\{"AXTextField", "AXTextArea", "AXComboBox"\}/);
-  assert.match(script, /value of attribute "AXFocusedUIElement"/);
+  assert.match(script, /on matchesCanonicalPathField\(candidate\)/);
+  assert.match(script, /Go to the folder/);
+  assert.match(script, /on findFocusedCanonicalPathField\(container, focusedCandidate, depth, insidePathContainer\)/);
+  assert.match(script, /if candidate is focusedCandidate and insidePathContainer then return candidate/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
