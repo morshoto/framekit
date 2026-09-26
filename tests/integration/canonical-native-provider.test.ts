@@ -228,11 +228,16 @@ test("canonical native provider exposes one explicit active project and sequence
   assert.equal(catalog.activeProjectId, "final-cut:project:project-1");
   assert.equal(catalog.activeSequenceId, "final-cut:sequence:sequence-1");
   const capabilities = await provider.getCapabilities();
-  assert.equal(capabilities.editor.canonicalTimelineMode, "metadata-only");
+  assert.equal(capabilities.editor.canonicalTimelineMode, "canonical-read");
   assert.equal(capabilities.editor.projectCatalogRead, true);
   assert.equal(capabilities.editor.projectSelection, false);
-  assert.equal(capabilities.editor.projectRead, false);
+  assert.equal(capabilities.editor.projectRead, true);
+  assert.equal(capabilities.editor.timelineSnapshotRead, true);
   assert.equal(capabilities.editor.timelineWrite, false);
+  assert.equal(capabilities.editor.readAfterWrite, false);
+  assert.equal(capabilities.editor.rollback, false);
+  assert.equal(capabilities.families?.canonicalDocument.read?.guarantee, "canonical-read");
+  assert.equal(capabilities.families?.canonicalDocument.write?.available, false);
 });
 
 test("canonical project listing requires a background catalog", async () => {
