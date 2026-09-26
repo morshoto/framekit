@@ -249,19 +249,25 @@ on roleIsExpected(candidateRole, expectedRoles)
   return false
 end roleIsExpected
 
-on accessibilityLabel(candidate)
+on accessibilityMatchesExpectedName(candidate, expectedNames)
   repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
     try
       set candidateLabel to value of attribute (attributeName as text) of candidate as text
-      if candidateLabel is not "" then return candidateLabel
+      repeat with expectedName in expectedNames
+        if candidateLabel is (expectedName as text) then return true
+      end repeat
     end try
   end repeat
   try
-    return name of candidate as text
+    set candidateLabel to name of candidate as text
+    repeat with expectedName in expectedNames
+      if candidateLabel is (expectedName as text) then return true
+    end repeat
   on error
-    return ""
+    return false
   end try
-end accessibilityLabel
+  return false
+end accessibilityMatchesExpectedName
 
 on findAccessibilityDescendant(container, expectedRoles, depth)
   if depth > 12 then return missing value
@@ -297,10 +303,7 @@ on findAccessibilityButton(container, expectedNames, depth)
   if depth > 12 then return missing value
   try
     if (role of container as text) is "AXButton" then
-      set candidateLabel to my accessibilityLabel(container)
-      repeat with expectedName in expectedNames
-        if candidateLabel is (expectedName as text) then return container
-      end repeat
+      if my accessibilityMatchesExpectedName(container, expectedNames) then return container
     end if
   end try
   try
