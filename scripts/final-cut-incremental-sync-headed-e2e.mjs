@@ -40,6 +40,8 @@ let prompt;
 try {
   await client.connect(transport);
   await callJson("editor.native.focus");
+  const connectionStatus = await callJson("connection.status");
+  assert(connectionStatus.state === "ready", "Final Cut connection is not ready");
   const editor = await callJson("editor.inspect");
   const mode = editor.capabilities?.editor?.canonicalTimelineMode;
   if (mode !== "canonical-read" && mode !== "canonical-write") {
@@ -56,6 +58,8 @@ try {
   assert(catalog.provenance?.reconciliation?.status === "matched", "project catalog reconciliation is not matched");
   assert(catalog.provenance.reconciliation.project.method === "stable-id", "project reconciliation did not use stable identity");
   assert(catalog.provenance.reconciliation.sequence.method === "stable-id", "sequence reconciliation did not use stable identity");
+  assert(catalog.provenance.reconciliation.project.catalogId === expectedProjectId, "project reconciliation catalog identity is wrong");
+  assert(catalog.provenance.reconciliation.sequence.catalogId === expectedSequenceId, "sequence reconciliation catalog identity is wrong");
 
   const before = await callJson("project.inspect");
   assert(before.projectId === expectedProjectId, "canonical R0 project identity is wrong");
@@ -109,6 +113,26 @@ try {
     sessionId,
     operations: [operation],
   });
+  const blockedOperations = [{ name: "session.edit.preview", code: blocked.code }];
+  for (const name of ["session.edit.execute"]) {
+    const result = await callSessionError(name, { sessionId, operations: [operation] });
+    blockedOperations.push({ name, code: result.code });
+  }
+  const materializationTarget = {
+    provider: "final-cut",
+    libraryUid: `qa-library-${expectedProjectId}`,
+    eventUid: `qa-event-${expectedProjectId}`,
+    projectUid: expectedProjectId,
+    sequenceUid: expectedSequenceId,
+    eventName: expectedProject,
+  };
+  for (const [name, arguments_] of [
+    ["session.materialize.preview", { sessionId, target: materializationTarget }],
+    ["session.materialize.execute", { sessionId, target: materializationTarget, confirm: true }],
+  ]) {
+    const result = await callSessionError(name, arguments_);
+    blockedOperations.push({ name, code: result.code });
+  }
   const providerState = createTimelineIrFromProjectSnapshot(after, provider);
   const reconciled = await callJson("session.reconcile", {
     sessionId,
@@ -116,16 +140,28 @@ try {
     providerState,
   });
   assert(reconciled.reconciliation?.status === "rebased", "session reconciliation did not rebase cleanly");
+  const freshSessionId = `${sessionId}-fresh`;
+  const freshSession = await callJson("session.create", {
+    sessionId: freshSessionId,
+    provider,
+    base: providerState,
+  });
+  assert(freshSession.document?.state === "clean", "fresh session did not start clean");
+  assert(sameRevision(freshSession.document?.base?.revision, after.revision), "fresh session is not based on R1");
   const resumed = await callJson("session.edit.execute", {
-    sessionId,
+    sessionId: freshSessionId,
     operations: [operation],
   });
+  assert(resumed.document?.state === "dirty", "fresh session did not accept resumed work");
+  assert(sameRevision(resumed.document?.base?.revision, after.revision), "resumed work changed the fresh session base revision");
 
   const evidence = sanitizeIncrementalSyncEvidence({
     passed: true,
     recordedAt: new Date().toISOString(),
     editor: editor.identity,
     capabilities: editor.capabilities,
+    connectionStatus,
+    catalogReconciliation: catalog.provenance.reconciliation,
     target: {
       projectId: expectedProjectId,
       projectName: expectedProject,
@@ -137,11 +173,15 @@ try {
     session: {
       createdState: created.document?.state,
       staleState: stale.state,
-      blockedCode: blocked.code,
+      blockedOperations,
       reconciledState: reconciled.document?.state,
-      resumedState: resumed.document?.state,
       baseRevision: created.document?.base?.revision,
       providerRevision: reconciled.document?.base?.revision,
+      freshSession: {
+        createdState: freshSession.document?.state,
+        resumedState: resumed.document?.state,
+        baseRevision: freshSession.document?.base?.revision,
+      },
     },
   }, await evidenceEnvironment(root));
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
@@ -168,7 +208,11 @@ async function callJson(name, arguments_ = {}) {
 }
 
 async function callSessionError(name, arguments_) {
-  const result = await client.callTool({ name, arguments: arguments_ });
+  const result = await client.callTool(
+    { name, arguments: arguments_ },
+    undefined,
+    { timeout: HEADED_MCP_REQUEST_TIMEOUT_MS },
+  );
   const text = result.content?.find((item) => item.type === "text")?.text ?? "";
   if (!result.isError) throw new Error(`${name} unexpectedly succeeded`);
   const payload = JSON.parse(text);

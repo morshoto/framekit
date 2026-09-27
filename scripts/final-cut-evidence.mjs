@@ -689,6 +689,8 @@ export function sanitizeIncrementalSyncEvidence(run, environment) {
   }
 
   const target = sanitizeIncrementalTarget(run.target);
+  const connectionStatus = sanitizeIncrementalConnection(run.connectionStatus);
+  const catalogReconciliation = sanitizeIncrementalReconciliation(run.catalogReconciliation, target);
   const beforeRevision = summarizeRevision(run.revisions?.before);
   const afterRevision = summarizeRevision(run.revisions?.after);
   assert(afterRevision.sequence > beforeRevision.sequence, "incremental synchronization revision did not advance");
@@ -705,6 +707,8 @@ export function sanitizeIncrementalSyncEvidence(run, environment) {
     environment: sanitizeEnvironment(environment),
     editor: sanitizeIdentity(run.editor),
     capabilities,
+    connectionStatus,
+    catalogReconciliation,
     target,
     revisions: { before: beforeRevision, after: afterRevision },
     timelineChanges,
@@ -723,6 +727,22 @@ function sanitizeIncrementalTarget(value) {
     projectId: requireSafeIdentity(value.projectId, "project id"),
     projectName: requireString(value.projectName, "project name"),
     sequenceId: requireSafeIdentity(value.sequenceId, "sequence id"),
+  };
+}
+
+function sanitizeIncrementalConnection(value) {
+  assert(value?.state === "ready", "Final Cut connection is not ready");
+  return { state: "ready" };
+}
+
+function sanitizeIncrementalReconciliation(value, target) {
+  assert(value?.status === "matched", "catalog/live reconciliation is not matched");
+  assert(value.project?.method === "stable-id" && value.project?.catalogId === target.projectId, "project reconciliation lacks stable project identity");
+  assert(value.sequence?.method === "stable-id" && value.sequence?.catalogId === target.sequenceId, "sequence reconciliation lacks stable sequence identity");
+  return {
+    status: "matched",
+    project: { method: "stable-id", catalogId: target.projectId },
+    sequence: { method: "stable-id", catalogId: target.sequenceId },
   };
 }
 
@@ -791,20 +811,36 @@ function sanitizeIncrementalContextChanges(value, target, beforeRevision, afterR
 function sanitizeIncrementalSession(value, beforeRevision, afterRevision) {
   assert(value?.createdState === "clean", "session did not start clean");
   assert(value.staleState === "possibly_stale", "session did not become possibly_stale");
-  assert(value.blockedCode === "RECONCILIATION_REQUIRED", "session reconciliation blocker is missing");
+  const blockedOperations = [
+    "session.edit.preview",
+    "session.edit.execute",
+    "session.materialize.preview",
+    "session.materialize.execute",
+  ];
+  assert(Array.isArray(value.blockedOperations), "session stale operations are missing");
+  for (const operation of blockedOperations) {
+    assert(value.blockedOperations.some((entry) => entry?.name === operation && entry?.code === "RECONCILIATION_REQUIRED"), `stale operations did not block ${operation}`);
+  }
   assert(value.reconciledState === "rebased", "session did not reconcile to the provider revision");
-  assert(value.resumedState === "rebased" || value.resumedState === "dirty", "session did not resume after reconciliation");
   const baseRevision = summarizeRevision(value.baseRevision);
   const providerRevision = summarizeRevision(value.providerRevision);
   assert(sameSummarizedRevision(baseRevision, beforeRevision), "session base is not bound to R0");
   assert(sameSummarizedRevision(providerRevision, afterRevision), "session provider revision is not bound to R1");
+  assert(value.freshSession?.createdState === "clean", "fresh session did not start clean");
+  assert(value.freshSession?.resumedState === "dirty", "fresh session did not resume work");
+  const freshBaseRevision = summarizeRevision(value.freshSession.baseRevision);
+  assert(sameSummarizedRevision(freshBaseRevision, afterRevision), "fresh session is not based on R1");
   return {
     staleBlocked: true,
-    blockedCode: "RECONCILIATION_REQUIRED",
+    blockedOperations,
     reconciled: true,
-    resumed: true,
     baseRevision,
     providerRevision,
+    freshSession: {
+      createdState: "clean",
+      resumedState: "dirty",
+      baseRevision: freshBaseRevision,
+    },
   };
 }
 

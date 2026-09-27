@@ -51,6 +51,12 @@ function rawEvidence() {
         projectSelection: true,
       },
     },
+    connectionStatus: { state: "ready" },
+    catalogReconciliation: {
+      status: "matched",
+      project: { method: "stable-id", catalogId: target.projectId },
+      sequence: { method: "stable-id", catalogId: target.sequenceId },
+    },
     target,
     revisions: { before: beforeRevision, after: afterRevision },
     timelineChanges: {
@@ -86,11 +92,20 @@ function rawEvidence() {
     session: {
       createdState: "clean",
       staleState: "possibly_stale",
-      blockedCode: "RECONCILIATION_REQUIRED",
+      blockedOperations: [
+        { name: "session.edit.preview", code: "RECONCILIATION_REQUIRED" },
+        { name: "session.edit.execute", code: "RECONCILIATION_REQUIRED" },
+        { name: "session.materialize.preview", code: "RECONCILIATION_REQUIRED" },
+        { name: "session.materialize.execute", code: "RECONCILIATION_REQUIRED" },
+      ],
       reconciledState: "rebased",
-      resumedState: "rebased",
       baseRevision: beforeRevision,
       providerRevision: afterRevision,
+      freshSession: {
+        createdState: "clean",
+        resumedState: "dirty",
+        baseRevision: afterRevision,
+      },
     },
     rawSnapshot: { projectName: target.projectName },
     operationId: "private-operation-id",
@@ -103,6 +118,12 @@ test("sanitizes target-bound headed incremental evidence", () => {
   assert.equal(evidence.evidenceType, "headed-native-incremental-sync");
   assert.deepEqual(evidence.target, target);
   assert.deepEqual(evidence.revisions, { before: beforeRevision, after: afterRevision });
+  assert.deepEqual(evidence.connectionStatus, { state: "ready" });
+  assert.deepEqual(evidence.catalogReconciliation, {
+    status: "matched",
+    project: { method: "stable-id", catalogId: target.projectId },
+    sequence: { method: "stable-id", catalogId: target.sequenceId },
+  });
   assert.deepEqual(evidence.timelineChanges, {
     status: "ready",
     target: { projectId: target.projectId, sequenceId: target.sequenceId },
@@ -122,11 +143,20 @@ test("sanitizes target-bound headed incremental evidence", () => {
   });
   assert.deepEqual(evidence.session, {
     staleBlocked: true,
-    blockedCode: "RECONCILIATION_REQUIRED",
+    blockedOperations: [
+      "session.edit.preview",
+      "session.edit.execute",
+      "session.materialize.preview",
+      "session.materialize.execute",
+    ],
     reconciled: true,
-    resumed: true,
     baseRevision: beforeRevision,
     providerRevision: afterRevision,
+    freshSession: {
+      createdState: "clean",
+      resumedState: "dirty",
+      baseRevision: afterRevision,
+    },
   });
   assert.doesNotMatch(JSON.stringify(evidence), /"rawSnapshot"|private-operation-id|"sourcePath"|\/Users\//i);
 });
@@ -140,11 +170,27 @@ test("rejects metadata-only or incomplete incremental evidence", () => {
   );
 
   const incomplete = rawEvidence();
-  incomplete.session.blockedCode = "UNKNOWN";
+  incomplete.session.blockedOperations = incomplete.session.blockedOperations.filter(({ name }) => name !== "session.edit.execute");
   assert.throws(
     () => sanitizeIncrementalSyncEvidence(incomplete, environment),
-    /reconciliation blocker/,
+    /stale operations did not block session.edit.execute/,
   );
+
+  const unready = rawEvidence();
+  unready.connectionStatus.state = "unavailable";
+  assert.throws(() => sanitizeIncrementalSyncEvidence(unready, environment), /connection is not ready/);
+
+  const unstableTarget = rawEvidence();
+  unstableTarget.catalogReconciliation.sequence.method = "name-only";
+  assert.throws(() => sanitizeIncrementalSyncEvidence(unstableTarget, environment), /stable sequence identity/);
+
+  const missingExecuteBlock = rawEvidence();
+  missingExecuteBlock.session.blockedOperations.pop();
+  assert.throws(() => sanitizeIncrementalSyncEvidence(missingExecuteBlock, environment), /stale operations/);
+
+  const staleFreshSession = rawEvidence();
+  staleFreshSession.session.freshSession.baseRevision = beforeRevision;
+  assert.throws(() => sanitizeIncrementalSyncEvidence(staleFreshSession, environment), /fresh session is not based on R1/);
 });
 
 test("headed runner covers observe drift and reconciliation", async () => {
@@ -163,6 +209,13 @@ test("headed runner covers observe drift and reconciliation", async () => {
     'callJson("project.inspect")',
     'callJson("editor.native.focus")',
     'callJson("context.inspect")',
+    'callJson("connection.status")',
+    'for (const name of ["session.edit.execute"])',
+    'callJson("session.edit.execute",',
+    '"session.materialize.preview"',
+    '"session.materialize.execute"',
+    'callSessionError(name, arguments_)',
+    'callJson("session.create"',
     "timeline.changes",
     "context.changes",
     "session.create",
@@ -171,6 +224,7 @@ test("headed runner covers observe drift and reconciliation", async () => {
     "session.reconcile",
     "session.edit.execute",
     "RECONCILIATION_REQUIRED",
+    "catalogReconciliation",
     "sanitizeIncrementalSyncEvidence",
     "mkdtemp",
     "FRAMEKIT_STATE_DIR",
