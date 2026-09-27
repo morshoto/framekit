@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { evidenceEnvironment, sanitizeIncrementalSyncEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const HEADED_MCP_REQUEST_TIMEOUT_MS = 180_000;
 const expectedProject = requireEnvironment("FRAMEKIT_FINAL_CUT_E2E_PROJECT");
 const expectedProjectId = requireEnvironment("FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID");
 const expectedSequenceId = requireEnvironment("FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID");
@@ -152,7 +153,11 @@ try {
 }
 
 async function callJson(name, arguments_ = {}) {
-  const result = await client.callTool({ name, arguments: arguments_ });
+  const result = await client.callTool(
+    { name, arguments: arguments_ },
+    undefined,
+    { timeout: HEADED_MCP_REQUEST_TIMEOUT_MS },
+  );
   const text = result.content?.find((item) => item.type === "text")?.text ?? "";
   if (result.isError) throw new Error(text || `${name} failed`);
   try {

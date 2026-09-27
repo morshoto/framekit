@@ -150,6 +150,9 @@ test("rejects metadata-only or incomplete incremental evidence", () => {
 test("headed runner covers observe drift and reconciliation", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-incremental-sync-headed-e2e.mjs"), "utf8");
 
+  assert.match(runner, /HEADED_MCP_REQUEST_TIMEOUT_MS\s*=\s*180_000/);
+  assert.match(runner, /client\.callTool\([\s\S]*\{ timeout: HEADED_MCP_REQUEST_TIMEOUT_MS \},?\s*\)/);
+
   for (const requirement of [
     "FRAMEKIT_FINAL_CUT_E2E_PROJECT",
     "FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID",
