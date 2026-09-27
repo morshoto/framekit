@@ -255,8 +255,9 @@ function normalizeAppleEventFailure(error: unknown): string {
 
 function isTimeoutFailure(error: unknown): boolean {
   if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: unknown };
+    const candidate = error as { code?: unknown; killed?: unknown; message?: unknown; signal?: unknown };
     if (candidate.code === "ETIMEDOUT") return true;
+    if (candidate.killed === true && candidate.signal === "SIGTERM") return true;
     if (typeof candidate.message === "string" && /timed out/i.test(candidate.message)) return true;
   }
   return typeof error === "string" && /timed out/i.test(error);
