@@ -365,6 +365,9 @@ on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
     end try
+    try
+      if my matchesCanonicalPathField(focusedCandidate) then return focusedCandidate
+    end try
     set candidate to my findFocusedCanonicalPathField(saveWindow, focusedCandidate, 0, false)
     if candidate is not missing value then return candidate
     set candidate to my findCanonicalPathField(saveWindow, 0)
@@ -534,6 +537,7 @@ tell application "System Events"
           keystroke "g" using {command down, shift down}
           set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
           set value of pathField to ${appleScriptString(exportDirectory)}
+          delay 0.2
           key code 36
           delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")

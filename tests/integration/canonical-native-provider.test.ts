@@ -826,6 +826,8 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /on findFocusedCanonicalPathField\(container, focusedCandidate, depth, insidePathContainer\)/);
   assert.match(script, /candidateInsidePathContainer then/);
   assert.match(script, /if container is focusedCandidate then return container/);
+  assert.match(script, /if my matchesCanonicalPathField\(focusedCandidate\) then return focusedCandidate/);
+  assert.match(script, /set value of pathField to[\s\S]{0,120}delay 0\.2\s+key code 36/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
   assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
