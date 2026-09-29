@@ -1015,10 +1015,13 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .map(({ node }) => {
         const durationValue = attribute(node, "duration");
         const mediaKind = mediaKindFromResource(node);
+        const originalMedia = storyEntries(node).find(({ kind, node: representation }) =>
+          kind === "media-rep" && attribute(representation, "kind") === "original-media",
+        )?.node;
         return {
           mediaId: String(attribute(node, "id") ?? ""),
           source: resolveMediaSource(
-            String(attribute(node, "src") ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
+            String(attribute(node, "src") ?? (originalMedia && attribute(originalMedia, "src")) ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
             this.filePath,
           ),
           ...(mediaKind ? { mediaKind } : {}),

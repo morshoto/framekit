@@ -826,6 +826,8 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /on findFocusedCanonicalPathField\(container, focusedCandidate, depth, insidePathContainer\)/);
   assert.match(script, /candidateInsidePathContainer then/);
   assert.match(script, /if container is focusedCandidate then return container/);
+  assert.match(script, /if my matchesCanonicalPathField\(focusedCandidate\) then return focusedCandidate/);
+  assert.match(script, /set value of pathField to[\s\S]{0,120}delay 0\.2\s+key code 36/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
   assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
@@ -835,6 +837,7 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
+  assert.match(script, /repeat 10 times[\s\S]*pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -879,6 +882,36 @@ test("canonical export surfaces retryable recovery results", async () => {
   });
 });
 
+test("canonical export retries a cleaned-up recovery result", async () => {
+  const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-retry\" name=\"Retry\"><sequence uid=\"sequence-retry\" name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
+  let attempts = 0;
+  const source = new FinalCutCanonicalSnapshotSource({
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return JSON.stringify({
+          status: "retryable",
+          code: "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE",
+          message: "Final Cut export dialogs were closed; retry the canonical read",
+          cleanup: "complete",
+        });
+      }
+      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
+      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
+      await writeFile(join(directoryMatch[1], nameMatch[1]), completeDocument);
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  const project = await source.readSnapshot();
+  assert.equal(project.projectName, "Retry");
+  assert.equal(attempts, 2);
+});
+
 test("canonical export recovers generated dialogs on UI failure", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit-canonical.fcpxml");
 
@@ -890,7 +923,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /if exists window "Export XML" of finalCut then key code 36/);
+  assert.match(script, /if not my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\) then key code 36/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 

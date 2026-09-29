@@ -167,3 +167,31 @@ test("context changes return an ordered source-bound cursor and changed scope", 
   }]);
   assert.deepEqual(changes.changedScopes, ["timeline"]);
 });
+
+test("canonical timeline revision stays the context cursor across independent live metadata revisions", async () => {
+  const adapter = phase2Fixture();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectContext();
+  await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Interview - Clean" });
+
+  const readChanges = adapter.readChanges.bind(adapter);
+  adapter.readChanges = async (since) => {
+    const changes = await readChanges(since);
+    const metadataRevision = { id: "rev-3", sequence: 3, timestamp: "2026-09-27T12:48:37Z" };
+    return {
+      ...changes,
+      to: metadataRevision,
+      stateChanges: [{
+        kind: "playhead-changed",
+        revision: metadataRevision,
+        state: { revision: metadataRevision },
+      }],
+    };
+  };
+
+  const changes = await runtime.contextChangesSince(before.cursor.revision);
+
+  assert.equal(changes.to.id, changes.timeline?.to.id);
+  assert.equal(changes.cursor.revision.id, changes.timeline?.to.id);
+  assert.equal(changes.stateChanges[0]?.revision.id, "rev-3");
+});

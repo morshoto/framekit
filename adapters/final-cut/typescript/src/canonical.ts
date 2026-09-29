@@ -197,11 +197,18 @@ export class FinalCutCanonicalSnapshotSource {
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-canonical-"));
     const exportPath = join(directory, "active.fcpxml");
     try {
-      const result = parseFinalCutCanonicalExportResult(
-        await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
-      );
-      if (result.status !== "export-requested") throw new FinalCutCanonicalExportError(result);
-      return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const result = parseFinalCutCanonicalExportResult(
+          await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
+        );
+        if (result.status === "export-requested") {
+          return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
+        }
+        const error = new FinalCutCanonicalExportError(result);
+        if (!error.retryable || error.cleanup !== "complete" || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("FINAL_CUT_CANONICAL_EXPORT_FAILED: retry attempts exhausted");
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       if (detail.includes("FINAL_CUT_CANONICAL_") || detail.includes("TARGET_MISMATCH")) throw error;
@@ -357,6 +364,9 @@ on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
     set focusedCandidate to missing value
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
+    end try
+    try
+      if my matchesCanonicalPathField(focusedCandidate) then return focusedCandidate
     end try
     set candidate to my findFocusedCanonicalPathField(saveWindow, focusedCandidate, 0, false)
     if candidate is not missing value then return candidate
@@ -527,16 +537,28 @@ tell application "System Events"
           keystroke "g" using {command down, shift down}
           set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
           set value of pathField to ${appleScriptString(exportDirectory)}
+          delay 0.2
           key code 36
           delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
               set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
               set value of nameField to ${appleScriptString(exportName)}
               if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
-              delay 0.2
-              try
-                if exists window "Export XML" of finalCut then key code 36
-              end try
+              repeat 10 times
+                set savePanelOpen to false
+                repeat with saveWindowName in {"Save", "Export XML"}
+                  try
+                    if exists window (saveWindowName as text) of finalCut then
+                      set savePanelOpen to true
+                      set saveWindow to window (saveWindowName as text) of finalCut
+                      exit repeat
+                    end if
+                  end try
+                end repeat
+                if not savePanelOpen then exit repeat
+                if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then key code 36
+                delay 0.2
+              end repeat
       my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
