@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.1.14](https://github.com/morshoto/framekit/compare/v0.1.13...v0.1.14) - 2026-10-02
+
+### Patch changes
+- fix: recover overlay before media-insert preflight by @morshoto in https://github.com/morshoto/framekit/pull/434
+### Maintenance and internal
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/458
+- chore(deps): update dependency @modelcontextprotocol/sdk to v1.31.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/459
+- docs: define layered Final Cut readback by @morshoto in https://github.com/morshoto/framekit/pull/438
+
 ## [v0.1.13](https://github.com/morshoto/framekit/compare/v0.1.12...v0.1.13) - 2026-09-29
 
 ### Feature changes
