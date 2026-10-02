@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.1.15](https://github.com/morshoto/framekit/compare/v0.1.14...v0.1.15) - 2026-10-02
+
+### Maintenance and internal
+- chore: add UI-free Final Cut read capability probe by @morshoto in https://github.com/morshoto/framekit/pull/461
+- docs: record background read NO-GO gate by @morshoto in https://github.com/morshoto/framekit/pull/462
+
 ## [v0.1.14](https://github.com/morshoto/framekit/compare/v0.1.13...v0.1.14) - 2026-10-02
 
 ### Patch changes
