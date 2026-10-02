@@ -74,6 +74,8 @@ session, fixture, and semantic-media evidence cannot satisfy that capability.
 
 ## Follow-up implementation contracts
 
+- The supported Apple Events / Workflow Extension baseline is reproduced by
+  the [UI-free read capability probe](../final-cut/ui-free-read-capability-probe.md).
 - #452–#454 investigate, bridge, and provide the preferred background read path.
 - #416 decodes the private pasteboard payload as an experimental fallback.
 - #417 normalizes and reconciles provider observations into Timeline IR.

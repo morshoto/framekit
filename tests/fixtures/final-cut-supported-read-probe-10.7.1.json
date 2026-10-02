@@ -1,0 +1,437 @@
+{
+  "probeVersion": 1,
+  "finalCut": {
+    "bundleIdentifier": "com.apple.FinalCut",
+    "version": "10.7.1",
+    "build": "410082",
+    "proExtensionHostVersion": "41000.8.16"
+  },
+  "supportedSurfaces": {
+    "appleEvents": {
+      "suites": [
+        {
+          "name": "Final Cut Pro Library",
+          "code": "fxlm"
+        },
+        {
+          "name": "Final Cut Pro Application",
+          "code": "fxap"
+        }
+      ],
+      "accessGroups": [
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "identifier": "com.apple.FinalCut.library.inspection",
+          "access": "r"
+        }
+      ],
+      "commands": [
+        {
+          "suite": "Final Cut Pro Application",
+          "suiteCode": "fxap",
+          "name": "get",
+          "code": "coregetd"
+        }
+      ],
+      "classes": [
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "name": "sequence",
+          "code": "fxsq",
+          "properties": [
+            {
+              "name": "name",
+              "code": "pnam",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "id",
+              "code": "ID  ",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "container",
+              "code": "ctnr",
+              "type": "item",
+              "access": "r"
+            },
+            {
+              "name": "start time",
+              "code": "pstt",
+              "type": "media time",
+              "access": "r"
+            },
+            {
+              "name": "duration",
+              "code": "pdur",
+              "type": "media time",
+              "access": "r"
+            },
+            {
+              "name": "frame duration",
+              "code": "pfrd",
+              "type": "media time",
+              "access": "r"
+            },
+            {
+              "name": "timecode format",
+              "code": "ptcf",
+              "type": "timecode formats",
+              "access": "r"
+            },
+            {
+              "name": "essential properties",
+              "code": "pESE",
+              "type": "record",
+              "access": "r"
+            }
+          ],
+          "elements": []
+        },
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "name": "item",
+          "code": "cobj",
+          "properties": [
+            {
+              "name": "class",
+              "code": "pcls",
+              "type": "type",
+              "access": "r"
+            },
+            {
+              "name": "container",
+              "code": "ctnr",
+              "type": "item",
+              "access": "r"
+            },
+            {
+              "name": "id",
+              "code": "ID  ",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "index",
+              "code": "pidx",
+              "type": "integer",
+              "access": "r"
+            },
+            {
+              "name": "name",
+              "code": "pnam",
+              "type": "text",
+              "access": "read-write-or-unspecified"
+            },
+            {
+              "name": "persistent ID",
+              "code": "pPIS",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "properties",
+              "code": "pALL",
+              "type": "record",
+              "access": "read-write-or-unspecified"
+            },
+            {
+              "name": "essential properties",
+              "code": "pESE",
+              "type": "record",
+              "access": "r"
+            }
+          ],
+          "elements": []
+        },
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "name": "project",
+          "code": "fxpj",
+          "properties": [
+            {
+              "name": "name",
+              "code": "pnam",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "id",
+              "code": "ID  ",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "container",
+              "code": "ctnr",
+              "type": "item",
+              "access": "r"
+            },
+            {
+              "name": "essential properties",
+              "code": "pESE",
+              "type": "record",
+              "access": "r"
+            },
+            {
+              "name": "sequence",
+              "code": "pseq",
+              "type": "sequence",
+              "access": "r"
+            }
+          ],
+          "elements": []
+        },
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "name": "event",
+          "code": "fxev",
+          "properties": [
+            {
+              "name": "name",
+              "code": "pnam",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "id",
+              "code": "ID  ",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "container",
+              "code": "ctnr",
+              "type": "item",
+              "access": "r"
+            },
+            {
+              "name": "essential properties",
+              "code": "pESE",
+              "type": "record",
+              "access": "r"
+            }
+          ],
+          "elements": [
+            {
+              "type": "sequence",
+              "code": "",
+              "access": "r"
+            },
+            {
+              "type": "project",
+              "code": "",
+              "access": "r"
+            }
+          ]
+        },
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "name": "library",
+          "code": "fxlb",
+          "properties": [
+            {
+              "name": "name",
+              "code": "pnam",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "id",
+              "code": "ID  ",
+              "type": "text",
+              "access": "r"
+            },
+            {
+              "name": "container",
+              "code": "ctnr",
+              "type": "application",
+              "access": "r"
+            },
+            {
+              "name": "essential properties",
+              "code": "pESE",
+              "type": "record",
+              "access": "r"
+            },
+            {
+              "name": "file",
+              "code": "file",
+              "type": "file",
+              "access": "r"
+            }
+          ],
+          "elements": [
+            {
+              "type": "event",
+              "code": "",
+              "access": "r"
+            }
+          ]
+        }
+      ],
+      "recordTypes": [
+        {
+          "suite": "Final Cut Pro Library",
+          "suiteCode": "fxlm",
+          "name": "media time",
+          "code": "cmtm",
+          "properties": [
+            {
+              "name": "value",
+              "code": "cmtv",
+              "type": "number",
+              "access": "read-write-or-unspecified"
+            },
+            {
+              "name": "timescale",
+              "code": "cmts",
+              "type": "integer",
+              "access": "read-write-or-unspecified"
+            },
+            {
+              "name": "epoch",
+              "code": "cmte",
+              "type": "number",
+              "access": "read-write-or-unspecified"
+            },
+            {
+              "name": "flags",
+              "code": "cmtf",
+              "type": "integer",
+              "access": "read-write-or-unspecified"
+            }
+          ]
+        }
+      ]
+    },
+    "workflowExtension": {
+      "host": {
+        "interfaces": [
+          {
+            "name": "FCPXObject",
+            "readOnlyProperties": [
+              "container",
+              "name",
+              "UID"
+            ],
+            "selectors": []
+          },
+          {
+            "name": "FCPXSequence",
+            "readOnlyProperties": [
+              "startTime",
+              "duration",
+              "frameDuration"
+            ],
+            "selectors": []
+          },
+          {
+            "name": "FCPXProject",
+            "readOnlyProperties": [
+              "sequence"
+            ],
+            "selectors": []
+          },
+          {
+            "name": "FCPXTimeline",
+            "readOnlyProperties": [
+              "activeSequence",
+              "sequenceTimeRange"
+            ],
+            "selectors": [
+              "playheadTime",
+              "addTimelineObserver",
+              "removeTimelineObserver",
+              "movePlayheadTo"
+            ]
+          },
+          {
+            "name": "FCPXHost",
+            "readOnlyProperties": [
+              "name",
+              "bundleIdentifier",
+              "versionString",
+              "timeline"
+            ],
+            "selectors": []
+          }
+        ],
+        "observerCallbacks": [
+          "activeSequenceChanged",
+          "playheadTimeChanged",
+          "sequenceTimeRangeChanged"
+        ],
+        "mutationSelectors": [
+          "movePlayheadTo"
+        ]
+      },
+      "protocolVersion": 1,
+      "stateFields": [
+        "id",
+        "name",
+        "id",
+        "name",
+        "startTime",
+        "duration",
+        "frameDuration",
+        "project",
+        "sequence",
+        "playheadTime",
+        "sequenceTimeRange",
+        "revision"
+      ],
+      "capabilities": {
+        "canonicalTimelineMode": "metadata-only",
+        "projectRead": false,
+        "timelineSnapshotRead": false,
+        "timelineWrite": false,
+        "timelineArtifactWrite": false,
+        "readAfterWrite": false,
+        "incrementalChanges": true,
+        "rollback": false,
+        "assetDiscovery": false,
+        "liveStateRead": true,
+        "playheadWrite": false,
+        "frameCapture": false,
+        "playbackControl": false,
+        "projectCatalogRead": false,
+        "projectSelection": false,
+        "projectSelectionMode": "unavailable",
+        "backgroundLibraryInspection": false
+      }
+    }
+  },
+  "classification": {
+    "evaluatedSurface": "Apple Event object model",
+    "classification": "metadata-only",
+    "completeSnapshotCandidate": false,
+    "canonicalCapabilityPromoted": false,
+    "missingRequirements": [
+      "timeline objects covered by read-only access",
+      "timeline occurrences",
+      "exact occurrence timing",
+      "media/resource bindings",
+      "roles",
+      "storyline relationships",
+      "source-bound revision"
+    ],
+    "promotionRequirements": [
+      "empirically bind project and sequence identity to the active target",
+      "prove occurrence collection completeness and exact rational timing",
+      "prove stable media/resource bindings and storyline/role coverage",
+      "prove a source-bound freshness signal across repeated reads and external edits"
+    ],
+    "reasons": [
+      "Declared metadata surfaces do not establish a complete target-bound timeline snapshot."
+    ]
+  }
+}
