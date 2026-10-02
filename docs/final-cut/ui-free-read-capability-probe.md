@@ -49,3 +49,8 @@ architecture in [#415](https://github.com/morshoto/framekit/issues/415) and the
 private-runtime Go/No-Go investigation in
 [#452](https://github.com/morshoto/framekit/issues/452). It is advisory and
 cannot enable a provider by detecting a symbol or command name.
+
+The release gate decision for Final Cut Pro 10.7.1 is recorded in
+[`background-timeline-read-gate-10.7.1.md`](../architecture/background-timeline-read-gate-10.7.1.md):
+NO-GO for the private-runtime provider in v0.1.15; the pasteboard experiment
+does not satisfy the normal-read safety criteria.
