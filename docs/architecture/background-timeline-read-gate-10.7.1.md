@@ -1,6 +1,6 @@
 # Background Timeline Read Gate: Final Cut Pro 10.7.1
 
-Decision recorded: 2026-10-02  
+Decision recorded: 2026-10-02
 Compatibility target: Final Cut Pro 10.7.1, build 410082; ProExtensionHost 41000.8.16
 
 ## Decision
