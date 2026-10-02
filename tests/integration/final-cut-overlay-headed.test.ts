@@ -90,7 +90,11 @@ test("media-insert runner recovers the overlay before native preflight", async (
 
   assert.match(runner, /final-cut-overlay-accessibility\.mjs/);
   assert.match(runner, /ensureFramekitWindowVisible/);
-  assert.ok(runner.indexOf("ensureFramekitWindowVisible()") < runner.indexOf("waitForNativeReady()"));
+  const visibilityCall = runner.indexOf("ensureFramekitWindowVisible()");
+  const readinessCall = runner.indexOf("waitForNativeReady()");
+  assert.ok(visibilityCall >= 0);
+  assert.ok(readinessCall >= 0);
+  assert.ok(visibilityCall < readinessCall);
 });
 
 test("headed overlay documentation explains Accessibility recovery diagnostics", async () => {
