@@ -107,9 +107,6 @@ export function classifySupportedSurfaces(surfaces) {
     && appleEvents.commands.some((command) => (command.name ?? command) === "get");
   const readOnlyGroupCovers = (item) => Boolean(item?.suiteCode)
     && appleEvents.accessGroups?.some((group) => group.access === "r" && group.suiteCode === item.suiteCode);
-  const hasReadOnlyProperty = (...needles) => appleEvents.classes.some((item) =>
-    needles.some((needle) => propertyIsReadOnly(item, needle)),
-  );
   const projectIdentity = ["id", "name"].every((field) => projectFields.has(field) && propertyIsReadOnly(projectClass, field));
   const sequenceIdentity = ["id", "name"].every((field) => sequenceFields.has(field) && propertyIsReadOnly(sequenceClass, field));
   const projectSequenceRelationship = propertyIsReadOnly(projectClass, "sequence") || elementIsReadOnly(projectClass, "sequence");
@@ -140,7 +137,10 @@ export function classifySupportedSurfaces(surfaces) {
   const roles = eachOccurrenceHasReadOnlyProperty("role", "roles");
   const storylineRelationships = eachOccurrenceHasReadOnlyProperty("storyline", "lane", "attached to", "spine position");
   // The bridge's local callback counter is inventoried separately; it is not an Apple Event source revision contract.
-  const sourceBoundRevision = hasReadOnlyProperty("revision", "change token", "change sequence", "modification version");
+  const revisionFields = ["revision", "change token", "change sequence", "modification version"];
+  const sourceBoundRevision = [projectClass, sequenceClass, ...occurrenceClasses].some((item) =>
+    readOnlyGroupCovers(item) && revisionFields.some((field) => propertyIsReadOnly(item, field)),
+  );
   const requirements = [
     ["supported read-only query", Boolean(readOnlyQuery)],
     ["timeline objects covered by read-only access", readOnlyObjectModel],

@@ -105,6 +105,23 @@ test("even a complete-looking declared surface remains unpromoted pending empiri
   assert.equal(result.canonicalCapabilityPromoted, false);
   assert.equal(result.missingRequirements.length, 0);
   assert.ok(result.promotionRequirements.some((requirement: string) => requirement.includes("collection completeness")));
+
+  completeSurface.appleEvents.classes[0].properties = completeSurface.appleEvents.classes[0].properties.filter(
+    (property) => property.name !== "revision",
+  );
+  completeSurface.appleEvents.classes.push({
+    name: "library",
+    suiteCode: "fxlm",
+    properties: [property("revision")],
+    elements: [],
+  });
+  const unrelatedRevision = classifySupportedSurfaces(completeSurface);
+  assert.equal(unrelatedRevision.completeSnapshotCandidate, false);
+  assert.ok(unrelatedRevision.missingRequirements.includes("source-bound revision"));
+
+  completeSurface.appleEvents.classes[2].properties.push(property("change token"));
+  const occurrenceRevision = classifySupportedSurfaces(completeSurface);
+  assert.equal(occurrenceRevision.completeSnapshotCandidate, true);
 });
 
 test("does not classify unspecified or writable dictionary properties as a complete candidate", () => {
