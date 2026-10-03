@@ -353,6 +353,17 @@ They are disabled unless `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`. Native edits
 operate on the active Final Cut selection/playhead and do not claim a complete
 timeline snapshot or canonical diff.
 
+`editor.native.inspect` and `editor.native.focus` also expose native target
+readiness. `readiness.targetKind` is `selected-clip` only when exactly one
+timeline occurrence has a stable Accessibility identity (`AXIdentifier`);
+`playhead`, `unknown`, and `none` are not selected-occurrence proof.
+`readiness.targetBound` is true only when the observed target is bound to live
+project ID, sequence ID, and revision. `editing.route` preserves these fields
+so callers can distinguish a bound selected occurrence from a playhead-only or
+unresolved target. Focus performs a bounded selection reread after timeline
+focus when live state is available; ambiguous or identity-less selection
+remains fail-closed.
+
 The operation-level `capabilities.families.native` descriptors are the
 machine-readable form of this surface. They include every supported native
 operation plus explicit entries for unsupported project creation, clip
