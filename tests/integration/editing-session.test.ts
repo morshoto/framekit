@@ -102,6 +102,26 @@ test("rejects stale desired revisions before changing the session", () => {
   assert.equal(session.desired().sequence.occurrences[0]?.gainDb, undefined);
 });
 
+test("blocks stale session plans without changing BASE or OURS", () => {
+  const session = EditingSession.create({ base: baseTimeline() });
+  session.apply([{ type: "rename-occurrence", occurrenceId: "occurrence-1", name: "Agent edit" }]);
+  const before = session.document();
+
+  assert.equal(session.observeProviderRevision({
+    id: "provider-revision-2",
+    sequence: 5,
+    timestamp: "2026-09-14T00:02:00.000Z",
+  }), "changed");
+  assert.equal(session.state(), "possibly_stale");
+  assert.deepEqual(session.base(), before.base);
+  assert.deepEqual(session.desired(), before.desired);
+
+  const operation = [{ type: "set-gain" as const, occurrenceId: "occurrence-1", gainDb: -3 }];
+  assert.throws(() => session.preview(operation), /RECONCILIATION_REQUIRED/);
+  assert.throws(() => session.apply(operation), /RECONCILIATION_REQUIRED/);
+  assert.deepEqual(session.desired(), before.desired);
+});
+
 test("can construct an IR from a canonical snapshot without leaking editor types", () => {
   const ir = createTimelineIrFromProjectSnapshot({
     projectId: "project-1",

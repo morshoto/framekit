@@ -172,7 +172,6 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     nativeRequirement("selectionEdit"),
     nativeRequirement("timelineFocus"),
     nativeRequirement("undo"),
-    nativeUndoReadinessRequirement(),
   ],
   "editor.native.picture-in-picture": [
     nativeRequirement("pictureInPicture"),
@@ -180,7 +179,6 @@ const operationRequirements: Record<EditingRouteOperation, Requirement[]> = {
     nativeRequirement("timelineOccurrenceLocate"),
     nativeRequirement("timelineFocus"),
     nativeRequirement("undo"),
-    nativeUndoReadinessRequirement(),
   ],
   "artifact.edit": [
     editorRequirement("projectRead"),
@@ -289,16 +287,6 @@ export function resolveEditingRoute(
       message: selectedMessage(request.operation),
       connectionState: context.connection.state,
     },
-  };
-}
-
-function nativeUndoReadinessRequirement(): Requirement {
-  return {
-    name: "native.undo.ready",
-    label: "native.undo.ready",
-    category: "native-ui",
-    satisfied: (context) => context.nativeReadiness?.undo === "available",
-    descriptor: () => undefined,
   };
 }
 

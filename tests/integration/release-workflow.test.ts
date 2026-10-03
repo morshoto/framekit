@@ -349,7 +349,8 @@ test('release verification retries transient npm registry visibility', async () 
 		statusCheck,
 		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
 	);
-	assert.match(verification, /max_attempts=6/);
+	assert.match(verification, /max_attempts=17/);
+	assert.match(verification, /retry_delay_seconds=60/);
 	assert.match(
 		verification,
 		/for attempt in \$\(seq 1 "\$\{max_attempts\}"\)/,
@@ -359,7 +360,89 @@ test('release verification retries transient npm registry visibility', async () 
 		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
 	);
 	assert.match(verification, /No match found for version/);
-	assert.match(verification, /sleep "\$\{delay\}"/);
+	assert.match(verification, /sleep "\$\{retry_delay_seconds\}"/);
+});
+
+test('release verification allows npm validation time to complete', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+	const maxAttempts = Number(
+		verification.match(/max_attempts=(\d+)/)?.[1] ?? 0,
+	);
+	const retryDelaySeconds = Number(
+		verification.match(/retry_delay_seconds=(\d+)/)?.[1] ?? 0,
+	);
+
+	assert.ok(maxAttempts > 1, 'verification should retry after publication');
+	assert.ok(
+		(maxAttempts - 1) * retryDelaySeconds >= 16 * 60,
+		'verification should allow npm validation and a safety buffer',
+	);
+});
+
+test('release verification treats authenticated npm validation as pending', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(
+		verification,
+		/NPM_LIFECYCLE_TOKEN: \$\{\{ secrets\.NPM_LIFECYCLE_TOKEN \}\}/,
+	);
+	assert.match(
+		verification,
+		/version\/\$\{expected_version\}\/status/,
+	);
+	assert.match(
+		verification,
+		/--oauth2-bearer "\$\{NPM_LIFECYCLE_TOKEN\}"/,
+	);
+	assert.match(
+		verification,
+		/\[ "\$\{lifecycle_status\}" = "validating" \]/,
+	);
+	assert.match(verification, /continue/);
+});
+
+test('release lifecycle status requests have a bounded timeout', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(verification, /--max-time 15/);
+});
+
+test('release lifecycle status parsing falls back on malformed responses', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(verification, /if lifecycle_status="\$\(node -e/);
+	assert.match(verification, /try \{/);
+	assert.match(verification, /JSON\.parse\(process\.argv\[1\]\)/);
+	assert.match(verification, /catch \{/);
+	assert.match(verification, /lifecycle_status=""/);
 });
 
 test('release retries tolerate a duplicate npm publish after a visibility race', async () => {
@@ -424,6 +507,18 @@ test('release documentation provides the exact npm trust command', async () => {
 	assert.match(documentation, /--file\s+release\.yml/);
 	assert.match(documentation, /--allow-publish/);
 	assert.match(documentation, /--yes/);
+});
+
+test('release documentation explains npm lifecycle verification fallback', async () => {
+	const documentation = await readFile(
+		resolve(repository, 'docs/releasing.md'),
+		'utf8',
+	);
+
+	assert.match(documentation, /NPM_LIFECYCLE_TOKEN/);
+	assert.match(documentation, /validating/i);
+	assert.match(documentation, /public registry/i);
+	assert.match(documentation, /16 minutes/i);
 });
 
 test('release documentation explains manual native asset recovery', async () => {

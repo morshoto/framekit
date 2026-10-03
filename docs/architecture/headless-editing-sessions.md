@@ -10,9 +10,22 @@ retry.
 The agent workflow is:
 
 ```text
-provider Timeline IR -> session base/desired -> preview/execute
-                    -> observe/reconcile -> FCPXML job -> provider
+provider Timeline IR -> session base/desired -> provider change stream
+                    -> fresh preview/execute -> observe/reconcile -> FCPXML job
+                    -> provider
 ```
+
+## Provider freshness boundary
+
+The MCP server connects the provider's canonical `changesSince` stream to every
+persisted session operation. Before session preview, execution, status, or
+materialization, the stream is queried from the session BASE revision. A changed
+provider revision marks the session `possibly_stale` and preserves BASE and
+OURS/desired exactly; both editing and materialization remain blocked until a
+fresh provider Timeline IR is explicitly reconciled as THEIRS. A change-stream
+cursor mismatch is also fail-closed. This freshness check is distinct from the
+non-canonical SQLite observation below and never promotes metadata evidence to a
+canonical write authorization.
 
 ## Observation boundary
 

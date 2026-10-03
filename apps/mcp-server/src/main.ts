@@ -28,6 +28,7 @@ import {
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
+import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
@@ -146,7 +147,17 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           return { undone: result.undone, verification: result.verification };
         },
       },
-      readSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
+      readSnapshot: async () => {
+        const live = await liveAdapter!.readLiveState();
+        const projectId = live.project?.id;
+        const sequenceId = live.sequence?.id;
+        if (!projectId || projectId.startsWith("final-cut:") || !sequenceId || sequenceId.startsWith("final-cut:")) {
+          throw new Error("TARGET_UNAVAILABLE: stable live project and sequence identities are required for canonical export");
+        }
+        return new FinalCutCanonicalSnapshotSource({
+          target: { projectId, projectUid: projectId, sequenceId },
+        }).readSnapshot();
+      },
       resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
       backgroundCatalog: backgroundLibraryProvider,
     })
@@ -242,6 +253,7 @@ const server = createMcpServer(runtime, {
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
   sessionDirectory: join(framekitStateDirectory, "sessions"),
+  sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   sqliteObservationProvider,
 });

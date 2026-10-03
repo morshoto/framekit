@@ -28,6 +28,13 @@ The package metadata must keep its `repository.url` aligned with the GitHub
 repository. The workflow uses GitHub's OIDC identity and does not require an
 `NPM_TOKEN` repository secret.
 
+The optional `NPM_LIFECYCLE_TOKEN` repository secret enables npm's exact-version
+lifecycle status endpoint. Use an npm access token with package-maintainer access
+only when that endpoint is available to the workflow. A `validating` response is
+treated as pending. If the secret is absent or the endpoint is unavailable, the
+workflow falls back to public registry verification, so trusted publishing still
+works without this secret.
+
 ## Release flow
 
 1. Merge the tagpr release pull request into `main`.
@@ -37,8 +44,8 @@ repository. The workflow uses GitHub's OIDC identity and does not require an
 3. Hosted jobs validate package/plugin alignment and, for milestone releases,
    generate the milestone report.
 4. The `publish-npm` job installs npm 11.5.1, runs the repository release gate,
-   publishes the matching package, verifies the version on the public registry,
-   and publishes the GitHub release.
+   publishes the matching package, waits up to 16 minutes for npm validation,
+   verifies the version on the public registry, and publishes the GitHub release.
 5. Native Final Cut assets are deliberately outside this publication critical
    path. Run the separate `Native release assets` workflow for the published
    tag when a trusted Final Cut-capable Mac is available.
@@ -110,7 +117,9 @@ version is already present. After a publish, registry visibility is retried
 with bounded backoff. If a retry races with an earlier successful publish and
 npm reports that the version already exists, the workflow proceeds to that
 same verification path. Registry errors other than a missing version or an
-immutable-version conflict fail closed.
+immutable-version conflict fail closed. The verification window is long enough
+for npm's publish-time validation; an optional lifecycle-status response of
+`validating` is treated as pending rather than as a release failure.
 
 If a retry finds a draft release whose tag is shown as `untagged-*`, the
 workflow associates that draft with the release tag before publishing it.

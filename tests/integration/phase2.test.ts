@@ -102,9 +102,96 @@ test("Phase 2 exposes a queryable agent context", async () => {
     visualAnalyzer: new FixtureVisualAnalyzer(),
   });
   const context = await runtime.inspectContext();
+  assert.ok(context.project);
   assert.equal(context.revision.id, "rev-0");
   assert.equal(context.project.projectName, "Phase 2 Fixture");
   assert.equal(context.media[0]?.mediaId, "media-1");
   assert.equal(context.recentChanges.from.id, "rev-0");
   assert.equal(context.capabilities.analyzers.visualTrack, true);
+});
+
+test("context inspection exposes a source-bound cursor and compact scope envelope", async () => {
+  const runtime = new AgentVideoRuntime(phase2Fixture());
+  const context = await runtime.inspectContext();
+  assert.ok(context.project);
+  const compact = context as unknown as Record<string, unknown>;
+
+  assert.deepEqual(compact.cursor, {
+    revision: context.revision,
+    target: {
+      projectId: context.project.projectId,
+      sequenceId: context.project.timeline.id,
+    },
+  });
+  assert.deepEqual(compact.provenance, {
+    source: "deterministic-fixture",
+    provider: "fixture",
+    evidenceTier: "deterministic",
+    target: {
+      projectId: context.project.projectId,
+      sequenceId: context.project.timeline.id,
+    },
+  });
+  assert.deepEqual(compact.changedScopes, []);
+});
+
+test("context changes return an ordered source-bound cursor and changed scope", async () => {
+  const runtime = new AgentVideoRuntime(phase2Fixture());
+  const before = await runtime.inspectContext();
+  await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Interview - Clean" });
+
+  await assert.rejects(
+    runtime.contextChangesSince({
+      revision: before.cursor.revision,
+      target: { projectId: "other-project", sequenceId: "other-sequence" },
+    }),
+    /TARGET_MISMATCH/,
+  );
+  const changes = await runtime.contextChangesSince(before.cursor.revision);
+
+  assert.deepEqual(changes.cursor, {
+    revision: changes.to,
+    target: {
+      projectId: "project-2",
+      sequenceId: "timeline-2",
+    },
+  });
+  assert.deepEqual(changes.provenance, [{
+    source: "deterministic-fixture",
+    provider: "fixture",
+    evidenceTier: "deterministic",
+    target: {
+      projectId: "project-2",
+      sequenceId: "timeline-2",
+    },
+  }]);
+  assert.deepEqual(changes.changedScopes, ["timeline"]);
+});
+
+test("canonical timeline revision stays the context cursor across independent live metadata revisions", async () => {
+  const adapter = phase2Fixture();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectContext();
+  await runtime.edit({ type: "rename-clip", clipId: "clip-1", name: "Interview - Clean" });
+
+  const readChanges = adapter.readChanges.bind(adapter);
+  adapter.readChanges = async (since) => {
+    const changes = await readChanges(since);
+    const metadataRevision = { id: "rev-3", sequence: 3, timestamp: "2026-09-27T12:48:37Z" };
+    return {
+      ...changes,
+      to: metadataRevision,
+      stateChanges: [{
+        kind: "playhead-changed",
+        revision: metadataRevision,
+        state: { revision: metadataRevision },
+      }],
+    };
+  };
+
+  const changes = await runtime.contextChangesSince(before.cursor.revision);
+
+  assert.equal(changes.to.id, changes.timeline?.to.id);
+  assert.equal(changes.cursor.revision.id, changes.timeline?.to.id);
+  assert.equal(changes.stateChanges[0]?.revision.id, "rev-3");
 });

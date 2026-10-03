@@ -4,7 +4,7 @@ import type { ProjectSnapshot } from "./project.js";
 
 import type { MediaContext } from "./media.js";
 
-import type { TimelineDiff, AssetChange } from "./diff.js";
+import type { TimelineDiff, TimelineChange, AssetChange } from "./diff.js";
 
 import type { ProjectSelectionMode, RuntimeCapabilities } from "./capabilities.js";
 
@@ -41,12 +41,31 @@ export interface ProjectCatalogLiveSource {
   guarantee: "observed";
 }
 
-export type ProjectCatalogIdentityMatchMethod = "stable-id" | "name-only" | "unresolved";
+export type ProjectCatalogIdentityMatchMethod = "stable-id" | "name-only" | "ambiguous-name" | "unresolved";
+
+export type ProjectCatalogIdentityDiagnosticCode = "stable-id-mismatch" | "ambiguous-name" | "identity-unresolved";
+
+export interface ProjectCatalogIdentityDiagnostic {
+  scope: "project" | "sequence";
+  code: ProjectCatalogIdentityDiagnosticCode;
+  liveId?: string;
+  liveName?: string;
+  catalogId?: string;
+  candidateCatalogIds?: string[];
+}
 
 export interface ProjectCatalogIdentityMatch {
   method: ProjectCatalogIdentityMatchMethod;
   catalogId?: string;
   liveId?: string;
+  candidateCatalogIds?: string[];
+}
+
+export type ProjectCatalogReconciliationBlockerCode = "target-selection-required";
+
+export interface ProjectCatalogReconciliationBlocker {
+  code: ProjectCatalogReconciliationBlockerCode;
+  message: string;
 }
 
 export interface ProjectCatalogReconciliation {
@@ -55,6 +74,8 @@ export interface ProjectCatalogReconciliation {
   sequence: ProjectCatalogIdentityMatch;
   beforeRevision?: ContextRevision;
   afterRevision?: ContextRevision;
+  diagnostics?: ProjectCatalogIdentityDiagnostic[];
+  blocker?: ProjectCatalogReconciliationBlocker;
   reason?: string;
 }
 
@@ -93,6 +114,30 @@ export interface ProjectCatalog {
 export interface ProjectSelection {
   projectId: string;
   sequenceId?: string;
+}
+
+export interface TimelineChangesRequest {
+  target: ProjectSelection;
+  from: ContextRevision;
+}
+
+export type TimelineChangesStatus = "ready" | "stale" | "ambiguous" | "unavailable";
+
+export interface TimelineChangesSource {
+  source: string;
+  backend: string;
+  guarantee: "canonical-read" | "metadata-only";
+}
+
+export interface TimelineChangesResult {
+  status: TimelineChangesStatus;
+  target: ProjectSelection;
+  source: TimelineChangesSource;
+  from: ContextRevision;
+  to?: ContextRevision;
+  changes: TimelineChange[];
+  timeline?: TimelineDiff;
+  reason?: string;
 }
 
 export interface ProjectSelectionResult extends ProjectCatalog {
@@ -142,9 +187,44 @@ export interface ContextChangeSet {
   assetChanges: AssetChange[];
 }
 
+export type ContextSource =
+  | "canonical-timeline"
+  | "live-metadata"
+  | "fcpxml-artifact"
+  | "deterministic-fixture";
+
+export type ContextEvidenceTier =
+  | "deterministic"
+  | "metadata-only"
+  | "fcpxml-artifact"
+  | "canonical-live"
+  | "headed-native";
+
+export interface ContextTarget {
+  projectId: string;
+  sequenceId: string;
+}
+
+export interface ContextCursor {
+  revision: ContextRevision;
+  target?: ContextTarget;
+}
+
+export interface ContextProvenance {
+  source: ContextSource;
+  provider: string;
+  evidenceTier: ContextEvidenceTier;
+  target?: ContextTarget;
+}
+
+export type ContextChangedScope = "project" | "sequence" | "timeline" | "playhead" | "assets" | "media";
+
 export interface ContextDiff {
   from: ContextRevision;
   to: ContextRevision;
+  cursor: ContextCursor;
+  provenance: ContextProvenance[];
+  changedScopes: ContextChangedScope[];
   timeline?: TimelineDiff;
   stateChanges: EditorChange[];
   assetChanges: AssetChange[];
@@ -152,7 +232,10 @@ export interface ContextDiff {
 
 export interface AgentContext {
   revision: ContextRevision;
-  project: ProjectSnapshot;
+  cursor: ContextCursor;
+  provenance: ContextProvenance;
+  changedScopes: ContextChangedScope[];
+  project?: ProjectSnapshot;
   editorState?: EditorLiveState;
   media: MediaContext[];
   recentChanges: ContextDiff;

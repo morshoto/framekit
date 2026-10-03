@@ -61,14 +61,14 @@ export async function runGoldenScenario(scenario: GoldenScenario): Promise<void>
   } else {
     assert.ok(scenario.operations, `${scenario.id}: composite scenario has no operations`);
     const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: scenario.operations });
-    assert.deepEqual(preview.expectedDiff, scenario.expected.diff, `${scenario.id}: preview diff mismatch`);
+    assertGoldenDiff(preview.expectedDiff, scenario.expected.diff, `${scenario.id}: preview diff mismatch`);
     transaction = await runtime.executeEdit(preview.previewToken);
   }
 
   assert.equal(transaction.status, "VERIFIED", `${scenario.id}: workflow was not verified`);
   validateGoldenSnapshot(transaction.after, scenario.id);
   assert.deepEqual(transaction.after, scenario.expected.after, `${scenario.id}: after snapshot mismatch`);
-  assert.deepEqual(transaction.diff, scenario.expected.diff, `${scenario.id}: diff mismatch`);
+  assertGoldenDiff(transaction.diff, scenario.expected.diff, `${scenario.id}: diff mismatch`);
   assert.deepEqual(transaction.after.revision, scenario.expected.afterRevision, `${scenario.id}: after revision mismatch`);
   assert.deepEqual(await runtime.inspectProject(), scenario.expected.after, `${scenario.id}: read-after-write mismatch`);
 
@@ -120,6 +120,13 @@ export async function runGoldenScenario(scenario: GoldenScenario): Promise<void>
     );
   }
   assert.deepEqual(await staleRuntime.inspectProject(), scenario.expected.after, `${scenario.id}: stale write mutated state`);
+}
+
+function assertGoldenDiff(actual: TimelineDiff, expected: TimelineDiff, message: string): void {
+  const { changes: _actualChanges, ...actualLegacy } = actual;
+  const { changes: _expectedChanges, ...expectedLegacy } = expected;
+  assert.deepEqual(actualLegacy, expectedLegacy, message);
+  assert.ok(Array.isArray(actual.changes), `${message}: ordered changes are required`);
 }
 
 export function validateGoldenSnapshot(snapshot: ProjectSnapshot, scenarioId: string): void {

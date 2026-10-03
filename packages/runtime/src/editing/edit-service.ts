@@ -547,8 +547,14 @@ function postWriteAnalysisRequirements(policy: VerificationPolicy): PostWriteAna
 
 function sameDiffContent(left: TimelineDiff, right: TimelineDiff): boolean {
   const comparable = (diff: TimelineDiff) => {
-    const { from: _from, to: _to, ...content } = diff;
-    return content;
+    const { from: _from, to: _to, provenance, ...content } = diff;
+    return {
+      target: provenance ? {
+        projectId: provenance.projectId,
+        sequenceId: provenance.sequenceId,
+      } : undefined,
+      ...content,
+    };
   };
   return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
 }

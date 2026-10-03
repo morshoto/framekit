@@ -7,6 +7,7 @@ import type {
   CompositeEditPreview,
   CompositeEditRequest,
   ContextDiff,
+  ContextCursor,
   ContextRevision,
   CapabilityInspectionOptions,
   EditOperation,
@@ -33,6 +34,8 @@ import type {
   RationalTime,
   SpeechAnalysis,
   TimelineDiff,
+  TimelineChangesRequest,
+  TimelineChangesResult,
   TimelineFrameCapture,
   TimeRange,
   VerificationPolicy,
@@ -254,8 +257,12 @@ export class AgentVideoRuntime {
     return this.contexts.changesSince(revision);
   }
 
-  public async contextChangesSince(revision: ContextRevision, waitMs = 0): Promise<ContextDiff> {
-    return this.contexts.contextChangesSince(revision, waitMs);
+  public async timelineChangesSince(request: TimelineChangesRequest): Promise<TimelineChangesResult> {
+    return this.contexts.timelineChangesSince(request);
+  }
+
+  public async contextChangesSince(cursorOrRevision: ContextCursor | ContextRevision, waitMs = 0): Promise<ContextDiff> {
+    return this.contexts.contextChangesSince(cursorOrRevision, waitMs);
   }
 
   public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<SpeechAnalysis> {
