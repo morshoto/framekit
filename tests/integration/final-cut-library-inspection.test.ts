@@ -160,6 +160,24 @@ test("bounds hanging Apple Events and preserves retryable timeout failures", asy
   assert.match(result.error.message, /timed out/);
 });
 
+test("classifies execFile SIGTERM as a retryable timeout", async () => {
+  const provider = new FinalCutLibraryInspectionProvider({
+    executor: async () => {
+      const error = new Error("Command failed: osascript") as Error & { killed?: boolean; signal?: string };
+      error.killed = true;
+      error.signal = "SIGTERM";
+      throw error;
+    },
+  });
+
+  const result = await provider.inspect();
+
+  assert.equal(result.status, "unavailable");
+  if (result.status !== "unavailable") return;
+  assert.equal(result.error.retryable, true);
+  assert.match(result.error.message, /timed out/);
+});
+
 test("builds a direct read-only Final Cut Apple Event script", () => {
   const script = buildFinalCutLibraryInspectionScript();
 

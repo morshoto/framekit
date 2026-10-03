@@ -528,18 +528,35 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
               usable(timeline.playheadTime()), usable(timeline.sequenceTimeRange.start), usable(timeline.sequenceTimeRange.duration) else {
             throw NSError(domain: "Framekit", code: 2, userInfo: [NSLocalizedDescriptionKey: "live timeline times are not available yet"])
         }
-        let project = (sequence.container as? FCPXProject).map {
-            LiveState.Project(id: "final-cut:project:\($0.uid)", name: $0.name)
-        }
-        let projectID = project?.id ?? "final-cut:project:unknown"
-        // The public host API exposes no immutable sequence identifier. This
-        // project-scoped name identity is intentionally treated as mutable;
-        // native handles fail closed when the identity changes.
+        let project = (sequence.container as? FCPXProject).flatMap(stableProject)
+        let projectID = project?.id ?? "final-cut:project:unavailable"
         let sequenceName = sequence.name ?? "active-sequence"
-        let liveSequence = LiveState.Sequence(id: "\(projectID):sequence:\(sequenceName)", name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
+        let sequenceUID = stableUID(sequence)
+        let sequenceID: String
+        if let sequenceUID {
+            sequenceID = sequenceUID
+        } else {
+            sequenceID = "final-cut:sequence:unavailable"
+        }
+        let liveSequence = LiveState.Sequence(id: sequenceID, name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
         let currentRevision = stateLock.withLock { revision }
         return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
+    }
+
+    private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
+        guard let uidValue = stableUID(project) else { return nil }
+        return LiveState.Project(id: uidValue, name: project.name)
+    }
+
+    private func stableUID(_ object: NSObject) -> String? {
+        let uidSelector = NSSelectorFromString("UID")
+        guard object.responds(to: uidSelector),
+              let uidValue = object.perform(uidSelector)?.takeUnretainedValue() as? String,
+              !uidValue.isEmpty else {
+            return nil
+        }
+        return uidValue
     }
 
     private func usable(_ time: CMTime) -> Bool {

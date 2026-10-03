@@ -147,7 +147,17 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           return { undone: result.undone, verification: result.verification };
         },
       },
-      readSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
+      readSnapshot: async () => {
+        const live = await liveAdapter!.readLiveState();
+        const projectId = live.project?.id;
+        const sequenceId = live.sequence?.id;
+        if (!projectId || projectId.startsWith("final-cut:") || !sequenceId || sequenceId.startsWith("final-cut:")) {
+          throw new Error("TARGET_UNAVAILABLE: stable live project and sequence identities are required for canonical export");
+        }
+        return new FinalCutCanonicalSnapshotSource({
+          target: { projectId, projectUid: projectId, sequenceId },
+        }).readSnapshot();
+      },
       resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
       backgroundCatalog: backgroundLibraryProvider,
     })

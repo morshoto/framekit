@@ -26,19 +26,19 @@ test("CodeQL still supersedes obsolete pull-request runs", async () => {
   assert.match(workflow, /github\.event_name == 'pull_request'/);
 });
 
-test("CodeQL filters language jobs by changed paths", async () => {
+test("CodeQL publishes both required checks for documentation-only pull requests", async () => {
   const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+  const javascriptJob = workflow.match(/\n  analyze:\n[\s\S]*?(?=\n  analyze-swift:|$)/)?.[0];
+  const swiftJob = workflow.match(/\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/)?.[0];
 
-  assert.match(workflow, /\n  changes:\n/);
-  assert.match(workflow, /name: Detect CodeQL paths/);
-  assert.match(workflow, /javascript_typescript: \$\{\{ steps\.filter\.outputs\.javascript_typescript \}\}/);
-  assert.match(workflow, /swift: \$\{\{ steps\.filter\.outputs\.swift \}\}/);
-  assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /git diff --name-only "\$BASE_SHA\.\.\..*\$CURRENT_SHA"/);
-  assert.match(workflow, /javascript_pattern=/);
-  assert.match(workflow, /swift_pattern=/);
-  assert.match(workflow, /needs: changes/);
-  assert.match(workflow, /if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.javascript_typescript == 'true'\) \}\}/);
+  assert.ok(javascriptJob, "JavaScript/TypeScript CodeQL job should be present");
+  assert.ok(swiftJob, "Swift CodeQL job should be present");
+  assert.match(javascriptJob, /name: Analyze \(\$\{\{ matrix\.language \}\}\)/);
+  assert.match(javascriptJob, /language: javascript-typescript/);
+  assert.match(javascriptJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
+  assert.match(swiftJob, /name: Analyze \(swift\)/);
+  assert.match(swiftJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
+  assert.doesNotMatch(workflow, /\n  changes:\n|needs: changes/);
 });
 
 test("Swift CodeQL publishes its required analysis when unchanged", async () => {

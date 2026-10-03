@@ -13,21 +13,18 @@ Pull-request scans cancel an older active scan for the same pull request when a
 newer pull-request event arrives. This bounds work for obsolete pull-request
 commits while leaving different pull requests independent.
 
-## Pull-request path filtering
+## Required pull-request checks
 
-Pull requests first run the lightweight `Detect CodeQL paths` job on
-`ubuntu-latest`. The JavaScript/TypeScript analysis runs when a JavaScript or
-TypeScript source, its package or TypeScript configuration, the CodeQL
-configuration, or this workflow changes. The Swift job always performs its
-checked-in-shim extraction and publishes `/language:swift`, even when no Swift
-source changed, so the code-scanning comparison has the configuration present
-on `main`.
+Every pull request publishes the required `Analyze (javascript-typescript)` and
+`Analyze (swift)` checks, including documentation-only changes. A skipped
+JavaScript/TypeScript matrix job did not publish the named status required by
+the `main` ruleset, which blocked otherwise clean documentation PRs. The Swift
+job performs its checked-in-shim extraction and publishes `/language:swift`
+even when no Swift source changed, so the code-scanning comparison has the
+configuration present on `main`.
 
-Pushes to `main`, scheduled scans, and manual scans analyze both languages so
-that path filtering does not reduce default-branch coverage. The Swift job uses
-conditions inside the job rather than a job-level path filter, while the
-JavaScript/TypeScript job retains its existing job-level filter. If path
-detection fails, both language jobs deliberately fall back to a full scan.
+Pushes to `main`, scheduled scans, and manual scans also analyze both
+languages. The language jobs no longer depend on a path detector.
 
 The policy intentionally does not suppress genuine CodeQL failures, delete
 historical analyses, or change the configured security rules and query suites.
@@ -40,7 +37,7 @@ API before treating the scan as complete.
 
 ## Verification
 
-Status: Verified for the pull-request merge ref; post-merge `main` validation is pending.
+Status: Historical pull-request merge-ref verification; the current policy requires both language jobs on every PR.
 
 Last verified: 2026-08-31 (Asia/Tokyo; 2026-08-30 UTC)
 
