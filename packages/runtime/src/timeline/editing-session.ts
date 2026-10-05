@@ -99,6 +99,32 @@ export interface TimelineIrMarker {
   durationTime: RationalTime;
 }
 
+export interface TimelineIrTitleStyle {
+  fontFamily?: string;
+  fontSize?: number;
+  color?: string;
+  alignment?: "left" | "center" | "right";
+}
+
+export interface TimelineIrTitle {
+  id: string;
+  text: string;
+  startTime: RationalTime;
+  durationTime: RationalTime;
+  /** Connected/overlay lane; zero is reserved for the primary storyline. */
+  lane: number;
+  style?: TimelineIrTitleStyle;
+  position?: { x: number; y: number };
+}
+
+export interface TimelineIrTransition {
+  id: string;
+  kind: "cross-dissolve";
+  beforeOccurrenceId: string;
+  afterOccurrenceId: string;
+  durationTime: RationalTime;
+}
+
 export interface TimelineIrCaption {
   id: string;
   text: string;
@@ -122,6 +148,8 @@ export interface TimelineIr {
     storyElements: TimelineIrStoryElement[];
     markers: TimelineIrMarker[];
     captions: TimelineIrCaption[];
+    titles?: TimelineIrTitle[];
+    transitions?: TimelineIrTransition[];
     binding?: TimelineIrBinding;
   };
   resources: TimelineIrResource[];
@@ -137,7 +165,11 @@ export type TimelineIrEditOperation =
   | { type: "set-gain"; occurrenceId: string; gainDb: number }
   | { type: "set-transform"; occurrenceId: string; transform: TimelineIrTransform }
   | { type: "remove-occurrence"; occurrenceId: string }
-  | { type: "add-marker"; marker: TimelineIrMarker };
+  | { type: "add-marker"; marker: TimelineIrMarker }
+  | { type: "add-title"; title: TimelineIrTitle }
+  | { type: "remove-title"; titleId: string }
+  | { type: "add-transition"; transition: TimelineIrTransition }
+  | { type: "remove-transition"; transitionId: string };
 
 export type EditingSessionState =
   | "clean"
@@ -180,6 +212,8 @@ export interface TimelineIrPreview {
   operations: TimelineIrEditOperation[];
   changedOccurrenceIds: string[];
   changedMarkerIds: string[];
+  changedTitleIds: string[];
+  changedTransitionIds: string[];
   state: EditingSessionState;
 }
 
@@ -263,7 +297,7 @@ export class EditingSession {
       after,
       operations: structuredClone(operations),
       ...changed,
-      state: changedOccurrenceOrMarkers(changed) ? editState(this.value.state) : this.value.state,
+      state: changedTimelineElements(changed) ? editState(this.value.state) : this.value.state,
     };
   }
 
@@ -273,7 +307,7 @@ export class EditingSession {
   ): EditingSessionApplyResult {
     const preview = this.preview(operations, expectedRevision);
     this.value.desired = preview.after;
-    if (changedOccurrenceOrMarkers(preview)) {
+    if (changedTimelineElements(preview)) {
       this.value.desired.revision = nextRevision(preview.after, this.value.desired.revision, this.clock());
       this.value.state = editState(this.value.state);
       preview.after = structuredClone(this.value.desired);
@@ -449,6 +483,8 @@ export function validateTimelineIr(timeline: TimelineIr): void {
   if (!Array.isArray(timeline.sequence.storyElements)) throw new Error("TIMELINE_IR_INVALID: storyElements must be an array");
   if (!Array.isArray(timeline.sequence.markers)) throw new Error("TIMELINE_IR_INVALID: markers must be an array");
   if (!Array.isArray(timeline.sequence.captions)) throw new Error("TIMELINE_IR_INVALID: captions must be an array");
+  if (timeline.sequence.titles !== undefined && !Array.isArray(timeline.sequence.titles)) throw new Error("TIMELINE_IR_INVALID: titles must be an array");
+  if (timeline.sequence.transitions !== undefined && !Array.isArray(timeline.sequence.transitions)) throw new Error("TIMELINE_IR_INVALID: transitions must be an array");
   requireText(timeline.project?.id, "project.id");
   requireText(timeline.project?.name, "project.name");
   requireText(timeline.sequence?.id, "sequence.id");
@@ -518,6 +554,10 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     validateRational(caption.startTime, `caption ${caption.id}.startTime`, false);
     validateRational(caption.durationTime, `caption ${caption.id}.durationTime`, false);
   }
+  uniqueIds((timeline.sequence.titles ?? []).map(({ id }) => id), "title");
+  for (const title of timeline.sequence.titles ?? []) validateTitle(title);
+  uniqueIds((timeline.sequence.transitions ?? []).map(({ id }) => id), "transition");
+  for (const transition of timeline.sequence.transitions ?? []) validateTransition(timeline, transition);
 }
 
 export function validateEditingSessionDocument(document: EditingSessionDocument): void {
@@ -584,7 +624,14 @@ export function timelineIrDigest(timeline: TimelineIr): string {
 function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation): void {
   const occurrenceId = "occurrenceId" in operation ? operation.occurrenceId : undefined;
   const occurrence = occurrenceId ? timeline.sequence.occurrences.find(({ id }) => id === occurrenceId) : undefined;
-  if (operation.type !== "add-marker" && operation.type !== "insert-occurrence" && !occurrence) {
+  if (![
+    "add-marker",
+    "insert-occurrence",
+    "add-title",
+    "remove-title",
+    "add-transition",
+    "remove-transition",
+  ].includes(operation.type) && !occurrence) {
     throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence not found: ${occurrenceId}`);
   }
   switch (operation.type) {
@@ -665,6 +712,36 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       if (timeline.sequence.markers.some(({ id }) => id === operation.marker.id)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: marker already exists: ${operation.marker.id}`);
       timeline.sequence.markers.push({ ...structuredClone(operation.marker), startTime: normalizeRationalTime(operation.marker.startTime), durationTime: normalizeRationalTime(operation.marker.durationTime) });
       return;
+    case "add-title": {
+      const titles = timeline.sequence.titles ??= [];
+      if (titles.some(({ id }) => id === operation.title.id)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: title already exists: ${operation.title.id}`);
+      validateTitle(operation.title);
+      titles.push(structuredClone(operation.title));
+      timeline.sequence.durationTime = maxRational(
+        timeline.sequence.durationTime,
+        addRationalTimes(operation.title.startTime, operation.title.durationTime, "TIMELINE_IR_OPERATION_INVALID"),
+      );
+      return;
+    }
+    case "remove-title": {
+      const titles = timeline.sequence.titles ?? [];
+      if (!titles.some(({ id }) => id === operation.titleId)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: title not found: ${operation.titleId}`);
+      timeline.sequence.titles = titles.filter(({ id }) => id !== operation.titleId);
+      return;
+    }
+    case "add-transition": {
+      const transitions = timeline.sequence.transitions ??= [];
+      if (transitions.some(({ id }) => id === operation.transition.id)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: transition already exists: ${operation.transition.id}`);
+      validateTransition(timeline, operation.transition);
+      transitions.push(structuredClone(operation.transition));
+      return;
+    }
+    case "remove-transition": {
+      const transitions = timeline.sequence.transitions ?? [];
+      if (!transitions.some(({ id }) => id === operation.transitionId)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: transition not found: ${operation.transitionId}`);
+      timeline.sequence.transitions = transitions.filter(({ id }) => id !== operation.transitionId);
+      return;
+    }
     default:
       throw new Error(`TIMELINE_IR_UNSUPPORTED: unsupported Timeline IR operation: ${(operation as { type?: unknown }).type ?? "unknown"}`);
   }
@@ -692,6 +769,50 @@ function validateMarker(marker: TimelineIrMarker): void {
   requireText(marker.name, `marker ${marker.id}.name`);
   validateRational(marker.startTime, `marker ${marker.id}.startTime`, false);
   validateRational(marker.durationTime, `marker ${marker.id}.durationTime`, false);
+}
+
+function validateTitle(title: TimelineIrTitle): void {
+  requireText(title.id, "title.id");
+  requireText(title.text, `title ${title.id}.text`);
+  validateRational(title.startTime, `title ${title.id}.startTime`, false);
+  validateRational(title.durationTime, `title ${title.id}.durationTime`, true);
+  if (!Number.isInteger(title.lane) || title.lane < 1) throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.lane must be a positive integer`);
+  if (title.position && (![title.position.x, title.position.y].every(Number.isFinite))) {
+    throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must be finite`);
+  }
+  if (title.style) {
+    if (title.style.fontFamily !== undefined) requireText(title.style.fontFamily, `title ${title.id}.style.fontFamily`);
+    if (title.style.fontSize !== undefined && (!Number.isFinite(title.style.fontSize) || title.style.fontSize <= 0)) {
+      throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.style.fontSize must be positive`);
+    }
+    if (title.style.color !== undefined) requireText(title.style.color, `title ${title.id}.style.color`);
+    if (title.style.alignment !== undefined && !["left", "center", "right"].includes(title.style.alignment)) {
+      throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.style.alignment is unsupported`);
+    }
+  }
+}
+
+function validateTransition(timeline: TimelineIr, transition: TimelineIrTransition): void {
+  requireText(transition.id, "transition.id");
+  if (transition.kind !== "cross-dissolve") throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id}.kind is unsupported`);
+  requireText(transition.beforeOccurrenceId, `transition ${transition.id}.beforeOccurrenceId`);
+  requireText(transition.afterOccurrenceId, `transition ${transition.id}.afterOccurrenceId`);
+  validateRational(transition.durationTime, `transition ${transition.id}.durationTime`, true);
+  const occurrences = timeline.sequence.occurrences;
+  const beforeIndex = occurrences.findIndex(({ id }) => id === transition.beforeOccurrenceId);
+  const afterIndex = occurrences.findIndex(({ id }) => id === transition.afterOccurrenceId);
+  if (beforeIndex < 0 || afterIndex < 0) throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must exist`);
+  const before = occurrences[beforeIndex]!;
+  const after = occurrences[afterIndex]!;
+  if (before.track !== after.track || afterIndex !== beforeIndex + 1) {
+    throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must be adjacent on one track`);
+  }
+  if (compareRational(addRationalTimes(before.startTime, before.durationTime), after.startTime) !== 0) {
+    throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must meet at one boundary`);
+  }
+  if (compareRational(transition.durationTime, before.durationTime) > 0 || compareRational(transition.durationTime, after.durationTime) > 0) {
+    throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id}.durationTime exceeds a participant duration`);
+  }
 }
 
 function validateTransform(transform: TimelineIrTransform, field: string): void {
@@ -817,17 +938,30 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence;
 }
 
-function changedIds(before: TimelineIr, after: TimelineIr): Pick<TimelineIrPreview, "changedOccurrenceIds" | "changedMarkerIds"> {
+function changedIds(before: TimelineIr, after: TimelineIr): Pick<TimelineIrPreview, "changedOccurrenceIds" | "changedMarkerIds" | "changedTitleIds" | "changedTransitionIds"> {
   const occurrenceIds = new Set([...before.sequence.occurrences, ...after.sequence.occurrences].map(({ id }) => id));
   const markerIds = new Set([...before.sequence.markers, ...after.sequence.markers].map(({ id }) => id));
+  const titleIds = new Set([
+    ...(before.sequence.titles ?? []).map(({ id }) => id),
+    ...(after.sequence.titles ?? []).map(({ id }) => id),
+  ]);
+  const transitionIds = new Set([
+    ...(before.sequence.transitions ?? []).map(({ id }) => id),
+    ...(after.sequence.transitions ?? []).map(({ id }) => id),
+  ]);
   return {
     changedOccurrenceIds: [...occurrenceIds].filter((id) => JSON.stringify(before.sequence.occurrences.find((item) => item.id === id)) !== JSON.stringify(after.sequence.occurrences.find((item) => item.id === id))),
     changedMarkerIds: [...markerIds].filter((id) => JSON.stringify(before.sequence.markers.find((item) => item.id === id)) !== JSON.stringify(after.sequence.markers.find((item) => item.id === id))),
+    changedTitleIds: [...titleIds].filter((id) => JSON.stringify(before.sequence.titles?.find((item) => item.id === id)) !== JSON.stringify(after.sequence.titles?.find((item) => item.id === id))),
+    changedTransitionIds: [...transitionIds].filter((id) => JSON.stringify(before.sequence.transitions?.find((item) => item.id === id)) !== JSON.stringify(after.sequence.transitions?.find((item) => item.id === id))),
   };
 }
 
-function changedOccurrenceOrMarkers(changed: Pick<TimelineIrPreview, "changedOccurrenceIds" | "changedMarkerIds">): boolean {
-  return changed.changedOccurrenceIds.length > 0 || changed.changedMarkerIds.length > 0;
+function changedTimelineElements(changed: Pick<TimelineIrPreview, "changedOccurrenceIds" | "changedMarkerIds" | "changedTitleIds" | "changedTransitionIds">): boolean {
+  return changed.changedOccurrenceIds.length > 0
+    || changed.changedMarkerIds.length > 0
+    || changed.changedTitleIds.length > 0
+    || changed.changedTransitionIds.length > 0;
 }
 
 function editState(state: EditingSessionState): EditingSessionState {

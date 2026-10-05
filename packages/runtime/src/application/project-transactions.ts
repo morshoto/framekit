@@ -29,6 +29,8 @@ export interface ProjectEditDiff {
   operations: TimelineIrEditOperation[];
   changedOccurrenceIds: string[];
   changedMarkerIds: string[];
+  changedTitleIds: string[];
+  changedTransitionIds: string[];
 }
 
 export interface ProjectEditPreview {
@@ -38,6 +40,8 @@ export interface ProjectEditPreview {
   diff: ProjectEditDiff;
   changedOccurrenceIds: string[];
   changedMarkerIds: string[];
+  changedTitleIds: string[];
+  changedTransitionIds: string[];
 }
 
 export interface ProjectEditResult extends ProjectEditPreview {
@@ -161,6 +165,8 @@ function buildPreview(
     operations: structuredClone(command.operations),
     changedOccurrenceIds: [...result.changedOccurrenceIds],
     changedMarkerIds: [...result.changedMarkerIds],
+    changedTitleIds: [...result.changedTitleIds],
+    changedTransitionIds: [...result.changedTransitionIds],
   };
   return {
     command: structuredClone(command),
@@ -169,6 +175,8 @@ function buildPreview(
     diff,
     changedOccurrenceIds: [...result.changedOccurrenceIds],
     changedMarkerIds: [...result.changedMarkerIds],
+    changedTitleIds: [...result.changedTitleIds],
+    changedTransitionIds: [...result.changedTransitionIds],
   };
 }
 
