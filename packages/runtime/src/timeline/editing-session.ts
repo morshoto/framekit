@@ -718,16 +718,14 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       if (titles.some(({ id }) => id === operation.title.id)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: title already exists: ${operation.title.id}`);
       validateTitle(operation.title);
       titles.push(structuredClone(operation.title));
-      timeline.sequence.durationTime = maxRational(
-        timeline.sequence.durationTime,
-        addRationalTimes(operation.title.startTime, operation.title.durationTime, "TIMELINE_IR_OPERATION_INVALID"),
-      );
+      recomputeSequenceDuration(timeline);
       return;
     }
     case "remove-title": {
       const titles = timeline.sequence.titles ?? [];
       if (!titles.some(({ id }) => id === operation.titleId)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: title not found: ${operation.titleId}`);
       timeline.sequence.titles = titles.filter(({ id }) => id !== operation.titleId);
+      recomputeSequenceDuration(timeline);
       return;
     }
     case "add-transition": {
@@ -761,6 +759,9 @@ function recomputeSequenceDuration(timeline: TimelineIr): void {
   let durationTime: RationalTime = { value: "0", timescale: "1" };
   for (const item of [...timeline.sequence.occurrences, ...timeline.sequence.storyElements]) {
     durationTime = maxRational(durationTime, addRationalTimes(item.startTime, item.durationTime, "TIMELINE_IR_OPERATION_INVALID"));
+  }
+  for (const title of timeline.sequence.titles ?? []) {
+    durationTime = maxRational(durationTime, addRationalTimes(title.startTime, title.durationTime, "TIMELINE_IR_OPERATION_INVALID"));
   }
   timeline.sequence.durationTime = durationTime;
 }

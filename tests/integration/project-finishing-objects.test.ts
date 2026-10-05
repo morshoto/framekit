@@ -111,6 +111,30 @@ test("adds persistent opening and closing title overlays without moving source o
   }
 });
 
+test("removing the last extending title recomputes sequence duration", async () => {
+  const { directory, initial, service } = await createService();
+  try {
+    const added = await service.execute(command(initial, [
+      {
+        type: "add-title",
+        title: {
+          id: "title-extending",
+          text: "Tail",
+          startTime: { value: "2", timescale: "1" },
+          durationTime: { value: "1", timescale: "2" },
+          lane: 1,
+        },
+      },
+    ]));
+    assert.deepEqual(added.after.timeline.sequence.durationTime, { value: "5", timescale: "2" });
+    const result = await service.execute(command(added.after, [{ type: "remove-title", titleId: "title-extending" }]));
+    assert.deepEqual(result.after.timeline.sequence.durationTime, { value: "2", timescale: "1" });
+    assert.deepEqual(result.after.timeline.sequence.titles, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("adds a cross-dissolve between exact adjacent occurrences", async () => {
   const { directory, initial, service } = await createService();
   try {
