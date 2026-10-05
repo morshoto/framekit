@@ -244,7 +244,8 @@ export function resolveEditingRoute(
   const missingCapabilities = missingRequirements.map((requirement) => requirement.label);
   const editor = context.editor?.identity;
   const readiness = routingReadiness(context);
-  const workflow = request.operation === "timeline.edit" && context.headless
+  const headlessDefault = request.operation === "timeline.edit" && context.headless && request.path !== "headed";
+  const workflow = request.operation === "timeline.edit" && headlessDefault
     ? HEADLESS_FIRST_WORKFLOW
     : request.operation === "artifact.edit"
     ? BACKGROUND_ARTIFACT_WORKFLOW
@@ -272,7 +273,6 @@ export function resolveEditingRoute(
     };
   }
 
-  const headlessDefault = request.operation === "timeline.edit" && context.headless;
   const headlessRequested = request.path === "headless";
   if (headlessRequested || (headlessDefault && request.path !== "headed")) {
     if (context.headless?.available && context.headless.supportedOperations.includes(request.operation)) {

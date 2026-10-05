@@ -2516,7 +2516,12 @@ async function editingRouteContext(
         available: true,
         backend: "framekit-project-store",
         guarantee: "canonical-write" as const,
-        supportedOperations: ["timeline.edit"],
+        // The legacy timeline.edit surface also accepts noise reduction,
+        // color correction, and ripple delete, which the headless Timeline IR
+        // transaction layer does not implement. Keep those requests from
+        // being advertised as a single broader headless capability; callers
+        // should use the concrete headless.project/headless.edit tools.
+        supportedOperations: [],
       },
     } : {}),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
