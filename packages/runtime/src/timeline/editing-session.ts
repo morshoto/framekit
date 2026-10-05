@@ -693,6 +693,10 @@ function validateMarker(marker: TimelineIrMarker): void {
 
 function validateTransform(transform: TimelineIrTransform, field: string): void {
   if (!transform || typeof transform !== "object") throw new Error(`TIMELINE_IR_INVALID: ${field} must be an object`);
+  const allowedKeys = new Set(["scaleX", "scaleY", "positionX", "positionY", "rotationDegrees"]);
+  for (const key of Object.keys(transform)) {
+    if (!allowedKeys.has(key)) throw new Error(`TIMELINE_IR_INVALID: ${field}.${key} is not supported`);
+  }
   if (!Number.isFinite(transform.scaleX) || transform.scaleX <= 0) throw new Error(`TIMELINE_IR_INVALID: ${field}.scaleX must be positive`);
   if (!Number.isFinite(transform.scaleY) || transform.scaleY <= 0) throw new Error(`TIMELINE_IR_INVALID: ${field}.scaleY must be positive`);
   for (const [name, value] of [

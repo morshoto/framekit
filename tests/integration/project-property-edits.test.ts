@@ -116,3 +116,20 @@ test("invalid transform values fail before persistence", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("unknown transform properties fail before persistence", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    await assert.rejects(
+      service.execute(command(initial, [{
+        type: "set-transform",
+        occurrenceId: "occurrence-1",
+        transform: { scaleX: 1, scaleY: 1, opacity: 0.5 } as never,
+      }])),
+      (error: unknown) => error instanceof Error && (error as Error & { code?: string }).code === "PROJECT_EDIT_INVALID",
+    );
+    assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
