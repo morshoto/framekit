@@ -18,11 +18,15 @@ test("headless render fixtures are reproducible and encode the canonical QA asse
       env: process.env,
     });
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
-      sources: Array<{ filename: string; width: number; height: number; frameRate: { value: string; timescale: string }; sampleRate: number; channels: number }>;
-      expectedWorkflow: { sourceOrder: string[]; titleWindows: unknown[]; transition: unknown; transform: { scaleX: number; scaleY: number }; audioGainDb: number };
+      sources: Array<{ id: string; filename: string; width: number; height: number; durationSeconds: number; frameRate: { value: string; timescale: string }; sampleRate: number; channels: number; temporalVisual?: boolean }>;
+      expectedWorkflow: { sourceOrder: string[]; sourceRanges: Array<{ sourceId: string; startTime: { value: string; timescale: string }; durationTime: { value: string; timescale: string } }>; titleWindows: unknown[]; transition: unknown; transform: { scaleX: number; scaleY: number }; audioGainDb: number };
     };
     assert.equal(manifest.sources.length, 2);
     assert.deepEqual(manifest.expectedWorkflow.sourceOrder, ["fixture-red-440hz", "fixture-blue-880hz"]);
+    assert.deepEqual(manifest.expectedWorkflow.sourceRanges, [
+      { sourceId: "fixture-red-440hz", startTime: { value: "1", timescale: "4" }, durationTime: { value: "1", timescale: "1" } },
+      { sourceId: "fixture-blue-880hz", startTime: { value: "1", timescale: "2" }, durationTime: { value: "1", timescale: "1" } },
+    ]);
     assert.equal(manifest.expectedWorkflow.titleWindows.length, 2);
     assert.deepEqual(manifest.expectedWorkflow.transition, {
       kind: "cross-dissolve",
@@ -48,8 +52,17 @@ test("headless render fixtures are reproducible and encode the canonical QA asse
       assert.equal(video?.r_frame_rate, `${source.frameRate.value}/${source.frameRate.timescale}`);
       assert.equal(audio?.sample_rate, String(source.sampleRate));
       assert.equal(audio?.channels, source.channels);
-      assert.ok(Number(result.format.duration) > 0.99 && Number(result.format.duration) < 1.01);
+      assert.ok(Number(result.format.duration) > source.durationSeconds - 0.01 && Number(result.format.duration) < source.durationSeconds + 0.01);
     }
+
+    const temporalSource = manifest.sources.find((source) => source.temporalVisual);
+    assert.ok(temporalSource);
+    const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
+    const frameDigest = async (time: number) => (await execFileAsync(ffmpeg, [
+      "-v", "error", "-ss", String(time), "-i", join(directory, temporalSource.filename),
+      "-frames:v", "1", "-f", "md5", "-",
+    ], { cwd: repositoryRoot, env: process.env })).stdout.trim();
+    assert.notEqual(await frameDigest(0.5), await frameDigest(1.5));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

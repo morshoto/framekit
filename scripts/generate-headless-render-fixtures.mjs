@@ -21,7 +21,7 @@ if (!outputArgument || process.argv.length !== 3) {
       "-hide_banner",
       "-loglevel", "error",
       "-f", "lavfi",
-      "-i", `color=c=${source.color}:s=${source.width}x${source.height}:r=${source.frameRate.value}/${source.frameRate.timescale}:d=${source.durationSeconds}`,
+      "-i", source.videoFilter ?? `color=c=${source.color}:s=${source.width}x${source.height}:r=${source.frameRate.value}/${source.frameRate.timescale}:d=${source.durationSeconds}`,
       "-f", "lavfi",
       "-i", `sine=frequency=${source.frequencyHz}:sample_rate=${source.sampleRate}:duration=${source.durationSeconds}`,
       "-map", "0:v:0",
