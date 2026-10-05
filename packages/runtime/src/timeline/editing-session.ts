@@ -51,6 +51,14 @@ export interface TimelineIrMediaStream {
   channels?: number;
 }
 
+export interface TimelineIrTransform {
+  scaleX: number;
+  scaleY: number;
+  positionX?: number;
+  positionY?: number;
+  rotationDegrees?: number;
+}
+
 export interface TimelineIrOccurrence {
   id: string;
   name: string;
@@ -64,6 +72,7 @@ export interface TimelineIrOccurrence {
   fadeIn?: number;
   fadeOut?: number;
   enabled?: boolean;
+  transform?: TimelineIrTransform;
   attachedTo?: string;
   binding?: TimelineIrBinding;
 }
@@ -123,6 +132,7 @@ export type TimelineIrEditOperation =
   | { type: "move-occurrence"; occurrenceId: string; startTime: RationalTime; track?: number }
   | { type: "split-occurrence"; occurrenceId: string; splitOffsetTime: RationalTime; newOccurrenceId: string }
   | { type: "set-gain"; occurrenceId: string; gainDb: number }
+  | { type: "set-transform"; occurrenceId: string; transform: TimelineIrTransform }
   | { type: "remove-occurrence"; occurrenceId: string }
   | { type: "add-marker"; marker: TimelineIrMarker };
 
@@ -376,6 +386,13 @@ export function createTimelineIrFromProjectSnapshot(
     ...(clip.role ? { role: clip.role } : {}),
     ...(clip.mediaId ? { mediaId: clip.mediaId } : {}),
     ...(clip.gainDb !== undefined ? { gainDb: clip.gainDb } : {}),
+    ...(clip.scale !== undefined || clip.position ? {
+      transform: {
+        scaleX: clip.scale ?? 1,
+        scaleY: clip.scale ?? 1,
+        ...(clip.position ? { positionX: clip.position.x, positionY: clip.position.y } : {}),
+      },
+    } : {}),
     ...(clip.fadeIn !== undefined ? { fadeIn: clip.fadeIn } : {}),
     ...(clip.fadeOut !== undefined ? { fadeOut: clip.fadeOut } : {}),
     ...(clip.enabled !== undefined ? { enabled: clip.enabled } : {}),
@@ -475,6 +492,7 @@ export function validateTimelineIr(timeline: TimelineIr): void {
       }
     }
     if (occurrence.gainDb !== undefined && !Number.isFinite(occurrence.gainDb)) throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id}.gainDb must be finite`);
+    if (occurrence.transform) validateTransform(occurrence.transform, `occurrence ${occurrence.id}.transform`);
     validateBinding(occurrence.binding, `occurrence ${occurrence.id}.binding`);
   }
   uniqueIds(timeline.sequence.storyElements.map((element) => element.id), "story element");
@@ -630,6 +648,10 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       if (!Number.isFinite(operation.gainDb)) throw new Error("TIMELINE_IR_OPERATION_INVALID: gainDb must be finite");
       occurrence!.gainDb = operation.gainDb;
       return;
+    case "set-transform":
+      validateTransform(operation.transform, "operation.transform");
+      occurrence!.transform = structuredClone(operation.transform);
+      return;
     case "remove-occurrence":
       timeline.sequence.occurrences = timeline.sequence.occurrences.filter(({ id }) => id !== operation.occurrenceId);
       timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ occurrenceId }) => occurrenceId !== operation.occurrenceId);
@@ -640,6 +662,8 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       if (timeline.sequence.markers.some(({ id }) => id === operation.marker.id)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: marker already exists: ${operation.marker.id}`);
       timeline.sequence.markers.push({ ...structuredClone(operation.marker), startTime: normalizeRationalTime(operation.marker.startTime), durationTime: normalizeRationalTime(operation.marker.durationTime) });
       return;
+    default:
+      throw new Error(`TIMELINE_IR_UNSUPPORTED: unsupported Timeline IR operation: ${(operation as { type?: unknown }).type ?? "unknown"}`);
   }
 }
 
@@ -665,6 +689,19 @@ function validateMarker(marker: TimelineIrMarker): void {
   requireText(marker.name, `marker ${marker.id}.name`);
   validateRational(marker.startTime, `marker ${marker.id}.startTime`, false);
   validateRational(marker.durationTime, `marker ${marker.id}.durationTime`, false);
+}
+
+function validateTransform(transform: TimelineIrTransform, field: string): void {
+  if (!transform || typeof transform !== "object") throw new Error(`TIMELINE_IR_INVALID: ${field} must be an object`);
+  if (!Number.isFinite(transform.scaleX) || transform.scaleX <= 0) throw new Error(`TIMELINE_IR_INVALID: ${field}.scaleX must be positive`);
+  if (!Number.isFinite(transform.scaleY) || transform.scaleY <= 0) throw new Error(`TIMELINE_IR_INVALID: ${field}.scaleY must be positive`);
+  for (const [name, value] of [
+    ["positionX", transform.positionX],
+    ["positionY", transform.positionY],
+    ["rotationDegrees", transform.rotationDegrees],
+  ] as const) {
+    if (value !== undefined && !Number.isFinite(value)) throw new Error(`TIMELINE_IR_INVALID: ${field}.${name} must be finite`);
+  }
 }
 
 function storyElementToIr(element: StoryElement, binding?: (kind: TimelineIrBindingKind, identity: string) => TimelineIrBinding): TimelineIrStoryElement {
