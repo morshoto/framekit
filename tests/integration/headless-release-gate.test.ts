@@ -40,10 +40,10 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
         name: "editing.route",
         arguments: { operation: "timeline.edit" },
       }));
-      assert.equal(route.status, "headless-selected");
-      assert.equal(route.selectedPath, "headless");
-      assert.equal(route.reason.code, "HEADLESS_SELECTED");
-      assert.equal(route.reason.connectionState, "ready");
+      assert.equal(route.status, "unavailable");
+      assert.equal(route.selectedPath, "none");
+      assert.equal(route.reason.code, "HEADLESS_UNAVAILABLE");
+      assert.deepEqual(route.missingCapabilities, ["headless.timeline.edit"]);
 
       const created = payload(await first.client.callTool({
         name: "headless.project.create",
