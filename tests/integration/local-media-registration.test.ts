@@ -137,3 +137,46 @@ test("same filenames at different paths receive distinct source-bound identities
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("malformed local-file resources fail closed on reopen", async () => {
+  const directory = await root();
+  const projectPath = join(directory, "project.json");
+  try {
+    const malformed = project();
+    malformed.timeline.resources.push({ id: "malformed", name: "Malformed", mediaKind: "video", sourceKind: "local-file" });
+    await writeFile(projectPath, JSON.stringify(malformed));
+
+    await assert.rejects(new LocalMediaRegistrar(new FramekitProjectStore(projectPath), probe).reopen(), (error: unknown) => (
+      error instanceof Error
+      && (error as Error & { code?: string }).code === "PROJECT_CORRUPT"
+      && /sourceDigest|canonical schema/i.test(error.message)
+    ));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("registration fails closed when the source changes during metadata probing", async () => {
+  const directory = await root();
+  const sourcePath = join(directory, "source.mov");
+  const projectPath = join(directory, "project.json");
+  try {
+    await writeFile(sourcePath, "before");
+    const store = new FramekitProjectStore(projectPath);
+    await store.create(project());
+    const changingProbe: LocalMediaMetadataProbe = {
+      probe: async () => {
+        await writeFile(sourcePath, "after");
+        return probe.probe(sourcePath);
+      },
+    };
+
+    await assert.rejects(new LocalMediaRegistrar(store, changingProbe).register(sourcePath), (error: unknown) => (
+      error instanceof Error
+      && (error as Error & { code?: string }).code === "MEDIA_CHANGED"
+    ));
+    assert.equal((await store.load()).timeline.resources.length, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
