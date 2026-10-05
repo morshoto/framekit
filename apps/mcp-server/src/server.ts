@@ -38,9 +38,13 @@ import {
 } from "@framekit/final-cut";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  EDITING_ROUTE_EDIT_TYPES,
   EDITOR_FIRST_MCP_INSTRUCTIONS,
+  HEADLESS_TIMELINE_EDIT_TYPES,
+  HEADLESS_FIRST_MCP_INSTRUCTIONS,
   resolveEditingRoute,
   type EditorRoutingContext,
+  type EditingRouteEditType,
   type EditingRouteOperation,
 } from "./routing.js";
 import {
@@ -214,6 +218,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const editingPathSchema = z.enum(["headless", "headed"]).optional();
 const verificationAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio-audibility"),
@@ -331,13 +336,14 @@ function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
   return mcpDiscriminatedUnion(options);
 }
 
-const editToolInputSchema = createEditToolInputSchema();
+const editToolInputSchema = createEditToolInputSchema({ path: editingPathSchema });
 const artifactEditToolInputSchema = createEditToolInputSchema({
   artifactPath: z.string().trim().min(1),
 }, revisionValueSchema);
 const editorTimelineEditToolInputSchema = createEditToolInputSchema({
   projectId: z.string().trim().min(1),
   sequenceId: z.string().trim().min(1),
+  path: editingPathSchema,
 }, revisionValueSchema);
 
 type JsonSchema = {
@@ -940,7 +946,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   runtime.registerBuiltinSkills();
   const server = new McpServer(
     { name: "framekit", version: FRAMEKIT_VERSION },
-    { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
+    { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
   const sessions = options.sessionDirectory
@@ -1295,7 +1301,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   })));
 
   server.registerTool("editing.route", {
-    description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
+    description: "Resolve the default headless SSoT path or an explicitly requested headed path after capability checks; never fall back to native UI implicitly, and require explicit external-renderer fallback selection.",
     inputSchema: {
       operation: z.enum([
         "project.list",
@@ -1312,10 +1318,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         "timeline.export",
       ]),
       fallback: z.enum(["none", "external-renderer"]).optional().default("none"),
+      path: z.enum(["headless", "headed"]).optional(),
+      editType: z.enum(EDITING_ROUTE_EDIT_TYPES).optional(),
     },
-  }, async ({ operation, fallback }) => {
+  }, async ({ operation, fallback, path, editType }) => {
     const context = await editingRouteContext(runtime, options);
-    return jsonResult(resolveEditingRoute({ operation, fallback }, context));
+    return jsonResult(resolveEditingRoute({
+      operation,
+      fallback,
+      ...(path ? { path } : {}),
+      ...(editType ? { editType } : {}),
+    }, context));
   });
 
   server.registerTool("editing.duration.plan", {
@@ -1960,8 +1973,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Apply one supported edit after editing.route confirms the required capabilities; return read-after-write plus its diff.",
     inputSchema: editToolInputSchema,
   }, async (input) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
-    return jsonResult(await runtime.edit(editOperationSchema.parse(input), input.verification ?? {}));
+    const { path, verification, ...operation } = input;
+    const parsedOperation = editOperationSchema.parse(operation);
+    await requireEditingRoute(runtime, options, "timeline.edit", path, parsedOperation.type);
+    return jsonResult(await runtime.edit(parsedOperation, verification ?? {}));
   });
 
   server.registerTool("rough-cut.construction.plan", {
@@ -1988,11 +2003,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
     inputSchema: editorTimelineEditToolInputSchema,
   }, async (input) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
-    const { projectId, sequenceId, verification, ...operation } = input;
+    const { path, projectId, sequenceId, verification, ...operation } = input;
+    const parsedOperation = editOperationSchema.parse(operation);
+    await requireEditingRoute(runtime, options, "timeline.edit", path, parsedOperation.type);
     return jsonResult(await runtime.editTimeline(
       { projectId, sequenceId },
-      editOperationSchema.parse(operation),
+      parsedOperation,
       verification ?? {},
     ));
   });
@@ -2018,10 +2034,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
+      path: editingPathSchema,
     },
   }, async (request) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
-    return jsonResult(await runtime.previewEdit(request));
+    const { path, ...editRequest } = request;
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
+    return jsonResult(await runtime.previewEdit(editRequest));
   });
 
   server.registerTool("timeline.mask.add.preview", {
@@ -2063,9 +2081,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
+      path: editingPathSchema,
     },
-  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
+  }, async ({ projectId, sequenceId, baseRevision, operations, verification, path }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
     return jsonResult(await runtime.previewTimelineEdit(
       { projectId, sequenceId },
       { baseRevision, operations, ...(verification ? { verification } : {}) },
@@ -2112,17 +2131,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.timeline.edit.execute", {
     description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
-    inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
+    inputSchema: { previewToken: z.string().min(1), path: editingPathSchema },
+  }, async ({ previewToken, path }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
   server.registerTool("timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
-    inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
+    inputSchema: { previewToken: z.string().min(1), path: editingPathSchema },
+  }, async ({ previewToken, path }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
@@ -2470,8 +2489,17 @@ async function requireEditingRoute(
   runtime: AgentVideoRuntime,
   options: McpServerOptions,
   operation: EditingRouteOperation,
+  path?: "headless" | "headed",
+  editType?: EditingRouteEditType,
 ): Promise<void> {
-  const route = resolveEditingRoute({ operation }, await editingRouteContext(runtime, options));
+  const route = resolveEditingRoute({
+    operation,
+    ...(path ? { path } : {}),
+    ...(editType ? { editType } : {}),
+  }, await editingRouteContext(runtime, options));
+  if (route.status === "headless-selected") {
+    throw new Error("HEADLESS_ROUTE_SELECTED: use the headless.project and headless.edit tools for the default Framekit SSoT path");
+  }
   if (route.status !== "editor-selected") {
     throw new Error(`${route.reason.code}: ${route.reason.message}`);
   }
@@ -2499,6 +2527,17 @@ async function editingRouteContext(
   return {
     connection,
     ...(editor ? { editor } : {}),
+    ...(options.headlessProjects ? {
+      headless: {
+        available: true,
+        backend: "framekit-project-store",
+        guarantee: "canonical-write" as const,
+        // Advertise only concrete Timeline IR edit capabilities. The legacy
+        // timeline.edit surface also accepts operations that the headless
+        // transaction layer does not implement.
+        supportedOperations: HEADLESS_TIMELINE_EDIT_TYPES.map((editType) => `timeline.edit:${editType}`),
+      },
+    } : {}),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
     ...(nativeReadiness ? { nativeReadiness } : {}),
   };

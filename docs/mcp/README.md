@@ -4,9 +4,29 @@ Framekit exposes the runtime through a local MCP stdio server. MCP is an
 adapter around the runtime; editor-specific behavior belongs in adapters and
 the native bridge.
 
-## Editor-first workflow
+## Headless-first workflow
 
-Framekit follows an editor-first policy for editing requests. Call
+Framekit-owned projects use the headless Timeline IR and project store as the
+default editing path. Call `editing.route` for the intended operation; for
+`timeline.edit`, include the concrete `editType` such as
+`rename-occurrence`, `set-transform`, or `add-title`. When that concrete
+headless capability is available it returns `selectedPath: "headless"`
+and the workflow continues through `headless.project.*` and
+`headless.edit.*`. This path does not require Final Cut Pro to be installed,
+running, frontmost, or accessible through Accessibility/System Events.
+
+The route is capability-granular: unsupported legacy edit types such as
+`reduce-noise`, `set-color-correction`, and `ripple-delete` return
+`HEADLESS_UNAVAILABLE` rather than claiming the whole `timeline.edit` surface.
+
+If the headless capability is unavailable, the route returns structured
+`HEADLESS_UNAVAILABLE` evidence. It does not launch or activate an NLE, and
+does not silently fall back to native UI.
+
+## Explicit headed/editor-first workflow
+
+For a caller that explicitly selects the headed path, Framekit retains the
+editor-first workflow. Call
 `connection.status`, then `editor.inspect`, then `project.inspect` before
 choosing a path. Use `editing.route` to check the selected operation against
 the editor's advertised capabilities, and stop with `CAPABILITY_UNAVAILABLE`
@@ -19,6 +39,10 @@ Pass `fallback: "external-renderer"` to `editing.route` only when external
 processing is explicitly selected or authorized. The route response reports
 `EXTERNAL_FALLBACK_SELECTED` and its structured cause; the MCP server does not
 invoke the external renderer.
+
+Pass `path: "headed"` to `editing.route` only when the caller explicitly
+chooses the headed/editor-first path. Native operation tools remain explicit
+and are never selected by a headless route.
 
 The explicit background artifact workflow is selected with
 `editing.route({ "operation": "artifact.edit" })` when

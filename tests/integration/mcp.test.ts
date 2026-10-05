@@ -161,7 +161,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.doesNotMatch(JSON.stringify(nativeMaskPreviewTool?.inputSchema ?? {}), /inverted/);
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
+      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "path", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
     ]);
     const timelineEditTrim = (timelineEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
       (branch) => branch.properties?.type?.const === "trim-clip",
@@ -223,6 +223,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         clipId: "clip-1",
         name: "Interview - Clean",
         baseRevision: before.revision,
+        path: "headed",
       },
     });
     const transaction = JSON.parse(textFrom(edited));
@@ -244,6 +245,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         clipId: "clip-1",
         name: "Stale MCP edit",
         baseRevision: before.revision,
+        path: "headed",
       },
     });
     assert.equal(staleEdit.isError, true);
@@ -349,6 +351,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         timelineId: "timeline-1",
         marker: { id: "marker-1", start: 2, duration: 0, name: "Review" },
         baseRevision: transaction.after.revision,
+        path: "headed",
       },
     });
     const markerTransaction = JSON.parse(textFrom(markerEdit));
