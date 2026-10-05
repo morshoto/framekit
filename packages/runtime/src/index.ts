@@ -8,6 +8,7 @@ export * from "./capabilities.js";
 export * from "./timeline/snapshot-digest.js";
 export * from "./timeline/editing-session.js";
 export * from "./render/render-contract.js";
+export * from "./render/render-and-verify.js";
 export * from "./timeline/drift-reconciliation.js";
 export * from "./application/project-store.js";
 export * from "./application/local-media.js";
