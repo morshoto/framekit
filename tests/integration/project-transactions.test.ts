@@ -198,9 +198,11 @@ test("trims source start and duration without losing exact rational timing", asy
   }
 });
 
-test("splits an occurrence into stable left and right identities", async () => {
-  const { directory, initial, service } = await createService();
+test("splits an occurrence without fabricating a provider binding for the new right side", async () => {
+  const { directory, store, initial, service } = await createService();
   try {
+    initial.timeline.sequence.occurrences[0]!.binding = { provider: "fixture", kind: "occurrence", identity: "provider-occurrence-1" };
+    await store.save(initial);
     const result = await service.execute(command(initial, "unused", [{
       type: "split-occurrence",
       occurrenceId: "occurrence-1",
@@ -215,6 +217,7 @@ test("splits an occurrence into stable left and right identities", async () => {
         durationTime: { value: "1", timescale: "2" },
         track: 0,
         mediaId: "media-1",
+        binding: { provider: "fixture", kind: "occurrence", identity: "provider-occurrence-1" },
       },
       {
         id: "occurrence-1-right",

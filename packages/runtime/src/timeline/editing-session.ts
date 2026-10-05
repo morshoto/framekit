@@ -620,7 +620,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       right.durationTime = subtractRationalTimes(occurrence!.durationTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
       const sourceStartTime = occurrence!.sourceStartTime ?? { value: "0", timescale: "1" };
       right.sourceStartTime = addRationalTimes(sourceStartTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
-      if (right.binding?.kind === "occurrence") right.binding = { ...right.binding, identity: right.id };
+      if (right.binding?.kind === "occurrence") delete right.binding;
       occurrence!.durationTime = splitOffsetTime;
       timeline.sequence.occurrences.push(right);
       canonicalizeOccurrences(timeline);
