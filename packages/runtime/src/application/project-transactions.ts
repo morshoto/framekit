@@ -232,6 +232,12 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
         throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.gainDb must be finite");
       }
       return;
+    case "set-transform":
+      requireOperationText(candidate, "occurrenceId");
+      if (!candidate.transform || typeof candidate.transform !== "object") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.transform is required");
+      }
+      return;
     case "remove-occurrence":
       requireOperationText(candidate, "occurrenceId");
       return;
@@ -241,7 +247,7 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
       }
       return;
     default:
-      throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `unsupported operation type: ${String(candidate.type)}`);
+      throw new ProjectTransactionError("PROJECT_EDIT_UNSUPPORTED", `unsupported operation type: ${String(candidate.type)}`);
   }
 }
 
