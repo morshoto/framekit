@@ -10,6 +10,7 @@ export * from "./timeline/editing-session.js";
 export * from "./timeline/drift-reconciliation.js";
 export * from "./application/project-store.js";
 export * from "./application/local-media.js";
+export * from "./application/project-transactions.js";
 export * from "./context/project-catalog.js";
 export * from "./speech/filler-removal.js";
 export * from "./audio/dialogue-normalization.js";
