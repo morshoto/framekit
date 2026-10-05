@@ -33,6 +33,12 @@ test("production stdio MCP persists and reopens the headless project and render 
     const listedTools = await client.listTools();
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.project.create"));
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.render.inspect"));
+    assert.match(client.getInstructions() ?? "", /headless Framekit-owned project/i);
+    const route = payload(await client.callTool({ name: "editing.route", arguments: { operation: "timeline.edit" } }));
+    assert.equal(route.status, "headless-selected");
+    assert.equal(route.selectedPath, "headless");
+    assert.equal(route.reason.code, "HEADLESS_SELECTED");
+    assert.equal(route.reason.connectionState, "ready");
 
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
     assert.equal(created.timeline.project.id, "mcp-headless-project");

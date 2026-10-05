@@ -4,11 +4,19 @@ The Final Cut provider split and routing boundary are summarized in the
 [Final Cut provider boundaries](../architecture/final-cut-provider-boundaries.md)
 contract.
 
-## Editor-first routing
+## Headless-first routing
 
-For canonical editing requests, call `connection.status`, `editor.inspect`,
+Framekit-owned project edits default to the headless Timeline IR path. Call
+`editing.route` for the intended operation; a configured headless project
+service returns `selectedPath: "headless"` and `reason.code:
+"HEADLESS_SELECTED"`. A missing headless capability returns
+`HEADLESS_UNAVAILABLE` without launching or activating Final Cut Pro.
+
+## Explicit headed/editor-first routing
+
+For explicitly headed canonical editing requests, call `connection.status`, `editor.inspect`,
 and `project.inspect` in that order, then call `editing.route` with the
-intended operation. Background metadata requests may route after
+`path: "headed"` and the intended operation. Background metadata requests may route after
 `editor.inspect`: `project.list` can use a background library descriptor and
 `editor.live.inspect` can use observed timeline metadata without a canonical
 snapshot. The route checks the operation's required capabilities against the
