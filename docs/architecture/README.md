@@ -10,6 +10,7 @@ contracts separate from MCP transport and editor adapters.
 - [Headless structural Timeline IR edits](./headless-structural-edits.md)
 - [Headless Timeline IR property edits](./headless-property-edits.md)
 - [Headless titles and transitions](./headless-titles-transitions.md)
+- [Provider-neutral headless render contract](./headless-render-contract.md)
 - [Headless core and source of truth](./headless-core-ssot.md)
 - [Runtime boundaries](./runtime-boundaries.md)
 - [Backend selection](./backend-selection.md)
