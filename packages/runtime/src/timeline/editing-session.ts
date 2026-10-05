@@ -29,8 +29,25 @@ export interface TimelineIrResource {
   name: string;
   mediaKind: TimelineIrResourceKind;
   source?: string;
+  sourceKind?: "local-file";
   sourceDigest?: string;
+  metadata?: TimelineIrMediaMetadata;
   binding?: TimelineIrBinding;
+}
+
+export interface TimelineIrMediaMetadata {
+  durationTime: RationalTime;
+  streams: TimelineIrMediaStream[];
+}
+
+export interface TimelineIrMediaStream {
+  kind: "video" | "audio";
+  codec?: string;
+  width?: number;
+  height?: number;
+  frameRate?: RationalTime;
+  sampleRate?: number;
+  channels?: number;
 }
 
 export interface TimelineIrOccurrence {
@@ -425,6 +442,16 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     if (!["video", "audio", "unknown"].includes(resource.mediaKind)) {
       throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id} has unsupported mediaKind`);
     }
+    if (resource.sourceKind !== undefined && resource.sourceKind !== "local-file") {
+      throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id} has unsupported sourceKind`);
+    }
+    if (resource.sourceKind === "local-file") {
+      requireText(resource.source, `resource ${resource.id}.source`);
+      if (typeof resource.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(resource.sourceDigest)) {
+        throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id}.sourceDigest must be a SHA-256 hex digest`);
+      }
+    }
+    if (resource.metadata) validateMediaMetadata(resource.metadata, `resource ${resource.id}.metadata`);
     validateBinding(resource.binding, `resource ${resource.id}.binding`);
   }
   const occurrenceIds = uniqueIds(timeline.sequence.occurrences.map((occurrence) => occurrence.id), "occurrence");
@@ -442,6 +469,14 @@ export function validateTimelineIr(timeline: TimelineIr): void {
       throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id} references unknown attachment ${occurrence.attachedTo}`);
     }
     if (occurrence.sourceStartTime) validateRational(occurrence.sourceStartTime, `occurrence ${occurrence.id}.sourceStartTime`, false);
+    const resource = occurrence.mediaId ? timeline.resources.find(({ id }) => id === occurrence.mediaId) : undefined;
+    if (resource?.metadata) {
+      const sourceStartTime = occurrence.sourceStartTime ?? { value: "0", timescale: "1" };
+      const sourceEndTime = addRationalTimes(sourceStartTime, occurrence.durationTime, "TIMELINE_IR_INVALID");
+      if (compareRational(sourceEndTime, resource.metadata.durationTime) > 0) {
+        throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id} source range exceeds resource ${resource.id}`);
+      }
+    }
     if (occurrence.gainDb !== undefined && !Number.isFinite(occurrence.gainDb)) throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id}.gainDb must be finite`);
     validateBinding(occurrence.binding, `occurrence ${occurrence.id}.binding`);
   }
@@ -495,6 +530,30 @@ function validateEditingSessionObservation(observation: EditingSessionObservatio
   }
   if (observation.canonical !== false || observation.coverageComplete !== false) {
     throw new Error("TIMELINE_IR_INVALID: storage observation cannot be canonical or complete");
+  }
+}
+
+function validateMediaMetadata(metadata: TimelineIrMediaMetadata, field: string): void {
+  if (!metadata || typeof metadata !== "object") throw new Error(`TIMELINE_IR_INVALID: ${field} must be an object`);
+  validateRational(metadata.durationTime, `${field}.durationTime`, true);
+  if (!Array.isArray(metadata.streams) || metadata.streams.length === 0) {
+    throw new Error(`TIMELINE_IR_INVALID: ${field}.streams must be non-empty`);
+  }
+  for (const [index, stream] of metadata.streams.entries()) {
+    const streamField = `${field}.streams[${index}]`;
+    if (!stream || (stream.kind !== "video" && stream.kind !== "audio")) {
+      throw new Error(`TIMELINE_IR_INVALID: ${streamField}.kind is unsupported`);
+    }
+    if (stream.codec !== undefined) requireText(stream.codec, `${streamField}.codec`);
+    if (stream.kind === "video") {
+      requirePositiveInteger(stream.width, `${streamField}.width`);
+      requirePositiveInteger(stream.height, `${streamField}.height`);
+      if (!stream.frameRate) throw new Error(`TIMELINE_IR_INVALID: ${streamField}.frameRate is required`);
+      validateRational(stream.frameRate, `${streamField}.frameRate`, true);
+    } else {
+      requirePositiveInteger(stream.sampleRate, `${streamField}.sampleRate`);
+      requirePositiveInteger(stream.channels, `${streamField}.channels`);
+    }
   }
 }
 
@@ -574,6 +633,13 @@ function validateRational(value: RationalTime, field: string, requirePositive: b
   if (requirePositive && parsed.value <= 0n) throw new Error(`TIMELINE_IR_INVALID: ${field} must be positive`);
 }
 
+function compareRational(left: RationalTime, right: RationalTime): number {
+  const leftParts = parseRational(left, "TIMELINE_IR_INVALID");
+  const rightParts = parseRational(right, "TIMELINE_IR_INVALID");
+  const difference = leftParts.value * rightParts.timescale - rightParts.value * leftParts.timescale;
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
 function validateRevision(revision: ContextRevision): void {
   requireText(revision?.id, "revision.id");
   if (!Number.isSafeInteger(revision.sequence) || revision.sequence < 0) throw new Error("TIMELINE_IR_INVALID: revision.sequence must be a non-negative safe integer");
@@ -596,6 +662,12 @@ function validateBinding(binding: TimelineIrBinding | undefined, field: string):
 
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`TIMELINE_IR_INVALID: ${field} must be non-empty`);
+}
+
+function requirePositiveInteger(value: unknown, field: string): asserts value is number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`TIMELINE_IR_INVALID: ${field} must be a positive integer`);
+  }
 }
 
 function uniqueIds(values: string[], label: string): Set<string> {
