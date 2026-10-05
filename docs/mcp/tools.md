@@ -1,15 +1,31 @@
 # MCP Tools
 
-## Editor-first routing
+## Headless-first routing
 
-For a canonical editing request, follow this order:
+For a Framekit-owned project, use the headless path by default:
+
+1. Call `editing.route` with the intended operation.
+2. Confirm `selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"`.
+3. Use `headless.project.open` or `headless.project.inspect`, then
+   `headless.edit.preview` and `headless.edit.execute`.
+4. Reopen/inspect the exact revision before `headless.render`, then inspect
+   its independent verification record.
+
+If the route returns `HEADLESS_UNAVAILABLE`, treat it as a structured blocker.
+Do not invoke a native tool as an implicit fallback. The headless path never
+launches or activates Final Cut Pro.
+
+## Explicit headed/editor-first routing
+
+For a caller that explicitly selects the headed path, follow this order:
 
 1. Call `connection.status` to establish whether the expected editor is
    connected.
 2. Call `editor.inspect` to read the editor identity and advertised
    capabilities.
 3. Call `project.inspect` to capture the active project and revision.
-4. Call `editing.route` with the intended operation. Select only a path whose
+4. Call `editing.route` with `path: "headed"` and the intended operation.
+   Select only a path whose
    required capabilities are available.
 5. Resolve the request with `editing.intent.resolve` when needed, then call
    the operation-specific `preview` and `execute` tools.
@@ -64,7 +80,11 @@ is a separate, confirmed `artifact.publish` step.
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
-| `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
+| `editing.route` | Select the default headless SSoT path or an explicitly headed operation path after capability checks | Read-only; fails closed when the selected path is unavailable; external rendering requires explicit `fallback: "external-renderer"` |
+| `headless.project.create` / `headless.project.open` / `headless.project.inspect` | Create or reopen the Framekit-owned canonical project and exact revision | No Final Cut dependency; registered local media is revalidated on reopen |
+| `headless.media.register` | Register a local source by stable path, digest, and ffprobe metadata | Read-only source handling; persists only canonical project metadata |
+| `headless.edit.preview` / `headless.edit.execute` | Preview or commit Timeline IR operations against an expected revision | Headless SSoT path; stale and unsupported operations fail closed |
+| `headless.render` / `headless.render.inspect` | Render a selected canonical revision and inspect its independent verification record | External renderer is explicit and never a native/UI fallback |
 | `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
 | `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |
