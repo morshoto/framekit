@@ -137,6 +137,33 @@ test("adds a cross-dissolve between exact adjacent occurrences", async () => {
   }
 });
 
+test("checks transition adjacency within the participant track", async () => {
+  const { directory, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.occurrences.splice(1, 0, {
+      id: "overlay-1",
+      name: "Overlay",
+      startTime: { value: "1", timescale: "2" },
+      durationTime: { value: "1", timescale: "2" },
+      track: 1,
+      mediaId: "media-1",
+    });
+    const result = await service.execute(command(initial, [{
+      type: "add-transition",
+      transition: {
+        id: "transition-interleaved",
+        kind: "cross-dissolve",
+        beforeOccurrenceId: "occurrence-1",
+        afterOccurrenceId: "occurrence-2",
+        durationTime: { value: "1", timescale: "4" },
+      },
+    }]));
+    assert.equal(result.after.timeline.sequence.transitions?.[0]?.id, "transition-interleaved");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects invalid title and transition placement without persistence", async () => {
   const { directory, store, initial, service } = await createService();
   try {
@@ -149,6 +176,20 @@ test("rejects invalid title and transition placement without persistence", async
           startTime: { value: "0", timescale: "1" },
           durationTime: { value: "1", timescale: "1" },
           lane: 0,
+        },
+      }])),
+      (error: unknown) => error instanceof Error && (error as Error & { code?: string }).code === "PROJECT_EDIT_INVALID",
+    );
+    await assert.rejects(
+      service.execute(command(initial, [{
+        type: "add-title",
+        title: {
+          id: "out-of-bounds-title",
+          text: "Invalid position",
+          startTime: { value: "0", timescale: "1" },
+          durationTime: { value: "1", timescale: "1" },
+          lane: 1,
+          position: { x: 1.01, y: 0 },
         },
       }])),
       (error: unknown) => error instanceof Error && (error as Error & { code?: string }).code === "PROJECT_EDIT_INVALID",

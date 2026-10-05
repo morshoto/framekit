@@ -114,6 +114,7 @@ export interface TimelineIrTitle {
   /** Connected/overlay lane; zero is reserved for the primary storyline. */
   lane: number;
   style?: TimelineIrTitleStyle;
+  /** Normalized output coordinates in the centered canvas space: x and y are in [-1, 1], +x is right, and +y is up. */
   position?: { x: number; y: number };
 }
 
@@ -777,8 +778,9 @@ function validateTitle(title: TimelineIrTitle): void {
   validateRational(title.startTime, `title ${title.id}.startTime`, false);
   validateRational(title.durationTime, `title ${title.id}.durationTime`, true);
   if (!Number.isInteger(title.lane) || title.lane < 1) throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.lane must be a positive integer`);
-  if (title.position && (![title.position.x, title.position.y].every(Number.isFinite))) {
-    throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must be finite`);
+  if (title.position && (![title.position.x, title.position.y].every(Number.isFinite)
+    || ![title.position.x, title.position.y].every((value) => value >= -1 && value <= 1))) {
+    throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must use normalized coordinates in [-1, 1]`);
   }
   if (title.style) {
     if (title.style.fontFamily !== undefined) requireText(title.style.fontFamily, `title ${title.id}.style.fontFamily`);
@@ -799,12 +801,13 @@ function validateTransition(timeline: TimelineIr, transition: TimelineIrTransiti
   requireText(transition.afterOccurrenceId, `transition ${transition.id}.afterOccurrenceId`);
   validateRational(transition.durationTime, `transition ${transition.id}.durationTime`, true);
   const occurrences = timeline.sequence.occurrences;
-  const beforeIndex = occurrences.findIndex(({ id }) => id === transition.beforeOccurrenceId);
-  const afterIndex = occurrences.findIndex(({ id }) => id === transition.afterOccurrenceId);
-  if (beforeIndex < 0 || afterIndex < 0) throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must exist`);
-  const before = occurrences[beforeIndex]!;
-  const after = occurrences[afterIndex]!;
-  if (before.track !== after.track || afterIndex !== beforeIndex + 1) {
+  const before = occurrences.find(({ id }) => id === transition.beforeOccurrenceId);
+  const after = occurrences.find(({ id }) => id === transition.afterOccurrenceId);
+  if (!before || !after) throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must exist`);
+  const sameTrack = occurrences.filter(({ track }) => track === before.track);
+  const beforeIndex = sameTrack.findIndex(({ id }) => id === before.id);
+  const afterIndex = sameTrack.findIndex(({ id }) => id === after.id);
+  if (before.track !== after.track || beforeIndex < 0 || afterIndex !== beforeIndex + 1) {
     throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must be adjacent on one track`);
   }
   if (compareRational(addRationalTimes(before.startTime, before.durationTime), after.startTime) !== 0) {
