@@ -368,8 +368,12 @@ function addTitleOverlays(filters: string[], input: string, model: RenderModel, 
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
     const size = formatNumber(style?.fontSize ?? 32);
-    const x = title.position ? formatNumber(title.position.x) : style?.alignment === "left" ? "20" : style?.alignment === "right" ? "w-text_w-20" : "(w-text_w)/2";
-    const y = title.position ? formatNumber(title.position.y) : "(h-text_h)/2";
+    const x = title.position
+      ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`
+      : style?.alignment === "left" ? "20" : style?.alignment === "right" ? "w-text_w-20" : "(w-text_w)/2";
+    const y = title.position
+      ? `${formatNumber(model.height / 2 - title.position.y * model.height / 2)}-(text_h/2)`
+      : "(h-text_h)/2";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     filters.push(`[${current}]drawtext=${font}text='${escapeFilterValue(title.text)}':fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
@@ -385,7 +389,7 @@ function transformFilter(occurrence: TimelineIrOccurrence, resource: TimelineIrR
   const scaledWidth = evenDimension(sourceVideo.width! * transform.scaleX);
   const scaledHeight = evenDimension(sourceVideo.height! * transform.scaleY);
   const positionX = transform.positionX ?? 0;
-  const positionY = transform.positionY ?? 0;
+  const positionY = -(transform.positionY ?? 0);
   if (scaledWidth >= width && scaledHeight >= height) {
     const cropX = clamp((scaledWidth - width) / 2 - positionX, 0, scaledWidth - width);
     const cropY = clamp((scaledHeight - height) / 2 - positionY, 0, scaledHeight - height);

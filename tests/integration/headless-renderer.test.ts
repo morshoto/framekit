@@ -69,6 +69,7 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
     const earlyFrame = await frameAt(parameters.outputPath, 0.25, directory, "early");
     const transitionFrame = await frameAt(parameters.outputPath, 0.9, directory, "transition");
     const lateFrame = await frameAt(parameters.outputPath, 1.2, directory, "late");
+    const rangedBlueFrame = await frameAt(parameters.outputPath, 1.4, directory, "ranged-blue");
     const openingTitleFrame = await frameAt(parameters.outputPath, 0.25, directory, "opening-title");
     const noTitleFrame = await frameAt(parameters.outputPath, 0.75, directory, "no-title");
     const earlyPixel = ppmPixel(earlyFrame, 10, 160);
@@ -77,7 +78,19 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
     assert.ok(earlyPixel.r > 150 && earlyPixel.b < 80, `expected early red frame, got ${JSON.stringify(earlyPixel)}`);
     assert.ok(transitionPixel.r > 20 && transitionPixel.b > 20, `expected cross-dissolve blend, got ${JSON.stringify(transitionPixel)}`);
     assert.ok(latePixel.b > 150 && latePixel.r < 80, `expected late blue frame, got ${JSON.stringify(latePixel)}`);
-    assert.ok(countBrightPixels(openingTitleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5);
+    assert.ok(countBrightPixels(openingTitleFrame, 40, 180, 20, 100) > countBrightPixels(noTitleFrame, 40, 180, 20, 100) + 5);
+    const unranged = structuredClone(source);
+    unranged.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    const unrangedParameters = { ...parameters, outputPath: join(directory, "unranged.mp4") };
+    const unrangedRequest = createFramekitRenderRequest({
+      timeline: unranged,
+      target: { projectId: unranged.project.id, sequenceId: unranged.sequence.id },
+      parameters: unrangedParameters,
+    });
+    const unrangedPlan = createFramekitRenderPlan(unrangedRequest, renderer.capabilities(unrangedRequest));
+    await renderer.render(unrangedPlan);
+    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "unranged-blue");
+    assert.notEqual(frameDigest(rangedBlueFrame), frameDigest(unrangedFrame), "sourceStartTime must affect the selected rendered segment");
     const sourceMeanVolume = await meanVolume(redPath, directory, "source-volume");
     const outputMeanVolume = await meanVolume(parameters.outputPath, directory, "output-volume");
     assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - 6) < 1.5, `expected +6 dB gain, got ${outputMeanVolume - sourceMeanVolume} dB`);
@@ -226,7 +239,7 @@ function timelineWithoutMedia(): TimelineIr {
           name: "Red",
           startTime: { value: "0", timescale: "1" },
           durationTime: { value: "1", timescale: "1" },
-          sourceStartTime: { value: "0", timescale: "1" },
+          sourceStartTime: { value: "1", timescale: "4" },
           track: 0,
           role: "video",
           mediaId: "media-red",
@@ -238,7 +251,7 @@ function timelineWithoutMedia(): TimelineIr {
           name: "Blue",
           startTime: { value: "1", timescale: "1" },
           durationTime: { value: "1", timescale: "1" },
-          sourceStartTime: { value: "0", timescale: "1" },
+          sourceStartTime: { value: "1", timescale: "2" },
           track: 0,
           role: "video",
           mediaId: "media-blue",
@@ -255,6 +268,7 @@ function timelineWithoutMedia(): TimelineIr {
           durationTime: { value: "1", timescale: "2" },
           lane: 1,
           style: { fontSize: 24, color: "white", alignment: "center" },
+          position: { x: -0.3, y: 0.4 },
         },
         {
           id: "title-closing",
@@ -289,7 +303,7 @@ function resource(id: string, source: string, sourceDigest: string) {
     sourceKind: "local-file" as const,
     sourceDigest,
     metadata: {
-      durationTime: { value: "1", timescale: "1" },
+      durationTime: { value: "2", timescale: "1" },
       streams: [
         { kind: "video" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
         { kind: "audio" as const, sampleRate: 48000, channels: 1 },
@@ -323,6 +337,10 @@ function ppmPixel(contents: Buffer, x: number, y: number): { r: number; g: numbe
   assert.ok(x >= 0 && x < width && y >= 0 && y < height);
   const offset = headerEnd + (y * width + x) * 3;
   return { r: contents[offset]!, g: contents[offset + 1]!, b: contents[offset + 2]! };
+}
+
+function frameDigest(contents: Buffer): string {
+  return createHash("sha256").update(contents).digest("hex");
 }
 
 function countBrightPixels(contents: Buffer, left: number, right: number, top: number, bottom: number): number {
