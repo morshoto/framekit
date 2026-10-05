@@ -1,44 +1,34 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
-import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 import { HeadlessProjectService } from "../../apps/mcp-server/src/headless-projects.js";
-import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const execFileAsync = promisify(execFile);
 
-test("production MCP exposes the persisted headless project lifecycle and verified render", async () => {
+test("production stdio MCP persists and reopens the headless project and render record", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-mcp-"));
-  const projectDirectory = join(directory, "projects");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "fixture",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_STATE_DIR: directory,
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
   try {
     await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
-    const service = new HeadlessProjectService({
-      directory: projectDirectory,
-      mediaProbe: new FfmpegMediaMetadataProbe({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }),
-      renderer: new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" }),
-      verifier: new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }),
-      clock: () => "2026-10-05T00:00:00.000Z",
-    });
-    const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({
-      projectId: "editor-fixture",
-      projectName: "Editor fixture",
-      timelineId: "editor-sequence",
-      timelineName: "Main",
-      clips: [],
-      media: [],
-    })), { headlessProjects: service });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const client = new Client({ name: "headless-project-mcp-test", version: "0.1.0" });
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    ({ client, transport } = await connectProductionClient(here, environment));
 
     const listedTools = await client.listTools();
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.project.create"));
@@ -103,7 +93,43 @@ test("production MCP exposes the persisted headless project lifecycle and verifi
     assert.equal(inspected.status, "passed");
     assert.equal(inspected.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
     await client.close();
-    await server.close();
+    await transport.close();
+    client = undefined;
+    transport = undefined;
+
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const reopened = payload(await client.callTool({ name: "headless.project.open", arguments: { projectId: "mcp-headless-project" } }));
+    assert.equal(reopened.timeline.revision.id, finished.after.timeline.revision.id);
+    const reopenedRender = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
+    assert.equal(reopenedRender.status, "passed");
+    assert.equal(reopenedRender.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless project open fails closed when local media has no metadata probe", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-no-probe-"));
+  try {
+    const withProbe = new HeadlessProjectService({ directory, mediaProbe: new FfmpegMediaMetadataProbe() });
+    const created = await withProbe.create({
+      ...emptyTimeline(),
+      resources: [{
+        id: "local-media-1",
+        name: "source.mp4",
+        mediaKind: "video",
+        source: "/tmp/source.mp4",
+        sourceKind: "local-file",
+        sourceDigest: "a".repeat(64),
+      }],
+    });
+    const withoutProbe = new HeadlessProjectService({ directory });
+    await assert.rejects(withoutProbe.open(created.timeline.project.id), (error: unknown) => (
+      error instanceof Error
+      && error.message.startsWith("HEADLESS_MEDIA_PROBE_UNAVAILABLE:")
+    ));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -128,4 +154,16 @@ function payload(result: unknown): any {
   assert.equal(value.isError, undefined);
   assert.equal(value.content?.[0]?.type, "text");
   return JSON.parse(value.content?.[0]?.text ?? "null");
+}
+
+async function connectProductionClient(here: string, environment: Record<string, string>): Promise<{ client: Client; transport: StdioClientTransport }> {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    env: environment,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "headless-project-production-stdio-test", version: "0.1.0" });
+  await client.connect(transport);
+  return { client, transport };
 }

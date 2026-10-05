@@ -83,6 +83,10 @@ export class HeadlessProjectService {
 
   public async open(projectId: string): Promise<FramekitProjectDocument> {
     const project = await this.store(projectId).load();
+    const hasLocalMedia = project.timeline.resources.some((resource) => resource.sourceKind === "local-file");
+    if (hasLocalMedia && !this.mediaProbe) {
+      throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: local-file resources require a configured media probe");
+    }
     if (this.mediaProbe) await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).reopen();
     return project;
   }
