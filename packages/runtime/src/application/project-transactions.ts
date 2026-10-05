@@ -254,6 +254,22 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
         throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.marker is required");
       }
       return;
+    case "add-title":
+      if (!candidate.title || typeof candidate.title !== "object") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.title is required");
+      }
+      return;
+    case "remove-title":
+      requireOperationText(candidate, "titleId");
+      return;
+    case "add-transition":
+      if (!candidate.transition || typeof candidate.transition !== "object") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.transition is required");
+      }
+      return;
+    case "remove-transition":
+      requireOperationText(candidate, "transitionId");
+      return;
     default:
       throw new ProjectTransactionError("PROJECT_EDIT_UNSUPPORTED", `unsupported operation type: ${String(candidate.type)}`);
   }
