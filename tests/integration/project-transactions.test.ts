@@ -199,7 +199,7 @@ test("trims source start and duration without losing exact rational timing", asy
     const occurrence = result.after.timeline.sequence.occurrences[0]!;
     assert.deepEqual(occurrence.sourceStartTime, { value: "1", timescale: "3" });
     assert.deepEqual(occurrence.durationTime, { value: "5", timescale: "6" });
-    assert.deepEqual(result.after.timeline.sequence.durationTime, { value: "2", timescale: "1" });
+    assert.deepEqual(result.after.timeline.sequence.durationTime, { value: "5", timescale: "6" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -269,6 +269,54 @@ test("moves and removes occurrences while preserving deterministic order", async
     ]);
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("recomputes duration before appending after trim or removal", async () => {
+  const first = await createService();
+  try {
+    const result = await first.service.execute(command(first.initial, "unused", [
+      { type: "trim-occurrence", occurrenceId: "occurrence-1", durationTime: { value: "1", timescale: "1" } },
+      {
+        type: "insert-occurrence",
+        placement: "append",
+        occurrence: {
+          id: "occurrence-2",
+          name: "Appended",
+          startTime: { value: "99", timescale: "1" },
+          durationTime: { value: "1", timescale: "2" },
+          track: 0,
+          mediaId: "media-1",
+        },
+      },
+    ]));
+    assert.deepEqual(result.after.timeline.sequence.occurrences[1]?.startTime, { value: "1", timescale: "1" });
+    assert.deepEqual(result.after.timeline.sequence.durationTime, { value: "3", timescale: "2" });
+  } finally {
+    await rm(first.directory, { recursive: true, force: true });
+  }
+
+  const second = await createService();
+  try {
+    const result = await second.service.execute(command(second.initial, "unused", [
+      { type: "remove-occurrence", occurrenceId: "occurrence-1" },
+      {
+        type: "insert-occurrence",
+        placement: "append",
+        occurrence: {
+          id: "occurrence-2",
+          name: "Appended",
+          startTime: { value: "99", timescale: "1" },
+          durationTime: { value: "1", timescale: "2" },
+          track: 0,
+          mediaId: "media-1",
+        },
+      },
+    ]));
+    assert.deepEqual(result.after.timeline.sequence.occurrences[0]?.startTime, { value: "0", timescale: "1" });
+    assert.deepEqual(result.after.timeline.sequence.durationTime, { value: "1", timescale: "2" });
+  } finally {
+    await rm(second.directory, { recursive: true, force: true });
   }
 });
 

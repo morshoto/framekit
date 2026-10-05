@@ -592,7 +592,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
         occurrence!.sourceStartTime = normalizeRationalTime(operation.sourceStartTime);
         validateRational(occurrence!.sourceStartTime, "operation.sourceStartTime", false);
       }
-      timeline.sequence.durationTime = maxRational(timeline.sequence.durationTime, addRationalTimes(occurrence!.startTime, occurrence!.durationTime));
+      recomputeSequenceDuration(timeline);
       return;
     case "move-occurrence":
       occurrence!.startTime = normalizeRationalTime(operation.startTime);
@@ -601,7 +601,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
         if (!Number.isInteger(operation.track) || operation.track < 0) throw new Error("TIMELINE_IR_OPERATION_INVALID: track must be a non-negative integer");
         occurrence!.track = operation.track;
       }
-      timeline.sequence.durationTime = maxRational(timeline.sequence.durationTime, addRationalTimes(occurrence!.startTime, occurrence!.durationTime));
+      recomputeSequenceDuration(timeline);
       canonicalizeOccurrences(timeline);
       return;
     case "split-occurrence": {
@@ -633,6 +633,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
     case "remove-occurrence":
       timeline.sequence.occurrences = timeline.sequence.occurrences.filter(({ id }) => id !== operation.occurrenceId);
       timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ occurrenceId }) => occurrenceId !== operation.occurrenceId);
+      recomputeSequenceDuration(timeline);
       return;
     case "add-marker":
       validateMarker(operation.marker);
@@ -649,6 +650,14 @@ function canonicalizeOccurrences(timeline: TimelineIr): void {
     if (left.track !== right.track) return left.track - right.track;
     return left.id.localeCompare(right.id);
   });
+}
+
+function recomputeSequenceDuration(timeline: TimelineIr): void {
+  let durationTime: RationalTime = { value: "0", timescale: "1" };
+  for (const item of [...timeline.sequence.occurrences, ...timeline.sequence.storyElements]) {
+    durationTime = maxRational(durationTime, addRationalTimes(item.startTime, item.durationTime, "TIMELINE_IR_OPERATION_INVALID"));
+  }
+  timeline.sequence.durationTime = durationTime;
 }
 
 function validateMarker(marker: TimelineIrMarker): void {
