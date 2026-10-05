@@ -21,7 +21,7 @@ test("headless render fixtures are reproducible and encode the canonical QA asse
       sources: Array<{ id: string; filename: string; width: number; height: number; durationSeconds: number; frameRate: { value: string; timescale: string }; sampleRate: number; channels: number; temporalVisual?: boolean }>;
       expectedWorkflow: { sourceOrder: string[]; sourceRanges: Array<{ sourceId: string; startTime: { value: string; timescale: string }; durationTime: { value: string; timescale: string } }>; titleWindows: unknown[]; transition: unknown; transform: { scaleX: number; scaleY: number }; audioGainDb: number };
     };
-    assert.equal(manifest.sources.length, 2);
+    assert.equal(manifest.sources.length, 3);
     assert.deepEqual(manifest.expectedWorkflow.sourceOrder, ["fixture-red-440hz", "fixture-blue-880hz"]);
     assert.deepEqual(manifest.expectedWorkflow.sourceRanges, [
       { sourceId: "fixture-red-440hz", startTime: { value: "1", timescale: "4" }, durationTime: { value: "1", timescale: "1" } },
