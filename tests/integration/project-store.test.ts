@@ -92,6 +92,15 @@ test("project encoding is deterministic for equivalent object key order", () => 
   assert.equal(encodeFramekitProject(expected), encodeFramekitProject(reordered));
 });
 
+test("project encoding omits explicitly undefined optional fields", () => {
+  const expected = project();
+  expected.timeline.sequence.occurrences[0]!.binding = undefined;
+
+  const encoded = encodeFramekitProject(expected);
+  assert.doesNotMatch(encoded, /undefined/);
+  assert.deepEqual(JSON.parse(encoded), JSON.parse(JSON.stringify(expected)));
+});
+
 test("future schema versions fail with structured diagnostics", async () => {
   const root = await directory();
   const path = join(root, "project.json");
@@ -163,6 +172,55 @@ test("an expected revision mismatch fails before replacing canonical state", asy
       (error: unknown) => error instanceof Error && (error as Error & { code?: string }).code === "PROJECT_STALE_REVISION",
     );
     assert.deepEqual(await store.load(), first);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent creates and saves fail closed instead of overwriting", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    const first = project();
+    const second = structuredClone(first);
+    second.timeline.project.name = "Concurrent second";
+    second.timeline.revision = { ...first.timeline.revision, id: "revision-second", sequence: 8 };
+    const store = new FramekitProjectStore(path);
+
+    const creates = await Promise.allSettled([store.create(first), store.create(second)]);
+    assert.equal(creates.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(creates.filter((result) => result.status === "rejected" && (result.reason as { code?: string }).code === "PROJECT_ALREADY_EXISTS").length, 1);
+
+    const writes = await Promise.allSettled([
+      store.save({ ...first, timeline: { ...first.timeline, revision: { ...first.timeline.revision, id: "revision-a", sequence: 8 } } }, first.timeline.revision),
+      store.save({ ...first, timeline: { ...first.timeline, revision: { ...first.timeline.revision, id: "revision-b", sequence: 8 } } }, first.timeline.revision),
+    ]);
+    assert.equal(writes.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(writes.filter((result) => result.status === "rejected" && (result.reason as { code?: string }).code === "PROJECT_STALE_REVISION").length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a stale lock left by a dead process is recovered after restart", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    await writeFile(`${path}.lock`, `${Number.MAX_SAFE_INTEGER}\n`);
+    const expected = project();
+    await new FramekitProjectStore(path).create(expected);
+    assert.deepEqual(await new FramekitProjectStore(path).load(), expected);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a live lock owner is not stolen", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    await writeFile(`${path}.lock`, `${process.pid}\n`);
+    await assert.rejects(new FramekitProjectStore(path).create(project()), /PROJECT_SAVE_FAILED/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
