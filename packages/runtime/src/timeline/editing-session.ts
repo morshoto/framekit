@@ -52,10 +52,13 @@ export interface TimelineIrMediaStream {
 }
 
 export interface TimelineIrTransform {
+  /** Multipliers relative to the source media's untransformed dimensions. */
   scaleX: number;
   scaleY: number;
+  /** Timeline-pixel offsets from the output canvas center; +x is right and +y is up. */
   positionX?: number;
   positionY?: number;
+  /** Counter-clockwise rotation in degrees around the media center. */
   rotationDegrees?: number;
 }
 
