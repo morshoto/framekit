@@ -38,10 +38,13 @@ import {
 } from "@framekit/final-cut";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  EDITING_ROUTE_EDIT_TYPES,
   EDITOR_FIRST_MCP_INSTRUCTIONS,
+  HEADLESS_TIMELINE_EDIT_TYPES,
   HEADLESS_FIRST_MCP_INSTRUCTIONS,
   resolveEditingRoute,
   type EditorRoutingContext,
+  type EditingRouteEditType,
   type EditingRouteOperation,
 } from "./routing.js";
 import {
@@ -1316,10 +1319,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       ]),
       fallback: z.enum(["none", "external-renderer"]).optional().default("none"),
       path: z.enum(["headless", "headed"]).optional(),
+      editType: z.enum(EDITING_ROUTE_EDIT_TYPES).optional(),
     },
-  }, async ({ operation, fallback, path }) => {
+  }, async ({ operation, fallback, path, editType }) => {
     const context = await editingRouteContext(runtime, options);
-    return jsonResult(resolveEditingRoute({ operation, fallback, ...(path ? { path } : {}) }, context));
+    return jsonResult(resolveEditingRoute({
+      operation,
+      fallback,
+      ...(path ? { path } : {}),
+      ...(editType ? { editType } : {}),
+    }, context));
   });
 
   server.registerTool("editing.duration.plan", {
@@ -1965,8 +1974,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: editToolInputSchema,
   }, async (input) => {
     const { path, verification, ...operation } = input;
-    await requireEditingRoute(runtime, options, "timeline.edit", path);
-    return jsonResult(await runtime.edit(editOperationSchema.parse(operation), verification ?? {}));
+    const parsedOperation = editOperationSchema.parse(operation);
+    await requireEditingRoute(runtime, options, "timeline.edit", path, parsedOperation.type);
+    return jsonResult(await runtime.edit(parsedOperation, verification ?? {}));
   });
 
   server.registerTool("rough-cut.construction.plan", {
@@ -1994,10 +2004,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: editorTimelineEditToolInputSchema,
   }, async (input) => {
     const { path, projectId, sequenceId, verification, ...operation } = input;
-    await requireEditingRoute(runtime, options, "timeline.edit", path);
+    const parsedOperation = editOperationSchema.parse(operation);
+    await requireEditingRoute(runtime, options, "timeline.edit", path, parsedOperation.type);
     return jsonResult(await runtime.editTimeline(
       { projectId, sequenceId },
-      editOperationSchema.parse(operation),
+      parsedOperation,
       verification ?? {},
     ));
   });
@@ -2479,8 +2490,13 @@ async function requireEditingRoute(
   options: McpServerOptions,
   operation: EditingRouteOperation,
   path?: "headless" | "headed",
+  editType?: EditingRouteEditType,
 ): Promise<void> {
-  const route = resolveEditingRoute({ operation, ...(path ? { path } : {}) }, await editingRouteContext(runtime, options));
+  const route = resolveEditingRoute({
+    operation,
+    ...(path ? { path } : {}),
+    ...(editType ? { editType } : {}),
+  }, await editingRouteContext(runtime, options));
   if (route.status === "headless-selected") {
     throw new Error("HEADLESS_ROUTE_SELECTED: use the headless.project and headless.edit tools for the default Framekit SSoT path");
   }
@@ -2516,12 +2532,10 @@ async function editingRouteContext(
         available: true,
         backend: "framekit-project-store",
         guarantee: "canonical-write" as const,
-        // The legacy timeline.edit surface also accepts noise reduction,
-        // color correction, and ripple delete, which the headless Timeline IR
-        // transaction layer does not implement. Keep those requests from
-        // being advertised as a single broader headless capability; callers
-        // should use the concrete headless.project/headless.edit tools.
-        supportedOperations: [],
+        // Advertise only concrete Timeline IR edit capabilities. The legacy
+        // timeline.edit surface also accepts operations that the headless
+        // transaction layer does not implement.
+        supportedOperations: HEADLESS_TIMELINE_EDIT_TYPES.map((editType) => `timeline.edit:${editType}`),
       },
     } : {}),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),

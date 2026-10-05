@@ -7,10 +7,13 @@ contract.
 ## Headless-first routing
 
 Framekit-owned project edits default to the headless Timeline IR path. Call
-`editing.route` for the intended operation; a configured headless project
-service returns `selectedPath: "headless"` and `reason.code:
-"HEADLESS_SELECTED"`. A missing headless capability returns
-`HEADLESS_UNAVAILABLE` without launching or activating Final Cut Pro.
+`editing.route` for the intended operation and include the concrete `editType`
+for `timeline.edit`; a configured headless project service returns
+`selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"` only for
+an advertised Timeline IR edit capability. A missing or unsupported concrete
+capability returns `HEADLESS_UNAVAILABLE` without launching or activating
+Final Cut Pro. The legacy `timeline.edit` surface is not advertised as one
+undifferentiated headless capability.
 
 ## Explicit headed/editor-first routing
 
