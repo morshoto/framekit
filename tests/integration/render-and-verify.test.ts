@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import test from "node:test";
 import {
+  createFramekitRenderPlan,
   createFramekitRenderRequest,
   createFramekitRenderResult,
   renderAndVerifyFramekitProject,
@@ -40,13 +41,28 @@ test("render-and-verify returns verified provenance and independent artifact met
       {
         semanticAssertions: [{
           name: "fixture-semantics",
-          verify: ({ plan, artifact }) => ({
+          verify: async ({ plan, artifact }) => {
+            const early = ppmPixel(await frameAt(artifact.path, 0.25, directory, "semantic-early"), 10, 160);
+            const transition = ppmPixel(await frameAt(artifact.path, 0.9, directory, "semantic-transition"), 10, 160);
+            const late = ppmPixel(await frameAt(artifact.path, 1.2, directory, "semantic-late"), 10, 160);
+            const titleFrame = await frameAt(artifact.path, 0.25, directory, "semantic-title");
+            const noTitleFrame = await frameAt(artifact.path, 0.75, directory, "semantic-no-title");
+            const sourceVolume = await meanVolume(join(directory, "fixture-red-440hz.mp4"));
+            const outputVolume = await meanVolume(artifact.path);
+            const pixelsAndAudioPass = early.r > 150 && early.b < 80
+              && transition.r > 20 && transition.b > 20
+              && late.b > 150 && late.r < 80
+              && countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5
+              && Math.abs((outputVolume - sourceVolume) - 6) < 1.5;
+            return {
             name: "fixture-semantics",
             passed: plan.timeline.sequence.occurrences.map(({ id }) => id).join(",") === "occurrence-red,occurrence-blue"
               && plan.timeline.sequence.transitions?.[0]?.id === "transition-red-blue"
-              && artifact.durationSeconds > 1.95,
-            detail: "canonical fixture ordering, transition identity, and rendered duration are retained",
-          }),
+              && artifact.durationSeconds > 1.95
+              && pixelsAndAudioPass,
+            detail: "canonical fixture ordering plus rendered pixels, title window, cross-dissolve, and audio gain are verified",
+            };
+          },
         }],
       },
     );
@@ -90,6 +106,71 @@ test("render-and-verify does not report provider success when independent verifi
   assert.equal(outcome.status, "failed");
   assert.equal(outcome.render?.status, "rendered");
   assert.equal(outcome.verification?.status, "failed");
+});
+
+test("render-and-verify rejects a passed verification without artifact metadata", async () => {
+  const timeline = minimalTimeline();
+  const request = createFramekitRenderRequest({
+    timeline,
+    target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+    parameters: renderParameters("/tmp/render-and-verify-contract.mp4"),
+  });
+  const provider = {
+    id: "fixture-provider",
+    version: "1",
+    capabilities: () => ({ renderer: { id: "fixture-provider", version: "1" }, features: { "local-media": "supported" as const, "structural-edits": "supported" as const } }),
+    async render(plan: Parameters<typeof createFramekitRenderResult>[0]) {
+      return createFramekitRenderResult(plan, { path: plan.parameters.outputPath, format: plan.parameters.format });
+    },
+  };
+  const outcome = await renderAndVerifyFramekitProject(request, provider, { verify: async () => ({ status: "passed", checks: [] }) });
+  assert.equal(outcome.status, "failed");
+  assert.equal(outcome.verification?.error?.code, "RENDER_VERIFICATION_CONTRACT_INVALID");
+});
+
+test("ffprobe verifier treats missing output as failure", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-missing-"));
+  try {
+    const timeline = minimalTimeline();
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(join(directory, "missing.mp4")),
+    });
+    const capabilities = { renderer: { id: "fixture-provider", version: "1" }, features: { "local-media": "supported" as const, "structural-edits": "supported" as const } };
+    const plan = createFramekitRenderPlan(request, capabilities);
+    const result = createFramekitRenderResult(plan, { path: plan.parameters.outputPath, format: plan.parameters.format });
+    const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, result);
+    assert.equal(verification.status, "failed");
+    assert.equal(verification.error?.code, "RENDER_OUTPUT_MISSING");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ffprobe verifier requires canonical audio streams", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-audio-"));
+  try {
+    const outputPath = join(directory, "video-only.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=1",
+      "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", outputPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const timeline = minimalTimeline();
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(outputPath),
+    });
+    const capabilities = { renderer: { id: "fixture-provider", version: "1" }, features: { "local-media": "supported" as const, "structural-edits": "supported" as const } };
+    const plan = createFramekitRenderPlan(request, capabilities);
+    const result = createFramekitRenderResult(plan, { path: outputPath, format: plan.parameters.format });
+    const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, result);
+    assert.equal(verification.status, "failed");
+    assert.equal(verification.checks.find((check) => check.name === "audio-stream")?.passed, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("render-and-verify preserves explicit unavailable state", async () => {
@@ -177,4 +258,39 @@ function renderParameters(outputPath: string): FramekitRenderParameters {
 
 async function digest(path: string): Promise<string> {
   return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+async function frameAt(videoPath: string, seconds: number, directory: string, label: string): Promise<Buffer> {
+  const framePath = join(directory, `${label}.ppm`);
+  await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", videoPath, "-ss", String(seconds), "-frames:v", "1", "-f", "image2", framePath], { cwd: repositoryRoot, env: process.env });
+  return readFile(framePath);
+}
+
+function ppmPixel(contents: Buffer, x: number, y: number): { r: number; g: number; b: number } {
+  const headerEnd = contents.indexOf(Buffer.from("\n255\n")) + "\n255\n".length;
+  const header = contents.subarray(0, headerEnd).toString("ascii").trim().split(/\s+/);
+  const width = Number(header[1]);
+  const offset = headerEnd + (y * width + x) * 3;
+  return { r: contents[offset]!, g: contents[offset + 1]!, b: contents[offset + 2]! };
+}
+
+function countBrightPixels(contents: Buffer, left: number, right: number, top: number, bottom: number): number {
+  const headerEnd = contents.indexOf(Buffer.from("\n255\n")) + "\n255\n".length;
+  const header = contents.subarray(0, headerEnd).toString("ascii").trim().split(/\s+/);
+  const width = Number(header[1]);
+  let count = 0;
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const offset = headerEnd + (y * width + x) * 3;
+      if (contents[offset]! > 180 && contents[offset + 1]! > 180 && contents[offset + 2]! > 180) count += 1;
+    }
+  }
+  return count;
+}
+
+async function meanVolume(videoPath: string): Promise<number> {
+  const result = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "info", "-ss", "0.1", "-t", "0.5", "-i", videoPath, "-af", "volumedetect", "-f", "null", "-"], { cwd: repositoryRoot, env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  const match = result.stderr.match(/mean_volume:\s*(-?[0-9.]+) dB/);
+  assert.ok(match, `volumedetect did not produce mean volume for ${videoPath}`);
+  return Number(match[1]);
 }

@@ -41,8 +41,8 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
     let details;
     try {
       details = await lstat(outputPath);
-    } catch (error) {
-      return unavailable(`render output does not exist: ${outputPath}`, "RENDER_OUTPUT_MISSING");
+    } catch {
+      return failed([], `render output does not exist: ${outputPath}`, "RENDER_OUTPUT_MISSING");
     }
     if (!details.isFile() || details.isSymbolicLink()) {
       return failed(checks, "render output is not a regular file", "RENDER_OUTPUT_INVALID");
@@ -67,6 +67,8 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
       return failed(checks, "render output has no complete video stream", "RENDER_OUTPUT_UNPLAYABLE");
     }
     const expectedFrameRate = parseRational(plan.parameters.frameRate);
+    const expectedAudio = expectedAudioStream(plan);
+    const audio = probe.streams.find((stream) => stream.codec_type === "audio");
     const observedFrameRate = parseFfmpegRate(video.r_frame_rate);
     const expectedDuration = rationalSeconds(plan.timeline.sequence.durationTime);
     const tolerance = this.durationToleranceSeconds ?? Math.max(0.05, rationalSeconds(plan.timeline.sequence.frameDuration) * 1.5);
@@ -78,6 +80,12 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
     checks.push({ name: "format", passed: formatPassed, detail: "output container matches the explicit request", expected: plan.parameters.format, observed: probe.format.format_name });
     checks.push({ name: "dimensions", passed: video.width === plan.parameters.width && video.height === plan.parameters.height, detail: "output dimensions match the explicit request", expected: { width: plan.parameters.width, height: plan.parameters.height }, observed: { width: video.width, height: video.height } });
     checks.push({ name: "frame-rate", passed: frameRatePassed, detail: "output rational frame rate matches the explicit request", expected: expectedFrameRate, observed: observedFrameRate });
+    const audioPassed = expectedAudio === undefined || (
+      audio !== undefined
+      && (expectedAudio.sampleRate === undefined || Number(audio.sample_rate) === expectedAudio.sampleRate)
+      && (expectedAudio.channels === undefined || audio.channels === expectedAudio.channels)
+    );
+    checks.push({ name: "audio-stream", passed: audioPassed, detail: "canonical audio stream presence and metadata are preserved", expected: expectedAudio ?? { kind: "none" }, observed: audio ?? { kind: "none" } });
     checks.push({ name: "duration", passed: durationPassed, detail: `output duration is within ${tolerance} seconds of the canonical sequence`, expected: expectedDuration, observed: probe.format.duration });
     const artifact: FramekitRenderArtifactMetadata = {
       path: result.output.path,
@@ -126,6 +134,16 @@ interface ProbeStream {
 interface ProbeResult {
   streams: ProbeStream[];
   format: { format_name: string; duration: number };
+}
+
+function expectedAudioStream(plan: FramekitRenderPlan): { sampleRate?: number; channels?: number } | undefined {
+  const resources = new Map(plan.timeline.resources.map((resource) => [resource.id, resource]));
+  for (const occurrence of plan.timeline.sequence.occurrences) {
+    const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
+    const stream = resource?.metadata?.streams.find((candidate) => candidate.kind === "audio");
+    if (stream) return { sampleRate: stream.sampleRate, channels: stream.channels };
+  }
+  return undefined;
 }
 
 function toArtifactStream(stream: ProbeStream): FramekitRenderArtifactStream {

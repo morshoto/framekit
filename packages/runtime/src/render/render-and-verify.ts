@@ -133,6 +133,19 @@ export async function renderAndVerifyFramekitProject(
     };
   }
   if (verification.status !== "passed" || !verification.artifact) {
+    if (verification.status === "passed" && !verification.artifact) {
+      const invalidVerification: FramekitRenderVerificationResult = {
+        ...verification,
+        status: "failed",
+        checks: [...verification.checks, {
+          name: "artifact",
+          passed: false,
+          detail: "a passed render verification must include artifact metadata",
+        }],
+        error: { code: "RENDER_VERIFICATION_CONTRACT_INVALID", message: "passed verification omitted artifact metadata" },
+      };
+      return { status: "failed", plan, render, verification: invalidVerification };
+    }
     return { status: verification.status, plan, render, verification };
   }
 
