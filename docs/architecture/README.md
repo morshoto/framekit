@@ -12,6 +12,7 @@ contracts separate from MCP transport and editor adapters.
 - [Headless titles and transitions](./headless-titles-transitions.md)
 - [Provider-neutral headless render contract](./headless-render-contract.md)
 - [Deterministic headless render fixtures](./headless-render-fixtures.md)
+- [Headless core and source of truth](./headless-core-ssot.md)
 - [Runtime boundaries](./runtime-boundaries.md)
 - [Backend selection](./backend-selection.md)
 - [Final Cut provider boundaries](./final-cut-provider-boundaries.md)
