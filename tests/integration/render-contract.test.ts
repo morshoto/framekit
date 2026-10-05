@@ -42,7 +42,14 @@ function timeline(): TimelineIr {
       }],
       transitions: [],
     },
-    resources: [{ id: "media-1", name: "Source", mediaKind: "video", sourceKind: "local-file", source: "/tmp/source.mp4" }],
+    resources: [{
+      id: "media-1",
+      name: "Source",
+      mediaKind: "video",
+      sourceKind: "local-file",
+      source: "/tmp/source.mp4",
+      sourceDigest: "a".repeat(64),
+    }],
     revision: { id: "revision-1", sequence: 1, timestamp: "2026-10-05T00:00:00.000Z" },
   };
 }
