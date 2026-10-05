@@ -23,11 +23,40 @@ export type EditingRouteOperation =
 export type EditingRouteFallback = "none" | "external-renderer";
 export type CapabilityUnavailableCategory = "background-api" | "canonical-snapshot" | "native-ui";
 
+export const HEADLESS_TIMELINE_EDIT_TYPES = [
+  "insert-occurrence",
+  "rename-occurrence",
+  "trim-occurrence",
+  "move-occurrence",
+  "split-occurrence",
+  "set-gain",
+  "set-transform",
+  "remove-occurrence",
+  "add-marker",
+  "add-title",
+  "remove-title",
+  "add-transition",
+  "remove-transition",
+] as const;
+
+export const EDITING_ROUTE_EDIT_TYPES = [
+  ...HEADLESS_TIMELINE_EDIT_TYPES,
+  "rename-clip",
+  "trim-clip",
+  "reduce-noise",
+  "set-color-correction",
+  "ripple-delete",
+] as const;
+
+export type EditingRouteEditType = (typeof EDITING_ROUTE_EDIT_TYPES)[number];
+
 export interface EditingRouteRequest {
   operation: EditingRouteOperation;
   fallback?: EditingRouteFallback;
   /** Select the headless SSoT or explicitly opt into a headed editor path. */
   path?: "headless" | "headed";
+  /** Identify the concrete timeline edit for capability-granular headless routing. */
+  editType?: EditingRouteEditType;
 }
 
 export interface EditorRoutingContext {
@@ -275,12 +304,12 @@ export function resolveEditingRoute(
 
   const headlessRequested = request.path === "headless";
   if (headlessRequested || (headlessDefault && request.path !== "headed")) {
-    if (context.headless?.available && context.headless.supportedOperations.includes(request.operation)) {
+    if (context.headless?.available && headlessSupportsRequest(request, context)) {
       return {
         operation: request.operation,
         status: "headless-selected",
         selectedPath: "headless",
-        requiredCapabilities: [`headless.${request.operation}`],
+        requiredCapabilities: [headlessCapability(request)],
         missingCapabilities: [],
         provider: {
           backend: context.headless.backend,
@@ -535,7 +564,7 @@ function headlessUnavailableRoute(
   readiness: EditingRoute["readiness"],
   workflow: string[],
 ): EditingRoute {
-  const capability = `headless.${request.operation}`;
+  const capability = headlessCapability(request);
   return {
     operation: request.operation,
     status: "unavailable",
@@ -560,6 +589,41 @@ function headlessUnavailableRoute(
       },
     },
   };
+}
+
+function headlessSupportsRequest(
+  request: EditingRouteRequest,
+  context: EditorRoutingContext,
+): boolean {
+  if (!context.headless) return false;
+  if (request.operation !== "timeline.edit") {
+    return context.headless.supportedOperations.includes(request.operation);
+  }
+  // A bare timeline.edit request is intentionally not a headless capability:
+  // the legacy surface also contains operations that Timeline IR cannot apply.
+  const editType = canonicalHeadlessEditType(request.editType);
+  return editType !== undefined
+    && context.headless.supportedOperations.includes(`timeline.edit:${editType}`);
+}
+
+function headlessCapability(request: EditingRouteRequest): string {
+  if (request.operation !== "timeline.edit") return `headless.${request.operation}`;
+  const editType = canonicalHeadlessEditType(request.editType);
+  return request.editType
+    ? `headless.timeline.edit.${editType ?? request.editType}`
+    : "headless.timeline.edit";
+}
+
+function canonicalHeadlessEditType(editType: EditingRouteEditType | undefined): string | undefined {
+  if (!editType) return undefined;
+  switch (editType) {
+    case "rename-clip": return "rename-occurrence";
+    case "trim-clip": return "trim-occurrence";
+    default:
+      return HEADLESS_TIMELINE_EDIT_TYPES.includes(editType as (typeof HEADLESS_TIMELINE_EDIT_TYPES)[number])
+        ? editType
+        : undefined;
+  }
 }
 
 function selectedMessage(operation: EditingRouteOperation): string {

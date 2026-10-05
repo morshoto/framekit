@@ -7,11 +7,17 @@ the native bridge.
 ## Headless-first workflow
 
 Framekit-owned projects use the headless Timeline IR and project store as the
-default editing path. Call `editing.route` for the intended operation: when
-the headless capability is available it returns `selectedPath: "headless"`
+default editing path. Call `editing.route` for the intended operation; for
+`timeline.edit`, include the concrete `editType` such as
+`rename-occurrence`, `set-transform`, or `add-title`. When that concrete
+headless capability is available it returns `selectedPath: "headless"`
 and the workflow continues through `headless.project.*` and
 `headless.edit.*`. This path does not require Final Cut Pro to be installed,
 running, frontmost, or accessible through Accessibility/System Events.
+
+The route is capability-granular: unsupported legacy edit types such as
+`reduce-noise`, `set-color-correction`, and `ripple-delete` return
+`HEADLESS_UNAVAILABLE` rather than claiming the whole `timeline.edit` surface.
 
 If the headless capability is unavailable, the route returns structured
 `HEADLESS_UNAVAILABLE` evidence. It does not launch or activate an NLE, and

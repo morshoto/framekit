@@ -4,7 +4,10 @@
 
 For a Framekit-owned project, use the headless path by default:
 
-1. Call `editing.route` with the intended operation.
+1. Call `editing.route` with the intended operation. For `timeline.edit`,
+   include the concrete `editType` (for example `rename-occurrence`,
+   `set-transform`, or `add-title`); the route does not treat the whole legacy
+   edit surface as one headless capability.
 2. Confirm `selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"`.
 3. Use `headless.project.open` or `headless.project.inspect`, then
    `headless.edit.preview` and `headless.edit.execute`.

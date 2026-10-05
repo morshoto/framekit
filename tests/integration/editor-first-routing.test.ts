@@ -80,8 +80,8 @@ test("routing selects the connected editor when required capabilities are availa
   assert.ok(route.requiredCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
 });
 
-test("routing selects the Framekit headless SSoT before editor availability", () => {
-  const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
+test("routing selects a supported Timeline IR edit before editor availability", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", editType: "rename-occurrence" }, context({
     connection: {
       state: "unavailable",
       lastError: { code: "FINAL_CUT_ABSENT", message: "Final Cut is not installed" },
@@ -90,7 +90,7 @@ test("routing selects the Framekit headless SSoT before editor availability", ()
       available: true,
       backend: "framekit-project-store",
       guarantee: "canonical-write",
-      supportedOperations: ["timeline.edit"],
+      supportedOperations: ["timeline.edit:rename-occurrence"],
     },
   }));
 
@@ -114,7 +114,7 @@ test("routing reports an unavailable headless path without falling back to an ed
       available: false,
       backend: "framekit-project-store",
       guarantee: "none",
-      supportedOperations: ["timeline.edit"],
+      supportedOperations: ["timeline.edit:rename-occurrence"],
     },
   }));
 
@@ -132,7 +132,7 @@ test("routing requires explicit headed opt-in when the headless path is availabl
       available: true,
       backend: "framekit-project-store",
       guarantee: "canonical-write",
-      supportedOperations: ["timeline.edit"],
+      supportedOperations: ["timeline.edit:rename-occurrence"],
     },
   }));
 
@@ -490,7 +490,7 @@ test("MCP exposes editor-first instructions, descriptions, and routing decisions
     assert.ok(routeTool);
     assert.match(routeTool.description ?? "", /capabilit/i);
     assert.match(routeTool.description ?? "", /external/i);
-    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["fallback", "operation", "path"]);
+    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["editType", "fallback", "operation", "path"]);
     for (const name of ["project.inspect", "timeline.edit", "timeline.edit.preview", "timeline.edit.execute"]) {
       const tool = tools.tools.find((candidate) => candidate.name === name);
       assert.ok(tool, `${name} must be registered`);
