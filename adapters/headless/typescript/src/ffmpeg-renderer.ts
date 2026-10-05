@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { access, lstat, mkdtemp, rename, rm } from "node:fs/promises";
+import { access, link, lstat, mkdtemp, rename, rm, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -114,7 +114,20 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
       if (!(await isRegularFile(stagingPath))) {
         throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", "FFmpeg completed without producing an output file");
       }
-      await rename(stagingPath, outputPath);
+      await assertSourcesUnchanged(model);
+      if (plan.parameters.overwrite ?? false) {
+        await rename(stagingPath, outputPath);
+      } else {
+        try {
+          await link(stagingPath, outputPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_EXISTS", `render output already exists: ${outputPath}`);
+          }
+          throw error;
+        }
+        await unlink(stagingPath);
+      }
       return createFramekitRenderResult(plan, {
         path: plan.parameters.outputPath,
         format: plan.parameters.format,
@@ -135,6 +148,7 @@ interface RenderModel {
   width: number;
   height: number;
   format: FramekitRenderFormat;
+  sourceIdentities: Array<{ path: string; digest: string }>;
 }
 
 async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel> {
@@ -160,6 +174,7 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
 
   const resources = new Map(timeline.resources.map((resource) => [resource.id, resource]));
   const sourcePaths: string[] = [];
+  const sourceIdentities: Array<{ path: string; digest: string }> = [];
   const audioAvailability = new Set<boolean>();
   let previousEnd = 0;
   for (const occurrence of occurrences) {
@@ -177,9 +192,13 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
     previousEnd = start + clipDuration;
     const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
     if (!resource) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `occurrence has no registered media: ${occurrence.id}`);
-    const sourcePath = await verifyResource(resource, occurrence, clipDuration);
+    const source = await verifyResource(resource, occurrence, clipDuration);
+    const sourcePath = source.path;
     audioAvailability.add(resource.metadata?.streams.some((stream) => stream.kind === "audio") ?? false);
     if (!sourcePaths.includes(sourcePath)) sourcePaths.push(sourcePath);
+    if (!sourceIdentities.some((identity) => identity.path === source.path && identity.digest === source.digest)) {
+      sourceIdentities.push(source);
+    }
   }
   if (audioAvailability.size > 1) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "all primary occurrences must agree on audio availability");
@@ -201,10 +220,11 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
     width: plan.parameters.width,
     height: plan.parameters.height,
     format: plan.parameters.format,
+    sourceIdentities,
   };
 }
 
-async function verifyResource(resource: TimelineIrResource, occurrence: TimelineIrOccurrence, duration: number): Promise<string> {
+async function verifyResource(resource: TimelineIrResource, occurrence: TimelineIrOccurrence, duration: number): Promise<{ path: string; digest: string }> {
   if (resource.sourceKind !== "local-file" || !resource.source || !resource.sourceDigest) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is not a registered local file: ${resource.id}`);
   }
@@ -234,7 +254,21 @@ async function verifyResource(resource: TimelineIrResource, occurrence: Timeline
   if (sourceStart < 0 || duration <= 0 || sourceStart + duration > sourceDuration + 1e-7) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `source range exceeds registered media: ${occurrence.id}`);
   }
-  return sourcePath;
+  return { path: sourcePath, digest: actualDigest };
+}
+
+async function assertSourcesUnchanged(model: RenderModel): Promise<void> {
+  for (const identity of model.sourceIdentities) {
+    let details;
+    try {
+      details = await lstat(identity.path);
+    } catch {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed during rendering: ${identity.path}`);
+    }
+    if (!details.isFile() || details.isSymbolicLink() || await digestFile(identity.path) !== identity.digest) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed during rendering: ${identity.path}`);
+    }
+  }
 }
 
 function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?: string): string[] {
@@ -290,7 +324,8 @@ function addVideoComposition(
   }
   if (transition) {
     const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
-    const offset = rationalSeconds(model.occurrences[0]!.durationTime, "transition offset");
+    const offset = rationalSeconds(model.occurrences[0]!.durationTime, "transition offset") - duration;
+    if (offset < 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "transition duration exceeds the first occurrence duration");
     const output = "video-xfade";
     filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
     const padding = Math.max(0, model.duration - (model.duration - duration));
