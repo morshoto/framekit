@@ -15,6 +15,7 @@ contracts separate from MCP transport and editor adapters.
 - [FFmpeg headless Timeline IR renderer](./headless-ffmpeg-renderer.md)
 - [Headless render and verification](./headless-render-verification.md)
 - [Headless MCP project lifecycle](./headless-mcp-project-lifecycle.md)
+- [Headless core and source of truth](./headless-core-ssot.md)
 - [Runtime boundaries](./runtime-boundaries.md)
 - [Backend selection](./backend-selection.md)
 - [Final Cut provider boundaries](./final-cut-provider-boundaries.md)

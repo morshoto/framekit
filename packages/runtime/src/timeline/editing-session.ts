@@ -505,6 +505,12 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     if (resource.sourceKind !== undefined && resource.sourceKind !== "local-file") {
       throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id} has unsupported sourceKind`);
     }
+    if (resource.sourceKind === "local-file") {
+      requireText(resource.source, `resource ${resource.id}.source`);
+      if (typeof resource.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(resource.sourceDigest)) {
+        throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id}.sourceDigest must be a SHA-256 hex digest`);
+      }
+    }
     if (resource.metadata) validateMediaMetadata(resource.metadata, `resource ${resource.id}.metadata`);
     validateBinding(resource.binding, `resource ${resource.id}.binding`);
   }
