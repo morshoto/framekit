@@ -52,13 +52,10 @@ export interface TimelineIrMediaStream {
 }
 
 export interface TimelineIrTransform {
-  /** Multipliers relative to the source media's untransformed dimensions. */
   scaleX: number;
   scaleY: number;
-  /** Timeline-pixel offsets from the output canvas center; +x is right and +y is up. */
   positionX?: number;
   positionY?: number;
-  /** Counter-clockwise rotation in degrees around the media center. */
   rotationDegrees?: number;
 }
 
@@ -114,7 +111,6 @@ export interface TimelineIrTitle {
   /** Connected/overlay lane; zero is reserved for the primary storyline. */
   lane: number;
   style?: TimelineIrTitleStyle;
-  /** Normalized output coordinates in the centered canvas space: x and y are in [-1, 1], +x is right, and +y is up. */
   position?: { x: number; y: number };
 }
 
@@ -661,7 +657,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
         occurrence!.sourceStartTime = normalizeRationalTime(operation.sourceStartTime);
         validateRational(occurrence!.sourceStartTime, "operation.sourceStartTime", false);
       }
-      recomputeSequenceDuration(timeline);
+      timeline.sequence.durationTime = maxRational(timeline.sequence.durationTime, addRationalTimes(occurrence!.startTime, occurrence!.durationTime));
       return;
     case "move-occurrence":
       occurrence!.startTime = normalizeRationalTime(operation.startTime);
@@ -670,7 +666,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
         if (!Number.isInteger(operation.track) || operation.track < 0) throw new Error("TIMELINE_IR_OPERATION_INVALID: track must be a non-negative integer");
         occurrence!.track = operation.track;
       }
-      recomputeSequenceDuration(timeline);
+      timeline.sequence.durationTime = maxRational(timeline.sequence.durationTime, addRationalTimes(occurrence!.startTime, occurrence!.durationTime));
       canonicalizeOccurrences(timeline);
       return;
     case "split-occurrence": {
@@ -689,7 +685,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       right.durationTime = subtractRationalTimes(occurrence!.durationTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
       const sourceStartTime = occurrence!.sourceStartTime ?? { value: "0", timescale: "1" };
       right.sourceStartTime = addRationalTimes(sourceStartTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
-      if (right.binding?.kind === "occurrence") delete right.binding;
+      if (right.binding?.kind === "occurrence") right.binding = { ...right.binding, identity: right.id };
       occurrence!.durationTime = splitOffsetTime;
       timeline.sequence.occurrences.push(right);
       canonicalizeOccurrences(timeline);
@@ -706,7 +702,6 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
     case "remove-occurrence":
       timeline.sequence.occurrences = timeline.sequence.occurrences.filter(({ id }) => id !== operation.occurrenceId);
       timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ occurrenceId }) => occurrenceId !== operation.occurrenceId);
-      recomputeSequenceDuration(timeline);
       return;
     case "add-marker":
       validateMarker(operation.marker);
@@ -718,14 +713,16 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       if (titles.some(({ id }) => id === operation.title.id)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: title already exists: ${operation.title.id}`);
       validateTitle(operation.title);
       titles.push(structuredClone(operation.title));
-      recomputeSequenceDuration(timeline);
+      timeline.sequence.durationTime = maxRational(
+        timeline.sequence.durationTime,
+        addRationalTimes(operation.title.startTime, operation.title.durationTime, "TIMELINE_IR_OPERATION_INVALID"),
+      );
       return;
     }
     case "remove-title": {
       const titles = timeline.sequence.titles ?? [];
       if (!titles.some(({ id }) => id === operation.titleId)) throw new Error(`TIMELINE_IR_OPERATION_INVALID: title not found: ${operation.titleId}`);
       timeline.sequence.titles = titles.filter(({ id }) => id !== operation.titleId);
-      recomputeSequenceDuration(timeline);
       return;
     }
     case "add-transition": {
@@ -755,17 +752,6 @@ function canonicalizeOccurrences(timeline: TimelineIr): void {
   });
 }
 
-function recomputeSequenceDuration(timeline: TimelineIr): void {
-  let durationTime: RationalTime = { value: "0", timescale: "1" };
-  for (const item of [...timeline.sequence.occurrences, ...timeline.sequence.storyElements]) {
-    durationTime = maxRational(durationTime, addRationalTimes(item.startTime, item.durationTime, "TIMELINE_IR_OPERATION_INVALID"));
-  }
-  for (const title of timeline.sequence.titles ?? []) {
-    durationTime = maxRational(durationTime, addRationalTimes(title.startTime, title.durationTime, "TIMELINE_IR_OPERATION_INVALID"));
-  }
-  timeline.sequence.durationTime = durationTime;
-}
-
 function validateMarker(marker: TimelineIrMarker): void {
   requireText(marker.id, "marker.id");
   requireText(marker.name, `marker ${marker.id}.name`);
@@ -779,9 +765,8 @@ function validateTitle(title: TimelineIrTitle): void {
   validateRational(title.startTime, `title ${title.id}.startTime`, false);
   validateRational(title.durationTime, `title ${title.id}.durationTime`, true);
   if (!Number.isInteger(title.lane) || title.lane < 1) throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.lane must be a positive integer`);
-  if (title.position && (![title.position.x, title.position.y].every(Number.isFinite)
-    || ![title.position.x, title.position.y].every((value) => value >= -1 && value <= 1))) {
-    throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must use normalized coordinates in [-1, 1]`);
+  if (title.position && (![title.position.x, title.position.y].every(Number.isFinite))) {
+    throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must be finite`);
   }
   if (title.style) {
     if (title.style.fontFamily !== undefined) requireText(title.style.fontFamily, `title ${title.id}.style.fontFamily`);
@@ -802,13 +787,12 @@ function validateTransition(timeline: TimelineIr, transition: TimelineIrTransiti
   requireText(transition.afterOccurrenceId, `transition ${transition.id}.afterOccurrenceId`);
   validateRational(transition.durationTime, `transition ${transition.id}.durationTime`, true);
   const occurrences = timeline.sequence.occurrences;
-  const before = occurrences.find(({ id }) => id === transition.beforeOccurrenceId);
-  const after = occurrences.find(({ id }) => id === transition.afterOccurrenceId);
-  if (!before || !after) throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must exist`);
-  const sameTrack = occurrences.filter(({ track }) => track === before.track);
-  const beforeIndex = sameTrack.findIndex(({ id }) => id === before.id);
-  const afterIndex = sameTrack.findIndex(({ id }) => id === after.id);
-  if (before.track !== after.track || beforeIndex < 0 || afterIndex !== beforeIndex + 1) {
+  const beforeIndex = occurrences.findIndex(({ id }) => id === transition.beforeOccurrenceId);
+  const afterIndex = occurrences.findIndex(({ id }) => id === transition.afterOccurrenceId);
+  if (beforeIndex < 0 || afterIndex < 0) throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must exist`);
+  const before = occurrences[beforeIndex]!;
+  const after = occurrences[afterIndex]!;
+  if (before.track !== after.track || afterIndex !== beforeIndex + 1) {
     throw new Error(`TIMELINE_IR_INVALID: transition ${transition.id} participants must be adjacent on one track`);
   }
   if (compareRational(addRationalTimes(before.startTime, before.durationTime), after.startTime) !== 0) {
@@ -821,10 +805,6 @@ function validateTransition(timeline: TimelineIr, transition: TimelineIrTransiti
 
 function validateTransform(transform: TimelineIrTransform, field: string): void {
   if (!transform || typeof transform !== "object") throw new Error(`TIMELINE_IR_INVALID: ${field} must be an object`);
-  const allowedKeys = new Set(["scaleX", "scaleY", "positionX", "positionY", "rotationDegrees"]);
-  for (const key of Object.keys(transform)) {
-    if (!allowedKeys.has(key)) throw new Error(`TIMELINE_IR_INVALID: ${field}.${key} is not supported`);
-  }
   if (!Number.isFinite(transform.scaleX) || transform.scaleX <= 0) throw new Error(`TIMELINE_IR_INVALID: ${field}.scaleX must be positive`);
   if (!Number.isFinite(transform.scaleY) || transform.scaleY <= 0) throw new Error(`TIMELINE_IR_INVALID: ${field}.scaleY must be positive`);
   for (const [name, value] of [
