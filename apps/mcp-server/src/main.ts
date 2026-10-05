@@ -29,6 +29,8 @@ import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, F
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
+import { HeadlessProjectService } from "./headless-projects.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "@framekit/headless-renderer";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
@@ -208,6 +210,12 @@ const analyzers = liveMode
 
 const runtime = new AgentVideoRuntime(editor, analyzers);
 const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
+const headlessProjects = new HeadlessProjectService({
+  directory: join(framekitStateDirectory, "projects"),
+  mediaProbe: new FfmpegMediaMetadataProbe(),
+  renderer: new FfmpegTimelineRenderer(),
+  verifier: new FfmpegRenderVerifier(),
+});
 const sqliteObservationProvider = new FinalCutSqliteInspectionProvider();
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
@@ -256,6 +264,7 @@ const server = createMcpServer(runtime, {
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   sqliteObservationProvider,
+  headlessProjects,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

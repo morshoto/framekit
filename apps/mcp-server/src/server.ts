@@ -53,6 +53,7 @@ import {
   SessionMaterializationJobs,
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
+import { HeadlessProjectService } from "./headless-projects.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
@@ -932,6 +933,7 @@ export interface McpServerOptions {
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
+  headlessProjects?: HeadlessProjectService;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -955,6 +957,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   const requireMaterializations = (): SessionMaterializationJobs => {
     if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
     return materializations;
+  };
+  const requireHeadlessProjects = (): HeadlessProjectService => {
+    if (!options.headlessProjects) throw new Error("HEADLESS_PROJECT_UNAVAILABLE: headless project storage is not configured");
+    return options.headlessProjects;
   };
 
   const sessionOperationSchema = z.array(z.unknown());
@@ -1178,6 +1184,87 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       return capabilityUnavailableErrorResult(error);
     }
   });
+
+  server.registerTool("headless.project.create", {
+    description: "Create and persist a Framekit-owned canonical project without contacting Final Cut Pro.",
+    inputSchema: { timeline: z.unknown() },
+  }, async ({ timeline }) => sessionResult(async () => requireHeadlessProjects().create(timeline as TimelineIr)));
+
+  server.registerTool("headless.project.list", {
+    description: "List persisted Framekit-owned projects and their stable canonical revisions.",
+    inputSchema: {},
+  }, async () => sessionResult(() => requireHeadlessProjects().list()));
+
+  server.registerTool("headless.project.open", {
+    description: "Open a persisted Framekit-owned project and fail closed if registered media changed or is missing.",
+    inputSchema: { projectId: z.string().min(1) },
+  }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().open(projectId)));
+
+  server.registerTool("headless.project.inspect", {
+    description: "Inspect the current persisted Framekit Timeline IR and exact revision.",
+    inputSchema: { projectId: z.string().min(1) },
+  }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().inspect(projectId)));
+
+  server.registerTool("headless.media.register", {
+    description: "Register one local source file in the canonical Framekit project with digest and ffprobe metadata.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sourcePath: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+    },
+  }, async ({ projectId, sourcePath, expectedRevision }) => sessionResult(() => requireHeadlessProjects().registerMedia(projectId, sourcePath, expectedRevision)));
+
+  server.registerTool("headless.edit.preview", {
+    description: "Preview supported Framekit Timeline IR edits without persisting or mutating the project.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().previewEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  server.registerTool("headless.edit.execute", {
+    description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().executeEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  const headlessRenderParametersSchema = z.object({
+    outputPath: z.string().min(1),
+    format: z.enum(["mp4", "mov"]),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    frameRate: rationalTimeSchema,
+    overwrite: z.boolean().optional(),
+  }).strict();
+
+  server.registerTool("headless.render", {
+    description: "Render and independently verify one immutable Framekit revision without launching an NLE.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      parameters: headlessRenderParametersSchema,
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
+
+  server.registerTool("headless.render.inspect", {
+    description: "Inspect a persisted headless render record, provenance, and independent verification evidence.",
+    inputSchema: { renderId: z.string().min(1) },
+  }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().inspectRender(renderId)));
 
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable capabilities before selecting an editing path.",

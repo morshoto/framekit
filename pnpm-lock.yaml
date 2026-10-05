@@ -235,6 +235,9 @@ importers:
       '@framekit/final-cut':
         specifier: workspace:*
         version: link:../../adapters/final-cut/typescript
+      '@framekit/headless-renderer':
+        specifier: workspace:*
+        version: link:../../adapters/headless/typescript
       '@framekit/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
