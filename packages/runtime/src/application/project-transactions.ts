@@ -45,7 +45,7 @@ export interface ProjectEditResult extends ProjectEditPreview {
 }
 
 export class ProjectTransactionError extends Error {
-  public readonly code: "PROJECT_EDIT_INVALID" | "PROJECT_EDIT_UNSUPPORTED" | "PROJECT_EDIT_STALE_REVISION" | "PROJECT_EDIT_TARGET_MISMATCH";
+  public readonly code: "PROJECT_EDIT_INVALID" | "PROJECT_EDIT_STALE_REVISION" | "PROJECT_EDIT_TARGET_MISMATCH";
   public readonly details?: Readonly<Record<string, unknown>>;
 
   public constructor(
@@ -195,6 +195,14 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
   }
   const candidate = operation as Record<string, unknown>;
   switch (candidate.type) {
+    case "insert-occurrence":
+      if (!candidate.occurrence || typeof candidate.occurrence !== "object") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.occurrence is required");
+      }
+      if (candidate.placement !== undefined && candidate.placement !== "append" && candidate.placement !== "insert") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.placement must be append or insert");
+      }
+      return;
     case "rename-occurrence":
       requireOperationText(candidate, "occurrenceId");
       requireOperationText(candidate, "name");
@@ -209,6 +217,11 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
       if (candidate.track !== undefined && (!Number.isInteger(candidate.track) || (candidate.track as number) < 0)) {
         throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.track must be a non-negative integer");
       }
+      return;
+    case "split-occurrence":
+      requireOperationText(candidate, "occurrenceId");
+      requireRationalShape(candidate.splitOffsetTime, "splitOffsetTime");
+      requireOperationText(candidate, "newOccurrenceId");
       return;
     case "set-gain":
       requireOperationText(candidate, "occurrenceId");
@@ -225,7 +238,7 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
       }
       return;
     default:
-      throw new ProjectTransactionError("PROJECT_EDIT_UNSUPPORTED", `unsupported operation type: ${String(candidate.type)}`);
+      throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `unsupported operation type: ${String(candidate.type)}`);
   }
 }
 

@@ -4,6 +4,7 @@ import type { MediaContext } from "../domain/media.js";
 import type { ProjectSnapshot, StoryElement } from "../domain/project.js";
 import { addRationalTimes } from "./rational-time.js";
 import { parseRational } from "./rational-time.js";
+import { subtractRationalTimes } from "./rational-time.js";
 import { reconcileTimelineIr, type TimelineReconciliationResult } from "./drift-reconciliation.js";
 
 export const TIMELINE_IR_SCHEMA_VERSION = 1 as const;
@@ -116,9 +117,11 @@ export interface TimelineIr {
 }
 
 export type TimelineIrEditOperation =
+  | { type: "insert-occurrence"; occurrence: TimelineIrOccurrence; placement?: "append" | "insert" }
   | { type: "rename-occurrence"; occurrenceId: string; name: string }
-  | { type: "trim-occurrence"; occurrenceId: string; durationTime: RationalTime }
+  | { type: "trim-occurrence"; occurrenceId: string; sourceStartTime?: RationalTime; durationTime: RationalTime }
   | { type: "move-occurrence"; occurrenceId: string; startTime: RationalTime; track?: number }
+  | { type: "split-occurrence"; occurrenceId: string; splitOffsetTime: RationalTime; newOccurrenceId: string }
   | { type: "set-gain"; occurrenceId: string; gainDb: number }
   | { type: "remove-occurrence"; occurrenceId: string }
   | { type: "add-marker"; marker: TimelineIrMarker };
@@ -564,9 +567,26 @@ export function timelineIrDigest(timeline: TimelineIr): string {
 }
 
 function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation): void {
-  const occurrence = operation.type === "add-marker" ? undefined : timeline.sequence.occurrences.find(({ id }) => id === operation.occurrenceId);
-  if (operation.type !== "add-marker" && !occurrence) throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence not found: ${operation.occurrenceId}`);
+  const occurrenceId = "occurrenceId" in operation ? operation.occurrenceId : undefined;
+  const occurrence = occurrenceId ? timeline.sequence.occurrences.find(({ id }) => id === occurrenceId) : undefined;
+  if (operation.type !== "add-marker" && operation.type !== "insert-occurrence" && !occurrence) {
+    throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence not found: ${occurrenceId}`);
+  }
   switch (operation.type) {
+    case "insert-occurrence": {
+      if (timeline.sequence.occurrences.some(({ id }) => id === operation.occurrence.id)) {
+        throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence already exists: ${operation.occurrence.id}`);
+      }
+      const inserted = structuredClone(operation.occurrence);
+      if (operation.placement === "append") inserted.startTime = normalizeRationalTime(timeline.sequence.durationTime);
+      timeline.sequence.occurrences.push(inserted);
+      timeline.sequence.durationTime = maxRational(
+        timeline.sequence.durationTime,
+        addRationalTimes(inserted.startTime, inserted.durationTime, "TIMELINE_IR_OPERATION_INVALID"),
+      );
+      canonicalizeOccurrences(timeline);
+      return;
+    }
     case "rename-occurrence":
       requireText(operation.name, "operation.name");
       occurrence!.name = operation.name;
@@ -574,7 +594,11 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
     case "trim-occurrence":
       occurrence!.durationTime = normalizeRationalTime(operation.durationTime);
       validateRational(occurrence!.durationTime, "operation.durationTime", true);
-      timeline.sequence.durationTime = maxRational(timeline.sequence.durationTime, addRationalTimes(occurrence!.startTime, occurrence!.durationTime));
+      if (operation.sourceStartTime) {
+        occurrence!.sourceStartTime = normalizeRationalTime(operation.sourceStartTime);
+        validateRational(occurrence!.sourceStartTime, "operation.sourceStartTime", false);
+      }
+      recomputeSequenceDuration(timeline);
       return;
     case "move-occurrence":
       occurrence!.startTime = normalizeRationalTime(operation.startTime);
@@ -583,8 +607,31 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
         if (!Number.isInteger(operation.track) || operation.track < 0) throw new Error("TIMELINE_IR_OPERATION_INVALID: track must be a non-negative integer");
         occurrence!.track = operation.track;
       }
-      timeline.sequence.durationTime = maxRational(timeline.sequence.durationTime, addRationalTimes(occurrence!.startTime, occurrence!.durationTime));
+      recomputeSequenceDuration(timeline);
+      canonicalizeOccurrences(timeline);
       return;
+    case "split-occurrence": {
+      requireText(operation.newOccurrenceId, "operation.newOccurrenceId");
+      if (timeline.sequence.occurrences.some(({ id }) => id === operation.newOccurrenceId)) {
+        throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence already exists: ${operation.newOccurrenceId}`);
+      }
+      const splitOffsetTime = normalizeRationalTime(operation.splitOffsetTime);
+      validateRational(splitOffsetTime, "operation.splitOffsetTime", true);
+      if (compareRational(splitOffsetTime, occurrence!.durationTime) >= 0) {
+        throw new Error("TIMELINE_IR_OPERATION_INVALID: splitOffsetTime must be inside the occurrence duration");
+      }
+      const right = structuredClone(occurrence!);
+      right.id = operation.newOccurrenceId;
+      right.startTime = addRationalTimes(occurrence!.startTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
+      right.durationTime = subtractRationalTimes(occurrence!.durationTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
+      const sourceStartTime = occurrence!.sourceStartTime ?? { value: "0", timescale: "1" };
+      right.sourceStartTime = addRationalTimes(sourceStartTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
+      if (right.binding?.kind === "occurrence") delete right.binding;
+      occurrence!.durationTime = splitOffsetTime;
+      timeline.sequence.occurrences.push(right);
+      canonicalizeOccurrences(timeline);
+      return;
+    }
     case "set-gain":
       if (!Number.isFinite(operation.gainDb)) throw new Error("TIMELINE_IR_OPERATION_INVALID: gainDb must be finite");
       occurrence!.gainDb = operation.gainDb;
@@ -592,6 +639,7 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
     case "remove-occurrence":
       timeline.sequence.occurrences = timeline.sequence.occurrences.filter(({ id }) => id !== operation.occurrenceId);
       timeline.sequence.storyElements = timeline.sequence.storyElements.filter(({ occurrenceId }) => occurrenceId !== operation.occurrenceId);
+      recomputeSequenceDuration(timeline);
       return;
     case "add-marker":
       validateMarker(operation.marker);
@@ -599,6 +647,23 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       timeline.sequence.markers.push({ ...structuredClone(operation.marker), startTime: normalizeRationalTime(operation.marker.startTime), durationTime: normalizeRationalTime(operation.marker.durationTime) });
       return;
   }
+}
+
+function canonicalizeOccurrences(timeline: TimelineIr): void {
+  timeline.sequence.occurrences.sort((left, right) => {
+    const start = compareRational(left.startTime, right.startTime);
+    if (start !== 0) return start;
+    if (left.track !== right.track) return left.track - right.track;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function recomputeSequenceDuration(timeline: TimelineIr): void {
+  let durationTime: RationalTime = { value: "0", timescale: "1" };
+  for (const item of [...timeline.sequence.occurrences, ...timeline.sequence.storyElements]) {
+    durationTime = maxRational(durationTime, addRationalTimes(item.startTime, item.durationTime, "TIMELINE_IR_OPERATION_INVALID"));
+  }
+  timeline.sequence.durationTime = durationTime;
 }
 
 function validateMarker(marker: TimelineIrMarker): void {

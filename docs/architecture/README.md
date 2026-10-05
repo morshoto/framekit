@@ -7,6 +7,7 @@ contracts separate from MCP transport and editor adapters.
 - [Framekit project persistence](./project-persistence.md)
 - [Headless local media registration](./local-media-registration.md)
 - [Headless project transactions](./headless-project-transactions.md)
+- [Headless structural Timeline IR edits](./headless-structural-edits.md)
 - [Headless core and source of truth](./headless-core-ssot.md)
 - [Runtime boundaries](./runtime-boundaries.md)
 - [Backend selection](./backend-selection.md)
