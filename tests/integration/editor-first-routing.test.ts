@@ -12,6 +12,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  EDITOR_FIRST_WORKFLOW,
   HEADLESS_FIRST_MCP_INSTRUCTIONS,
   HEADLESS_FIRST_WORKFLOW,
   resolveEditingRoute,
@@ -138,6 +139,23 @@ test("routing requires explicit headed opt-in when the headless path is availabl
   assert.equal(route.status, "editor-selected");
   assert.equal(route.selectedPath, "editor");
   assert.equal(route.reason.code, "EDITOR_SELECTED");
+  assert.deepEqual(route.workflow, EDITOR_FIRST_WORKFLOW);
+});
+
+test("routing does not advertise an unsupported whole legacy timeline edit surface as headless", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", path: "headless" }, context({
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: [],
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.selectedPath, "none");
+  assert.equal(route.reason.code, "HEADLESS_UNAVAILABLE");
+  assert.deepEqual(route.missingCapabilities, ["headless.timeline.edit"]);
 });
 
 test("routing selects native picture-in-picture only with native placement guarantees", () => {

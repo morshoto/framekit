@@ -20,8 +20,12 @@ test("production stdio MCP persists and reopens the headless project and render 
   const here = dirname(fileURLToPath(import.meta.url));
   const environment: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
-    FRAMEKIT_EDITOR: "fixture",
+    FRAMEKIT_EDITOR: "final-cut-live",
     FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_FCPXML_PATH: join(directory, "missing-project.fcpxml"),
     FRAMEKIT_STATE_DIR: directory,
   };
   let client: Client | undefined;
@@ -34,11 +38,6 @@ test("production stdio MCP persists and reopens the headless project and render 
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.project.create"));
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.render.inspect"));
     assert.match(client.getInstructions() ?? "", /headless Framekit-owned project/i);
-    const route = payload(await client.callTool({ name: "editing.route", arguments: { operation: "timeline.edit" } }));
-    assert.equal(route.status, "headless-selected");
-    assert.equal(route.selectedPath, "headless");
-    assert.equal(route.reason.code, "HEADLESS_SELECTED");
-    assert.equal(route.reason.connectionState, "ready");
 
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
     assert.equal(created.timeline.project.id, "mcp-headless-project");
