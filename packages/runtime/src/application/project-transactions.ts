@@ -7,6 +7,7 @@ import {
 } from "../timeline/editing-session.js";
 import {
   FramekitProjectStore,
+  ProjectPersistenceError,
   type FramekitProjectDocument,
 } from "./project-store.js";
 
@@ -101,12 +102,19 @@ export class ProjectTransactionService {
     const next = structuredClone(project);
     next.timeline = applied.after;
     next.metadata.updatedAt = this.clock();
-    const saved = await this.store.save(next, project.timeline.revision);
-    return {
-      ...buildPreview(command, project, applied),
-      after: saved,
-      committed: true,
-    };
+    try {
+      const saved = await this.store.save(next, project.timeline.revision);
+      return {
+        ...buildPreview(command, project, applied),
+        after: saved,
+        committed: true,
+      };
+    } catch (error) {
+      if (error instanceof ProjectPersistenceError && error.code === "PROJECT_STALE_REVISION") {
+        throw new ProjectTransactionError("PROJECT_EDIT_STALE_REVISION", "project became stale before the edit could commit", error.details, { cause: error });
+      }
+      throw error;
+    }
   }
 
   private async loadAndGuard(command: ProjectEditCommand): Promise<FramekitProjectDocument> {
@@ -177,6 +185,57 @@ function validateCommand(command: ProjectEditCommand): void {
   }
   if (!Array.isArray(command.operations)) {
     throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "command operations must be an array");
+  }
+  for (const operation of command.operations as unknown[]) validateOperation(operation);
+}
+
+function validateOperation(operation: unknown): asserts operation is TimelineIrEditOperation {
+  if (!operation || typeof operation !== "object" || !text((operation as { type?: unknown }).type)) {
+    throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "every operation must include a supported type");
+  }
+  const candidate = operation as Record<string, unknown>;
+  switch (candidate.type) {
+    case "rename-occurrence":
+      requireOperationText(candidate, "occurrenceId");
+      requireOperationText(candidate, "name");
+      return;
+    case "trim-occurrence":
+      requireOperationText(candidate, "occurrenceId");
+      requireRationalShape(candidate.durationTime, "durationTime");
+      return;
+    case "move-occurrence":
+      requireOperationText(candidate, "occurrenceId");
+      requireRationalShape(candidate.startTime, "startTime");
+      if (candidate.track !== undefined && (!Number.isInteger(candidate.track) || (candidate.track as number) < 0)) {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.track must be a non-negative integer");
+      }
+      return;
+    case "set-gain":
+      requireOperationText(candidate, "occurrenceId");
+      if (typeof candidate.gainDb !== "number" || !Number.isFinite(candidate.gainDb)) {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.gainDb must be finite");
+      }
+      return;
+    case "remove-occurrence":
+      requireOperationText(candidate, "occurrenceId");
+      return;
+    case "add-marker":
+      if (!candidate.marker || typeof candidate.marker !== "object") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.marker is required");
+      }
+      return;
+    default:
+      throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `unsupported operation type: ${String(candidate.type)}`);
+  }
+}
+
+function requireOperationText(operation: Record<string, unknown>, field: string): void {
+  if (!text(operation[field])) throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `operation.${field} must be non-empty`);
+}
+
+function requireRationalShape(value: unknown, field: string): void {
+  if (!value || typeof value !== "object" || !text((value as { value?: unknown }).value) || !text((value as { timescale?: unknown }).timescale)) {
+    throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `operation.${field} must be a rational time`);
   }
 }
 

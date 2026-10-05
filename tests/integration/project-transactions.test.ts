@@ -53,10 +53,11 @@ function command(projectValue: FramekitProjectDocument, name: string): ProjectEd
 
 async function createService() {
   const directory = await mkdtemp(join(tmpdir(), "framekit-project-transactions-"));
-  const store = new FramekitProjectStore(join(directory, "project.json"));
+  const path = join(directory, "project.json");
+  const store = new FramekitProjectStore(path);
   const initial = project();
   await store.create(initial);
-  return { directory, store, initial, service: new ProjectTransactionService(store, { clock: () => "2026-10-05T00:01:00.000Z" }) };
+  return { directory, path, store, initial, service: new ProjectTransactionService(store, { clock: () => "2026-10-05T00:01:00.000Z" }) };
 }
 
 test("preview returns an exact diff without mutating persisted canonical state", async () => {
@@ -114,7 +115,38 @@ test("invalid operations fail before persistence and preserve the prior project"
       service.execute({ ...command(initial, "Invalid"), operations: [{ type: "rename-occurrence", occurrenceId: "missing", name: "Invalid" }] }),
       (error: unknown) => error instanceof Error && (error as Error & { code?: string }).code === "PROJECT_EDIT_INVALID",
     );
+    await assert.rejects(
+      service.preview({ ...command(initial, "Unsupported"), operations: [{ type: "future-operation", occurrenceId: "occurrence-1" }] as unknown as ProjectEditCommand["operations"] }),
+      (error: unknown) => error instanceof Error
+        && (error as Error & { code?: string }).code === "PROJECT_EDIT_INVALID"
+        && /unsupported operation type/i.test(error.message),
+    );
     assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("store stale errors are translated when a concurrent write wins after the guard", async () => {
+  const { directory, path, initial } = await createService();
+  try {
+    class StaleOnSaveStore extends FramekitProjectStore {
+      public override async save(next: FramekitProjectDocument, expectedRevision?: FramekitProjectDocument["timeline"]["revision"]) {
+        const current = await super.load();
+        const external = structuredClone(current);
+        external.timeline.revision = { ...current.timeline.revision, id: "revision-external", sequence: current.timeline.revision.sequence + 1 };
+        await super.save(external, current.timeline.revision);
+        return super.save(next, expectedRevision);
+      }
+    }
+
+    const raceStore = new StaleOnSaveStore(path);
+    const service = new ProjectTransactionService(raceStore);
+    await assert.rejects(service.execute(command(initial, "Race")), (error: unknown) => (
+      error instanceof Error
+      && (error as Error & { code?: string }).code === "PROJECT_EDIT_STALE_REVISION"
+      && /stale/i.test(error.message)
+    ));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
