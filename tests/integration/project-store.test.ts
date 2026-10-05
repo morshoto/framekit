@@ -201,3 +201,27 @@ test("concurrent creates and saves fail closed instead of overwriting", async ()
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a stale lock left by a dead process is recovered after restart", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    await writeFile(`${path}.lock`, `${Number.MAX_SAFE_INTEGER}\n`);
+    const expected = project();
+    await new FramekitProjectStore(path).create(expected);
+    assert.deepEqual(await new FramekitProjectStore(path).load(), expected);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a live lock owner is not stolen", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    await writeFile(`${path}.lock`, `${process.pid}\n`);
+    await assert.rejects(new FramekitProjectStore(path).create(project()), /PROJECT_SAVE_FAILED/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

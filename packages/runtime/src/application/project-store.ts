@@ -155,7 +155,11 @@ export class FramekitProjectStore {
         await this.fs.writeFile(lockPath, `${process.pid}\n`, { encoding: "utf8", flag: "wx" });
         break;
       } catch (error) {
-        if (!isAlreadyExists(error) || Date.now() >= deadline) {
+        if (!isAlreadyExists(error)) {
+          throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `could not acquire project lock: ${this.path}`, { path: this.path }, { cause: error });
+        }
+        if (await this.removeStaleLock(lockPath)) continue;
+        if (Date.now() >= deadline) {
           throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `could not acquire project lock: ${this.path}`, { path: this.path }, { cause: error });
         }
         await new Promise((resolve) => setTimeout(resolve, 5));
@@ -167,6 +171,26 @@ export class FramekitProjectStore {
     } finally {
       await this.removeTemporaryFile(lockPath);
     }
+  }
+
+  private async removeStaleLock(lockPath: string): Promise<boolean> {
+    let owner: string;
+    try {
+      owner = await this.fs.readFile(lockPath, "utf8");
+    } catch (error) {
+      return isMissingFile(error);
+    }
+
+    const pid = Number.parseInt(owner.trim(), 10);
+    if (!Number.isInteger(pid) || pid <= 0 || isProcessDead(pid)) {
+      try {
+        await this.fs.unlink(lockPath);
+        return true;
+      } catch (error) {
+        return isMissingFile(error);
+      }
+    }
+    return false;
   }
 
   private async removeTemporaryFile(path: string): Promise<void> {
@@ -251,4 +275,14 @@ function isMissingFile(error: unknown): boolean {
 
 function isAlreadyExists(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "EEXIST";
+}
+
+function isProcessDead(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code !== "EPERM";
+  }
 }
