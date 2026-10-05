@@ -137,7 +137,7 @@ test("invalid operations fail before persistence and preserve the prior project"
     await assert.rejects(
       service.preview({ ...command(initial, "Unsupported"), operations: [{ type: "future-operation", occurrenceId: "occurrence-1" }] as unknown as ProjectEditCommand["operations"] }),
       (error: unknown) => error instanceof Error
-        && (error as Error & { code?: string }).code === "PROJECT_EDIT_INVALID"
+        && (error as Error & { code?: string }).code === "PROJECT_EDIT_UNSUPPORTED"
         && /unsupported operation type/i.test(error.message),
     );
     assert.deepEqual(await store.load(), initial);

@@ -45,7 +45,7 @@ export interface ProjectEditResult extends ProjectEditPreview {
 }
 
 export class ProjectTransactionError extends Error {
-  public readonly code: "PROJECT_EDIT_INVALID" | "PROJECT_EDIT_STALE_REVISION" | "PROJECT_EDIT_TARGET_MISMATCH";
+  public readonly code: "PROJECT_EDIT_INVALID" | "PROJECT_EDIT_UNSUPPORTED" | "PROJECT_EDIT_STALE_REVISION" | "PROJECT_EDIT_TARGET_MISMATCH";
   public readonly details?: Readonly<Record<string, unknown>>;
 
   public constructor(
@@ -137,6 +137,9 @@ export class ProjectTransactionService {
 
   private invalid(error: unknown): ProjectTransactionError {
     if (error instanceof ProjectTransactionError) return error;
+    if (error instanceof Error && error.message.startsWith("TIMELINE_IR_UNSUPPORTED:")) {
+      return new ProjectTransactionError("PROJECT_EDIT_UNSUPPORTED", error.message.slice("TIMELINE_IR_UNSUPPORTED:".length).trim(), undefined, { cause: error });
+    }
     return new ProjectTransactionError("PROJECT_EDIT_INVALID", error instanceof Error ? error.message : String(error), undefined, {
       cause: error instanceof Error ? error : undefined,
     });
@@ -229,6 +232,12 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
         throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.gainDb must be finite");
       }
       return;
+    case "set-transform":
+      requireOperationText(candidate, "occurrenceId");
+      if (!candidate.transform || typeof candidate.transform !== "object") {
+        throw new ProjectTransactionError("PROJECT_EDIT_INVALID", "operation.transform is required");
+      }
+      return;
     case "remove-occurrence":
       requireOperationText(candidate, "occurrenceId");
       return;
@@ -238,7 +247,7 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
       }
       return;
     default:
-      throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `unsupported operation type: ${String(candidate.type)}`);
+      throw new ProjectTransactionError("PROJECT_EDIT_UNSUPPORTED", `unsupported operation type: ${String(candidate.type)}`);
   }
 }
 
