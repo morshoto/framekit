@@ -27,6 +27,18 @@
       "frameRate": { "value": "30", "timescale": "1" },
       "sampleRate": 48000,
       "channels": 1
+    },
+    {
+      "id": "fixture-green-1320hz",
+      "filename": "fixture-green-1320hz.mp4",
+      "color": "green",
+      "frequencyHz": 1320,
+      "durationSeconds": 1,
+      "width": 320,
+      "height": 180,
+      "frameRate": { "value": "30", "timescale": "1" },
+      "sampleRate": 48000,
+      "channels": 1
     }
   ],
   "expectedWorkflow": {
