@@ -4,6 +4,7 @@ import {
   FRAMEKIT_RENDER_CONTRACT_VERSION,
   createFramekitRenderPlan,
   createFramekitRenderRequest,
+  createFramekitRenderResult,
   inferFramekitRenderFeatures,
   type FramekitRenderCapabilityReport,
   type FramekitRenderParameters,
@@ -86,6 +87,33 @@ test("builds a deterministic render request and plan bound to one revision", () 
   assert.match(plan.planDigest, /^[a-f0-9]{64}$/);
   assert.notEqual(plan.timeline, source);
   assert.deepEqual(plan.parameters, request.parameters);
+});
+
+test("unions inferred and explicitly requested render features", () => {
+  const source = timeline();
+  const request = createFramekitRenderRequest({
+    timeline: source,
+    target: { projectId: source.project.id, sequenceId: source.sequence.id },
+    parameters: parameters(),
+    requiredFeatures: ["local-media"],
+  });
+  assert.deepEqual(request.requiredFeatures, ["local-media", "structural-edits", "audio-gain", "transform", "titles"]);
+});
+
+test("freezes render plans and rejects mutations or digest drift", () => {
+  const source = timeline();
+  const request = createFramekitRenderRequest({
+    timeline: source,
+    target: { projectId: source.project.id, sequenceId: source.sequence.id },
+    parameters: parameters(),
+  });
+  const plan = createFramekitRenderPlan(request, capabilities());
+  assert.equal(Object.isFrozen(plan), true);
+  assert.equal(Object.isFrozen(plan.timeline.sequence), true);
+  assert.throws(() => {
+    (plan.timeline.sequence.titles as unknown[]).push({});
+  }, TypeError);
+  assert.throws(() => createFramekitRenderResult(plan, { path: "/tmp/other.mp4", format: "mp4" }), /RENDER_INVALID_RESULT/);
 });
 
 test("rejects stale or mismatched render targets before provider work", () => {

@@ -99,7 +99,10 @@ export function createFramekitRenderRequest(input: FramekitRenderRequestInput): 
     throw new FramekitRenderContractError("RENDER_STALE_REVISION", "requested revision does not match the Timeline IR");
   }
   validateParameters(input.parameters);
-  const requiredFeatures = input.requiredFeatures ? [...new Set(input.requiredFeatures)] : inferFramekitRenderFeatures(input.timeline);
+  const requiredFeatures = [...new Set([
+    ...inferFramekitRenderFeatures(input.timeline),
+    ...(input.requiredFeatures ?? []),
+  ])];
   for (const feature of requiredFeatures) {
     if (!RENDER_FEATURES.includes(feature)) throw new FramekitRenderContractError("RENDER_INVALID_REQUEST", `unsupported required feature: ${feature}`);
   }
@@ -146,17 +149,19 @@ export function createFramekitRenderPlan(
     renderer: structuredClone(capabilities.renderer),
     capabilities: structuredClone(capabilities),
   } satisfies Omit<FramekitRenderPlan, "planDigest">;
-  return {
+  const plan = {
     ...planBase,
     planDigest: createHash("sha256").update(stableJson(planBase)).digest("hex"),
   };
+  return deepFreeze(plan);
 }
 
 export function createFramekitRenderResult(
   plan: FramekitRenderPlan,
   output: { path: string; format: FramekitRenderFormat },
 ): FramekitRenderProviderResult {
-  if (!text(output.path) || output.format !== plan.parameters.format) {
+  assertPlanIntegrity(plan);
+  if (!text(output.path) || output.path !== plan.parameters.outputPath || output.format !== plan.parameters.format) {
     throw new FramekitRenderContractError("RENDER_INVALID_RESULT", "render output must match the explicit request format and path");
   }
   return {
@@ -207,4 +212,18 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   const entries = Object.entries(value).filter(([, child]) => child !== undefined).sort(([left], [right]) => left.localeCompare(right));
   return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(",")}}`;
+}
+
+function assertPlanIntegrity(plan: FramekitRenderPlan): void {
+  const { planDigest, ...planBase } = plan;
+  const actualDigest = createHash("sha256").update(stableJson(planBase)).digest("hex");
+  if (actualDigest !== planDigest) {
+    throw new FramekitRenderContractError("RENDER_INVALID_RESULT", "render plan was modified after it was created");
+  }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
 }
