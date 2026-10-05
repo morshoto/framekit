@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -42,14 +42,17 @@ test("render-and-verify returns verified provenance and independent artifact met
         semanticAssertions: [{
           name: "fixture-semantics",
           verify: async ({ plan, artifact }) => {
-            const early = ppmPixel(await frameAt(artifact.path, 0.25, directory, "semantic-early"), 10, 160);
-            const transition = ppmPixel(await frameAt(artifact.path, 0.9, directory, "semantic-transition"), 10, 160);
+            const earlyFrame = await frameAt(artifact.path, 0.25, directory, "semantic-early");
+            const early = ppmPixel(earlyFrame, 160, 120);
+            const transformedEdge = ppmPixel(earlyFrame, 10, 10);
+            const transition = ppmPixel(await frameAt(artifact.path, 0.9, directory, "semantic-transition"), 160, 120);
             const late = ppmPixel(await frameAt(artifact.path, 1.2, directory, "semantic-late"), 10, 160);
             const titleFrame = await frameAt(artifact.path, 0.25, directory, "semantic-title");
             const noTitleFrame = await frameAt(artifact.path, 0.75, directory, "semantic-no-title");
             const sourceVolume = await meanVolume(join(directory, "fixture-red-440hz.mp4"));
             const outputVolume = await meanVolume(artifact.path);
             const pixelsAndAudioPass = early.r > 150 && early.b < 80
+              && transformedEdge.r < 20 && transformedEdge.g < 20 && transformedEdge.b < 20
               && transition.r > 20 && transition.b > 20
               && late.b > 150 && late.r < 80
               && countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5
@@ -60,7 +63,7 @@ test("render-and-verify returns verified provenance and independent artifact met
               && plan.timeline.sequence.transitions?.[0]?.id === "transition-red-blue"
               && artifact.durationSeconds > 1.95
               && pixelsAndAudioPass,
-            detail: "canonical fixture ordering plus rendered pixels, title window, cross-dissolve, and audio gain are verified",
+              detail: "canonical fixture ordering plus rendered pixels, transform padding, title window, cross-dissolve, and audio gain are verified",
             };
           },
         }],
@@ -73,6 +76,21 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.equal(outcome.verification?.artifact?.height, 180);
     assert.match(outcome.verification?.artifact?.fileDigest ?? "", /^[a-f0-9]{64}$/);
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
+
+    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.4, directory, "range-selected");
+    const unrangedTimeline = structuredClone(timeline);
+    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    const unrangedParameters = renderParameters(join(directory, "unranged.mp4"));
+    const unrangedRequest = createFramekitRenderRequest({
+      timeline: unrangedTimeline,
+      target: { projectId: unrangedTimeline.project.id, sequenceId: unrangedTimeline.sequence.id },
+      parameters: unrangedParameters,
+    });
+    const unrangedRenderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const unrangedPlan = createFramekitRenderPlan(unrangedRequest, unrangedRenderer.capabilities(unrangedRequest));
+    await unrangedRenderer.render(unrangedPlan);
+    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "range-ignored");
+    assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -173,6 +191,50 @@ test("ffprobe verifier requires canonical audio streams", async () => {
   }
 });
 
+test("ffprobe verifier rejects output identity or bytes changing during verification", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-stability-"));
+  try {
+    const outputPath = join(directory, "output.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+      "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", outputPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const ffprobeWrapper = join(directory, "mutating-ffprobe.mjs");
+    await writeFile(ffprobeWrapper, [
+      "#!/usr/bin/env node",
+      "import { appendFileSync } from \"node:fs\";",
+      "import { spawnSync } from \"node:child_process\";",
+      "const result = spawnSync(process.env.FFPROBE_REAL_BIN, process.argv.slice(2), { encoding: \"utf8\" });",
+      "process.stdout.write(result.stdout ?? \"\");",
+      "process.stderr.write(result.stderr ?? \"\");",
+      "appendFileSync(process.argv.at(-1), \"changed during verification\");",
+      "process.exit(result.status ?? 1);",
+    ].join("\n"));
+    await chmod(ffprobeWrapper, 0o755);
+    const timeline = minimalTimeline();
+    timeline.sequence.durationTime = { value: "1", timescale: "1" };
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, {
+      renderer: { id: "fixture-provider", version: "1" },
+      features: { "local-media": "supported", "structural-edits": "supported" },
+    });
+    const result = createFramekitRenderResult(plan, { path: outputPath, format: plan.parameters.format });
+    const verification = await new FfmpegRenderVerifier({
+      ffprobePath: ffprobeWrapper,
+      env: { FFPROBE_REAL_BIN: process.env.FFPROBE_BIN || "ffprobe" },
+    }).verify(plan, result);
+    assert.equal(verification.status, "failed");
+    assert.equal(verification.error?.code, "RENDER_OUTPUT_CHANGED");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("render-and-verify preserves explicit unavailable state", async () => {
   const timeline = minimalTimeline();
   const request = createFramekitRenderRequest({
@@ -200,8 +262,8 @@ async function fixtureTimeline(directory: string): Promise<TimelineIr> {
       ...minimalTimeline().sequence,
       durationTime: { value: "2", timescale: "1" },
       occurrences: [
-        { ...minimalTimeline().sequence.occurrences[0]!, id: "occurrence-red", name: "Red", durationTime: { value: "1", timescale: "1" }, mediaId: "media-red", gainDb: 6, transform: { scaleX: 1.25, scaleY: 1.25 } },
-        { ...minimalTimeline().sequence.occurrences[0]!, id: "occurrence-blue", name: "Blue", startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, mediaId: "media-blue", transform: undefined },
+        { ...minimalTimeline().sequence.occurrences[0]!, id: "occurrence-red", name: "Red", durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "1", timescale: "4" }, mediaId: "media-red", gainDb: 6, transform: { scaleX: 0.5, scaleY: 0.5 } },
+        { ...minimalTimeline().sequence.occurrences[0]!, id: "occurrence-blue", name: "Blue", startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "1", timescale: "2" }, mediaId: "media-blue", transform: undefined },
       ],
       titles: [{ id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }],
       transitions: [{ id: "transition-red-blue", kind: "cross-dissolve", beforeOccurrenceId: "occurrence-red", afterOccurrenceId: "occurrence-blue", durationTime: { value: "1", timescale: "4" } }],
@@ -220,7 +282,7 @@ function minimalTimeline(): TimelineIr {
     sequence: {
       id: "sequence-render-and-verify",
       name: "Master",
-      durationTime: { value: "1", timescale: "1" },
+      durationTime: { value: "2", timescale: "1" },
       frameDuration: { value: "1", timescale: "30" },
       occurrences: [{ id: "occurrence-source", name: "Source", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video", mediaId: "media-source" }],
       storyElements: [],
@@ -243,7 +305,7 @@ function fixtureResource(id: string, source: string, sourceDigest: string) {
     sourceKind: "local-file" as const,
     sourceDigest,
     metadata: {
-      durationTime: { value: "1", timescale: "1" },
+      durationTime: { value: "2", timescale: "1" },
       streams: [
         { kind: "video" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
         { kind: "audio" as const, sampleRate: 48000, channels: 1 },
@@ -258,6 +320,10 @@ function renderParameters(outputPath: string): FramekitRenderParameters {
 
 async function digest(path: string): Promise<string> {
   return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+function frameDigest(contents: Buffer): string {
+  return createHash("sha256").update(contents).digest("hex");
 }
 
 async function frameAt(videoPath: string, seconds: number, directory: string, label: string): Promise<Buffer> {

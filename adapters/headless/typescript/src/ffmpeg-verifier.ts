@@ -50,6 +50,7 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
 
     const fileStats = await stat(outputPath);
     const fileDigest = await digestFile(outputPath);
+    const fileIdentity = { device: fileStats.dev, inode: fileStats.ino, size: fileStats.size };
     checks.push({ name: "output-exists", passed: true, detail: "render output is a regular file", observed: { path: outputPath } });
     checks.push({ name: "output-digest", passed: /^[a-f0-9]{64}$/.test(fileDigest), detail: "render output has a SHA-256 digest", observed: fileDigest });
 
@@ -62,6 +63,20 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
       }
       return failed(checks, error instanceof Error ? error.message : String(error), "RENDER_OUTPUT_UNPLAYABLE");
     }
+    let finalDetails;
+    try {
+      finalDetails = await lstat(outputPath);
+    } catch {
+      return failed(checks, `render output changed during verification: ${outputPath}`, "RENDER_OUTPUT_CHANGED");
+    }
+    if (!finalDetails.isFile() || finalDetails.isSymbolicLink()) {
+      return failed(checks, "render output changed into a non-regular file during verification", "RENDER_OUTPUT_CHANGED");
+    }
+    const finalDigest = await digestFile(outputPath);
+    if (finalDetails.dev !== fileIdentity.device || finalDetails.ino !== fileIdentity.inode || finalDetails.size !== fileIdentity.size || finalDigest !== fileDigest) {
+      return failed(checks, "render output bytes or file identity changed during verification", "RENDER_OUTPUT_CHANGED");
+    }
+    checks.push({ name: "output-stability", passed: true, detail: "the verified metadata and digest refer to one unchanged output file" });
     const video = probe.streams.find((stream) => stream.codec_type === "video");
     if (!video || video.width === undefined || video.height === undefined || !video.r_frame_rate) {
       return failed(checks, "render output has no complete video stream", "RENDER_OUTPUT_UNPLAYABLE");
