@@ -45,7 +45,7 @@ export interface ProjectEditResult extends ProjectEditPreview {
 }
 
 export class ProjectTransactionError extends Error {
-  public readonly code: "PROJECT_EDIT_INVALID" | "PROJECT_EDIT_STALE_REVISION" | "PROJECT_EDIT_TARGET_MISMATCH";
+  public readonly code: "PROJECT_EDIT_INVALID" | "PROJECT_EDIT_UNSUPPORTED" | "PROJECT_EDIT_STALE_REVISION" | "PROJECT_EDIT_TARGET_MISMATCH";
   public readonly details?: Readonly<Record<string, unknown>>;
 
   public constructor(
@@ -225,7 +225,7 @@ function validateOperation(operation: unknown): asserts operation is TimelineIrE
       }
       return;
     default:
-      throw new ProjectTransactionError("PROJECT_EDIT_INVALID", `unsupported operation type: ${String(candidate.type)}`);
+      throw new ProjectTransactionError("PROJECT_EDIT_UNSUPPORTED", `unsupported operation type: ${String(candidate.type)}`);
   }
 }
 
