@@ -57,8 +57,9 @@ export class LocalMediaRegistrar {
   }
 
   public async register(sourcePath: string, expectedRevision?: ContextRevision): Promise<LocalMediaRegistrationResult> {
-    const path = await assertLocalFile(sourcePath);
-    const digest = await digestFile(path);
+    const source = await inspectLocalFile(sourcePath);
+    const digest = await digestFile(source.path);
+    await assertStableSource(source, digest);
     const project = await this.store.load();
     if (expectedRevision && !sameRevision(project.timeline.revision, expectedRevision)) {
       throw new LocalMediaError("MEDIA_CHANGED", "project revision changed before media registration", {
@@ -67,25 +68,27 @@ export class LocalMediaRegistrar {
       });
     }
 
-    const existing = project.timeline.resources.find((resource) => resource.source === path);
+    const existing = project.timeline.resources.find((resource) => resource.source === source.path);
     if (existing) {
       if (existing.sourceDigest !== digest) {
-        throw new LocalMediaError("MEDIA_CHANGED", `registered source changed: ${path}`, {
+        throw new LocalMediaError("MEDIA_CHANGED", `registered source changed: ${source.path}`, {
           id: existing.id,
-          source: path,
+          source: source.path,
           expectedDigest: existing.sourceDigest,
           actualDigest: digest,
         });
       }
+      await assertStableSource(source, digest);
       return { status: "already-registered", project, resource: structuredClone(existing) };
     }
 
-    const metadata = await this.metadataProbe.probe(path);
+    const metadata = await this.metadataProbe.probe(source.path);
+    await assertStableSource(source, digest);
     const resource: TimelineIrResource = {
-      id: stableMediaId(path, digest),
-      name: basename(path),
+      id: stableMediaId(source.path, digest),
+      name: basename(source.path),
       mediaKind: metadata.streams.some((stream) => stream.kind === "video") ? "video" : "audio",
-      source: path,
+      source: source.path,
       sourceKind: "local-file",
       sourceDigest: digest,
       metadata: structuredClone(metadata),
@@ -105,11 +108,12 @@ export class LocalMediaRegistrar {
     for (const resource of loadedProject.timeline.resources) {
       if (resource.sourceKind !== "local-file" || !resource.source || !resource.sourceDigest) continue;
       try {
-        const path = await assertLocalFile(resource.source);
-        const actualDigest = await digestFile(path);
+        const source = await inspectLocalFile(resource.source);
+        const actualDigest = await digestFile(source.path);
+        await assertStableSource(source, actualDigest);
         results.push(actualDigest === resource.sourceDigest
-          ? { id: resource.id, source: path, status: "available", expectedDigest: resource.sourceDigest, actualDigest }
-          : { id: resource.id, source: path, status: "changed", expectedDigest: resource.sourceDigest, actualDigest });
+          ? { id: resource.id, source: source.path, status: "available", expectedDigest: resource.sourceDigest, actualDigest }
+          : { id: resource.id, source: source.path, status: "changed", expectedDigest: resource.sourceDigest, actualDigest });
       } catch (error) {
         if (error instanceof LocalMediaError && error.code === "MEDIA_MISSING") {
           results.push({ id: resource.id, source: resource.source, status: "missing", expectedDigest: resource.sourceDigest });
@@ -135,7 +139,16 @@ export class LocalMediaRegistrar {
   }
 }
 
-async function assertLocalFile(sourcePath: string): Promise<string> {
+interface LocalFileIdentity {
+  path: string;
+  device: number;
+  inode: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}
+
+async function inspectLocalFile(sourcePath: string): Promise<LocalFileIdentity> {
   const path = resolve(sourcePath);
   let details;
   try {
@@ -149,7 +162,22 @@ async function assertLocalFile(sourcePath: string): Promise<string> {
   if (!details.isFile() || details.isSymbolicLink()) {
     throw new LocalMediaError("MEDIA_AMBIGUOUS", `local source is not a regular file: ${path}`, { source: path });
   }
-  return path;
+  return { path, device: details.dev, inode: details.ino, size: details.size, mtimeMs: details.mtimeMs, ctimeMs: details.ctimeMs };
+}
+
+async function assertStableSource(identity: LocalFileIdentity, expectedDigest: string): Promise<void> {
+  const current = await inspectLocalFile(identity.path);
+  if (current.device !== identity.device
+    || current.inode !== identity.inode
+    || current.size !== identity.size
+    || current.mtimeMs !== identity.mtimeMs
+    || current.ctimeMs !== identity.ctimeMs
+    || await digestFile(current.path) !== expectedDigest) {
+    throw new LocalMediaError("MEDIA_CHANGED", `local source changed during registration: ${identity.path}`, {
+      source: identity.path,
+      expectedDigest,
+    });
+  }
 }
 
 async function digestFile(path: string): Promise<string> {
