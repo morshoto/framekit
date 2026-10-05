@@ -73,14 +73,16 @@ export class FramekitProjectStore {
   ) {}
 
   public async create(project: FramekitProjectDocument): Promise<FramekitProjectDocument> {
-    try {
-      await this.fs.readFile(this.path, "utf8");
-      throw new ProjectPersistenceError("PROJECT_ALREADY_EXISTS", `project file already exists: ${this.path}`);
-    } catch (error) {
-      if (error instanceof ProjectPersistenceError) throw error;
-      if (!isMissingFile(error)) throw error;
-    }
-    return this.save(project);
+    return this.withProjectLock(async () => {
+      try {
+        await this.fs.readFile(this.path, "utf8");
+        throw new ProjectPersistenceError("PROJECT_ALREADY_EXISTS", `project file already exists: ${this.path}`);
+      } catch (error) {
+        if (error instanceof ProjectPersistenceError) throw error;
+        if (!isMissingFile(error)) throw error;
+      }
+      return this.saveUnlocked(project);
+    });
   }
 
   public async load(): Promise<FramekitProjectDocument> {
@@ -103,6 +105,13 @@ export class FramekitProjectStore {
   }
 
   public async save(
+    project: FramekitProjectDocument,
+    expectedRevision?: ContextRevision,
+  ): Promise<FramekitProjectDocument> {
+    return this.withProjectLock(() => this.saveUnlocked(project, expectedRevision));
+  }
+
+  private async saveUnlocked(
     project: FramekitProjectDocument,
     expectedRevision?: ContextRevision,
   ): Promise<FramekitProjectDocument> {
@@ -133,6 +142,30 @@ export class FramekitProjectStore {
       throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `atomic project write failed: ${this.path}`, { path: this.path }, { cause: error });
     } finally {
       await this.removeTemporaryFile(temporary);
+    }
+  }
+
+  private async withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
+    await this.fs.mkdir(dirname(this.path), { recursive: true });
+    const lockPath = `${this.path}.lock`;
+    const deadline = Date.now() + 2_000;
+
+    while (true) {
+      try {
+        await this.fs.writeFile(lockPath, `${process.pid}\n`, { encoding: "utf8", flag: "wx" });
+        break;
+      } catch (error) {
+        if (!isAlreadyExists(error) || Date.now() >= deadline) {
+          throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `could not acquire project lock: ${this.path}`, { path: this.path }, { cause: error });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+
+    try {
+      return await operation();
+    } finally {
+      await this.removeTemporaryFile(lockPath);
     }
   }
 
@@ -189,9 +222,11 @@ export function validateFramekitProject(project: FramekitProjectDocument): void 
 }
 
 function stableJson(value: unknown): string {
+  if (value === undefined) return "null";
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(",")}}`;
 }
@@ -212,4 +247,8 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
 
 function isMissingFile(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "EEXIST";
 }
