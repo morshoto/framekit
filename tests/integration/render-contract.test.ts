@@ -116,6 +116,24 @@ test("freezes render plans and rejects mutations or digest drift", () => {
   assert.throws(() => createFramekitRenderResult(plan, { path: "/tmp/other.mp4", format: "mp4" }), /RENDER_INVALID_RESULT/);
 });
 
+test("freezes render requests before capability probing", () => {
+  const source = timeline();
+  const request = createFramekitRenderRequest({
+    timeline: source,
+    target: { projectId: source.project.id, sequenceId: source.sequence.id },
+    parameters: parameters(),
+  });
+  assert.equal(Object.isFrozen(request), true);
+  assert.equal(Object.isFrozen(request.timeline.sequence), true);
+  assert.equal(Object.isFrozen(request.parameters), true);
+  assert.throws(() => {
+    request.timeline.sequence.occurrences[0]!.gainDb = 99;
+  }, TypeError);
+  assert.throws(() => {
+    request.requiredFeatures.push("cross-dissolve");
+  }, TypeError);
+});
+
 test("rejects stale or mismatched render targets before provider work", () => {
   const source = timeline();
   assert.throws(() => createFramekitRenderRequest({

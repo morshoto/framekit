@@ -106,14 +106,14 @@ export function createFramekitRenderRequest(input: FramekitRenderRequestInput): 
   for (const feature of requiredFeatures) {
     if (!RENDER_FEATURES.includes(feature)) throw new FramekitRenderContractError("RENDER_INVALID_REQUEST", `unsupported required feature: ${feature}`);
   }
-  return {
+  return deepFreeze({
     contractVersion: FRAMEKIT_RENDER_CONTRACT_VERSION,
     target: structuredClone(input.target),
     projectRevision: structuredClone(input.timeline.revision),
     timeline: structuredClone(input.timeline),
     parameters: structuredClone(input.parameters),
     requiredFeatures,
-  };
+  });
 }
 
 export function inferFramekitRenderFeatures(timeline: TimelineIr): FramekitRenderFeature[] {
