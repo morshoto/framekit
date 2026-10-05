@@ -22,6 +22,27 @@ async function collectTypeScriptFiles(directory: string): Promise<string[]> {
   return files;
 }
 
+function collectRuntimeDependencies(source: string): string[] {
+  const dependencies: string[] = [];
+
+  for (const match of source.matchAll(/^\s*import\s+([\s\S]*?)(?:\s+from\s+)?["']([^"']+)["'];?/gm)) {
+    if (hasRuntimeSpecifiers(match[1] ?? "")) dependencies.push(match[2]!);
+  }
+  for (const match of source.matchAll(/^\s*export\s+([\s\S]*?)\s+from\s+["']([^"']+)["'];?/gm)) {
+    if (hasRuntimeSpecifiers(match[1] ?? "")) dependencies.push(match[2]!);
+  }
+
+  return dependencies;
+}
+
+function hasRuntimeSpecifiers(clause: string): boolean {
+  const normalized = clause.trim();
+  if (!normalized || /^type\b/.test(normalized)) return !normalized;
+  const named = normalized.match(/\{([\s\S]*)\}/)?.[1];
+  if (named !== undefined) return named.split(",").some((specifier) => !/^\s*type\b/.test(specifier.trim()));
+  return true;
+}
+
 test("headless SSoT contract documents the canonical flow and ownership boundaries", async () => {
   const contract = await readContract();
 
@@ -58,7 +79,19 @@ test("canonical runtime domain has no transport or NLE adapter dependency", asyn
 
   for (const file of files) {
     const source = await readFile(file, "utf8");
-    const imports = source.match(/^import[\s\S]*?from\s+["'][^"']+["'];?$/gm) ?? [];
-    assert.doesNotMatch(imports.join("\n"), /@modelcontextprotocol|apps\/mcp-server|adapters\/final-cut|final-cut|FinalCut|FCPXML/i);
+    const dependencies = collectRuntimeDependencies(source);
+    assert.doesNotMatch(dependencies.join("\n"), /@modelcontextprotocol|apps\/mcp-server|adapters\/final-cut|final-cut|FinalCut|FCPXML/i);
   }
+});
+
+test("runtime dependency scan includes side-effect imports and value re-exports", () => {
+  const dependencies = collectRuntimeDependencies(`
+    import "adapters/final-cut";
+    import { type TimelineIr } from "@framekit/runtime";
+    export * from "@modelcontextprotocol/sdk";
+    export { type TimelineIr } from "@framekit/runtime";
+    export { runtimeValue } from "adapters/final-cut";
+  `);
+
+  assert.deepEqual(dependencies, ["adapters/final-cut", "@modelcontextprotocol/sdk", "adapters/final-cut"]);
 });
