@@ -72,13 +72,20 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
     const rangedBlueFrame = await frameAt(parameters.outputPath, 1.4, directory, "ranged-blue");
     const openingTitleFrame = await frameAt(parameters.outputPath, 0.25, directory, "opening-title");
     const noTitleFrame = await frameAt(parameters.outputPath, 0.75, directory, "no-title");
+    const closingTitleFrame = await frameAt(parameters.outputPath, 1.75, directory, "closing-title");
+    const noClosingTitleFrame = await frameAt(parameters.outputPath, 1.4, directory, "no-closing-title");
     const earlyPixel = ppmPixel(earlyFrame, 10, 160);
     const transitionPixel = ppmPixel(transitionFrame, 10, 160);
     const latePixel = ppmPixel(lateFrame, 10, 160);
+    const rangedPixel = ppmPixel(rangedBlueFrame, 160, 150);
+    const unscaledMarkerPixel = ppmPixel(rangedBlueFrame, 20, 90);
     assert.ok(earlyPixel.r > 150 && earlyPixel.b < 80, `expected early red frame, got ${JSON.stringify(earlyPixel)}`);
     assert.ok(transitionPixel.r > 20 && transitionPixel.b > 20, `expected cross-dissolve blend, got ${JSON.stringify(transitionPixel)}`);
     assert.ok(latePixel.b > 150 && latePixel.r < 80, `expected late blue frame, got ${JSON.stringify(latePixel)}`);
-    assert.ok(countBrightPixels(openingTitleFrame, 40, 180, 20, 100) > countBrightPixels(noTitleFrame, 40, 180, 20, 100) + 5);
+    assert.ok(rangedPixel.g > 150 && rangedPixel.b > 150 && rangedPixel.r < 80, `expected non-zero source range to select the cyan scene, got ${JSON.stringify(rangedPixel)}`);
+    assert.ok(countBrightPixels(openingTitleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5, "opening title should render at normalized center only during its window");
+    assert.ok(countBrightPixels(closingTitleFrame, 40, 120, 20, 60) > countBrightPixels(noClosingTitleFrame, 40, 120, 20, 60) + 5, "closing title should render at its normalized upper-left position only during its window");
+    assert.ok(unscaledMarkerPixel.r < 80, `expected the untransformed marker to leave the left edge blue/cyan, got ${JSON.stringify(unscaledMarkerPixel)}`);
     const unranged = structuredClone(source);
     unranged.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
     const unrangedParameters = { ...parameters, outputPath: join(directory, "unranged.mp4") };
@@ -91,6 +98,20 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
     await renderer.render(unrangedPlan);
     const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "unranged-blue");
     assert.notEqual(frameDigest(rangedBlueFrame), frameDigest(unrangedFrame), "sourceStartTime must affect the selected rendered segment");
+
+    const scaledBlue = structuredClone(source);
+    scaledBlue.sequence.occurrences[1]!.transform = { scaleX: 1.25, scaleY: 1.25 };
+    const scaledBlueParameters = { ...parameters, outputPath: join(directory, "scaled-blue.mp4") };
+    const scaledBlueRequest = createFramekitRenderRequest({
+      timeline: scaledBlue,
+      target: { projectId: scaledBlue.project.id, sequenceId: scaledBlue.sequence.id },
+      parameters: scaledBlueParameters,
+    });
+    const scaledBluePlan = createFramekitRenderPlan(scaledBlueRequest, renderer.capabilities(scaledBlueRequest));
+    await renderer.render(scaledBluePlan);
+    const scaledBlueFrame = await frameAt(scaledBlueParameters.outputPath, 1.4, directory, "scaled-blue");
+    const scaledMarkerPixel = ppmPixel(scaledBlueFrame, 20, 90);
+    assert.ok(scaledMarkerPixel.r > 150 && scaledMarkerPixel.g > 150 && scaledMarkerPixel.b > 150, `expected scale 1.25 to move the white marker over the left edge, got ${JSON.stringify(scaledMarkerPixel)}`);
     const sourceMeanVolume = await meanVolume(redPath, directory, "source-volume");
     const outputMeanVolume = await meanVolume(parameters.outputPath, directory, "output-volume");
     assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - 6) < 1.5, `expected +6 dB gain, got ${outputMeanVolume - sourceMeanVolume} dB`);
@@ -268,7 +289,7 @@ function timelineWithoutMedia(): TimelineIr {
           durationTime: { value: "1", timescale: "2" },
           lane: 1,
           style: { fontSize: 24, color: "white", alignment: "center" },
-          position: { x: -0.3, y: 0.4 },
+          position: { x: 0, y: 0 },
         },
         {
           id: "title-closing",
@@ -276,6 +297,7 @@ function timelineWithoutMedia(): TimelineIr {
           startTime: { value: "3", timescale: "2" },
           durationTime: { value: "1", timescale: "2" },
           lane: 1,
+          position: { x: -0.5, y: 0.5 },
         },
       ],
       transitions: [{
