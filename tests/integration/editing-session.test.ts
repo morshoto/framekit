@@ -6,6 +6,7 @@ import {
   type TimelineIr,
 } from "@framekit/runtime";
 
+/** Recursively reverses object-property insertion order while preserving values. */
 function reverseObjectKeyOrder<T>(value: T): T {
   if (Array.isArray(value)) {
     return value.map((entry) => reverseObjectKeyOrder(entry)) as T;
@@ -70,6 +71,7 @@ test("serializes and loads a provider-neutral session without losing rational id
   });
 });
 
+/** Proves canonical encoding is independent of object-property insertion order. */
 test("encodes equivalent canonical state deterministically regardless of object key order", () => {
   const canonical = baseTimeline();
   const reordered = reverseObjectKeyOrder(canonical);
