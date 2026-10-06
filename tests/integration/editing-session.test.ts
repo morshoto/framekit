@@ -6,6 +6,18 @@ import {
   type TimelineIr,
 } from "@framekit/runtime";
 
+function reverseObjectKeyOrder<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => reverseObjectKeyOrder(entry)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).reverse().map(([key, entry]) => [key, reverseObjectKeyOrder(entry)]),
+    ) as T;
+  }
+  return value;
+}
+
 function baseTimeline(): TimelineIr {
   return {
     schemaVersion: 1,
@@ -56,6 +68,16 @@ test("serializes and loads a provider-neutral session without losing rational id
     kind: "resource",
     identity: "asset-1",
   });
+});
+
+test("encodes equivalent canonical state deterministically regardless of object key order", () => {
+  const canonical = baseTimeline();
+  const reordered = reverseObjectKeyOrder(canonical);
+
+  const originalEncoding = EditingSession.create({ base: canonical }).serialize();
+  const reorderedEncoding = EditingSession.create({ base: reordered }).serialize();
+
+  assert.equal(reorderedEncoding, originalEncoding);
 });
 
 test("previews and applies deterministic edits while Final Cut is unavailable", () => {
