@@ -7,6 +7,9 @@ import { sanitizeDisposableNativeEvidence } from "../../scripts/final-cut-eviden
 test("disposable native headed runner publishes the sanitized evidence contract", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-disposable-native-headed-e2e.mjs"), "utf8");
 
+  assert.match(runner, /editor\.native\.focus/);
+  assert.match(runner, /focused\.readiness\?\.targetKind/);
+  assert.match(runner, /focused\.readiness\?\.targetBound/);
   assert.match(runner, /editor\.native\.disposable\.preview/);
   assert.match(runner, /editor\.native\.disposable\.execute/);
   assert.match(runner, /editor\.native\.disposable\.undo/);
