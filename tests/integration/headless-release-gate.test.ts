@@ -396,19 +396,19 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
 
     const sourceDigestsAfter = await Promise.all(sourcePaths.map(digest));
     assert.deepEqual(sourceDigestsAfter, sourceDigestsBefore, "source media must remain unchanged");
+    const artifactDigest = await digest(outputPath);
+    const nativeToolCalls = toolTranscript.filter((entry) => /final.?cut|native|accessibility|system.?events|keyboard|mouse|clipboard/i.test(entry.request.name));
+    const nativeUiLogMarkers = serverLogs.filter((line) => /osascript|System Events|Accessibility|AppleEvent|Final Cut.*(?:launch|activat|connect)/i.test(line));
+    assert.deepEqual(nativeToolCalls, [], "the production MCP transcript must not invoke a native or UI tool");
+    assert.deepEqual(nativeUiLogMarkers, [], "the production MCP server logs must not show native or UI execution");
+    const renderOutcome = evidenceState.renderResponse.outcome;
+    assert.equal(renderOutcome.render.planDigest, renderOutcome.plan.planDigest);
+    assert.equal(renderOutcome.verification.artifact.fileDigest, artifactDigest);
+    assert.equal(evidenceState.renderRecordAfterThirdRestart.outcome.verification.artifact.fileDigest, artifactDigest);
+    assert.ok(renderOutcome.verification.checks.every((check: { passed: boolean }) => check.passed));
     if (evidenceDirectory) {
-      const artifactDigest = await digest(outputPath);
       const artifactStats = await stat(outputPath);
       const gitHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: process.cwd() })).stdout.trim();
-      const nativeToolCalls = toolTranscript.filter((entry) => /final.?cut|native|accessibility|system.?events|keyboard|mouse|clipboard/i.test(entry.request.name));
-      const nativeUiLogMarkers = serverLogs.filter((line) => /osascript|System Events|Accessibility|AppleEvent|Final Cut.*(?:launch|activat|connect)/i.test(line));
-      assert.deepEqual(nativeToolCalls, [], "the production MCP transcript must not invoke a native or UI tool");
-      assert.deepEqual(nativeUiLogMarkers, [], "the production MCP server logs must not show native or UI execution");
-      const renderOutcome = evidenceState.renderResponse.outcome;
-      assert.equal(renderOutcome.render.planDigest, renderOutcome.plan.planDigest);
-      assert.equal(renderOutcome.verification.artifact.fileDigest, artifactDigest);
-      assert.equal(evidenceState.renderRecordAfterThirdRestart.outcome.verification.artifact.fileDigest, artifactDigest);
-      assert.ok(renderOutcome.verification.checks.every((check: { passed: boolean }) => check.passed));
       await mkdir(evidenceDirectory, { recursive: true });
       await copyFile(outputPath, join(evidenceDirectory, "verified-final.mp4"));
       await copyFile(join(fixtureDirectory, "manifest.json"), join(evidenceDirectory, "fixture-manifest.json"));
