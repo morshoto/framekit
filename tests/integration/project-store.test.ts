@@ -191,12 +191,20 @@ test("concurrent creates and saves fail closed instead of overwriting", async ()
     assert.equal(creates.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(creates.filter((result) => result.status === "rejected" && (result.reason as { code?: string }).code === "PROJECT_ALREADY_EXISTS").length, 1);
 
+    const persisted = await store.load();
+    const expectedRevision = persisted.timeline.revision;
     const writes = await Promise.allSettled([
-      store.save({ ...first, timeline: { ...first.timeline, revision: { ...first.timeline.revision, id: "revision-a", sequence: 8 } } }, first.timeline.revision),
-      store.save({ ...first, timeline: { ...first.timeline, revision: { ...first.timeline.revision, id: "revision-b", sequence: 8 } } }, first.timeline.revision),
+      ...["revision-a", "revision-b"].map((id) => {
+        const candidate = structuredClone(persisted);
+        candidate.timeline.revision = { ...expectedRevision, id, sequence: expectedRevision.sequence + 1 };
+        return store.save(candidate, expectedRevision);
+      }),
     ]);
     assert.equal(writes.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(writes.filter((result) => result.status === "rejected" && (result.reason as { code?: string }).code === "PROJECT_STALE_REVISION").length, 1);
+    const saved = await store.load();
+    assert.equal(saved.timeline.revision.sequence, expectedRevision.sequence + 1);
+    assert.ok(["revision-a", "revision-b"].includes(saved.timeline.revision.id));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
