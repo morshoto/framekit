@@ -11,6 +11,7 @@ test("disposable native headed runner publishes the sanitized evidence contract"
   assert.match(runner, /editor\.native\.disposable\.execute/);
   assert.match(runner, /editor\.native\.disposable\.undo/);
   assert.match(runner, /sanitizeDisposableNativeEvidence/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER/);
   assert.match(runner, /FRAMEKIT_FINAL_CUT_NATIVE_WRITES/);
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
 });
@@ -44,6 +45,23 @@ test("disposable native evidence rejects metadata-only capability claims", () =>
     () => sanitizeDisposableNativeEvidence(metadataOnlyRun, environment),
     /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE: canonical live capability is required/,
   );
+});
+
+test("disposable native evidence accepts an already-bound active canonical target", () => {
+  const activeCanonicalRun = structuredClone(rawRun);
+  Object.assign(activeCanonicalRun.capabilities.editor, {
+    canonicalTimelineMode: "canonical-read",
+    timelineWrite: false,
+    readAfterWrite: false,
+    rollback: false,
+    projectSelection: false,
+  });
+
+  const evidence = sanitizeDisposableNativeEvidence(activeCanonicalRun, environment);
+
+  assert.equal(evidence.capabilities.editor.readAfterWrite, false);
+  assert.equal(evidence.capabilities.editor.projectSelection, false);
+  assert.equal(evidence.restoration.restored, true);
 });
 
 test("disposable native evidence rejects unidentifiable extra modified entries", () => {

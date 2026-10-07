@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { join } from "node:path";
+import { buildFinalCutCanonicalExportScript } from "../../adapters/final-cut/typescript/src/canonical.js";
 import { sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../scripts/final-cut-evidence.mjs";
+
+test("canonical export resolves the Final Cut save field by stable accessibility id", () => {
+  const script = buildFinalCutCanonicalExportScript("/tmp/framekit/active.fcpxml");
+
+  assert.match(script, /id of candidate/);
+  assert.match(script, /PathTextField/);
+  assert.match(script, /saveAsNameTextField/);
+  assert.match(script, /focusedCandidate.*matchesCanonicalPathField/s);
+});
 
 test("canonical headed runner publishes the sanitized evidence contract", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");

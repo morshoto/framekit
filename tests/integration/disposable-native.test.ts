@@ -70,6 +70,24 @@ test("disposable native preview binds the canonical target without mutating it",
   assert.equal(state.snapshot.timeline.clips[0]?.name, "Interview");
 });
 
+test("disposable native workflow prepares the canonical target before native preflight", async () => {
+  const state = createState();
+  let prepared = 0;
+  const workflow = new DisposableNativeEditWorkflow({
+    ...createWorkflowOptions(state),
+    prepareTarget: async (target, snapshot) => {
+      prepared += 1;
+      assert.equal(target.id, "clip-1");
+      assert.equal(snapshot.timeline.id, "timeline-1");
+    },
+  });
+
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+  assert.equal(prepared, 1);
+  await workflow.execute(preview.previewToken);
+  assert.equal(prepared, 2);
+});
+
 test("disposable native execute returns a canonical diff and explicit undo restores the digest", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
@@ -207,6 +225,31 @@ test("disposable native workflow fails closed when canonical snapshots are unava
   assert.equal(state.nativeEditCalls, 0);
 });
 
+test("disposable native workflow accepts an active canonical target without project selection", async () => {
+  const state = createState();
+  const workflow = new DisposableNativeEditWorkflow({
+    native: state.native,
+    readCanonicalSnapshot: async () => structuredClone(state.snapshot),
+    readCanonicalCapabilities: async () => ({
+      ...canonicalCapabilities,
+      editor: {
+        ...canonicalCapabilities.editor,
+        canonicalTimelineMode: "canonical-read",
+        timelineWrite: false,
+        readAfterWrite: false,
+        rollback: false,
+        projectSelection: false,
+        projectSelectionMode: "unavailable",
+      },
+    }),
+  });
+
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+
+  assert.equal(preview.target.clipId, "clip-1");
+  assert.equal(state.nativeEditCalls, 0);
+});
+
 interface TestState {
   snapshot: ProjectSnapshot;
   targetClipId: string;
@@ -218,7 +261,11 @@ interface TestState {
 }
 
 function createWorkflow(state: TestState): DisposableNativeEditWorkflow {
-  return new DisposableNativeEditWorkflow({
+  return new DisposableNativeEditWorkflow(createWorkflowOptions(state));
+}
+
+function createWorkflowOptions(state: TestState) {
+  return {
     native: state.native,
     readCanonicalSnapshot: async () => {
       const snapshot = structuredClone(state.snapshot);
@@ -230,7 +277,7 @@ function createWorkflow(state: TestState): DisposableNativeEditWorkflow {
       return snapshot;
     },
     readCanonicalCapabilities: async () => canonicalCapabilities,
-  });
+  };
 }
 
 function createState(): TestState {
