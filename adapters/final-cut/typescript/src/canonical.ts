@@ -316,6 +316,10 @@ on matchesCanonicalPathField(candidate)
     if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
   end try
   try
+    set candidateIdentifier to id of candidate as text
+    if candidateIdentifier is "PathTextField" then return true
+  end try
+  try
     set candidateIdentifier to value of attribute "AXIdentifier" of candidate as text
     if candidateIdentifier is "path" or candidateIdentifier is "location" then return true
   end try
@@ -366,7 +370,7 @@ on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
       set focusedCandidate to value of attribute "AXFocusedUIElement"
     end try
     try
-      if my matchesCanonicalPathField(focusedCandidate) then return focusedCandidate
+      if my roleIsExpected(role of focusedCandidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return focusedCandidate
     end try
     set candidate to my findFocusedCanonicalPathField(saveWindow, focusedCandidate, 0, false)
     if candidate is not missing value then return candidate
@@ -380,6 +384,10 @@ end findSavePathField
 on matchesCanonicalSaveNameField(candidate)
   try
     if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  try
+    set candidateIdentifier to id of candidate as text
+    if candidateIdentifier is "saveAsNameTextField" then return true
   end try
   repeat with attributeName in {"AXIdentifier", "AXDescription", "AXTitle"}
     try
@@ -408,6 +416,10 @@ end findCanonicalSaveNameFieldDescendant
 on findCanonicalSaveNameField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
+    try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      if my roleIsExpected(role of focusedCandidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return focusedCandidate
+    end try
     set candidate to my findCanonicalSaveNameFieldDescendant(saveWindow, 0)
     if candidate is not missing value then return candidate
     if (current date) > deadline then error timeoutMessage
@@ -535,15 +547,15 @@ tell application "System Events"
       delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
           keystroke "g" using {command down, shift down}
-          set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
-          set value of pathField to ${appleScriptString(exportDirectory)}
+          keystroke "a" using {command down}
+          keystroke ${appleScriptString(exportDirectory)}
           delay 0.2
           key code 36
           delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-              set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
-              set value of nameField to ${appleScriptString(exportName)}
-              if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
+              keystroke "a" using {command down}
+              keystroke ${appleScriptString(exportName)}
+              key code 36
               repeat 10 times
                 set savePanelOpen to false
                 repeat with saveWindowName in {"Save", "Export XML"}
@@ -556,7 +568,7 @@ tell application "System Events"
                   end try
                 end repeat
                 if not savePanelOpen then exit repeat
-                if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then key code 36
+                key code 36
                 delay 0.2
               end repeat
       my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})

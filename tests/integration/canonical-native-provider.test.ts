@@ -32,6 +32,15 @@ const identity: EditorIdentity = {
   backend: "workflow-extension-ipc",
 };
 
+function canonicalExportPath(script: string): string {
+  const fields = script.match(
+    /keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"[\s\S]*?keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"/,
+  );
+  assert.ok(fields?.[1]);
+  assert.ok(fields?.[2]);
+  return join(fields[1], fields[2]);
+}
+
 function snapshot(name: string): ProjectSnapshot {
   return {
     projectId: "final-cut:project:project-1",
@@ -826,18 +835,19 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /on findFocusedCanonicalPathField\(container, focusedCandidate, depth, insidePathContainer\)/);
   assert.match(script, /candidateInsidePathContainer then/);
   assert.match(script, /if container is focusedCandidate then return container/);
-  assert.match(script, /if my matchesCanonicalPathField\(focusedCandidate\) then return focusedCandidate/);
-  assert.match(script, /set value of pathField to[\s\S]{0,120}delay 0\.2\s+key code 36/);
+  assert.match(script, /if my roleIsExpected\(role of focusedCandidate as text, \{"AXTextField", "AXTextArea", "AXComboBox"\}\) then return focusedCandidate/);
+  assert.match(script, /keystroke "a" using \{command down\}[\s\S]{0,120}key code 36/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
-  assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
+  assert.doesNotMatch(script, /set pathField to my findSavePathField/);
   assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
+  assert.match(script, /id of candidate/);
+  assert.match(script, /PathTextField/);
   assert.match(script, /saveAsNameTextField/);
-  assert.match(script, /set value of pathField to "\/tmp"/);
-  assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
+  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*keystroke "\/tmp"/);
+  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*keystroke "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
-  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
-  assert.match(script, /repeat 10 times[\s\S]*pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.match(script, /repeat 10 times[\s\S]*key code 36/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -898,11 +908,10 @@ test("canonical export retries a cleaned-up recovery result", async () => {
           cleanup: "complete",
         });
       }
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      await writeFile(join(directoryMatch[1], nameMatch[1]), completeDocument);
+      const fieldMatch = script.match(/keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"[\s\S]*?keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"/);
+      assert.ok(fieldMatch?.[1]);
+      assert.ok(fieldMatch?.[2]);
+      await writeFile(join(fieldMatch[1], fieldMatch[2]), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
     },
   });
@@ -923,7 +932,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /if not my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\) then key code 36/);
+  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*key code 36/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
@@ -934,12 +943,8 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
-      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
       assert.match(script, /my canonicalExportResponse\("export-requested"/);
-      const exportPath = join(directoryMatch[1], nameMatch[1]);
+      const exportPath = canonicalExportPath(script);
       const partialDocument = completeDocument.slice(0, Math.floor(completeDocument.length / 2));
       await writeFile(exportPath, partialDocument);
       finishExport = new Promise((resolve) => {
@@ -973,11 +978,7 @@ test("canonical Final Cut export reads the native directory package", async () =
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
-      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -999,11 +1000,7 @@ test("canonical export binds missing sequence UID to the live target", async () 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -1026,11 +1023,7 @@ test("canonical export rejects a sequence UID from another live target", async (
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -1051,11 +1044,7 @@ test("canonical export rejects a live target from another project", async () => 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
