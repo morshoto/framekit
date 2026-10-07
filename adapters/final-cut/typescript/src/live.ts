@@ -26,7 +26,28 @@ export const DEFAULT_FINAL_CUT_LIVE_SOCKET = join(
   "Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock",
 );
 
-export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project" | "snapshot" | "apply" | "restore";
+export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "projects" | "select-project" | "snapshot" | "apply" | "restore" | "deliver-fcpxml";
+
+export interface FinalCutFcpxmlDeliveryRequest {
+  artifactPath: string;
+  targetLibraryUid?: string;
+  activates: boolean;
+}
+
+export interface FinalCutFcpxmlDelivery {
+  status: "dispatched" | "user-interaction-required" | "failed";
+  route: "background-document-open";
+  attempted: boolean;
+  imported: boolean;
+  requestedActivates: boolean;
+  activation: "preserved" | "activated" | "unknown";
+  ui: "none" | "prompted" | "displayed" | "unknown";
+  target: {
+    requestedLibraryUid?: string;
+    guarantee: "requested-unverified" | "unavailable";
+  };
+  error?: { code: string; message: string };
+}
 
 export interface FinalCutLiveRequest {
   version: number;
@@ -36,6 +57,9 @@ export interface FinalCutLiveRequest {
   waitMs?: number;
   projectId?: string;
   sequenceId?: string;
+  artifactPath?: string;
+  targetLibraryUid?: string;
+  activates?: boolean;
   operation?: EditOperation;
   expectedRevision?: ContextRevision;
   snapshot?: ProjectSnapshot;
@@ -54,6 +78,7 @@ export type FinalCutLiveResponse =
         catalog?: ProjectCatalog;
         snapshot?: ProjectSnapshot;
         revision?: ContextRevision;
+        delivery?: FinalCutFcpxmlDelivery;
       };
     }
   | {
@@ -214,6 +239,19 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return changes;
   }
 
+  public async deliverFcpxml(request: FinalCutFcpxmlDeliveryRequest): Promise<FinalCutFcpxmlDelivery> {
+    requireNonEmpty(request.artifactPath, "FCPXML artifact path");
+    const response = await this.request({
+      method: "deliver-fcpxml",
+      artifactPath: request.artifactPath,
+      ...(request.targetLibraryUid ? { targetLibraryUid: request.targetLibraryUid } : {}),
+      activates: request.activates,
+    });
+    if (!response.delivery) throw new Error("FINAL_CUT_LIVE_PROTOCOL: FCPXML delivery response was empty");
+    validateFcpxmlDelivery(response.delivery, request);
+    return response.delivery;
+  }
+
   public async listProjects(): Promise<ProjectCatalog> {
     const response = await this.request({ method: "projects" });
     if (!response.catalog) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project catalog response was empty");
@@ -239,7 +277,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return createProjectSelectionResult(response.catalog, selection, response.revision);
   }
 
-  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "operation" | "expectedRevision" | "snapshot">) {
+  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "artifactPath" | "targetLibraryUid" | "activates" | "operation" | "expectedRevision" | "snapshot">) {
     const response = await this.transport.request({
       version: FINAL_CUT_LIVE_PROTOCOL_VERSION,
       id: randomUUID(),
@@ -259,6 +297,26 @@ export function createFinalCutLiveAdapter(
   socketPath = process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET,
 ): FinalCutLiveAdapter {
   return new FinalCutLiveAdapter(new UnixSocketFinalCutLiveTransport(socketPath), socketPath);
+}
+
+function validateFcpxmlDelivery(delivery: FinalCutFcpxmlDelivery, request: FinalCutFcpxmlDeliveryRequest): void {
+  if (!["dispatched", "user-interaction-required", "failed"].includes(delivery.status)
+    || delivery.route !== "background-document-open"
+    || typeof delivery.attempted !== "boolean"
+    || typeof delivery.imported !== "boolean"
+    || delivery.requestedActivates !== request.activates
+    || !["preserved", "activated", "unknown"].includes(delivery.activation)
+    || !["none", "prompted", "displayed", "unknown"].includes(delivery.ui)
+    || !delivery.target
+    || !["requested-unverified", "unavailable"].includes(delivery.target.guarantee)) {
+    throw new Error("FINAL_CUT_LIVE_PROTOCOL: invalid FCPXML delivery response");
+  }
+  if (delivery.status !== "dispatched" && (!delivery.error?.code?.trim() || !delivery.error.message.trim())) {
+    throw new Error("FINAL_CUT_LIVE_PROTOCOL: blocked FCPXML delivery response is missing an error");
+  }
+  if (request.targetLibraryUid && delivery.target.requestedLibraryUid !== request.targetLibraryUid) {
+    throw new Error("FINAL_CUT_LIVE_PROTOCOL: FCPXML delivery target does not match the request");
+  }
 }
 
 function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {

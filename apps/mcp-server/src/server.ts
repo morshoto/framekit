@@ -1666,7 +1666,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.preview", {
-    description: "Prepare a headed-only publish handoff for a verified FCPXML artifact without opening Final Cut.",
+    description: "Prepare a verified FCPXML publish handoff without opening Final Cut; the configured native route may use non-activating document delivery or an explicit headed fallback.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
       transactionId: z.string().min(1),
@@ -2391,6 +2391,11 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
   const publishingAvailable = Boolean(options.projectPublisher && (
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
+  const publishingMode = publishingAvailable
+    ? (typeof options.projectPublisher?.executionMode === "function"
+      ? options.projectPublisher.executionMode()
+      : "headed-only")
+    : "unavailable";
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
   const backgroundExportAvailable = Boolean(options.backgroundRenderer?.isAvailable());
   const capabilities = withCapabilityFamilies({
@@ -2398,7 +2403,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     editor: {
       ...inspected.capabilities.editor,
       artifactPublish: publishingAvailable,
-      artifactPublishMode: publishingAvailable ? "headed-only" : "unavailable",
+      artifactPublishMode: publishingMode,
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
       backgroundRender: backgroundExportAvailable,
@@ -2432,7 +2437,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       clipMovement: false,
     },
     publishing: publishingAvailable,
-    publishingBackend: "fcpxml-publisher",
+    publishingBackend: publishingMode === "background-capable" ? "fcpxml-document-open" : "fcpxml-publisher",
     export: exportAvailable,
     exportBackend: "final-cut-native-export",
     backgroundExport: {
