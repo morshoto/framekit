@@ -584,7 +584,14 @@ is not completion: canonical readback must match the desired Timeline IR and
 identify the exact created library/event/project/sequence target. A retry fails
 closed with an explicit unavailable/base-changed result when the canonical
 change source is absent or the staged base drifted. A canonical mismatch
-includes an ordered target-bound structural diff.
+includes an ordered target-bound structural diff. After a completed handoff,
+`session.materialize.resync` reads the exact created target through a configured
+canonical provider and creates a fresh session baseline for later edits. A
+target mismatch or missing canonical provider fails closed; storage evidence
+alone cannot create the continuation baseline. The persisted verification
+record also reports delivery as background, activated, prompted, failed, or
+interaction-required; these states do not elevate artifact-only evidence to
+canonical or headed-native proof.
 
 Materialization job records use schema version 2. A schema-version-1 job that
 does not contain the target-bound coverage/provenance fields is migrated to an

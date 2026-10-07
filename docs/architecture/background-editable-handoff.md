@@ -38,6 +38,11 @@ Every checkpoint keeps these layers separate:
 3. canonical readback of the created project and Timeline IR;
 4. headed-native evidence, only when separately observed.
 
+The persisted handoff also records whether delivery was background,
+activated, prompted, failed, or interaction-required. Delivery state describes
+the route and side effects; it does not by itself prove canonical or
+headed-native verification.
+
 Completion requires the target-bound canonical readback to match the desired
 Timeline IR. Artifact creation, a successful process exit, or a provider
 request alone is not success. Missing canonical readback is reported as
@@ -60,11 +65,13 @@ substituted for background proof.
 ## Continuation
 
 After a user opens the versioned project and makes manual changes, a later
-Framekit request first chooses the readback route. Initial binding, stale or
-conflicted state, incomplete fast coverage, and final verification require a
-canonical resync. Only a target-bound canonical result can become the new
-session base. This preserves the user's edits and prevents stale desired state
-from overwriting them.
+Framekit request first chooses the readback route. `session.materialize.resync`
+reads the persisted created target and creates a fresh session baseline from
+the target-bound canonical Timeline IR. Initial binding, stale or conflicted
+state, incomplete fast coverage, and final verification require a canonical
+resync. Only a target-bound canonical result can become the new session base.
+Target mismatch or unavailable canonical readback fails closed. This preserves
+the user's edits and prevents stale desired state from overwriting them.
 
 Deterministic tests prove the session and artifact contracts. Disposable live
 Final Cut validation must separately record base revision, desired digest,
