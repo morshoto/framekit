@@ -86,6 +86,12 @@ session, fixture, and semantic-media evidence cannot satisfy that capability.
 - #417 normalizes fast provider evidence into a target/provenance-bound
   envelope and routes complete normalized reads through `EditingSession`; it
   preserves partial/unknown fields instead of replacing canonical state.
-- #418 routes headed FCPXML export as an explicit canonical checkpoint.
+- #418 wires `project.inspect` and `timeline.inspect` session readbacks to the
+  route selector. A clean bound session stays on its stored baseline; an
+  explicit `requestedCanonical`/`finalVerification` request, incomplete
+  observation, stale state, or conflict performs a complete canonical
+  resync and replaces the session baseline only after the provider returns a
+  target-bound `ProjectSnapshot`. No export is triggered automatically for a
+  normal session read.
 - #455 validates the background-read exit criteria on the supported Final Cut version.
 - Source-media analyzers remain separate from all timeline-structure providers.

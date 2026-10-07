@@ -37,6 +37,9 @@ test("readback policy forces canonical resync for initial, stale, conflict, and 
     request({ sessionState: "possibly_stale" }),
     request({ sessionState: "conflicted" }),
     request({ fastObservation: { available: true, coverageComplete: false, status: "possibly-stale" } }),
+    request({ fastObservation: { available: true, coverageComplete: true, status: "canonical-resync-required" } }),
+    request({ fastObservation: { available: true, coverageComplete: true, status: "target-mismatch" } }),
+    request({ fastObservation: { available: true, coverageComplete: true, status: "provider-incompatible" } }),
   ]) {
     assert.equal(chooseTimelineReadback(input).route, "canonical-resync");
   }

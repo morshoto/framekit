@@ -9,6 +9,7 @@ import {
   serializeCapabilityUnavailableError,
   withCanonicalTimelineMode,
   withCapabilityFamilies,
+  createTimelineIrFromProjectSnapshot,
   type CapabilityProcessMode,
   type CapabilityDescriptor,
   type CapabilityPreflight,
@@ -58,6 +59,7 @@ import {
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
 import { HeadlessProjectService } from "./headless-projects.js";
+import { chooseTimelineReadback } from "./readback-policy.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
@@ -70,6 +72,11 @@ const revisionSchema = revisionValueSchema.optional();
 const contextTargetSchema = z.object({
   projectId: z.string().min(1),
   sequenceId: z.string().min(1),
+}).strict();
+const timelineReadbackSchema = z.object({
+  sessionId: z.string().min(1).optional(),
+  requestedCanonical: z.boolean().optional().default(false),
+  finalVerification: z.boolean().optional().default(false),
 }).strict();
 const contextCursorSchema = z.object({
   revision: revisionValueSchema,
@@ -969,6 +976,34 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return options.headlessProjects;
   };
 
+  const prepareSessionReadback = async (sessionId: string, requestedCanonical: boolean, finalVerification: boolean) => {
+    const stored = await requireSessions().inspect(sessionId);
+    const decision = chooseTimelineReadback({
+      hasCanonicalBase: true,
+      requestedCanonical,
+      finalVerification,
+      sessionState: stored.document.state,
+      ...(stored.document.observation ? {
+        fastObservation: {
+          available: true,
+          coverageComplete: stored.document.observation.coverageComplete,
+          status: "possibly-stale" as const,
+        },
+      } : {}),
+    });
+    return { stored, decision };
+  };
+
+  const canonicalResyncSession = async (sessionId: string, providerId?: string) => {
+    if (providerId && providerId !== "final-cut") {
+      throw new Error(`SESSION_PROVIDER_MISMATCH: canonical Final Cut resync cannot replace provider ${providerId}`);
+    }
+    const snapshot = await runtime.inspectProject();
+    const timeline = createTimelineIrFromProjectSnapshot(snapshot, { id: "final-cut" });
+    const session = await requireSessions().reconcile(sessionId, { id: "final-cut" }, timeline);
+    return { snapshot, session };
+  };
+
   const sessionOperationSchema = z.array(z.unknown());
 
   server.registerTool("session.create", {
@@ -1140,8 +1175,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("project.inspect", {
-    description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
-  }, async () => {
+    description: "Read a bound session baseline or perform an explicit canonical project resync before editing.route selects a capability-checked path.",
+    inputSchema: timelineReadbackSchema,
+  }, async ({ sessionId, requestedCanonical, finalVerification }) => {
+    if (sessionId) {
+      const { stored, decision } = await prepareSessionReadback(sessionId, requestedCanonical, finalVerification);
+      if (decision.route === "session" || decision.route === "fast-observation") {
+        return jsonResult({
+          sessionId,
+          readback: decision,
+          session: stored.document,
+          snapshot: stored.document.base,
+        });
+      }
+      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
+      return jsonResult({ sessionId, readback: decision, ...resynced });
+    }
     const inspected = await inspectMcpEditor(runtime, options);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
@@ -1863,8 +1912,27 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, waitMs ?? 0)));
 
   server.registerTool("timeline.inspect", {
-    description: "Read the current canonical timeline snapshot after canonical capability checks.",
-  }, async () => {
+    description: "Read a bound session baseline or perform an explicit canonical timeline resync after canonical capability checks.",
+    inputSchema: timelineReadbackSchema,
+  }, async ({ sessionId, requestedCanonical, finalVerification }) => {
+    if (sessionId) {
+      const { stored, decision } = await prepareSessionReadback(sessionId, requestedCanonical, finalVerification);
+      if (decision.route === "session" || decision.route === "fast-observation") {
+        return jsonResult({
+          sessionId,
+          readback: decision,
+          session: stored.document,
+          timeline: stored.document.base,
+        });
+      }
+      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
+      return jsonResult({
+        sessionId,
+        readback: decision,
+        snapshot: resynced.snapshot.timeline,
+        session: resynced.session,
+      });
+    }
     const inspected = await inspectMcpEditor(runtime, options);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
