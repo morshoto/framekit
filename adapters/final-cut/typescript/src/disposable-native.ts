@@ -17,6 +17,11 @@ import type {
   NativeFinalCutUndoResult,
 } from "./native.js";
 
+type DisposableNativeTargetPreparer = (
+  target: ProjectSnapshot["timeline"]["clips"][number],
+  snapshot: ProjectSnapshot,
+) => Promise<void>;
+
 export interface NativeFinalCutDisposableRequest {
   /** Canonical timeline occurrence ID selected in Final Cut before preview. */
   clipId: string;
@@ -35,6 +40,7 @@ export interface NativeFinalCutDisposablePreview {
     clipId: string;
     name: string;
     identity?: string;
+    occurrenceIndex?: number;
   };
   projectId: string;
   sequenceId: string;
@@ -79,6 +85,7 @@ export interface DisposableNativeEditWorkflowOptions {
   native: Pick<NativeFinalCutEditor, "capabilities" | "inspect" | "edit" | "undo">;
   readCanonicalSnapshot: () => Promise<ProjectSnapshot>;
   readCanonicalCapabilities: () => Promise<RuntimeCapabilities>;
+  prepareTarget?: DisposableNativeTargetPreparer;
   now?: () => number;
   previewTtlMs?: number;
   maxOperations?: number;
@@ -130,7 +137,8 @@ export class DisposableNativeEditWorkflow {
     if (target.name === request.name) {
       throw new Error("INVALID_OPERATION: disposable native rename must change the target name");
     }
-    const nativeTarget = await this.assertNativeTarget(before, target.name);
+    await this.options.prepareTarget?.(target, before);
+    const nativeTarget = await this.assertNativeTarget(before, target);
     const previewToken = `disposable-native-preview-${randomToken()}`;
     const expiresAt = this.now() + this.previewTtlMs;
     this.prunePreviews();
@@ -138,7 +146,12 @@ export class DisposableNativeEditWorkflow {
     return {
       previewToken,
       operation: { type: "rename-selected-clip", name: request.name },
-      target: { clipId: target.id, name: target.name, ...(nativeTarget.identity ? { identity: nativeTarget.identity } : {}) },
+      target: {
+        clipId: target.id,
+        name: target.name,
+        ...(nativeTarget.identity ? { identity: nativeTarget.identity } : {}),
+        ...(nativeTarget.occurrenceIndex ? { occurrenceIndex: nativeTarget.occurrenceIndex } : {}),
+      },
       projectId: before.projectId,
       sequenceId: before.timeline.id,
       targetIdentity: nativeTarget.identity ?? target.id,
@@ -159,7 +172,12 @@ export class DisposableNativeEditWorkflow {
     return {
       previewToken,
       operation: { type: "rename-selected-clip", name: preview.request.name },
-      target: { clipId: target.id, name: target.name, ...(preview.nativeTarget.identity ? { identity: preview.nativeTarget.identity } : {}) },
+      target: {
+        clipId: target.id,
+        name: target.name,
+        ...(preview.nativeTarget.identity ? { identity: preview.nativeTarget.identity } : {}),
+        ...(preview.nativeTarget.occurrenceIndex ? { occurrenceIndex: preview.nativeTarget.occurrenceIndex } : {}),
+      },
       projectId: preview.before.projectId,
       sequenceId: preview.before.timeline.id,
       targetIdentity: preview.nativeTarget.identity ?? target.id,
@@ -185,7 +203,8 @@ export class DisposableNativeEditWorkflow {
     if (!currentTarget || currentTarget.name !== preview.before.timeline.clips.find((clip) => clip.id === preview.request.clipId)?.name) {
       throw new Error("TARGET_MISMATCH: canonical target changed after disposable native preview");
     }
-    await this.assertNativeTarget(current, currentTarget.name, preview.nativeTarget, options.signal);
+    await this.options.prepareTarget?.(currentTarget, current);
+    await this.assertNativeTarget(current, currentTarget, preview.nativeTarget, options.signal);
 
     options.onMutationStart?.();
     const native = await this.options.native.edit(
@@ -288,12 +307,18 @@ export class DisposableNativeEditWorkflow {
       throw new Error(`CAPABILITY_UNAVAILABLE: disposable native canonical snapshot (${String(error)})`);
     });
     const editor = capabilities.editor;
+    const activeCanonicalTarget = editor.canonicalTimelineMode === "canonical-read"
+      && editor.projectRead
+      && editor.timelineSnapshotRead
+      && editor.projectCatalogRead
+      && editor.projectSelection === false
+      && editor.projectSelectionMode === "unavailable";
     if (
       editor.canonicalTimelineMode === "metadata-only"
       || !editor.projectRead
       || !editor.timelineSnapshotRead
       || !editor.projectCatalogRead
-      || !editor.projectSelection
+      || (!editor.projectSelection && !activeCanonicalTarget)
     ) {
       throw new Error(`CAPABILITY_UNAVAILABLE: disposable native canonical snapshot is unavailable during ${stage}`);
     }
@@ -306,7 +331,7 @@ export class DisposableNativeEditWorkflow {
 
   private async assertNativeTarget(
     snapshot: ProjectSnapshot,
-    expectedName: string,
+    expectedTarget: ProjectSnapshot["timeline"]["clips"][number],
     previousTarget?: NativeFinalCutContext["target"],
     signal?: AbortSignal,
   ): Promise<NativeFinalCutContext["target"]> {
@@ -322,11 +347,22 @@ export class DisposableNativeEditWorkflow {
     if (context.sequence && context.sequence !== snapshot.timeline.name) {
       throw new Error("TARGET_MISMATCH: native sequence does not match canonical timeline");
     }
-    if (context.target.kind !== "selected-clip" || context.target.name !== expectedName) {
+    if (context.target.kind !== "selected-clip" || context.target.name !== expectedTarget.name) {
       throw new Error("TARGET_MISMATCH: native selected clip does not match the canonical target");
+    }
+    const expectedOccurrenceIndex = snapshot.timeline.clips.findIndex((clip) => clip.id === expectedTarget.id) + 1;
+    const sameNameCount = snapshot.timeline.clips.filter((clip) => clip.name === expectedTarget.name).length;
+    if (context.target.occurrenceIndex !== undefined && context.target.occurrenceIndex !== expectedOccurrenceIndex) {
+      throw new Error("TARGET_MISMATCH: native selected clip occurrence does not match the canonical target");
+    }
+    if (sameNameCount > 1 && context.target.occurrenceIndex === undefined) {
+      throw new Error("TARGET_MISMATCH: native selected clip occurrence is not uniquely bound to the canonical target");
     }
     if (previousTarget?.identity && previousTarget.identity !== context.target.identity) {
       throw new Error("TARGET_MISMATCH: native selected clip identity changed after disposable preview");
+    }
+    if (previousTarget?.occurrenceIndex !== undefined && previousTarget.occurrenceIndex !== context.target.occurrenceIndex) {
+      throw new Error("TARGET_MISMATCH: native selected clip occurrence changed after disposable preview");
     }
     return context.target;
   }

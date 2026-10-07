@@ -119,6 +119,10 @@ const canonicalNativeMutationEditor = canonicalNativeProviderEnabled
     })
   : nativeEditor;
 
+const canonicalNativeTargetResolver = canonicalNativeProviderEnabled
+  ? createFinalCutNativeTargetResolver(nativeEditor!)
+  : undefined;
+
 const canonicalNativeProvider = canonicalNativeProviderEnabled
   ? new FinalCutCanonicalNativeProvider({
       live: liveAdapter!,
@@ -160,7 +164,7 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           target: { projectId, projectUid: projectId, sequenceId },
         }).readSnapshot();
       },
-      resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
+      resolveTarget: canonicalNativeTargetResolver!,
       backgroundCatalog: backgroundLibraryProvider,
     })
   : undefined;
@@ -222,6 +226,12 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
       native: nativeEditor,
       readCanonicalSnapshot: () => runtime.inspectProject(),
       readCanonicalCapabilities: async () => (await runtime.inspectEditor()).capabilities,
+      ...(nativeEditor ? {
+        prepareTarget: async (target, snapshot) => {
+          const occurrenceIndex = snapshot.timeline.clips.findIndex((clip) => clip.id === target.id) + 1;
+          await nativeEditor.selectCanonicalOccurrence(target.name, occurrenceIndex);
+        },
+      } : {}),
     })
   : undefined;
 const nativeOperationSession = disposableNative && nativeEditor

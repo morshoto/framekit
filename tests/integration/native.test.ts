@@ -1114,6 +1114,8 @@ test("native inspect is passive and reports partial readiness", async () => {
   assert.equal(inspected.readiness.selectedTarget, true);
   assert.equal(scripts.length, 1);
   assert.match(scripts[0]!, /FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT/);
+  assert.match(scripts[0]!, /set frontWindow to window "Final Cut Pro"/);
+  assert.doesNotMatch(scripts[0]!, /UI element 8 of UI element/);
   assert.doesNotMatch(scripts[0]!, /set frontmost to true|perform action "AXRaise"|perform action "AXMinimize"|click at/);
 });
 
@@ -1661,6 +1663,44 @@ test("native Final Cut recovers when frontmost is lost after preflight", async (
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
+      }
+      if (script.includes("Apply Custom Name")) {
+        editCalls += 1;
+        if (editCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+        renamed = true;
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.verification.verified, true);
+  assert.equal(editCalls, 2);
+  assert.equal(preflightCalls >= 3, true);
+});
+
+test("native Final Cut allows a non-playhead retry when focus recovery changes the playhead", async () => {
+  let preflightCalls = 0;
+  let editCalls = 0;
+  let renamed = false;
+  let playhead = "0";
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        if (preflightCalls === 2) playhead = "5";
         return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
       }
       if (script.includes("Apply Custom Name")) {

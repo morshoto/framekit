@@ -543,6 +543,7 @@ export interface NativeFinalCutContext {
     name?: string;
     role?: string;
     identity?: string;
+    occurrenceIndex?: number;
   };
   bladeAvailable: boolean;
   undoAvailable: boolean;
@@ -720,6 +721,8 @@ export interface NativeFinalCutEditor {
   searchMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
+  selectOccurrence(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
+  selectCanonicalOccurrence(name: string, occurrenceIndex: number, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   targetMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTargetResult>;
   previewBlade(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutBladePreview>;
   executeBlade(previewToken: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutBladeResult>;
@@ -1467,6 +1470,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle), options.signal);
   }
 
+  public async selectOccurrence(occurrenceHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.selectOccurrenceNative(occurrenceHandle), options.signal);
+  }
+
+  public async selectCanonicalOccurrence(name: string, occurrenceIndex: number, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
+    return this.withNativeUi(() => this.selectCanonicalOccurrenceNative(name, occurrenceIndex), options.signal);
+  }
+
   public async targetMedia(query: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutTargetResult> {
     return this.withNativeUi(() => this.targetMediaNative(query), options.signal);
   }
@@ -1585,6 +1596,45 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
+  }
+
+  private async selectOccurrenceNative(occurrenceHandle: string): Promise<NativeFinalCutContext> {
+    this.assertEnabled();
+    const occurrence = this.occurrenceHandles.get(occurrenceHandle);
+    if (!occurrence) throw new Error(`FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: unknown occurrence handle ${occurrenceHandle}`);
+    await this.validateOccurrenceBinding(occurrence);
+    if (occurrence.timelineOffset === undefined) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: occurrence has no selectable timeline position");
+    }
+    await this.selectTimelineOccurrence(occurrence.timelineOffset);
+    const context = await this.requireTimelineContext();
+    if (context.target.kind !== "selected-clip") {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SELECTION_UNAVAILABLE: Final Cut did not expose the selected occurrence");
+    }
+    if (context.target.identity) occurrence.nativeIdentity = context.target.identity;
+    return context;
+  }
+
+  private async selectCanonicalOccurrenceNative(name: string, occurrenceIndex: number): Promise<NativeFinalCutContext> {
+    this.assertEnabled();
+    if (!name.trim() || !Number.isInteger(occurrenceIndex) || occurrenceIndex < 1) {
+      throw new Error("INVALID_OPERATION: canonical native occurrence name and positive occurrence index are required");
+    }
+    const coordinates = (await this.executeNativeScript(canonicalTimelineSelectionScript(name, occurrenceIndex)))
+      .split("|").map(Number);
+    const [x, y] = coordinates;
+    if (![x, y].every(Number.isFinite)) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: canonical timeline occurrence has no selectable position");
+    }
+    await this.executeNativeMouseScript(nativeMouseSelectionSource(Math.round(x), Math.round(y)));
+    const context = await this.requireTimelineContext();
+    if (context.target.kind !== "selected-clip" || context.target.name !== name) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SELECTION_UNAVAILABLE: selected timeline occurrence does not match the canonical target");
+    }
+    if (context.target.occurrenceIndex !== undefined && context.target.occurrenceIndex !== occurrenceIndex) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SELECTION_UNAVAILABLE: selected timeline occurrence index does not match the canonical target");
+    }
+    return context;
   }
 
   public async previewBlade(occurrenceHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutBladePreview> {
@@ -2911,10 +2961,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       || expected.target.name !== recovered.target.name
       || expected.target.role !== recovered.target.role;
     const occurrenceChanged = expected.target.kind === "selected-clip" && recovered.target.kind === "selected-clip"
-      && (!expected.target.identity || !recovered.target.identity || expected.target.identity !== recovered.target.identity);
+      && (expected.target.identity && recovered.target.identity
+        ? expected.target.identity !== recovered.target.identity
+        : expected.target.occurrenceIndex !== undefined && recovered.target.occurrenceIndex !== undefined
+          ? expected.target.occurrenceIndex !== recovered.target.occurrenceIndex
+          : true);
     const playheadChanged = requirePlayhead
-      ? !expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime
-      : expected.playheadTime !== recovered.playheadTime;
+      && (!expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime);
     if (targetChanged || occurrenceChanged || playheadChanged) {
       throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection or playhead changed during focus recovery");
     }
@@ -3401,8 +3454,10 @@ function nativeRollbackEvidence(record: NativeOperationRecord): NativeFinalCutRo
     && (beforeTargetIdentity && afterTargetIdentity
       ? beforeTargetIdentity === afterTargetIdentity
       : !beforeTargetIdentity && !afterTargetIdentity
-        && record.before.target.kind !== "selected-clip"
-        && (record.before.target.kind === "playhead" || record.before.target.name === record.after.target.name));
+        && (record.before.target.occurrenceIndex !== undefined && record.after.target.occurrenceIndex !== undefined
+          ? record.before.target.occurrenceIndex === record.after.target.occurrenceIndex
+          : record.before.target.kind !== "selected-clip"
+            && (record.before.target.kind === "playhead" || record.before.target.name === record.after.target.name)));
   const insertedTargetBound = (record.kind === "title-placement"
     || record.kind === "picture-in-picture"
     || record.kind === "transition-placement")
@@ -4063,6 +4118,22 @@ using terms from application "System Events"
     end repeat
     return ""
   end selectedTimelineItem
+
+  on selectedTimelineOccurrenceIndex(timelineArea)
+    set occurrenceIndex to 0
+    repeat with candidateRef in UI elements of timelineArea
+      try
+        set candidate to contents of candidateRef
+        if (role of candidate as text) is "AXLayoutItem" then
+          set occurrenceIndex to occurrenceIndex + 1
+          if (selected of candidate) is true then return occurrenceIndex as text
+        end if
+      on error
+        -- Ignore inaccessible descendants and continue the bounded scan.
+      end try
+    end repeat
+    return ""
+  end selectedTimelineOccurrenceIndex
 end using terms from
 
 on preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, focusAttempts, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)
@@ -4087,8 +4158,8 @@ tell application "System Events"
     set mainOrigin to {0, 0}
     set mainSize to {0, 0}
     try
-      if (count of windows) > 0 then
-        set frontWindow to front window
+      if exists window "Final Cut Pro" then
+        set frontWindow to window "Final Cut Pro"
         set frontWindowName to name of frontWindow as text
         set timelineWindowAvailable to true
         set mainOrigin to position of frontWindow
@@ -4099,11 +4170,13 @@ tell application "System Events"
     set selectedName to ""
     set selectedRole to ""
     set selectedIdentity to ""
+    set selectedOccurrenceIndex to ""
     set selectionLookupAvailable to false
     try
-      set timelineArea to UI element 1 of UI element 8 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
+      set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
       set selectionLookupAvailable to true
       set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      set selectedOccurrenceIndex to my selectedTimelineOccurrenceIndex(timelineArea)
       if selectedRecord is not "" then
         set selectedFields to my splitText(selectedRecord, ASCII character 31)
         set selectedName to item 1 of selectedFields
@@ -4166,7 +4239,7 @@ tell application "System Events"
     end try
     set focusTarget to my focusTargetFor(focusedRole, focusedDescription, focusedName)
     set timelineFocused to processFrontmost is "true" and focusTarget is "timeline"
-    return my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, 0, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)
+    return (my preflightResult(processFrontmost, frontWindowName, selectedCount, selectedName, selectedRole, undoEnabled, bladeEnabled, focusedName, focusedRole, focusedDescription, focusedWindowName, timelineWindowAvailable, timelineFocused, focusTarget, 0, framekitWindowAvailable, framekitWindowMinimized, overlayBlocked, undoCommand, selectedIdentity)) & (ASCII character 31) & selectedOccurrenceIndex
   end tell
 end tell`;
 }
@@ -4499,6 +4572,22 @@ function inspectScript(): string {
       end repeat
       return ""
     end selectedTimelineItem
+
+    on selectedTimelineOccurrenceIndex(timelineArea)
+      set occurrenceIndex to 0
+      repeat with candidateRef in UI elements of timelineArea
+        try
+          set candidate to contents of candidateRef
+          if (role of candidate as text) is "AXLayoutItem" then
+            set occurrenceIndex to occurrenceIndex + 1
+            if (selected of candidate) is true then return occurrenceIndex as text
+          end if
+        on error
+          -- Ignore inaccessible descendants and continue the bounded scan.
+        end try
+      end repeat
+      return ""
+    end selectedTimelineOccurrenceIndex
   end using terms from
 
   tell application "System Events"
@@ -4511,15 +4600,17 @@ function inspectScript(): string {
     set selectedName to ""
     set selectedRole to ""
     set selectedIdentity to ""
+    set selectedOccurrenceIndex to ""
     set selectedCount to 0
     set selectedRecord to ""
     set selectionLookupAvailable to false
     -- Final Cut exposes the Project Timeline as a stable bounded AX node.
     -- Start there instead of traversing Browser and Effects Library trees.
     try
-      set timelineArea to UI element 1 of UI element 8 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
+    set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
       set selectionLookupAvailable to true
       set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      set selectedOccurrenceIndex to my selectedTimelineOccurrenceIndex(timelineArea)
     end try
     if selectedRecord is not "" then
       set selectedFields to my splitText(selectedRecord, ASCII character 31)
@@ -4559,7 +4650,7 @@ function inspectScript(): string {
       set focusedDescription to description of focusedElement as text
     end try
     set frontState to frontmost as text
-    return frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & "true" & (ASCII character 31) & "true" & (ASCII character 31) & "timeline" & (ASCII character 31) & "0" & (ASCII character 31) & "false" & (ASCII character 31) & "true" & (ASCII character 31) & frontWindowName & (ASCII character 31) & "false" & (ASCII character 31) & undoCommand & (ASCII character 31) & selectedIdentity
+    return (frontState & (ASCII character 31) & frontWindowName & (ASCII character 31) & selectedCount & (ASCII character 31) & selectedName & (ASCII character 31) & selectedRole & (ASCII character 31) & undoEnabled & (ASCII character 31) & bladeEnabled & (ASCII character 31) & focusedName & (ASCII character 31) & focusedRole & (ASCII character 31) & focusedDescription & (ASCII character 31) & "true" & (ASCII character 31) & "true" & (ASCII character 31) & "timeline" & (ASCII character 31) & "0" & (ASCII character 31) & "false" & (ASCII character 31) & "true" & (ASCII character 31) & frontWindowName & (ASCII character 31) & "false" & (ASCII character 31) & undoCommand & (ASCII character 31) & selectedIdentity) & (ASCII character 31) & selectedOccurrenceIndex
   end tell
 end tell`;
 }
@@ -5506,6 +5597,36 @@ tell application "System Events"
     set origin to position of mainWindow
     set windowSize to size of mainWindow
     return ((item 1 of origin) as text) & "|" & ((item 2 of origin) as text) & "|" & ((item 1 of windowSize) as text) & "|" & ((item 2 of windowSize) as text)
+  end tell
+end tell`;
+}
+
+function canonicalTimelineSelectionScript(name: string, occurrenceIndex: number): string {
+  return `
+tell application "System Events"
+  tell process "Final Cut Pro"
+    ${requireFrontmostAppleScript()}
+    set mainWindow to window "Final Cut Pro"
+    set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of mainWindow
+    set targetName to ${appleScriptString(name)}
+    set currentIndex to 0
+    repeat with candidateRef in UI elements of timelineArea
+      try
+        set candidate to contents of candidateRef
+        if (role of candidate as text) is "AXLayoutItem" then
+          set currentIndex to currentIndex + 1
+          set candidateDescription to description of candidate as text
+          if currentIndex is ${occurrenceIndex} and candidateDescription contains ("Video-Clip:" & targetName) then
+            set candidatePosition to position of candidate
+            set candidateSize to size of candidate
+            return ((item 1 of candidatePosition) + ((item 1 of candidateSize) / 2)) as text & "|" & ((item 2 of candidatePosition) + ((item 2 of candidateSize) / 2)) as text
+          end if
+        end if
+      on error
+        -- Ignore inaccessible timeline nodes and continue the bounded scan.
+      end try
+    end repeat
+    error "FINAL_CUT_NATIVE_OCCURRENCE_NOT_FOUND: canonical timeline occurrence was not exposed"
   end tell
 end tell`;
 }
@@ -6508,7 +6629,11 @@ end tell`;
 }
 
 function parseContext(output: string): NativeFinalCutContext {
-  const [frontState, frontWindow, selectedCountText, selectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState, undoCommandState, targetIdentity] = output.split(String.fromCharCode(31));
+  const [frontState, frontWindow, selectedCountText, rawSelectedName, selectedRole, undoState, bladeState, focusedName, focusedRole, focusedDescription, timelineWindowState, timelineFocusedState, focusTargetState, focusAttemptsState, framekitWindowState, framekitMinimizedState, focusedWindowName, overlayBlockedState, undoCommandState, targetIdentity, occurrenceIndexState] = output.split(String.fromCharCode(31));
+  const selectedName = rawSelectedName && selectedRole === "AXLayoutItem"
+    ? rawSelectedName.replace(/^Video-Clip:/, "")
+    : rawSelectedName;
+  const occurrenceIndex = occurrenceIndexState ? Number(occurrenceIndexState) : undefined;
   const selectedCount = Number(selectedCountText ?? "0");
   const timelineWindowAvailable = timelineWindowState === undefined ? Boolean(frontWindow) : timelineWindowState === "true";
   const timelineFocused = timelineFocusedState === undefined
@@ -6522,7 +6647,7 @@ function parseContext(output: string): NativeFinalCutContext {
   const target = selectedCount < 0
     ? { kind: "unknown" as const }
     : selectedCount === 1
-      ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}) }
+      ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}), ...(occurrenceIndex && Number.isInteger(occurrenceIndex) && occurrenceIndex > 0 ? { occurrenceIndex } : {}) }
       : selectedCount > 1
         ? { kind: "unknown" as const }
         : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")

@@ -1093,6 +1093,52 @@ test("canonical target resolver requires one exact native occurrence", async () 
   await resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original"));
 });
 
+test("canonical target resolver selects the coordinate-matching occurrence from duplicate media", async () => {
+  const selected: string[] = [];
+  const native = {
+    searchMedia: async () => [{
+      handle: "media-handle",
+      name: "clip.mov",
+      sourceIdentity: "browser-source-1",
+    }],
+    locateOccurrence: async () => ({
+      status: "ambiguous" as const,
+      occurrences: [
+        {
+          handle: "occurrence-first",
+          mediaHandle: "media-handle",
+          name: "Original",
+          start: "0/24",
+          duration: "96/24",
+          sequenceId: "final-cut:sequence:sequence-1",
+        },
+        {
+          handle: "occurrence-target",
+          mediaHandle: "media-handle",
+          name: "Original",
+          start: "96/24",
+          duration: "96/24",
+          sequenceId: "final-cut:sequence:sequence-1",
+        },
+      ],
+    }),
+    selectOccurrence: async (handle: string) => {
+      selected.push(handle);
+      return {} as never;
+    },
+  };
+  const targetSnapshot = structuredClone(snapshot("Original"));
+  targetSnapshot.timeline.clips[0] = {
+    ...targetSnapshot.timeline.clips[0]!,
+    start: 4,
+    startTime: { value: "96", timescale: "24" },
+  };
+
+  const resolver = createFinalCutNativeTargetResolver(native);
+  await resolver(targetSnapshot.timeline.clips[0]!, targetSnapshot);
+  assert.deepEqual(selected, ["occurrence-target"]);
+});
+
 test("canonical target resolver rejects ambiguous native media", async () => {
   const native = {
     searchMedia: async () => [

@@ -641,7 +641,8 @@ end tell`;
 }
 
 export function createFinalCutNativeTargetResolver(
-  native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">,
+  native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
+    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence">>,
 ): CanonicalNativeTargetResolver {
   return async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
@@ -660,12 +661,20 @@ export function createFinalCutNativeTargetResolver(
     if (located.status === "none" || located.occurrences.length === 0) {
       throw new Error(`TARGET_MISMATCH: Final Cut timeline has no occurrence for ${query}`);
     }
-    if (located.status !== "unique" || located.occurrences.length !== 1) {
-      throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline has multiple occurrences for ${query}`);
+    const matchingOccurrences = located.occurrences.filter((candidate) =>
+      candidate.start && candidate.duration && clip.startTime && clip.durationTime
+      && sameRationalText(candidate.start, clip.startTime)
+      && sameRationalText(candidate.duration, clip.durationTime));
+    if (matchingOccurrences.length === 0) {
+      throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
-    const occurrence = located.occurrences[0]!;
+    if (matchingOccurrences.length !== 1) {
+      throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline occurrence coordinates are not unique for ${clip.id}`);
+    }
+    const occurrence = matchingOccurrences[0]!;
+    await native.selectOccurrence?.(occurrence.handle);
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
-    if (!occurrenceIdentity) {
+    if (!occurrenceIdentity && !native.selectOccurrence) {
       throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
     }
     if (!occurrence.sequenceId) {
