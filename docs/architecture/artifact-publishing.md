@@ -6,17 +6,20 @@ Status: decision recorded 2026-09-13
 
 The inspected Final Cut Pro 10.7.1 installation has no supported non-UI
 project-publishing contract that provides target-bound created-project and
-sequence readback. Apple documents sending an FCPXML file with the `Open`
-`Document` Apple Event, but that interchange path can activate Final Cut or
-require library interaction and does not provide a native transaction,
-created-target identity, read-after-write, or Undo guarantee.
+sequence readback. Framekit now uses a small Workflow Extension bridge to send
+an FCPXML document through `NSWorkspace.OpenConfiguration` with
+`activates=false`. This is a dispatch path, not an import-completion proof:
+Final Cut may still require library interaction, activate itself, or expose a
+modal prompt. The bridge reports those side effects explicitly and live target
+readback is still required before success.
 
 The Workflow Extension host exposes limited metadata for the active timeline,
 not project creation or import verification. Direct `.fcpbundle` mutation is
-unsupported and remains out of scope. Framekit therefore reports artifact
-publishing as `headed-only` when the guarded publisher is enabled and
-`unavailable` otherwise. No background project-creation capability is
-advertised.
+unsupported and remains out of scope. Framekit reports the configured
+publisher as `background-capable` when the document-open bridge is present,
+and otherwise as `headed-only` or `unavailable`. `background-capable`
+describes only the non-activating dispatch attempt; it does not imply a
+canonical import or target-bound readback.
 
 Evidence for this decision is recorded in
 [`non-ui-timeline-snapshot-investigation.md`](./non-ui-timeline-snapshot-investigation.md)
@@ -32,16 +35,19 @@ Every publish job is bound to:
 - the exact managed FCPXML `artifactPath`;
 - the verified source `transactionId`; and
 - the source `artifactDigest`, which is checked again immediately before any
-  headed import attempt; and
-- an exact project/sequence target-binding proof from a native publisher.
+  import attempt; and
+- an exact project/sequence target-binding proof from a native publisher; and
+- an explicit Final Cut library UID when the document-open bridge is used.
 
 Preparation is non-mutating and never opens Final Cut. Execution requires
 explicit `confirm: true`. A job enters `verified` only when that stable
 target-binding proof and live readback agree on the exact project and sequence
-IDs. The current Workflow Extension does not provide this proof, so execution
-fails with `FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE` before import and
-reports that no import was attempted. `sourceTarget` and `createdTarget` remain
-separate objects in the result.
+IDs. If the document-open route cannot guarantee the intended library,
+execution returns `FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE` as
+`user-interaction-required`; it never silently falls back to Accessibility.
+no import was attempted in that state.
+`sourceTarget`, `createdTarget`, and the structured `delivery` side-effect
+record remain separate objects in the result.
 
 ## Job state machine
 
@@ -61,7 +67,8 @@ created target until verification succeeds.
 ## MCP tools
 
 - `artifact.publish.preview` validates the verified artifact transaction and
-  returns a headed-only job without opening Final Cut.
+  returns a non-mutating job without opening Final Cut. The job records whether
+  the native document-open route is available.
 - `artifact.publish.execute` accepts a job ID and literal `confirm: true`.
   It returns `verified`, `awaiting-final-cut`, `verification-pending`, or a
   fail-closed `failed` state when target-binding proof is unavailable.
@@ -69,10 +76,10 @@ created target until verification succeeds.
   Cut.
 
 The existing `artifact.publish` tool remains an explicit compatibility path for
-the headed publisher. Its confirmation, artifact target, digest, frontmost UI,
-and live readback guards remain unchanged. The headed publisher E2E is still
-the opt-in proof for actual Final Cut project creation; deterministic job tests
-prove only the state-machine and safety contract.
+the publisher. Its confirmation, artifact target, digest, and live readback
+guards remain unchanged. The headed publisher E2E is still the opt-in proof for
+actual Final Cut project creation; deterministic job tests prove only the
+state-machine and safety contract.
 
 ## Safety boundaries
 

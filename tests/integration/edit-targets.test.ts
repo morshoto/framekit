@@ -219,6 +219,50 @@ test("MCP publishing requires the verified artifact target and returns the creat
   }
 });
 
+test("MCP propagates the native document-open publishing capability", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-publish-background-"));
+  try {
+    const artifactPath = join(directory, "managed.fcpxml");
+    await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-background" name="Background Project"><sequence uid="sequence-background" duration="1s"><spine><asset-clip id="clip-background" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const server = createMcpServer(runtime, {
+      projectPublisher: new FinalCutProjectPublisher({
+        enabled: true,
+        sourcePath: artifactPath,
+        targetLibraryUid: "library-1",
+        documentDelivery: {
+          deliverFcpxml: async () => ({
+            status: "dispatched",
+            route: "background-document-open",
+            attempted: true,
+            imported: false,
+            requestedActivates: false,
+            activation: "preserved",
+            ui: "unknown",
+            target: { requestedLibraryUid: "library-1", guarantee: "requested-unverified" },
+          }),
+        },
+        liveState: publisherLiveState("Background Project"),
+      }),
+    });
+    const client = new Client({ name: "artifact-publish-background-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+      assert.equal(editor.capabilities.editor.artifactPublish, true);
+      assert.equal(editor.capabilities.editor.artifactPublishMode, "background-capable");
+      assert.equal(editor.capabilities.families.publishing.projectCreation.backend, "fcpxml-document-open");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("MCP reports disabled artifact publishing as unavailable", async () => {
   const server = createMcpServer(new AgentVideoRuntime(fixtureAdapter()), {
     projectPublisher: new FinalCutProjectPublisher({ sourcePath: "/tmp/managed.fcpxml" }),

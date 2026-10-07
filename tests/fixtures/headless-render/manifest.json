@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "name": "framekit-v0.1.15-headless-render",
+  "sources": [
+    {
+      "id": "fixture-red-440hz",
+      "filename": "fixture-red-440hz.mp4",
+      "color": "red",
+      "frequencyHz": 440,
+      "durationSeconds": 2,
+      "width": 320,
+      "height": 180,
+      "frameRate": { "value": "30", "timescale": "1" },
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "fixture-blue-880hz",
+      "filename": "fixture-blue-880hz.mp4",
+      "color": "blue",
+      "frequencyHz": 880,
+      "durationSeconds": 2,
+      "temporalVisual": true,
+      "temporalSamples": [
+        { "timeSeconds": 0.25, "x": 160, "y": 150, "color": "blue" },
+        { "timeSeconds": 0.75, "x": 160, "y": 150, "color": "cyan" }
+      ],
+      "videoFilter": "color=c=blue:s=320x180:r=30:d=0.5,drawbox=x=40:y=60:w=60:h=60:color=white:t=fill[before];color=c=cyan:s=320x180:r=30:d=1.5,drawbox=x=40:y=60:w=60:h=60:color=white:t=fill[after];[before][after]concat=n=2:v=1:a=0",
+      "width": 320,
+      "height": 180,
+      "frameRate": { "value": "30", "timescale": "1" },
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "fixture-green-1320hz",
+      "filename": "fixture-green-1320hz.mp4",
+      "color": "green",
+      "frequencyHz": 1320,
+      "durationSeconds": 1,
+      "width": 320,
+      "height": 180,
+      "frameRate": { "value": "30", "timescale": "1" },
+      "sampleRate": 48000,
+      "channels": 1
+    }
+  ],
+  "expectedWorkflow": {
+    "sourceOrder": ["fixture-red-440hz", "fixture-blue-880hz"],
+    "sourceRanges": [
+      { "sourceId": "fixture-red-440hz", "startTime": { "value": "1", "timescale": "4" }, "durationTime": { "value": "1", "timescale": "1" } },
+      { "sourceId": "fixture-blue-880hz", "startTime": { "value": "1", "timescale": "2" }, "durationTime": { "value": "1", "timescale": "1" } }
+    ],
+    "titleWindows": [
+      { "id": "title-opening", "startTime": { "value": "0", "timescale": "1" }, "durationTime": { "value": "1", "timescale": "2" }, "position": { "x": 0, "y": 0 } },
+      { "id": "title-closing", "startTime": { "value": "3", "timescale": "2" }, "durationTime": { "value": "1", "timescale": "2" }, "position": { "x": -0.5, "y": 0.5 } }
+    ],
+    "transition": {
+      "kind": "cross-dissolve",
+      "boundaryTime": { "value": "1", "timescale": "1" },
+      "durationTime": { "value": "1", "timescale": "4" }
+    },
+    "transform": { "scaleX": 1.25, "scaleY": 1.25 },
+    "audioGainDb": 6,
+    "output": { "width": 320, "height": 180, "frameRate": { "value": "30", "timescale": "1" }, "durationSeconds": 2 }
+  }
+}

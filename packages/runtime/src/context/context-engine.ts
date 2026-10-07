@@ -183,7 +183,12 @@ export class ContextEngine {
     const assetChanges = canonicalTimelineAvailable(capabilities)
       ? incremental?.assetChanges ?? []
       : [];
-    const to = latestRevision(revision, timeline?.to, ...stateChanges.map((change) => change.revision), incremental?.to);
+    // Canonical timeline revisions and live metadata revisions may come from
+    // independent sequence spaces. When timeline changes exist, keep their
+    // provider revision as the source-bound cursor instead of comparing the
+    // unrelated sequence numbers with live state revisions.
+    const to = timeline?.to
+      ?? latestRevision(revision, ...stateChanges.map((change) => change.revision), incremental?.to);
     let target = contextTarget(this.snapshots.get(revision.id), stateChanges);
     if (!target) {
       const liveState = await this.optionalLiveState();

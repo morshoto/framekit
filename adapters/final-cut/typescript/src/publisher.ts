@@ -5,8 +5,18 @@ import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { EditorLiveState } from "@framekit/runtime";
+import type { FinalCutFcpxmlDelivery } from "./live.js";
 
 const execFile = promisify(execFileCallback);
+
+export interface FinalCutProjectPublishDelivery {
+  status: "verified";
+  route: "background-document-open" | "headed-accessibility";
+  requestedActivates: boolean;
+  activation: FinalCutFcpxmlDelivery["activation"];
+  ui: FinalCutFcpxmlDelivery["ui"];
+  target: FinalCutFcpxmlDelivery["target"];
+}
 
 export interface FinalCutProjectPublishResult {
   sourceTransactionId: string;
@@ -32,6 +42,7 @@ export interface FinalCutProjectPublishResult {
   verified: boolean;
   liveProject?: string;
   liveSequence?: string;
+  delivery?: FinalCutProjectPublishDelivery;
 }
 
 export interface FinalCutProjectPublishRequest {
@@ -78,8 +89,8 @@ export interface FinalCutProjectPublishJob {
   sequenceName: string;
   confirmationRequired: boolean;
   handoff: {
-    mode: "headed-only";
-    backgroundSupported: false;
+    mode: "headed-only" | "background-document-open";
+    backgroundSupported: boolean;
     reason: string;
   };
   createdTarget?: FinalCutProjectPublishResult["createdTarget"];
@@ -97,6 +108,14 @@ export interface FinalCutProjectPublisherOptions {
   liveState?: () => Promise<EditorLiveState>;
   /** Supplies the exact target identity reserved by a native publish path. */
   targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
+  /** Opens the staged FCPXML through the native Workflow Extension bridge. */
+  documentDelivery?: {
+    deliverFcpxml(request: { artifactPath: string; targetLibraryUid?: string; activates: boolean }): Promise<FinalCutFcpxmlDelivery>;
+  };
+  /** Target library identity required before the native document-open route is attempted. */
+  targetLibraryUid?: string;
+  /** Explicitly permits the legacy Accessibility import after a native delivery blocker. */
+  allowHeadedFallback?: boolean;
   verificationTimeoutMs?: number;
   pollIntervalMs?: number;
   /** @deprecated Use pollIntervalMs. */
@@ -108,6 +127,7 @@ interface PublishJobRuntime {
   identity: { projectName: string; sequenceName: string };
   targetBinding: FinalCutProjectPublishTargetBinding;
   importedPath?: string;
+  delivery?: FinalCutProjectPublishDelivery;
 }
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
@@ -117,6 +137,9 @@ export class FinalCutProjectPublisher {
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
+  private readonly documentDelivery?: FinalCutProjectPublisherOptions["documentDelivery"];
+  private readonly targetLibraryUid?: string;
+  private readonly allowHeadedFallback: boolean;
   private readonly verificationTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly publishJobs = new Map<string, FinalCutProjectPublishJob>();
@@ -128,12 +151,19 @@ export class FinalCutProjectPublisher {
     this.executor = options.executor ?? runAppleScript;
     this.liveState = options.liveState;
     this.targetBinding = options.targetBinding;
+    this.documentDelivery = options.documentDelivery;
+    this.targetLibraryUid = options.targetLibraryUid;
+    this.allowHeadedFallback = options.allowHeadedFallback ?? false;
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
   }
 
   public isAvailable(): boolean {
     return this.enabled;
+  }
+
+  public executionMode(): "background-capable" | "headed-only" {
+    return this.documentDelivery ? "background-capable" : "headed-only";
   }
 
   public async preparePublish(
@@ -145,7 +175,7 @@ export class FinalCutProjectPublisher {
       state: "awaiting-confirmation",
       nextAction: "confirm",
       retryable: false,
-      executionMode: "headed-only",
+      executionMode: this.documentDelivery ? "background-capable" : "headed-only",
       sourceTransactionId: request.sourceTransactionId,
       sourcePath: this.sourcePath,
       sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
@@ -154,9 +184,11 @@ export class FinalCutProjectPublisher {
       sequenceName: identity.sequenceName,
       confirmationRequired: true,
       handoff: {
-        mode: "headed-only",
-        backgroundSupported: false,
-        reason: "Final Cut has no supported non-UI project publishing contract; use the explicit headed handoff and verify the created target.",
+        mode: this.documentDelivery ? "background-document-open" : "headed-only",
+        backgroundSupported: Boolean(this.documentDelivery),
+        reason: this.documentDelivery
+          ? "Uses the native FCPXML document-open bridge with activates=false; Final Cut may still return an explicit user-interaction-required boundary when target selection cannot be guaranteed."
+          : "Final Cut has no supported non-UI project publishing contract; use the explicit headed handoff and verify the created target.",
       },
     };
     this.publishJobs.set(job.jobId, job);
@@ -302,8 +334,53 @@ export class FinalCutProjectPublisher {
     const importedPath = join(directory, basename(this.sourcePath));
     if (runtime) runtime.importedPath = importedPath;
     await writeFile(importedPath, source, "utf8");
+    let delivery: FinalCutProjectPublishDelivery | undefined;
     try {
-      await this.executor(importXmlScript(importedPath));
+      if (this.documentDelivery) {
+        const dispatched = await this.documentDelivery.deliverFcpxml({
+          artifactPath: importedPath,
+          ...(this.targetLibraryUid ? { targetLibraryUid: this.targetLibraryUid } : {}),
+          activates: false,
+        });
+        if (dispatched.status !== "dispatched" && !this.allowHeadedFallback) {
+          const error = dispatched.error ?? {
+            code: "FINAL_CUT_DELIVERY_USER_INTERACTION_REQUIRED",
+            message: "Final Cut did not accept the background document-open request",
+          };
+          throw new Error(`${error.code}: ${error.message}`);
+        }
+        if (dispatched.status === "dispatched") {
+          delivery = {
+            status: "verified",
+            route: dispatched.route,
+            requestedActivates: dispatched.requestedActivates,
+            activation: dispatched.activation,
+            ui: dispatched.ui,
+            target: dispatched.target,
+          };
+        } else {
+          await this.executor(importXmlScript(importedPath));
+          delivery = {
+            status: "verified",
+            route: "headed-accessibility",
+            requestedActivates: true,
+            activation: "activated",
+            ui: "displayed",
+            target: dispatched.target,
+          };
+        }
+      } else {
+        await this.executor(importXmlScript(importedPath));
+        delivery = {
+          status: "verified",
+          route: "headed-accessibility",
+          requestedActivates: true,
+          activation: "activated",
+          ui: "displayed",
+          target: { guarantee: "unavailable" },
+        };
+      }
+      if (runtime) runtime.delivery = delivery;
       const live = await waitForImportedProject(
         this.liveState,
         identity,
@@ -312,7 +389,7 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
-      return publishResult(request, importedPath, identity, beforeLive, live);
+      return publishResult(request, importedPath, identity, beforeLive, live, delivery);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -350,6 +427,7 @@ export class FinalCutProjectPublisher {
         runtime.identity,
         runtime.beforeLive,
         live,
+        runtime.delivery,
       );
       return this.markVerified(job, result);
     } catch (error) {
@@ -655,6 +733,7 @@ function publishResult(
   identity: { projectName: string; sequenceName: string },
   beforeLive: EditorLiveState,
   live: EditorLiveState,
+  delivery?: FinalCutProjectPublishDelivery,
 ): FinalCutProjectPublishResult {
   return {
     sourceTransactionId: request.sourceTransactionId,
@@ -677,6 +756,7 @@ function publishResult(
         : {}),
     },
     verified: true,
+    ...(delivery ? { delivery } : {}),
     ...(live.project?.name ? { liveProject: live.project.name } : {}),
     ...(live.sequence?.name ? { liveSequence: live.sequence.name } : {}),
   };

@@ -1,15 +1,34 @@
 # MCP Tools
 
-## Editor-first routing
+## Headless-first routing
 
-For a canonical editing request, follow this order:
+For a Framekit-owned project, use the headless path by default:
+
+1. Call `editing.route` with the intended operation. For `timeline.edit`,
+   include the concrete `editType` (for example `rename-occurrence`,
+   `set-transform`, or `add-title`); the route does not treat the whole legacy
+   edit surface as one headless capability.
+2. Confirm `selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"`.
+3. Use `headless.project.open` or `headless.project.inspect`, then
+   `headless.edit.preview` and `headless.edit.execute`.
+4. Reopen/inspect the exact revision before `headless.render`, then inspect
+   its independent verification record.
+
+If the route returns `HEADLESS_UNAVAILABLE`, treat it as a structured blocker.
+Do not invoke a native tool as an implicit fallback. The headless path never
+launches or activates Final Cut Pro.
+
+## Explicit headed/editor-first routing
+
+For a caller that explicitly selects the headed path, follow this order:
 
 1. Call `connection.status` to establish whether the expected editor is
    connected.
 2. Call `editor.inspect` to read the editor identity and advertised
    capabilities.
 3. Call `project.inspect` to capture the active project and revision.
-4. Call `editing.route` with the intended operation. Select only a path whose
+4. Call `editing.route` with `path: "headed"` and the intended operation.
+   Select only a path whose
    required capabilities are available.
 5. Resolve the request with `editing.intent.resolve` when needed, then call
    the operation-specific `preview` and `execute` tools.
@@ -64,7 +83,11 @@ is a separate, confirmed `artifact.publish` step.
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
-| `editing.route` | Select an editor-first operation path after connection and capability checks | Read-only; fails closed when the editor is unavailable or insufficient; external rendering requires explicit `fallback: "external-renderer"` |
+| `editing.route` | Select the default headless SSoT path or an explicitly headed operation path after capability checks | Read-only; fails closed when the selected path is unavailable; external rendering requires explicit `fallback: "external-renderer"` |
+| `headless.project.create` / `headless.project.open` / `headless.project.inspect` | Create or reopen the Framekit-owned canonical project and exact revision | No Final Cut dependency; registered local media is revalidated on reopen |
+| `headless.media.register` | Register a local source by stable path, digest, and ffprobe metadata | Read-only source handling; persists only canonical project metadata |
+| `headless.edit.preview` / `headless.edit.execute` | Preview or commit Timeline IR operations against an expected revision | Headless SSoT path; stale and unsupported operations fail closed |
+| `headless.render` / `headless.render.inspect` | Render a selected canonical revision and inspect its independent verification record | External renderer is explicit and never a native/UI fallback |
 | `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
 | `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |
@@ -118,7 +141,7 @@ is a separate, confirmed `artifact.publish` step.
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
-| `artifact.publish.preview` | Prepare a headed-only handoff for a verified artifact without opening Final Cut | Requires the verified `artifactPath` and `transactionId`; returns an explicit publish job |
+| `artifact.publish.preview` | Prepare a verified artifact handoff without opening Final Cut | Requires the verified `artifactPath` and `transactionId`; returns an explicit background-document-open or headed job |
 | `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
 | `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
@@ -547,16 +570,23 @@ stale or conflicted.
 freshness. Its digest is explicitly non-canonical and can invalidate a session,
 but it cannot make the session ready or authorize a write.
 
-Use `session.materialize.preview` to inspect the versioned destination and
-artifact digest without staging files. Its `target` requires explicit
+Use `session.materialize.preview` to inspect the versioned destination, artifact
+digest, materialization coverage, and target-bound provenance without staging
+files. Its `target` requires explicit
 `libraryUid`, `eventUid`, `projectUid`, and `sequenceUid` identities; the
 materialization surface is always create-only and versioned. `session.materialize.execute`
 requires `confirm: true`, stages an immutable FCPXML artifact, and creates a
-persistent job. `session.materialize.status` reads a job after server restart,
-and `session.materialize.retry` resubmits a retryable blocker using the same
-digest-verified artifact. A provider request is not completion: canonical
-readback must match the desired Timeline IR and identify the exact created
-library/event/project/sequence target.
+persistent job carrying the same coverage and provenance. `session.materialize.status`
+reads that record after server restart, and `session.materialize.retry` resubmits
+a retryable blocker using the same digest-verified artifact. A provider request
+is not completion: canonical readback must match the desired Timeline IR and
+identify the exact created library/event/project/sequence target.
+
+Materialization job records use schema version 2. A schema-version-1 job that
+does not contain the target-bound coverage/provenance fields is migrated to an
+explicit non-retryable `MATERIALIZATION_JOB_METADATA_UNAVAILABLE` failure; it
+is never forwarded to a publisher with guessed metadata. Re-run preview and
+execute to create a fresh job.
 
 When `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured in
 live mode, it receives the staged request through stdin as an explicit non-UI

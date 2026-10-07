@@ -23,9 +23,40 @@ export type EditingRouteOperation =
 export type EditingRouteFallback = "none" | "external-renderer";
 export type CapabilityUnavailableCategory = "background-api" | "canonical-snapshot" | "native-ui";
 
+export const HEADLESS_TIMELINE_EDIT_TYPES = [
+  "insert-occurrence",
+  "rename-occurrence",
+  "trim-occurrence",
+  "move-occurrence",
+  "split-occurrence",
+  "set-gain",
+  "set-transform",
+  "remove-occurrence",
+  "add-marker",
+  "add-title",
+  "remove-title",
+  "add-transition",
+  "remove-transition",
+] as const;
+
+export const EDITING_ROUTE_EDIT_TYPES = [
+  ...HEADLESS_TIMELINE_EDIT_TYPES,
+  "rename-clip",
+  "trim-clip",
+  "reduce-noise",
+  "set-color-correction",
+  "ripple-delete",
+] as const;
+
+export type EditingRouteEditType = (typeof EDITING_ROUTE_EDIT_TYPES)[number];
+
 export interface EditingRouteRequest {
   operation: EditingRouteOperation;
   fallback?: EditingRouteFallback;
+  /** Select the headless SSoT or explicitly opt into a headed editor path. */
+  path?: "headless" | "headed";
+  /** Identify the concrete timeline edit for capability-granular headless routing. */
+  editType?: EditingRouteEditType;
 }
 
 export interface EditorRoutingContext {
@@ -39,6 +70,12 @@ export interface EditorRoutingContext {
   };
   native?: Record<string, boolean>;
   nativeReadiness?: NativeRoutingReadiness;
+  headless?: {
+    available: boolean;
+    backend: string;
+    guarantee: CapabilityGuarantee;
+    supportedOperations: string[];
+  };
 }
 
 export interface NativeRoutingReadiness {
@@ -61,7 +98,13 @@ export interface EditingRouteProvider {
 }
 
 export interface EditingRouteReason {
-  code: "EDITOR_SELECTED" | "EDITOR_UNAVAILABLE" | "CAPABILITY_UNAVAILABLE" | "EXTERNAL_FALLBACK_SELECTED";
+  code:
+    | "EDITOR_SELECTED"
+    | "EDITOR_UNAVAILABLE"
+    | "CAPABILITY_UNAVAILABLE"
+    | "EXTERNAL_FALLBACK_SELECTED"
+    | "HEADLESS_SELECTED"
+    | "HEADLESS_UNAVAILABLE";
   message: string;
   connectionState: string;
   cause?: {
@@ -79,8 +122,8 @@ export interface EditingRouteReason {
 
 export interface EditingRoute {
   operation: EditingRouteOperation;
-  status: "editor-selected" | "external-fallback-selected" | "unavailable";
-  selectedPath: "editor" | "artifact" | "background" | "native" | "external-renderer" | "none";
+  status: "editor-selected" | "headless-selected" | "external-fallback-selected" | "unavailable";
+  selectedPath: "editor" | "headless" | "artifact" | "background" | "native" | "external-renderer" | "none";
   requiredCapabilities: string[];
   missingCapabilities: string[];
   provider?: EditingRouteProvider;
@@ -101,6 +144,15 @@ export const EDITOR_FIRST_WORKFLOW = [
   "context.inspect",
   "edit.diff",
   "edit.verify",
+];
+
+export const HEADLESS_FIRST_WORKFLOW = [
+  "connection.status",
+  "editing.route",
+  "headless.project.open",
+  "headless.edit.preview",
+  "headless.edit.execute",
+  "headless.project.inspect",
 ];
 
 export const BACKGROUND_LIBRARY_WORKFLOW = [
@@ -136,6 +188,17 @@ export const EDITOR_FIRST_MCP_INSTRUCTIONS = [
   "For repeated agent readback, use the bound session or complete fast observation; force canonical resync for initial binding, stale/conflicted state, incomplete evidence, explicit canonical inspection, and final verification.",
   "For an explicit FCPXML artifact, select artifact.edit; its background workflow uses artifact.inspect, artifact.edit.preview, artifact.edit.execute, artifact.edit.diff, artifact.edit.verify, and artifact.edit.undo, and never claims to change the open Final Cut timeline.",
   "An external renderer is never an implicit substitute for a connected editor. Select fallback: external-renderer explicitly and report the structured reason returned by editing.route.",
+].join("\n");
+
+export const HEADLESS_FIRST_MCP_INSTRUCTIONS = [
+  "Framekit uses the headless Framekit-owned project as the default editing path.",
+  "1. Call connection.status only for diagnostics; Final Cut availability is not required for headless editing.",
+  "2. Call editing.route for the intended operation and follow the selected path and reason.",
+  "3. For a headless route, use headless.project.open or headless.project.inspect, then preview before execute.",
+  "4. Reopen and inspect the exact project revision before rendering; independently verify the render result.",
+  "5. Headed/native execution requires an explicit path: headed selection and the native operation tools; it is never an implicit fallback.",
+  "An unavailable headless capability returns structured evidence and does not launch or activate Final Cut.",
+  "An external renderer is never an implicit substitute. Select fallback: external-renderer explicitly and report the structured reason.",
 ].join("\n");
 
 type Requirement = {
@@ -211,7 +274,10 @@ export function resolveEditingRoute(
   const missingCapabilities = missingRequirements.map((requirement) => requirement.label);
   const editor = context.editor?.identity;
   const readiness = routingReadiness(context);
-  const workflow = request.operation === "artifact.edit"
+  const headlessDefault = request.operation === "timeline.edit" && context.headless && request.path !== "headed";
+  const workflow = request.operation === "timeline.edit" && headlessDefault
+    ? HEADLESS_FIRST_WORKFLOW
+    : request.operation === "artifact.edit"
     ? BACKGROUND_ARTIFACT_WORKFLOW
     : request.operation === "project.list"
       ? BACKGROUND_LIBRARY_WORKFLOW
@@ -235,6 +301,32 @@ export function resolveEditingRoute(
         cause,
       },
     };
+  }
+
+  const headlessRequested = request.path === "headless";
+  if (headlessRequested || (headlessDefault && request.path !== "headed")) {
+    if (context.headless?.available && headlessSupportsRequest(request, context)) {
+      return {
+        operation: request.operation,
+        status: "headless-selected",
+        selectedPath: "headless",
+        requiredCapabilities: [headlessCapability(request)],
+        missingCapabilities: [],
+        provider: {
+          backend: context.headless.backend,
+          guarantee: context.headless.guarantee,
+        },
+        ...(editor ? { editor } : {}),
+        ...(readiness ? { readiness } : {}),
+        workflow: [...HEADLESS_FIRST_WORKFLOW],
+        reason: {
+          code: "HEADLESS_SELECTED",
+          message: "The Framekit-owned headless project is the default SSoT path; Final Cut will not be contacted.",
+          connectionState: context.connection.state,
+        },
+      };
+    }
+    return headlessUnavailableRoute(request, context, editor, readiness, workflow);
   }
 
   const offlineArtifactEdit = (request.operation === "artifact.edit" || request.operation === "timeline.edit")
@@ -464,6 +556,75 @@ function selectedPath(
   }
   if (operation.startsWith("editor.native.")) return "native";
   return "editor";
+}
+
+function headlessUnavailableRoute(
+  request: EditingRouteRequest,
+  context: EditorRoutingContext,
+  editor: EditorIdentity | undefined,
+  readiness: EditingRoute["readiness"],
+  workflow: string[],
+): EditingRoute {
+  const capability = headlessCapability(request);
+  return {
+    operation: request.operation,
+    status: "unavailable",
+    selectedPath: "none",
+    requiredCapabilities: [capability],
+    missingCapabilities: [capability],
+    ...(editor ? { editor } : {}),
+    ...(readiness ? { readiness } : {}),
+    workflow: [...workflow],
+    reason: {
+      code: "HEADLESS_UNAVAILABLE",
+      message: "The requested Framekit headless SSoT capability is unavailable; no headed or native fallback was selected.",
+      connectionState: context.connection.state,
+      unavailable: {
+        category: "background-api",
+        capability,
+        backend: context.headless?.backend ?? "framekit-headless-project",
+        guarantee: context.headless?.guarantee ?? "none",
+        message: context.headless
+          ? "the configured headless project service does not advertise this operation"
+          : "no headless project service is configured",
+      },
+    },
+  };
+}
+
+function headlessSupportsRequest(
+  request: EditingRouteRequest,
+  context: EditorRoutingContext,
+): boolean {
+  if (!context.headless) return false;
+  if (request.operation !== "timeline.edit") {
+    return context.headless.supportedOperations.includes(request.operation);
+  }
+  // A bare timeline.edit request is intentionally not a headless capability:
+  // the legacy surface also contains operations that Timeline IR cannot apply.
+  const editType = canonicalHeadlessEditType(request.editType);
+  return editType !== undefined
+    && context.headless.supportedOperations.includes(`timeline.edit:${editType}`);
+}
+
+function headlessCapability(request: EditingRouteRequest): string {
+  if (request.operation !== "timeline.edit") return `headless.${request.operation}`;
+  const editType = canonicalHeadlessEditType(request.editType);
+  return request.editType
+    ? `headless.timeline.edit.${editType ?? request.editType}`
+    : "headless.timeline.edit";
+}
+
+function canonicalHeadlessEditType(editType: EditingRouteEditType | undefined): string | undefined {
+  if (!editType) return undefined;
+  switch (editType) {
+    case "rename-clip": return "rename-occurrence";
+    case "trim-clip": return "trim-occurrence";
+    default:
+      return HEADLESS_TIMELINE_EDIT_TYPES.includes(editType as (typeof HEADLESS_TIMELINE_EDIT_TYPES)[number])
+        ? editType
+        : undefined;
+  }
 }
 
 function selectedMessage(operation: EditingRouteOperation): string {

@@ -12,6 +12,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  EDITOR_FIRST_WORKFLOW,
+  HEADLESS_FIRST_MCP_INSTRUCTIONS,
+  HEADLESS_FIRST_WORKFLOW,
   resolveEditingRoute,
   type EditorRoutingContext,
 } from "../../apps/mcp-server/src/routing.js";
@@ -75,6 +78,84 @@ test("routing selects the connected editor when required capabilities are availa
   });
   assert.ok(route.requiredCapabilities.includes("editor.timelineSnapshotRead"));
   assert.ok(route.requiredCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
+});
+
+test("routing selects a supported Timeline IR edit before editor availability", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", editType: "rename-occurrence" }, context({
+    connection: {
+      state: "unavailable",
+      lastError: { code: "FINAL_CUT_ABSENT", message: "Final Cut is not installed" },
+    },
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: ["timeline.edit:rename-occurrence"],
+    },
+  }));
+
+  assert.equal(route.status, "headless-selected");
+  assert.equal(route.selectedPath, "headless");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.deepEqual(route.provider, {
+    backend: "framekit-project-store",
+    guarantee: "canonical-write",
+  });
+  assert.equal(route.reason.code, "HEADLESS_SELECTED");
+  assert.deepEqual(route.workflow, HEADLESS_FIRST_WORKFLOW);
+  assert.match(route.reason.message, /headless/i);
+  assert.match(HEADLESS_FIRST_MCP_INSTRUCTIONS, /headless/i);
+});
+
+test("routing reports an unavailable headless path without falling back to an editor", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
+    connection: { state: "ready" },
+    headless: {
+      available: false,
+      backend: "framekit-project-store",
+      guarantee: "none",
+      supportedOperations: ["timeline.edit:rename-occurrence"],
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.selectedPath, "none");
+  assert.equal(route.reason.code, "HEADLESS_UNAVAILABLE");
+  assert.equal(route.reason.unavailable?.category, "background-api");
+  assert.match(route.reason.message, /headless/i);
+});
+
+test("routing requires explicit headed opt-in when the headless path is available", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", path: "headed" }, context({
+    connection: { state: "ready" },
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: ["timeline.edit:rename-occurrence"],
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "editor");
+  assert.equal(route.reason.code, "EDITOR_SELECTED");
+  assert.deepEqual(route.workflow, EDITOR_FIRST_WORKFLOW);
+});
+
+test("routing does not advertise an unsupported whole legacy timeline edit surface as headless", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", path: "headless" }, context({
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: [],
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.selectedPath, "none");
+  assert.equal(route.reason.code, "HEADLESS_UNAVAILABLE");
+  assert.deepEqual(route.missingCapabilities, ["headless.timeline.edit"]);
 });
 
 test("routing selects native picture-in-picture only with native placement guarantees", () => {
@@ -409,7 +490,7 @@ test("MCP exposes editor-first instructions, descriptions, and routing decisions
     assert.ok(routeTool);
     assert.match(routeTool.description ?? "", /capabilit/i);
     assert.match(routeTool.description ?? "", /external/i);
-    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["fallback", "operation"]);
+    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["editType", "fallback", "operation", "path"]);
     for (const name of ["project.inspect", "timeline.edit", "timeline.edit.preview", "timeline.edit.execute"]) {
       const tool = tools.tools.find((candidate) => candidate.name === name);
       assert.ok(tool, `${name} must be registered`);
@@ -585,6 +666,10 @@ test("MCP documentation describes one consistent editor-first policy", async () 
   assert.match(errors, /background API support/);
   assert.match(errors, /canonical snapshot support/);
   assert.match(errors, /native UI access/);
+  const explicitHeadedDocs = [overview, tools].map((content) => {
+    const marker = content.indexOf("Explicit headed/editor-first");
+    return marker >= 0 ? content.slice(marker) : content;
+  });
   for (const [before, after] of [
     ["connection.status", "editor.inspect"],
     ["editor.inspect", "project.inspect"],
@@ -594,7 +679,7 @@ test("MCP documentation describes one consistent editor-first policy", async () 
     ["execute", "edit.diff"],
     ["edit.diff", "edit.verify"],
   ]) {
-    assert.ok(tools.indexOf(before) < tools.indexOf(after), `${before} must precede ${after}`);
+    assert.ok(explicitHeadedDocs.every((content) => content.indexOf(before) < content.indexOf(after)), `${before} must precede ${after}`);
   }
 });
 
