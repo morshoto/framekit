@@ -91,6 +91,113 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
 });
 
+test("FCPXML publisher uses the native document-open delivery boundary", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-document-open-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Background Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  const deliveries: Array<{ artifactPath: string; targetLibraryUid?: string; activates: boolean }> = [];
+  let liveStateCalls = 0;
+
+  const result = await new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    documentDelivery: {
+      deliverFcpxml: async (request) => {
+        deliveries.push(request);
+        return {
+          status: "dispatched",
+          route: "background-document-open",
+          attempted: true,
+          imported: false,
+          requestedActivates: request.activates,
+          activation: "preserved",
+          ui: "none",
+          target: { requestedLibraryUid: request.targetLibraryUid, guarantee: "requested-unverified" },
+        };
+      },
+    },
+    targetLibraryUid: "library-1",
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => {
+      throw new Error("Accessibility fallback must not run");
+    },
+    liveState: async () => {
+      const imported = liveStateCalls++ > 0;
+      return {
+        project: { id: imported ? "project-imported" : "project-before", name: imported ? "Background Project" : "Existing" },
+        sequence: {
+          id: imported ? "sequence-imported" : "sequence-before",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  }).publishNewProject({
+    sourceTransactionId: "txn-document-open",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    confirm: true,
+  });
+
+  assert.equal(result.verified, true);
+  assert.deepEqual(deliveries, [{ artifactPath: result.importedPath, targetLibraryUid: "library-1", activates: false }]);
+  assert.equal(result.delivery?.route, "background-document-open");
+  assert.equal(result.delivery?.status, "verified");
+  assert.equal(result.delivery?.requestedActivates, false);
+  assert.equal(result.delivery?.activation, "preserved");
+});
+
+test("FCPXML publisher exposes target selection as an interaction-required boundary", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-document-target-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Needs Target"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let liveStateCalls = 0;
+  let headedFallbackCalled = false;
+
+  await assert.rejects(new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    documentDelivery: {
+      deliverFcpxml: async () => ({
+        status: "user-interaction-required",
+        route: "background-document-open",
+        attempted: false,
+        imported: false,
+        requestedActivates: false,
+        activation: "unknown",
+        ui: "prompted",
+        target: { guarantee: "unavailable" },
+        error: {
+          code: "FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE",
+          message: "Choose a Final Cut library before delivery",
+        },
+      }),
+    },
+    executor: async () => {
+      headedFallbackCalled = true;
+      return "unexpected";
+    },
+    liveState: async () => {
+      liveStateCalls += 1;
+      return { revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } };
+    },
+  }).publishNewProject({
+    sourceTransactionId: "txn-document-target",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    confirm: true,
+  }), /FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE/);
+
+  assert.equal(liveStateCalls, 1);
+  assert.equal(headedFallbackCalled, false);
+});
+
 test("FCPXML publisher rejects a stale active project with matching names", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-stale-"));
   const sourcePath = join(directory, "project.fcpxml");

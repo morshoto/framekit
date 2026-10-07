@@ -73,6 +73,16 @@ read-after-write, diffs, verification, and undo. The FCPXML artifact is
 managed explicitly; Framekit does not silently replace the open Final Cut
 project.
 
+For the non-activating document-open delivery route, also set
+`FRAMEKIT_FINAL_CUT_LIBRARY_UID` to the intended library identity. The native
+bridge sends the staged FCPXML with `NSWorkspace.OpenConfiguration.activates`
+set to `false` and reports activation, UI, target, and import-verification
+boundaries separately. If the library identity is unavailable, delivery
+returns an explicit interaction-required result instead of opening a chooser or
+falling back to Accessibility. An explicit user-directed headed fallback can
+be enabled with `FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1`; this restores the
+Accessibility import path and its UI side effects are part of the result.
+
 Optional local JSON analysis providers are configured with:
 
 - `FRAMEKIT_SPEECH_ANALYZER`

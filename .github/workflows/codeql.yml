@@ -26,65 +26,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  changes:
-    name: Detect CodeQL paths
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      javascript_typescript: ${{ steps.filter.outputs.javascript_typescript }}
-      swift: ${{ steps.filter.outputs.swift }}
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
-      - name: Determine affected languages
-        id: filter
-        shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CURRENT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
-            {
-              echo 'javascript_typescript=true'
-              echo 'swift=true'
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          changed="$(git diff --name-only "$BASE_SHA...$CURRENT_SHA")"
-          printf '%s\n' "$changed"
-
-          javascript_pattern='(^|/)[^/]+\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$|(^|/)(package\.json|pnpm-lock\.yaml|tsconfig[^/]*\.json)$|^\.github/(codeql/|workflows/codeql\.yml$)'
-          swift_pattern='^adapters/final-cut/swift-bridge/|^\.github/(codeql/|workflows/codeql\.yml$)'
-
-          if printf '%s\n' "$changed" | grep -Eq "$javascript_pattern"; then
-            javascript_typescript=true
-          else
-            javascript_typescript=false
-          fi
-
-          if printf '%s\n' "$changed" | grep -Eq "$swift_pattern"; then
-            swift=true
-          else
-            swift=false
-          fi
-
-          {
-            echo "javascript_typescript=$javascript_typescript"
-            echo "swift=$swift"
-          } >> "$GITHUB_OUTPUT"
-
   analyze:
     name: Analyze (${{ matrix.language }})
-    needs: changes
-    # A detector failure must fail open to a full scan, not skip a required check.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.javascript_typescript == 'true') }}
+    # Always publish the required JavaScript/TypeScript check, including for documentation-only PRs.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -100,13 +45,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: /language:${{ matrix.language }}
           # Do not block the required check on delayed SARIF processing.
@@ -114,7 +59,6 @@ jobs:
 
   analyze-swift:
     name: Analyze (swift)
-    needs: changes
     # Always publish the configured Swift category so code-scanning comparison
     # has a result even when the pull request changes no Swift source.
     if: ${{ !cancelled() }}
@@ -126,7 +70,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: swift
           build-mode: manual
@@ -145,6 +89,6 @@ jobs:
             .github/codeql/FinalCutWorkflowExtensionShim.swift
 
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: /language:swift

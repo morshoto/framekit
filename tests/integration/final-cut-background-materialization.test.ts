@@ -4,7 +4,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
+import { FinalCutBackgroundMaterializationPublisher, type FinalCutBackgroundMaterializationRequest } from "@framekit/final-cut";
 import { timelineIrDigest } from "@framekit/runtime";
 
 const desired = {
@@ -24,7 +24,7 @@ const desired = {
   revision: { id: "revision-1", sequence: 1, timestamp: "2026-09-15T00:00:00.000Z" },
 };
 
-function request(artifactPath: string, artifact: string) {
+function request(artifactPath: string, artifact: string): FinalCutBackgroundMaterializationRequest {
   return {
     jobId: "materialization-1",
     artifactPath,
@@ -46,7 +46,26 @@ function request(artifactPath: string, artifact: string) {
     collisionPolicy: "create-only",
     desired,
     desiredDigest: timelineIrDigest(desired),
-  } as never;
+    coverage: { exact: ["artifact"], degraded: [], unsupported: [] },
+    provenance: {
+      source: "framekit-timeline-ir",
+      schemaVersion: 1,
+      projectId: desired.project.id,
+      sequenceId: desired.sequence.id,
+      revision: desired.revision,
+      timelineDigest: timelineIrDigest(desired),
+      target: {
+        libraryUid: "library-1",
+        eventUid: "event-1",
+        projectUid: "project-1",
+        sequenceUid: "sequence-1",
+      },
+      destination: {
+        projectUid: "project-1-framekit-abc123",
+        sequenceUid: "sequence-1-framekit-abc123",
+      },
+    },
+  };
 }
 
 test("publishes a verified artifact with an explicit target and canonical readback", async () => {
@@ -98,6 +117,37 @@ test("returns a structured blocker when no background capability is configured",
       message: "No explicit non-UI Final Cut materialization capability is configured",
       retryable: true,
     });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects unsupported coverage and target-unbound materialization provenance", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-background-publisher-metadata-"));
+  try {
+    const artifact = "<fcpxml version=\"1.11\"><library/></fcpxml>";
+    const artifactPath = join(directory, "staged.fcpxml");
+    await writeFile(artifactPath, artifact, "utf8");
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ executor: async () => {
+      throw new Error("publisher should not be called");
+    } });
+    await assert.rejects(
+      publisher.publish({
+        ...request(artifactPath, artifact),
+        coverage: { exact: [], degraded: [], unsupported: ["transitions"] },
+      }),
+      /MATERIALIZATION_COVERAGE_UNSUPPORTED/,
+    );
+    await assert.rejects(
+      publisher.publish({
+        ...request(artifactPath, artifact),
+        provenance: {
+          ...(request(artifactPath, artifact) as any).provenance,
+          target: { ...(request(artifactPath, artifact) as any).provenance.target, projectUid: "wrong-project" },
+        },
+      }),
+      /MATERIALIZATION_PROVENANCE_INVALID/,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

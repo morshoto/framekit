@@ -125,11 +125,13 @@ When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 project. It reports the created project target and active project before/after;
 the active project is never replaced automatically.
 
-The current publisher is a headed-only handoff because the inspected Final Cut
-Pro 10.7.1 surfaces do not provide supported non-UI project creation with
-target-bound readback. `artifact.publish.preview`, `artifact.publish.execute`,
-and `artifact.publish.status` expose a bounded job state so a missing Final Cut
-provider can be retried without claiming that a project was created. See
+The publisher uses the Workflow Extension's non-activating FCPXML document-open
+route when a target library UID is configured. That route reports dispatch and
+foreground/UI side effects separately; it does not provide target-bound
+readback by itself. If it is unavailable, `artifact.publish.preview`,
+`artifact.publish.execute`, and `artifact.publish.status` expose a bounded
+headed or interaction-required job state so a missing Final Cut provider can be
+retried without claiming that a project was created. See
 [`artifact-publishing.md`](architecture/artifact-publishing.md) for the state
 machine and current-version decision.
 
