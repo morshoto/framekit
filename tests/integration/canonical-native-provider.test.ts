@@ -33,6 +33,10 @@ const identity: EditorIdentity = {
 };
 
 function canonicalExportPath(script: string): string {
+  const directNameField = script.match(
+    /keystroke "a" using \{command down\}[\s\S]*?keystroke "([^\"]+)"[\s\S]*?set value of nameField to "([^\"]+)"/,
+  );
+  if (directNameField?.[1] && directNameField?.[2]) return join(directNameField[1], directNameField[2]);
   const fields = script.match(
     /keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"[\s\S]*?keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"/,
   );
@@ -835,19 +839,18 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /on findFocusedCanonicalPathField\(container, focusedCandidate, depth, insidePathContainer\)/);
   assert.match(script, /candidateInsidePathContainer then/);
   assert.match(script, /if container is focusedCandidate then return container/);
-  assert.match(script, /if my roleIsExpected\(role of focusedCandidate as text, \{"AXTextField", "AXTextArea", "AXComboBox"\}\) then return focusedCandidate/);
-  assert.match(script, /keystroke "a" using \{command down\}[\s\S]{0,120}key code 36/);
+  assert.match(script, /if my matchesCanonicalPathField\(focusedCandidate\) then return focusedCandidate/);
+  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*?keystroke "\/tmp"[\s\S]*?key code 36/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.doesNotMatch(script, /set pathField to my findSavePathField/);
   assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.match(script, /id of candidate/);
   assert.match(script, /PathTextField/);
   assert.match(script, /saveAsNameTextField/);
-  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*keystroke "\/tmp"/);
-  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*keystroke "framekit-canonical\.fcpxml"/);
+  assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
+  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
-  assert.match(script, /repeat 10 times[\s\S]*key code 36/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -932,7 +935,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*key code 36/);
+  assert.match(script, /set value of nameField[\s\S]*?my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 

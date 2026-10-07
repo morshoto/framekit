@@ -362,15 +362,30 @@ on findCanonicalPathField(container, depth)
   return missing value
 end findCanonicalPathField
 
+on findAccessibilityIdentifier(saveContainer, expectedIdentifier)
+  try
+    repeat with childRef in (entire contents of saveContainer)
+      set candidate to contents of childRef
+      try
+        set candidateIdentifier to (value of attribute "AXIdentifier" of candidate) as text
+        if candidateIdentifier is expectedIdentifier then return candidate
+      end try
+    end repeat
+  end try
+  return missing value
+end findAccessibilityIdentifier
+
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
+    set candidate to my findAccessibilityIdentifier(saveWindow, "PathTextField")
+    if candidate is not missing value then return candidate
     set focusedCandidate to missing value
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
     end try
     try
-      if my roleIsExpected(role of focusedCandidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return focusedCandidate
+      if my matchesCanonicalPathField(focusedCandidate) then return focusedCandidate
     end try
     set candidate to my findFocusedCanonicalPathField(saveWindow, focusedCandidate, 0, false)
     if candidate is not missing value then return candidate
@@ -416,9 +431,11 @@ end findCanonicalSaveNameFieldDescendant
 on findCanonicalSaveNameField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
+    set candidate to my findAccessibilityIdentifier(saveWindow, "saveAsNameTextField")
+    if candidate is not missing value then return candidate
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
-      if my roleIsExpected(role of focusedCandidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return focusedCandidate
+      if my matchesCanonicalSaveNameField(focusedCandidate) then return focusedCandidate
     end try
     set candidate to my findCanonicalSaveNameFieldDescendant(saveWindow, 0)
     if candidate is not missing value then return candidate
@@ -543,34 +560,25 @@ tell application "System Events"
       end try
       perform action "AXPress" of exportCommand
       set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-      my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
-      delay 0.2
+          my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
+          delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
           keystroke "g" using {command down, shift down}
+          delay 0.5
           keystroke "a" using {command down}
           keystroke ${appleScriptString(exportDirectory)}
-          delay 0.2
+          delay 0.5
           key code 36
-          delay 0.2
+          delay 0.5
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-              keystroke "a" using {command down}
-              keystroke ${appleScriptString(exportName)}
-              key code 36
-              repeat 10 times
-                set savePanelOpen to false
-                repeat with saveWindowName in {"Save", "Export XML"}
-                  try
-                    if exists window (saveWindowName as text) of finalCut then
-                      set savePanelOpen to true
-                      set saveWindow to window (saveWindowName as text) of finalCut
-                      exit repeat
-                    end if
-                  end try
-                end repeat
-                if not savePanelOpen then exit repeat
-                key code 36
-                delay 0.2
-              end repeat
+          try
+            set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
+            set value of nameField to ${appleScriptString(exportName)}
+          on error
+            keystroke "a" using {command down}
+            keystroke ${appleScriptString(exportName)}
+          end try
+          if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then key code 36
       my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber

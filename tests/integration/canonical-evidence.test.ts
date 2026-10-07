@@ -11,7 +11,7 @@ test("canonical export resolves the Final Cut save field by stable accessibility
   assert.match(script, /id of candidate/);
   assert.match(script, /PathTextField/);
   assert.match(script, /saveAsNameTextField/);
-  assert.match(script, /focusedCandidate.*roleIsExpected/s);
+  assert.match(script, /focusedCandidate.*matchesCanonicalPathField/s);
 });
 
 test("canonical headed runner publishes the sanitized evidence contract", async () => {
