@@ -13,9 +13,13 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const execFile = promisify(execFileCallback);
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
 const clipId = process.env.FRAMEKIT_FINAL_CUT_E2E_CLIP_ID;
+const requestTimeoutMs = Number(process.env.FRAMEKIT_FINAL_CUT_E2E_REQUEST_TIMEOUT_MS ?? "300000");
 
 if (!expectedProject || !clipId) {
   throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_PROJECT and FRAMEKIT_FINAL_CUT_E2E_CLIP_ID before running the disposable native headed E2E");
+}
+if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 60_000) {
+  throw new Error("FRAMEKIT_FINAL_CUT_E2E_REQUEST_TIMEOUT_MS must be an integer of at least 60000 milliseconds");
 }
 
 const transport = new StdioClientTransport({
@@ -116,7 +120,10 @@ try {
 }
 
 async function callJson(name, arguments_ = {}) {
-  const result = await client.callTool({ name, arguments: arguments_ });
+  const result = await client.callTool({ name, arguments: arguments_ }, undefined, {
+    timeout: requestTimeoutMs,
+    maxTotalTimeout: requestTimeoutMs,
+  });
   const text = result.content?.find((item) => item.type === "text")?.text ?? "";
   if (result.isError) throw new Error(text || `${name} failed`);
   try {
