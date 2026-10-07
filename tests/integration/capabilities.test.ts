@@ -665,13 +665,28 @@ test("canonical native provider declares unavailable project selection mode", as
 });
 
 test("Workflow Extension avoids unsupported project catalog proxy properties", async () => {
-  const swift = await readFile(join(
+  const [swift, shim] = await Promise.all([
+    readFile(join(
     process.cwd(),
     "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift",
-  ), "utf8");
+    ), "utf8"),
+    readFile(join(
+      process.cwd(),
+      "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/ProExtensionHostShim/ProExtensionHost.h",
+    ), "utf8"),
+  ]);
 
   assert.doesNotMatch(swift, /library\.events.*flatMap/);
   assert.doesNotMatch(swift, /stableSequenceID\(.*\.uid\)/);
+  assert.doesNotMatch(swift, /\$0\.uid/);
+  assert.doesNotMatch(shim, /NSString \*uid/);
+  assert.match(shim, /NSString \*UID/);
+  assert.match(swift, /NSSelectorFromString\("UID"\)/);
+  assert.match(swift, /let sequenceUID = stableUID\(sequence\)/);
+  assert.match(swift, /if let sequenceUID/);
+  assert.match(swift, /sequenceID = sequenceUID/);
+  assert.match(swift, /return LiveState\.Project\(id: uidValue,/);
+  assert.match(swift, /final-cut:project:unavailable/);
 });
 
 test("CodeQL shim exposes only documented project proxy properties", async () => {
@@ -681,9 +696,10 @@ test("CodeQL shim exposes only documented project proxy properties", async () =>
   ), "utf8");
 
   assert.doesNotMatch(shim, /class FCPXObject[^{]*\{[^}]*var uid:/);
+  assert.match(shim, /class FCPXObject[^{]*\{[^}]*var UID:/);
   assert.doesNotMatch(shim, /class FCPXEvent/);
   assert.doesNotMatch(shim, /class FCPXLibrary/);
-  assert.match(shim, /class FCPXProject[^{]*\{[^}]*var uid: String!/);
+  assert.doesNotMatch(shim, /class FCPXProject[^{]*\{[^}]*var uid:/);
 });
 
 test("Workflow Extension rejects unsupported project catalog methods", async () => {

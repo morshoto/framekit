@@ -17,6 +17,8 @@ test("publisher headed E2E is a separate FCPXML workflow", async () => {
   assert.equal(typeof packageJson.scripts?.["test:final-cut-publisher-headed"], "string");
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH/);
   assert.match(publisherRunner, /FRAMEKIT_FCPXML_PATH/);
+  assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_LIBRARY_UID/);
+  assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_LIBRARY_UID/);
   assert.match(publisherRunner, /artifact\.inspect/);
   assert.match(publisherRunner, /artifact\.publish/);
   assert.match(publisherRunner, /editor\.live\.inspect/);

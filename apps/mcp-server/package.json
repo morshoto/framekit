@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@framekit/final-cut": "workspace:*",
+    "@framekit/headless-renderer": "workspace:*",
     "@framekit/runtime": "workspace:*",
     "@framekit/testkit": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",

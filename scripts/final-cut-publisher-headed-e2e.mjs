@@ -9,6 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT;
 const expectedSequence = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE;
+const libraryUid = process.env.FRAMEKIT_FINAL_CUT_E2E_LIBRARY_UID;
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -17,6 +18,7 @@ if (process.argv.includes("--help")) {
     "Required:",
     "  FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH=/absolute/path/to/disposable.fcpxml",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT=exact-imported-project-name",
+    "  FRAMEKIT_FINAL_CUT_E2E_LIBRARY_UID=target-library-uid",
     "Optional:",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE=exact-imported-sequence-name",
     "",
@@ -26,8 +28,8 @@ if (process.argv.includes("--help")) {
   process.exit(0);
 }
 
-if (!artifactPath || !expectedProject) {
-  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH and FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT before running the publisher headed E2E");
+if (!artifactPath || !expectedProject || !libraryUid) {
+  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH, FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT, and FRAMEKIT_FINAL_CUT_E2E_LIBRARY_UID before running the publisher headed E2E");
 }
 
 const transport = new StdioClientTransport({
@@ -38,6 +40,7 @@ const transport = new StdioClientTransport({
     FRAMEKIT_EDITOR: "final-cut-live",
     FRAMEKIT_AUTO_CONNECT: "0",
     FRAMEKIT_FCPXML_PATH: artifactPath,
+    FRAMEKIT_FINAL_CUT_LIBRARY_UID: libraryUid,
     FRAMEKIT_FINAL_CUT_HEADLESS: "0",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
   },

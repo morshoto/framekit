@@ -29,6 +29,8 @@ import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, F
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
+import { HeadlessProjectService } from "./headless-projects.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "@framekit/headless-renderer";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
@@ -147,7 +149,17 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           return { undone: result.undone, verification: result.verification };
         },
       },
-      readSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
+      readSnapshot: async () => {
+        const live = await liveAdapter!.readLiveState();
+        const projectId = live.project?.id;
+        const sequenceId = live.sequence?.id;
+        if (!projectId || projectId.startsWith("final-cut:") || !sequenceId || sequenceId.startsWith("final-cut:")) {
+          throw new Error("TARGET_UNAVAILABLE: stable live project and sequence identities are required for canonical export");
+        }
+        return new FinalCutCanonicalSnapshotSource({
+          target: { projectId, projectUid: projectId, sequenceId },
+        }).readSnapshot();
+      },
       resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
       backgroundCatalog: backgroundLibraryProvider,
     })
@@ -198,6 +210,12 @@ const analyzers = liveMode
 
 const runtime = new AgentVideoRuntime(editor, analyzers);
 const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
+const headlessProjects = new HeadlessProjectService({
+  directory: join(framekitStateDirectory, "projects"),
+  mediaProbe: new FfmpegMediaMetadataProbe(),
+  renderer: new FfmpegTimelineRenderer(),
+  verifier: new FfmpegRenderVerifier(),
+});
 const sqliteObservationProvider = new FinalCutSqliteInspectionProvider();
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
@@ -213,6 +231,9 @@ const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
+      documentDelivery: liveAdapter!,
+      targetLibraryUid: process.env.FRAMEKIT_FINAL_CUT_LIBRARY_UID,
+      allowHeadedFallback: process.env.FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT === "1",
       liveState: () => liveAdapter!.readLiveState(),
     })
   : undefined;
@@ -246,6 +267,7 @@ const server = createMcpServer(runtime, {
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   sqliteObservationProvider,
+  headlessProjects,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;
