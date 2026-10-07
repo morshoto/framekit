@@ -22,6 +22,8 @@ export interface FinalCutBackgroundMaterializationRequest {
   collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
+  baseDigest: string;
+  baseRevision: TimelineIr["revision"];
   coverage: TimelineIrMaterializationCoverage;
   provenance: TimelineIrMaterializationProvenance;
 }
@@ -92,6 +94,7 @@ function validateRequest(request: FinalCutBackgroundMaterializationRequest): voi
     throw new Error("MATERIALIZATION_REQUEST_INVALID: immutable artifact path and digest are required");
   }
   if (!request.desiredDigest.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: desired digest is required");
+  if (!request.baseDigest.trim() || !request.baseRevision?.id?.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: canonical base provenance is required");
   if (request.collisionPolicy !== "create-only") throw new Error("MATERIALIZATION_REQUEST_INVALID: publication must be create-only");
   const { target } = request;
   if (target.provider !== "final-cut" || !target.libraryUid.trim() || !target.eventUid.trim() || !target.projectUid.trim() || !target.sequenceUid.trim()) {

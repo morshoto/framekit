@@ -45,18 +45,22 @@ and `sequenceUid` target, then stages a new versioned destination. Existing
 projects are never selected for reuse by this MCP surface.
 
 Job evidence is deliberately layered in this order: artifact,
-provider-requested, canonical-readback, headed-native. Artifact verification or
-a provider request does not imply Final Cut completion. A job is completed only
-after canonical readback matches the desired Timeline IR. Headed-native remains
-false unless the configured provider separately supplies that proof.
+provider-requested, canonical-readback, headed-native. The persisted
+`verification` result reports the achieved tier and status explicitly. Artifact
+verification or a provider request does not imply Final Cut completion. A job
+is completed only after canonical readback matches the desired Timeline IR and
+the exact created target. Headed-native remains false unless the configured
+provider separately supplies that proof.
 
 Without a publication provider, execution checkpoints a retryable blocked job.
 After a server restart, `session.materialize.status` reports the same job and
 `session.materialize.retry` verifies the staged digest before requesting the
 provider again. A retry first claims the job with an atomic claim file and
 persists `publishing`; concurrent retries return that in-progress state and do
-not call the provider a second time. The staged session digest is also checked
-before publication. A changed session fails closed and must be reconciled.
+not call the provider a second time. The staged session digest, canonical base
+digest/revision, and provider change source are checked before publication. A
+changed or unobservable base fails closed; it is never treated as an
+artifact-only success.
 
 ## Background Final Cut publication
 
@@ -65,8 +69,9 @@ Production MCP wiring exposes a background publisher only when
 `FRAMEKIT_EDITOR=final-cut-live`. The command is an explicit non-UI capability:
 Framekit sends one JSON request on stdin and expects one JSON result on stdout.
 The request contains the digest-verified artifact, the explicit target, the
-versioned destination, `collisionPolicy: "create-only"`, and the desired
-Timeline IR snapshot. The command must not activate or focus Final Cut, write
+versioned destination, `collisionPolicy: "create-only"`, the desired Timeline
+IR snapshot, and the canonical base digest/revision used for the pre-publication
+guard. The command must not activate or focus Final Cut, write
 SQLite or `.fcpbundle` internals, or replace an existing project.
 
 A completed command result must contain `canonicalReadback`, the exact created
