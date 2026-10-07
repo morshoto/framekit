@@ -827,6 +827,9 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   assert.ok(activationIndex >= 0);
   assert.ok(frontmostGuardIndex > activationIndex);
   assert.match(script, /perform action "AXRaise" of window "Final Cut Pro" of finalCut/);
+  assert.match(script, /on findTimelineArea\(container, depth\)/);
+  assert.match(script, /set timelineArea to my findTimelineArea\(frontWindow, 0\)/);
+  assert.match(script, /perform action "AXPress" of timelineArea/);
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
 });
 
@@ -853,14 +856,18 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /id of candidate/);
   assert.match(script, /PathTextField/);
   assert.match(script, /saveAsNameTextField/);
-  assert.match(script, /set value of text field 2 of saveRoot to "framekit-canonical\.fcpxml"/);
+  assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
   assert.match(script, /on findAccessibilityIdentifier\(container, expectedIdentifier, depth\)/);
   assert.match(script, /if depth > 12 then return missing value/);
+  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.doesNotMatch(script, /repeat 10 times[\s\S]*pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.doesNotMatch(script, /pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
   assert.match(script, /set saveRoot to first UI element of saveWindow/);
-  assert.match(script, /set value of text field 2 of saveRoot/);
+  assert.match(script, /set value of nameField/);
+  assert.match(script, /set nameField to text field 2 of saveRoot/);
   assert.match(script, /perform action "AXPress" of button 3 of saveRoot/);
-  assert.match(script, /perform action "AXPress" of button 2 of sheet 1 of saveWindow/);
+  assert.doesNotMatch(script, /perform action "AXPress" of button 2 of sheet 1 of saveWindow/);
   assert.doesNotMatch(script, /entire contents of saveContainer/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
@@ -922,10 +929,11 @@ test("canonical export retries a cleaned-up recovery result", async () => {
           cleanup: "complete",
         });
       }
-      const fieldMatch = script.match(/keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"[\s\S]*?keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"/);
-      assert.ok(fieldMatch?.[1]);
-      assert.ok(fieldMatch?.[2]);
-      await writeFile(join(fieldMatch[1], fieldMatch[2]), completeDocument);
+      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
+      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
+      assert.ok(directoryMatch?.[1]);
+      assert.ok(nameMatch?.[1]);
+      await writeFile(join(directoryMatch[1], nameMatch[1]), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
     },
   });
@@ -945,8 +953,11 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /my canonicalExportResponse\("retryable"/);
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
-  assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /set value of text field 2 of saveRoot[\s\S]*?perform action "AXPress" of button 3 of saveRoot/);
+  assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 1);
+  assert.match(script, /set value of nameField/);
+  assert.match(script, /set nameField to text field 2 of saveRoot/);
+  assert.match(script, /perform action "AXPress" of button 3 of saveRoot/);
+  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 

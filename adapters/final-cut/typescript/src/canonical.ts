@@ -43,6 +43,7 @@ import { verifyCanonicalReadback } from "./canonical-verification.js";
 import { FcpxmlDocumentAdapter, type FcpxmlTargetBinding } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
+const CANONICAL_APPLE_EVENT_TIMEOUT_MS = 30_000;
 
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
@@ -323,6 +324,23 @@ on findAccessibilityDescendant(container, expectedRoles, depth)
   return missing value
 end findAccessibilityDescendant
 
+on findTimelineArea(container, depth)
+  if depth > 12 then return missing value
+  try
+    if (role of container as text) is "AXLayoutArea" then
+      if my accessibilityMatchesExpectedName(container, {"Project Timeline", "Timeline"}) then return container
+    end if
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findTimelineArea(candidate, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findTimelineArea
+
 on accessibilityContainsPathMarker(candidate)
   repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
     try
@@ -577,6 +595,19 @@ tell application "System Events"
           delay 0.2
         end if
       end try
+      set frontWindow to window "Final Cut Pro" of finalCut
+      set timelineArea to my findTimelineArea(frontWindow, 0)
+      if timelineArea is missing value then error "FINAL_CUT_CANONICAL_TIMELINE_UNAVAILABLE: Project Timeline was not exposed"
+      try
+        perform action "AXPress" of timelineArea
+      on error
+        try
+          click timelineArea
+        on error
+          error "FINAL_CUT_CANONICAL_TIMELINE_UNAVAILABLE: Project Timeline could not be focused"
+        end try
+      end try
+      delay 0.2
       set fileMenu to menu "File" of menu bar 1
       set exportCommand to missing value
       try
@@ -599,34 +630,32 @@ tell application "System Events"
       end try
       perform action "AXPress" of exportCommand
       set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-          my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
-          delay 0.2
-          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-${chooseExportDirectory}          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-          set saveRoot to missing value
-          try
-            set saveRoot to first UI element of saveWindow
-          end try
-          if saveRoot is not missing value then
-            try
-              set value of text field 2 of saveRoot to ${appleScriptString(exportName)}
-            on error
-              keystroke "a" using {command down}
-              keystroke ${appleScriptString(exportName)}
-            end try
-          else
-            keystroke "a" using {command down}
-            keystroke ${appleScriptString(exportName)}
-          end if
+      set saveWindow to exportWindow
+      set saveRoot to first UI element of saveWindow
+      set nameField to missing value
+      try
+        set nameField to text field 2 of saveRoot
+      end try
+      if nameField is missing value then
+        if not my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"}) then error "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML next control was not exposed"
+        delay 0.2
+        set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+${chooseExportDirectory}        set saveRoot to first UI element of saveWindow
+        try
+          set nameField to text field 2 of saveRoot
+        on error
+          error "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field was not exposed as text field 2"
+        end try
+      else
+${chooseExportDirectory}      end if
+      set value of nameField to ${appleScriptString(exportName)}
+          set savePressed to false
           try
             perform action "AXPress" of button 3 of saveRoot
-          on error
-            key code 36
+            set savePressed to true
           end try
+          if not savePressed and not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
           delay 0.2
-          try
-            perform action "AXPress" of button 2 of sheet 1 of saveWindow
-          end try
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
       set cleanupComplete to my cleanupCanonicalExport(finalCut)
@@ -1678,10 +1707,16 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
 
 async function executeCanonicalAppleScript(script: string): Promise<string> {
   try {
-    const result = await execFile("osascript", ["-e", script], { maxBuffer: 1_000_000 });
+    const result = await execFile("osascript", ["-e", script], {
+      maxBuffer: 1_000_000,
+      timeout: CANONICAL_APPLE_EVENT_TIMEOUT_MS,
+    });
     return result.stdout.trim();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+    if (detail.includes("ETIMEDOUT") || detail.includes("timed out")) {
+      throw new Error(`FINAL_CUT_CANONICAL_AUTOMATION_TIMEOUT: Export XML AppleEvent exceeded ${CANONICAL_APPLE_EVENT_TIMEOUT_MS}ms`);
+    }
     if (detail.includes("not authorized") || detail.includes("-1743") || detail.includes("-25211")) {
       throw new Error(`FINAL_CUT_CANONICAL_PERMISSION_REQUIRED: ${detail}`);
     }

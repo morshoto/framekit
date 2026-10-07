@@ -14,6 +14,7 @@ export function sanitizeCanonicalEvidence(run: unknown, environment: EvidenceEnv
 
 export function sanitizeDisposableNativeEvidence(run: unknown, environment: EvidenceEnvironment): {
   evidenceType: string;
+  capabilities: { editor: Record<string, unknown>; analyzers: Record<string, unknown> };
   mutation: { operation: string; status: string };
   restoration: { restored: boolean };
   toolResults: unknown[];

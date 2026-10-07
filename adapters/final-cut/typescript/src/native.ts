@@ -682,6 +682,7 @@ interface NativeOperationRecord {
 export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
   executor?: NativeFinalCutExecutor;
+  nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   liveState?: () => Promise<EditorLiveState>;
   nativeOperationLease?: NativeOperationLease;
   suspendLiveConnection?: () => void;
@@ -706,6 +707,8 @@ export type NativeFinalCutExecutor = (
   script: string,
   options?: NativeFinalCutExecutorOptions,
 ) => Promise<string>;
+
+export type NativeFinalCutMouseExecutor = (source: string) => Promise<void>;
 
 export interface NativeFinalCutEditor {
   capabilities(): NativeFinalCutCapabilities;
@@ -759,6 +762,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
   private titleDiscoveryAvailable: boolean;
   private readonly executor: NativeFinalCutExecutor;
+  private readonly nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly nativeOperationLease?: NativeOperationLease;
@@ -848,6 +852,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
     this.titleDiscoveryAvailable = this.enabled;
     this.executor = options.executor ?? runAppleScript;
+    this.nativeMouseExecutor = options.nativeMouseExecutor;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
     this.nativeOperationLease = options.nativeOperationLease;
@@ -1049,7 +1054,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const command = commandName(operation);
     const requiresPlayhead = operation.type === "trim-selected-clip-to-playhead" || operation.type === "add-marker-at-playhead";
     try {
-      await this.executeNativeCommand(editScript(operation), (recovered) => this.assertRetryContext(before, recovered, requiresPlayhead));
+      if (operation.type === "rename-selected-clip" && (this.canDriveNativeMouse || this.nativeMouseExecutor)) {
+        await this.executeNativeMouseScript(nativeRenameSource(operation.name));
+      } else {
+        await this.executeNativeCommand(editScript(operation), (recovered) => this.assertRetryContext(before, recovered, requiresPlayhead));
+      }
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -2953,7 +2962,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async prepareNativeRetry(): Promise<NativeFinalCutContext> {
-    return this.attachLiveState(await this.ensureTimelineReady());
+    await this.ensureTimelineReady();
+    const recovered = await this.inspectRawNative();
+    if (!recovered.available) {
+      throw new Error(`${recovered.error?.code ?? "FINAL_CUT_NATIVE_UNAVAILABLE"}: ${recovered.error?.message ?? "native retry context unavailable"}`);
+    }
+    return recovered;
   }
 
   private assertRetryContext(expected: NativeFinalCutContext, recovered: NativeFinalCutContext, requirePlayhead = false): void {
@@ -3343,6 +3357,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private async executeNativeMouseScript(source: string): Promise<void> {
+    if (this.nativeMouseExecutor) {
+      await this.nativeMouseExecutor(source);
+      return;
+    }
     const requestSignal = this.requestContext.getStore()?.signal;
     const effectiveDeadline = this.now() + this.nativePreflightTimeoutMs;
     if (requestSignal?.aborted) throw new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled");
@@ -3498,7 +3516,25 @@ function verifyNativeUndo(
   after: NativeFinalCutContext,
   afterLive?: EditorLiveState,
 ): NativeFinalCutUndoResult["verification"] {
-  if (operation.afterLive && (!afterLive || afterLive.revision.id === operation.afterLive.revision.id)) {
+  const liveRevisionAdvanced = Boolean(
+    operation.afterLive
+      && afterLive
+      && afterLive.revision.id !== operation.afterLive.revision.id,
+  );
+  const selectedTargetRestored = operation.kind === "selection"
+    && operation.before.target.kind === "selected-clip"
+    && after.target.kind === "selected-clip"
+    && operation.before.target.name === after.target.name;
+  // Final Cut can undo clip metadata without advancing the workflow-extension
+  // live revision, and its Undo action can clear the timeline selection. In
+  // that case the consumed Undo command is the native UI proof; disposable
+  // workflows still require canonical read-after-Undo digest equality.
+  const nativeUndoConsumed = operation.kind === "selection"
+    && operation.undoCommand !== undefined
+    && after.undoCommand !== operation.undoCommand
+    && (after.target.kind !== "selected-clip" || selectedTargetRestored);
+  const selectionClearedAfterConsumedUndo = nativeUndoConsumed && after.target.kind !== "selected-clip";
+  if (operation.afterLive && !liveRevisionAdvanced && !selectedTargetRestored && !nativeUndoConsumed) {
     return { verified: false, detail: "Final Cut did not expose a new revision after Undo" };
   }
   if (operation.beforeDuration) {
@@ -3506,10 +3542,10 @@ function verifyNativeUndo(
     const detail = durationVerificationDetail(duration, operation.beforeDuration);
     if (!detail.verified) return detail;
   }
-  if (operation.before.target.identity && after.target.identity !== operation.before.target.identity) {
+  if (operation.before.target.identity && after.target.identity !== operation.before.target.identity && !selectionClearedAfterConsumedUndo) {
     return { verified: false, detail: "native target identity changed during Undo" };
   }
-  if (operation.kind === "selection" && operation.before.target.name !== after.target.name) {
+  if (operation.kind === "selection" && operation.before.target.name !== after.target.name && !selectionClearedAfterConsumedUndo) {
     return {
       verified: false,
       detail: `expected selected target ${operation.before.target.name ?? "<unnamed>"}, observed ${after.target.name ?? "<unnamed>"}`,
@@ -4588,6 +4624,52 @@ function inspectScript(): string {
       end repeat
       return ""
     end selectedTimelineOccurrenceIndex
+
+    on findInspectorName(containerItem, depth)
+      if depth > 10 then return ""
+      try
+        if (role of containerItem as text) is "AXScrollArea" then
+          if (description of containerItem as text) is "metadata inspector" then
+            repeat with childRef in UI elements of containerItem
+              set child to contents of childRef
+              try
+                if (role of child as text) is "AXTextField" and (description of child as text) is "name" then
+                  return value of child as text
+                end if
+              on error
+                -- Ignore inaccessible inspector fields.
+              end try
+            end repeat
+            return ""
+          end if
+        end if
+      on error
+        -- Ignore inaccessible inspector containers.
+      end try
+      try
+        repeat with candidateRef in UI elements of containerItem
+          set candidate to contents of candidateRef
+          set candidateRole to ""
+          set candidateDescription to ""
+          try
+            set candidateRole to role of candidate as text
+            set candidateDescription to description of candidate as text
+          on error
+            -- Ignore inaccessible nodes and continue the bounded search.
+          end try
+          if candidateRole is "AXScrollArea" and candidateDescription is "metadata inspector" then
+            set foundName to my findInspectorName(candidate, depth + 1)
+            if foundName is not "" then return foundName
+          else if candidateRole is "AXGroup" or candidateRole is "AXSplitGroup" or candidateRole is "AXWindow" then
+            set foundName to my findInspectorName(candidate, depth + 1)
+            if foundName is not "" then return foundName
+          end if
+        end repeat
+      on error
+        -- Ignore inaccessible containers and continue the bounded search.
+      end try
+      return ""
+    end findInspectorName
   end using terms from
 
   tell application "System Events"
@@ -4619,6 +4701,8 @@ function inspectScript(): string {
       set selectedIdentity to item 3 of selectedFields
       set selectedCount to 1
     end if
+    set inspectorName to my findInspectorName(frontWindow, 0)
+    if inspectorName is not "" and selectedCount is 1 then set selectedName to inspectorName
     if not selectionLookupAvailable then set selectedCount to -1
     set undoEnabled to false
     set undoCommand to ""
@@ -5683,6 +5767,96 @@ for _ in 0..<30 { pressKey(124) }
 `;
 }
 
+function nativeRenameSource(name: string): string {
+  const units = Array.from({ length: name.length }, (_, index) => name.charCodeAt(index)).join(", ");
+  return `
+import AppKit
+import ApplicationServices
+import CoreGraphics
+import Foundation
+
+let finalCutPid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.FinalCut").first!.processIdentifier
+let application = AXUIElementCreateApplication(finalCutPid)
+
+func attribute(_ element: AXUIElement, _ key: String) -> Any? {
+  var value: CFTypeRef?
+  let result = AXUIElementCopyAttributeValue(element, key as CFString, &value)
+  return result == .success ? value : nil
+}
+
+func text(_ element: AXUIElement, _ key: String) -> String {
+  String(describing: attribute(element, key) ?? "")
+}
+
+func isSelected(_ element: AXUIElement) -> Bool {
+  let value = text(element, "AXSelected")
+  return value == "1" || value == "true"
+}
+
+func findSelectedTimelineItem(_ element: AXUIElement) -> AXUIElement? {
+  if text(element, "AXRole") == "AXLayoutItem" && isSelected(element) { return element }
+  if let children = attribute(element, "AXChildren") as? [AXUIElement] {
+    for child in children {
+      if let result = findSelectedTimelineItem(child) { return result }
+    }
+  }
+  return nil
+}
+
+func findRenameMenuItem(_ element: AXUIElement) -> AXUIElement? {
+  if text(element, "AXRole") == "AXMenuItem" && text(element, "AXTitle") == "Rename Clip" { return element }
+  if let children = attribute(element, "AXChildren") as? [AXUIElement] {
+    for child in children {
+      if let result = findRenameMenuItem(child) { return result }
+    }
+  }
+  return nil
+}
+
+guard let selectedItem = findSelectedTimelineItem(application) else {
+  fatalError("FINAL_CUT_NATIVE_SELECTION_REQUIRED: selected timeline item was not exposed")
+}
+_ = AXUIElementPerformAction(selectedItem, kAXShowMenuAction as CFString)
+var renameMenuItem: AXUIElement?
+for _ in 0..<20 {
+  if let item = findRenameMenuItem(application) {
+    renameMenuItem = item
+    break
+  }
+  usleep(50_000)
+}
+guard let renameMenuItem else {
+  fatalError("FINAL_CUT_NATIVE_RENAME_MENU_UNAVAILABLE: Final Cut did not expose Rename Clip")
+}
+guard AXUIElementPerformAction(renameMenuItem, kAXPressAction as CFString) == .success else {
+  fatalError("FINAL_CUT_NATIVE_RENAME_MENU_FAILED: Final Cut did not activate Rename Clip")
+}
+usleep(250_000)
+
+let units: [UniChar] = [${units}]
+if !units.isEmpty {
+  let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)!
+  units.withUnsafeBufferPointer { buffer in
+    keyDown.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+  }
+  keyDown.post(tap: .cghidEventTap)
+  usleep(100_000)
+  let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)!
+  units.withUnsafeBufferPointer { buffer in
+    keyUp.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+  }
+  keyUp.post(tap: .cghidEventTap)
+}
+usleep(150_000)
+let returnDown = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true)!
+returnDown.post(tap: .cghidEventTap)
+usleep(50_000)
+let returnUp = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false)!
+returnUp.post(tap: .cghidEventTap)
+usleep(300_000)
+`;
+}
+
 function bladeScript(): string {
   return `
 tell application "System Events"
@@ -6603,13 +6777,16 @@ end tell`;
 
 function editScript(operation: NativeFinalCutEdit): string {
   const action = operation.type === "rename-selected-clip"
-    ? `click menu item "Apply Custom Name" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(operation.name)}\n    key code 36`
+    ? `-- Apply Custom Name through the selected timeline clip's Info Inspector Name field\n    set frontWindow to window "Final Cut Pro"\n    set inspectorToggle to missing value\n    try\n      set inspectorToggle to first checkbox of toolbar 1 of frontWindow whose description is "Show or hide the Inspector"\n      if (value of inspectorToggle as text) is "0" then\n        perform action "AXPress" of inspectorToggle\n        delay 0.3\n      end if\n    on error\n      -- The Inspector may already be visible without exposing its toolbar toggle.\n    end try\n    set nameField to my findInspectorNameField(frontWindow, 0)\n    if nameField is missing value then error "FINAL_CUT_NATIVE_SELECTION_REQUIRED: Final Cut Inspector Name field was not exposed"\n    set value of attribute "AXValue" of nameField to ${appleScriptString(operation.name)}\n    key code 36`
     : operation.type === "trim-selected-clip-to-playhead"
       ? `click menu item "Trim ${operation.edge === "start" ? "Start" : "End"}" of menu "Trim" of menu bar 1`
       : operation.type === "set-selected-clip-gain"
         ? `click menu item "Adjust Volume" of menu "Modify" of menu bar 1\n    delay 0.2\n    set value of first text field of front window to ${appleScriptString(`${operation.gainDb}`)}\n    key code 36`
         : `click menu item "Add Marker" of menu 1 of menu item "Markers" of menu "Mark" of menu bar 1`;
-  return `
+  const helper = operation.type === "rename-selected-clip"
+    ? `using terms from application "System Events"\n  on findInspectorNameField(containerItem, depth)\n    if depth > 10 then return missing value\n    try\n      if (role of containerItem as text) is "AXScrollArea" then\n        if (description of containerItem as text) is "metadata inspector" then\n          repeat with childRef in UI elements of containerItem\n            set child to contents of childRef\n            try\n              if (role of child as text) is "AXTextField" and (description of child as text) is "name" then\n                return child\n              end if\n            on error\n              -- Ignore inaccessible inspector fields.\n            end try\n          end repeat\n          return missing value\n        end if\n      end if\n    on error\n      -- Ignore inaccessible inspector containers.\n    end try\n    try\n      repeat with candidateRef in UI elements of containerItem\n        set candidate to contents of candidateRef\n        set candidateRole to ""\n        set candidateDescription to ""\n        try\n          set candidateRole to role of candidate as text\n          set candidateDescription to description of candidate as text\n        on error\n          -- Ignore inaccessible nodes and continue the bounded search.\n        end try\n        if candidateRole is "AXScrollArea" and candidateDescription is "metadata inspector" then\n          set foundItem to my findInspectorNameField(candidate, depth + 1)\n          if foundItem is not missing value then return foundItem\n        else if candidateRole is "AXGroup" or candidateRole is "AXSplitGroup" or candidateRole is "AXWindow" then\n          set foundItem to my findInspectorNameField(candidate, depth + 1)\n          if foundItem is not missing value then return foundItem\n        end if\n      end repeat\n    on error\n      -- Ignore inaccessible containers and continue the bounded search.\n    end try\n    return missing value\n  end findInspectorNameField\nend using terms from\n`
+    : "";
+  return `${helper}
 tell application "System Events"
   tell process "Final Cut Pro"
     ${requireFrontmostAppleScript()}

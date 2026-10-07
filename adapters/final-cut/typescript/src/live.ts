@@ -97,6 +97,14 @@ export interface FinalCutLiveInspection {
   capabilities: RuntimeCapabilities;
 }
 
+const READ_ONLY_LIVE_METHODS = new Set<FinalCutLiveMethod>([
+  "capabilities",
+  "state",
+  "changes",
+  "projects",
+  "snapshot",
+]);
+
 /** Newline-delimited JSON transport for the local Workflow Extension socket. */
 export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
   public constructor(
@@ -104,7 +112,22 @@ export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
     private readonly timeoutMs = 2_000,
   ) {}
 
-  public request(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> {
+  public async request(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> {
+    const attempts = READ_ONLY_LIVE_METHODS.has(request.method) ? 3 : 1;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        return await this.requestOnce(request);
+      } catch (error) {
+        lastError = error;
+        if (attempt === attempts - 1) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  private requestOnce(request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let buffer = "";
