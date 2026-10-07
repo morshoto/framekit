@@ -15,7 +15,10 @@ used as target identity. The current output version is FCPXML `1.11`.
 Compilation is deterministic: resources are ordered by logical ID, generated
 resource IDs are stable, duplicate resource names receive deterministic
 suffixes, and the returned artifact includes a SHA-256 digest plus the logical
-resource-to-FCPXML ID map.
+resource-to-FCPXML ID map. The result also reports exact/degraded/unsupported
+coverage and a target-bound provenance record containing the canonical revision
+and Timeline IR digest. Versioned project and sequence names include the
+revision identity; the stable destination UIDs include the content digest.
 
 Timeline and source coordinates remain exact rational values. The compiler
 normalizes equivalent fractions only when writing FCPXML, never through a
@@ -40,5 +43,6 @@ background evidence.
 ## Verification
 
 The integration contract checks byte-for-byte determinism, XML escaping, exact
-rational timing, explicit target identity, fail-closed unsupported input, and
-read-back through `FcpxmlDocumentAdapter`.
+rational timing, explicit target identity, fail-closed unsupported input,
+provenance/coverage propagation through the materialization job, and read-back
+through `FcpxmlDocumentAdapter`.

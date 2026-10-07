@@ -570,16 +570,17 @@ stale or conflicted.
 freshness. Its digest is explicitly non-canonical and can invalidate a session,
 but it cannot make the session ready or authorize a write.
 
-Use `session.materialize.preview` to inspect the versioned destination and
-artifact digest without staging files. Its `target` requires explicit
+Use `session.materialize.preview` to inspect the versioned destination, artifact
+digest, materialization coverage, and target-bound provenance without staging
+files. Its `target` requires explicit
 `libraryUid`, `eventUid`, `projectUid`, and `sequenceUid` identities; the
 materialization surface is always create-only and versioned. `session.materialize.execute`
 requires `confirm: true`, stages an immutable FCPXML artifact, and creates a
-persistent job. `session.materialize.status` reads a job after server restart,
-and `session.materialize.retry` resubmits a retryable blocker using the same
-digest-verified artifact. A provider request is not completion: canonical
-readback must match the desired Timeline IR and identify the exact created
-library/event/project/sequence target.
+persistent job carrying the same coverage and provenance. `session.materialize.status`
+reads that record after server restart, and `session.materialize.retry` resubmits
+a retryable blocker using the same digest-verified artifact. A provider request
+is not completion: canonical readback must match the desired Timeline IR and
+identify the exact created library/event/project/sequence target.
 
 When `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured in
 live mode, it receives the staged request through stdin as an explicit non-UI

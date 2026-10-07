@@ -109,6 +109,10 @@ test("previews without mutation and resumes a blocked immutable materialization 
     assert.equal(preview.mutating, false);
     assert.equal(preview.destination.mode, "versioned");
     assert.notEqual(preview.destination.projectUid, target.projectUid);
+    assert.equal(preview.coverage.exact.includes("provenance"), true);
+    assert.equal(preview.coverage.unsupported.length, 0);
+    assert.equal(preview.provenance.source, "framekit-timeline-ir");
+    assert.match(preview.provenance.revision.id, /^ir:[a-f0-9]{64}$/);
     await assert.rejects(readdir(join(directory, "materializations")), /ENOENT/);
 
     const unconfirmed = await first.client.callTool({
@@ -128,6 +132,8 @@ test("previews without mutation and resumes a blocked immutable materialization 
     assert.equal(executed.evidence.providerRequested, false);
     assert.equal(executed.evidence.canonicalReadback, false);
     assert.equal(executed.evidence.headedNative, false);
+    assert.deepEqual(executed.coverage, preview.coverage);
+    assert.deepEqual(executed.provenance, preview.provenance);
     assert.match(executed.artifactPath, /\.fcpxml$/);
 
     await first.client.close();
@@ -145,6 +151,7 @@ test("previews without mutation and resumes a blocked immutable materialization 
     }));
     assert.equal(restored.state, "blocked");
     assert.equal(restored.artifactDigest, executed.artifactDigest);
+    assert.deepEqual(restored.provenance, executed.provenance);
     const resumed = payload(await second.client.callTool({
       name: "session.materialize.retry",
       arguments: { jobId: executed.jobId },
@@ -161,10 +168,10 @@ test("previews without mutation and resumes a blocked immutable materialization 
 
 test("completes only after matching canonical provider readback", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-"));
-  const published: Array<{ artifactPath: string; projectUid: string }> = [];
+  const published: Array<{ artifactPath: string; projectUid: string; timelineDigest: string }> = [];
   const publisher: SessionMaterializationPublisher = {
     publish: async (request) => {
-      published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid });
+      published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid, timelineDigest: request.provenance.timelineDigest });
       return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
     },
   };
@@ -182,6 +189,7 @@ test("completes only after matching canonical provider readback", async () => {
     assert.equal(completed.evidence.headedNative, false);
     assert.equal(published.length, 1);
     assert.notEqual(published[0]?.projectUid, target.projectUid);
+    assert.match(published[0]?.timelineDigest ?? "", /^[a-f0-9]{64}$/);
     await connected.client.close();
     await connected.server.close();
   } finally {

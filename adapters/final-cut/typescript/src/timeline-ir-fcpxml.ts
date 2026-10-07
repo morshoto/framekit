@@ -4,7 +4,6 @@ import { pathToFileURL } from "node:url";
 import type {
   TimelineIr,
   TimelineIrOccurrence,
-  TimelineIrStoryElement,
 } from "@framekit/runtime";
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
@@ -31,6 +30,26 @@ export interface TimelineIrToFcpxmlOptions {
   version?: typeof FRAMEKIT_FCPXML_VERSION;
 }
 
+export interface TimelineIrMaterializationCoverage {
+  exact: string[];
+  degraded: string[];
+  unsupported: string[];
+}
+
+export interface TimelineIrMaterializationProvenance {
+  source: "framekit-timeline-ir";
+  schemaVersion: 1;
+  projectId: string;
+  sequenceId: string;
+  revision: TimelineIr["revision"];
+  timelineDigest: string;
+  target: FinalCutTargetIdentity;
+  destination: {
+    projectUid: string;
+    sequenceUid: string;
+  };
+}
+
 export interface TimelineIrToFcpxmlResult {
   format: "fcpxml";
   version: typeof FRAMEKIT_FCPXML_VERSION;
@@ -45,6 +64,8 @@ export interface TimelineIrToFcpxmlResult {
     sequenceName: string;
   };
   resourceIds: Record<string, string>;
+  coverage: TimelineIrMaterializationCoverage;
+  provenance: TimelineIrMaterializationProvenance;
 }
 
 interface RenderableElement {
@@ -77,6 +98,10 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);
   }
   validateTarget(options.target);
+  const unsupported = unsupportedFeatures(timeline);
+  if (unsupported.length > 0) {
+    throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
+  }
   const destination = resolveDestination(timeline, options.target);
 
   const resourceIds = createResourceIds(timeline);
@@ -124,6 +149,7 @@ export function compileTimelineIrToFcpxml(
     "",
   ];
   const xml = lines.join("\n");
+  const timelineDigest = timelineIrDigest(timeline);
   return {
     format: "fcpxml",
     version: FRAMEKIT_FCPXML_VERSION,
@@ -132,7 +158,64 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
+    coverage: materializationCoverage(timeline),
+    provenance: {
+      source: "framekit-timeline-ir",
+      schemaVersion: 1,
+      projectId: timeline.project.id,
+      sequenceId: timeline.sequence.id,
+      revision: structuredClone(timeline.revision),
+      timelineDigest,
+      target: {
+        libraryUid: options.target.libraryUid,
+        eventUid: options.target.eventUid,
+        projectUid: options.target.projectUid,
+        sequenceUid: options.target.sequenceUid,
+      },
+      destination: {
+        projectUid: destination.projectUid,
+        sequenceUid: destination.sequenceUid,
+      },
+    },
   };
+}
+
+function unsupportedFeatures(timeline: TimelineIr): string[] {
+  const unsupported = new Set<string>();
+  if (timeline.sequence.titles?.length) unsupported.add("titles");
+  if (timeline.sequence.transitions?.length) unsupported.add("transitions");
+  for (const occurrence of timeline.sequence.occurrences) {
+    if (occurrence.transform !== undefined) unsupported.add("transforms");
+    if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) unsupported.add("audio-fades");
+    if (occurrence.role === "title") unsupported.add("title-occurrences");
+  }
+  for (const element of timeline.sequence.storyElements) {
+    if (element.kind !== "gap" && (element.occurrenceId === undefined || !timeline.sequence.occurrences.some(({ id }) => id === element.occurrenceId))) {
+      unsupported.add(`story-element:${element.kind}`);
+    }
+  }
+  return [...unsupported].sort((left, right) => left.localeCompare(right));
+}
+
+function materializationCoverage(timeline: TimelineIr): TimelineIrMaterializationCoverage {
+  const exact = new Set([
+    "artifact",
+    "project",
+    "sequence",
+    "resources",
+    "source-ranges",
+    "primary-storyline-order",
+    "versioned-destination",
+    "provenance",
+  ]);
+  if (timeline.sequence.occurrences.some(({ attachedTo }) => attachedTo !== undefined)
+    || timeline.sequence.storyElements.some(({ attachedTo }) => attachedTo !== undefined)) exact.add("connected-elements");
+  if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
+  if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
+  if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
+  if (timeline.sequence.markers.length > 0) exact.add("markers");
+  if (timeline.sequence.captions.length > 0) exact.add("captions");
+  return { exact: [...exact].sort(), degraded: [], unsupported: [] };
 }
 
 function validateTarget(target: TimelineIrToFcpxmlTarget): void {
@@ -162,12 +245,13 @@ function resolveDestination(
   }
 
   const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timelineIrDigest(timeline)}`);
+  const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
   return {
     mode: "versioned",
     projectUid: `${safeId(target.projectUid)}-framekit-${revisionKey}`,
     sequenceUid: `${safeId(target.sequenceUid)}-framekit-${revisionKey}`,
-    projectName: `${timeline.project.name} (Framekit ${revisionKey})`,
-    sequenceName: `${timeline.sequence.name} (Framekit ${revisionKey})`,
+    projectName: `${timeline.project.name} (Framekit ${revisionName}-${revisionKey})`,
+    sequenceName: `${timeline.sequence.name} (Framekit ${revisionName}-${revisionKey})`,
   };
 }
 

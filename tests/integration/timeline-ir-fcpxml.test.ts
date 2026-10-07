@@ -81,12 +81,37 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.match(first.xml, /start="1001\/48000s"/);
   assert.match(first.xml, /value="Review &amp; approve"/);
   assert.match(first.xml, /text="Hello &lt;world&gt;"/);
-  assert.match(first.xml, /<project uid="project-1-framekit-[a-f0-9]{10}" name="Project \(Framekit [a-f0-9]{10}\)">/);
-  assert.match(first.xml, /<sequence uid="sequence-1-framekit-[a-f0-9]{10}" name="Main \(Framekit [a-f0-9]{10}\)"/);
+  assert.match(first.xml, /<project uid="project-1-framekit-[a-f0-9]{10}" name="Project \(Framekit revision-1-4-[a-f0-9]{10}\)">/);
+  assert.match(first.xml, /<sequence uid="sequence-1-framekit-[a-f0-9]{10}" name="Main \(Framekit revision-1-4-[a-f0-9]{10}\)"/);
   assert.equal(first.destination.mode, "versioned");
   assert.notEqual(first.destination.projectUid, target.projectUid);
   assert.deepEqual(first.target, target);
   assert.deepEqual(first.resourceIds, { "media-1": "resource-media-1" });
+  assert.deepEqual(first.coverage, {
+    exact: ["artifact", "captions", "gain", "markers", "primary-storyline-order", "project", "provenance", "resources", "roles", "sequence", "source-ranges", "versioned-destination"],
+    degraded: [],
+    unsupported: [],
+  });
+  assert.deepEqual(first.provenance, {
+    source: "framekit-timeline-ir",
+    schemaVersion: 1,
+    projectId: "project-1",
+    sequenceId: "sequence-1",
+    revision: timeline().revision,
+    timelineDigest: first.provenance.timelineDigest,
+    target: {
+      libraryUid: "library-1",
+      eventUid: "event-1",
+      projectUid: "project-1",
+      sequenceUid: "sequence-1",
+    },
+    destination: {
+      projectUid: first.destination.projectUid,
+      sequenceUid: first.destination.sequenceUid,
+    },
+  });
+  assert.match(first.provenance.timelineDigest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(first.provenance, second.provenance);
 });
 
 test("sanitizes versioned destination IDs without regex backtracking", () => {
@@ -138,7 +163,7 @@ test("requires an explicit Final Cut target and fails closed for unsupported IR"
         durationTime: { value: "1", timescale: "1" },
       }] },
     }, { target }),
-    /FCPXML_UNSUPPORTED_STORY_ELEMENT: title/,
+    /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: story-element:title/,
   );
   assert.throws(
     () => compileTimelineIrToFcpxml({
@@ -146,6 +171,41 @@ test("requires an explicit Final Cut target and fails closed for unsupported IR"
       resources: [{ ...timeline().resources[0]!, mediaKind: "unknown" }],
     }, { target }),
     /FCPXML_UNSUPPORTED_RESOURCE_KIND: unknown/,
+  );
+  assert.throws(
+    () => compileTimelineIrToFcpxml({
+      ...timeline(),
+      sequence: {
+        ...timeline().sequence,
+        occurrences: [
+          ...timeline().sequence.occurrences,
+          {
+            id: "occurrence-2",
+            name: "Closing",
+            startTime: { value: "3003", timescale: "24000" },
+            durationTime: { value: "1001", timescale: "24000" },
+            track: 0,
+            role: "video",
+            mediaId: "media-1",
+          },
+        ],
+        transitions: [{
+          id: "transition-1",
+          kind: "cross-dissolve",
+          beforeOccurrenceId: "occurrence-1",
+          afterOccurrenceId: "occurrence-2",
+          durationTime: { value: "1", timescale: "30" },
+        }],
+      },
+    }, { target }),
+    /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: transitions/,
+  );
+  assert.throws(
+    () => compileTimelineIrToFcpxml({
+      ...timeline(),
+      sequence: { ...timeline().sequence, occurrences: [{ ...timeline().sequence.occurrences[0]!, transform: { scaleX: 0.5, scaleY: 0.5 } }] },
+    }, { target }),
+    /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: transforms/,
   );
 });
 

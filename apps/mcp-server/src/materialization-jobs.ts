@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { timelineIrDigest, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
+  type TimelineIrMaterializationCoverage,
+  type TimelineIrMaterializationProvenance,
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut";
@@ -18,6 +20,8 @@ export interface SessionMaterializationPublishRequest {
   collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
+  coverage: TimelineIrMaterializationCoverage;
+  provenance: TimelineIrMaterializationProvenance;
 }
 
 export interface SessionMaterializationPublisher {
@@ -44,6 +48,8 @@ export interface SessionMaterializationJob {
   destination: TimelineIrToFcpxmlResult["destination"];
   desired: TimelineIr;
   desiredDigest: string;
+  coverage: TimelineIrMaterializationCoverage;
+  provenance: TimelineIrMaterializationProvenance;
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   evidence: {
@@ -75,6 +81,8 @@ export class SessionMaterializationJobs {
       destination: artifact.destination,
       collisionPolicy: "create-only",
       artifactDigest: artifact.digest,
+      coverage: artifact.coverage,
+      provenance: artifact.provenance,
       evidence: { artifact: { verified: true, format: "fcpxml" as const, digest: artifact.digest } },
     };
   }
@@ -106,6 +114,8 @@ export class SessionMaterializationJobs {
       destination: artifact.destination,
       desired: structuredClone(desired),
       desiredDigest: timelineIrDigest(desired),
+      coverage: artifact.coverage,
+      provenance: artifact.provenance,
       sessionDigest: digestSession(session),
       evidence: {
         artifact: { verified: true, format: "fcpxml", digest: artifact.digest },
@@ -163,6 +173,8 @@ export class SessionMaterializationJobs {
         collisionPolicy: "create-only",
         desired: structuredClone(claimed.desired),
         desiredDigest: claimed.desiredDigest,
+        coverage: structuredClone(claimed.coverage),
+        provenance: structuredClone(claimed.provenance),
       });
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
