@@ -46,6 +46,8 @@ function request(artifactPath: string, artifact: string): FinalCutBackgroundMate
     collisionPolicy: "create-only",
     desired,
     desiredDigest: timelineIrDigest(desired),
+    baseDigest: timelineIrDigest(desired),
+    baseRevision: desired.revision,
     coverage: { exact: ["artifact"], degraded: [], unsupported: [] },
     provenance: {
       source: "framekit-timeline-ir",

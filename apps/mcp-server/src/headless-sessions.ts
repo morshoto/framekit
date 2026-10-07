@@ -152,6 +152,10 @@ export class EditingSessionRepository {
     return session;
   }
 
+  public hasChangeSource(): boolean {
+    return this.changeSource !== undefined;
+  }
+
   public checkpoint(sessionId: string, session: EditingSession): Promise<StoredEditingSession> {
     return this.save(sessionId, session);
   }

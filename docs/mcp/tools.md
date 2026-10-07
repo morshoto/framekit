@@ -576,11 +576,15 @@ files. Its `target` requires explicit
 `libraryUid`, `eventUid`, `projectUid`, and `sequenceUid` identities; the
 materialization surface is always create-only and versioned. `session.materialize.execute`
 requires `confirm: true`, stages an immutable FCPXML artifact, and creates a
-persistent job carrying the same coverage and provenance. `session.materialize.status`
+persistent job carrying the same coverage, provenance, canonical base digest and
+revision, and explicit verification tier/result. `session.materialize.status`
 reads that record after server restart, and `session.materialize.retry` resubmits
 a retryable blocker using the same digest-verified artifact. A provider request
 is not completion: canonical readback must match the desired Timeline IR and
-identify the exact created library/event/project/sequence target.
+identify the exact created library/event/project/sequence target. A retry fails
+closed with an explicit unavailable/base-changed result when the canonical
+change source is absent or the staged base drifted. A canonical mismatch
+includes an ordered target-bound structural diff.
 
 Materialization job records use schema version 2. A schema-version-1 job that
 does not contain the target-bound coverage/provenance fields is migrated to an
