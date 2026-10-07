@@ -22,6 +22,7 @@ contracts separate from MCP transport and editor adapters.
 - [Provider-neutral editing session](./editing-session.md)
 - [Drift detection and reconciliation](./drift-reconciliation.md)
 - [Layered Final Cut timeline readback](./layered-timeline-readback.md)
+- [Final Cut SQLite/WAL observations](./final-cut-sqlite-wal-observations.md)
 - [Canonical incremental synchronization](./canonical-incremental-synchronization.md)
 - [Timeline IR to versioned FCPXML](./timeline-ir-fcpxml.md)
 - [Locked-console FCPXML experiment](./locked-console-fcpxml-experiment.md)

@@ -80,6 +80,9 @@ session, fixture, and semantic-media evidence cannot satisfy that capability.
 - #416 provides an experimental pasteboard observation boundary and decoder;
   its default acquisition state is structured unavailable until an explicit
   headed capture port is configured.
+- #493 captures read-only SQLite/WAL/SHM drift relative to a known Framekit
+  materialization; storage changes remain ambiguous until a repeated semantic
+  mapping is proven.
 - #417 normalizes and reconciles provider observations into Timeline IR.
 - #418 routes headed FCPXML export as an explicit canonical checkpoint.
 - #455 validates the background-read exit criteria on the supported Final Cut version.
