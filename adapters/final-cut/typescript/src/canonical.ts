@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import {
   canonicalSnapshotDigest,
@@ -185,17 +185,25 @@ export class FinalCutCanonicalSnapshotSource {
   private readonly exportTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly target?: FcpxmlTargetBinding;
+  private readonly stageOnDesktop: boolean;
 
   public constructor(options: FinalCutCanonicalSnapshotSourceOptions = {}) {
     this.executor = options.executor ?? executeCanonicalAppleScript;
     this.exportTimeoutMs = Math.max(1_000, options.exportTimeoutMs ?? 30_000);
     this.pollIntervalMs = Math.max(10, options.pollIntervalMs ?? 100);
     this.target = options.target;
+    this.stageOnDesktop = !options.executor;
   }
 
   public async readSnapshot(): Promise<ProjectSnapshot> {
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-canonical-"));
-    const exportPath = join(directory, "active.fcpxml");
+    // Final Cut's headed save panel does not reliably honor Go To Folder when
+    // driven through System Events. Stage real headed reads on the default
+    // Desktop, then remove the exact package after parsing it. Injected
+    // executors retain the isolated temporary path used by deterministic tests.
+    const exportPath = this.stageOnDesktop
+      ? join(homedir(), "Desktop", `${basename(directory)}.fcpxml`)
+      : join(directory, "active.fcpxml");
     try {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         const result = parseFinalCutCanonicalExportResult(
@@ -214,6 +222,8 @@ export class FinalCutCanonicalSnapshotSource {
       if (detail.includes("FINAL_CUT_CANONICAL_") || detail.includes("TARGET_MISMATCH")) throw error;
       throw new Error(`FINAL_CUT_CANONICAL_EXPORT_FAILED: ${detail}`);
     } finally {
+      await rm(exportPath, { force: true });
+      await rm(`${exportPath}.fcpxmld`, { recursive: true, force: true });
       await rm(directory, { recursive: true, force: true });
     }
   }
@@ -222,6 +232,22 @@ export class FinalCutCanonicalSnapshotSource {
 export function buildFinalCutCanonicalExportScript(exportPath: string): string {
   const exportDirectory = dirname(exportPath);
   const exportName = basename(exportPath);
+  const defaultDesktop = join(homedir(), "Desktop");
+  const chooseExportDirectory = exportDirectory === defaultDesktop
+    ? ""
+    : `          keystroke "g" using {command down, shift down}
+          delay 1
+          try
+            set pathField to text field 1 of sheet 1 of window "Export XML"
+            set value of pathField to ${appleScriptString(exportDirectory)}
+          on error
+            keystroke "a" using {command down}
+            keystroke ${appleScriptString(exportDirectory)}
+          end try
+          delay 0.5
+          key code 36
+          delay 0.8
+`;
 
   return `
 using terms from application "System Events"
@@ -545,6 +571,12 @@ tell application "System Events"
       set frontmost to true
       delay 0.1
       if not frontmost then error "FINAL_CUT_CANONICAL_NOT_FRONTMOST: Final Cut Pro must be frontmost"
+      try
+        if exists window "Final Cut Pro" of finalCut then
+          perform action "AXRaise" of window "Final Cut Pro" of finalCut
+          delay 0.2
+        end if
+      end try
       set fileMenu to menu "File" of menu bar 1
       set exportCommand to missing value
       try
@@ -570,19 +602,7 @@ tell application "System Events"
           my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
           delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-          keystroke "g" using {command down, shift down}
-          delay 1
-          try
-            set pathField to text field 1 of sheet 1 of window "Export XML"
-            set value of pathField to ${appleScriptString(exportDirectory)}
-          on error
-            keystroke "a" using {command down}
-            keystroke ${appleScriptString(exportDirectory)}
-          end try
-          delay 0.5
-          key code 36
-          delay 0.8
-          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+${chooseExportDirectory}          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
           set saveRoot to missing value
           try
             set saveRoot to first UI element of saveWindow

@@ -826,6 +826,7 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   const frontmostGuardIndex = script.indexOf("if not frontmost then error");
   assert.ok(activationIndex >= 0);
   assert.ok(frontmostGuardIndex > activationIndex);
+  assert.match(script, /perform action "AXRaise" of window "Final Cut Pro" of finalCut/);
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
 });
 
