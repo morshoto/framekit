@@ -362,14 +362,21 @@ on findCanonicalPathField(container, depth)
   return missing value
 end findCanonicalPathField
 
-on findAccessibilityIdentifier(saveContainer, expectedIdentifier)
+on findAccessibilityIdentifier(container, expectedIdentifier, depth)
+  if depth > 12 then return missing value
   try
-    repeat with childRef in (entire contents of saveContainer)
+    set candidateIdentifier to id of container as text
+    if candidateIdentifier is expectedIdentifier then return container
+  end try
+  try
+    set candidateIdentifier to (value of attribute "AXIdentifier" of container) as text
+    if candidateIdentifier is expectedIdentifier then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
       set candidate to contents of childRef
-      try
-        set candidateIdentifier to (value of attribute "AXIdentifier" of candidate) as text
-        if candidateIdentifier is expectedIdentifier then return candidate
-      end try
+      set found to my findAccessibilityIdentifier(candidate, expectedIdentifier, depth + 1)
+      if found is not missing value then return found
     end repeat
   end try
   return missing value
@@ -378,7 +385,7 @@ end findAccessibilityIdentifier
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
-    set candidate to my findAccessibilityIdentifier(saveWindow, "PathTextField")
+    set candidate to my findAccessibilityIdentifier(saveWindow, "PathTextField", 0)
     if candidate is not missing value then return candidate
     set focusedCandidate to missing value
     try
@@ -431,7 +438,7 @@ end findCanonicalSaveNameFieldDescendant
 on findCanonicalSaveNameField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
-    set candidate to my findAccessibilityIdentifier(saveWindow, "saveAsNameTextField")
+    set candidate to my findAccessibilityIdentifier(saveWindow, "saveAsNameTextField", 0)
     if candidate is not missing value then return candidate
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
@@ -576,24 +583,30 @@ tell application "System Events"
           key code 36
           delay 0.8
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-          set nameField to missing value
+          set saveRoot to missing value
           try
-            set nameField to my findAccessibilityIdentifier(saveWindow, "saveAsNameTextField")
+            set saveRoot to first UI element of saveWindow
           end try
-          if nameField is not missing value then
-            set value of nameField to ${appleScriptString(exportName)}
+          if saveRoot is not missing value then
+            try
+              set value of text field 2 of saveRoot to ${appleScriptString(exportName)}
+            on error
+              keystroke "a" using {command down}
+              keystroke ${appleScriptString(exportName)}
+            end try
           else
             keystroke "a" using {command down}
             keystroke ${appleScriptString(exportName)}
           end if
-          set saveButton to my findAccessibilityIdentifier(saveWindow, "OKButton")
-          if saveButton is not missing value then
-            perform action "AXPress" of saveButton
-          else
+          try
+            perform action "AXPress" of button 3 of saveRoot
+          on error
             key code 36
-          end if
-      set replaceButton to my findAccessibilityIdentifier(saveWindow, "action-button-1")
-      if replaceButton is not missing value then perform action "AXPress" of replaceButton
+          end try
+          delay 0.2
+          try
+            perform action "AXPress" of button 2 of sheet 1 of saveWindow
+          end try
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
       set cleanupComplete to my cleanupCanonicalExport(finalCut)

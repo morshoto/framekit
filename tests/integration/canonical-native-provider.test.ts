@@ -33,6 +33,10 @@ const identity: EditorIdentity = {
 };
 
 function canonicalExportPath(script: string): string {
+  const directLayoutField = script.match(
+    /set value of pathField to "([^"]+)"[\s\S]*?set value of text field 2 of saveRoot to "([^"]+)"/,
+  );
+  if (directLayoutField?.[1] && directLayoutField?.[2]) return join(directLayoutField[1], directLayoutField[2]);
   const directNameField = script.match(
     /keystroke "a" using \{command down\}[\s\S]*?keystroke "([^\"]+)"[\s\S]*?set value of nameField to "([^\"]+)"/,
   );
@@ -848,10 +852,15 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /id of candidate/);
   assert.match(script, /PathTextField/);
   assert.match(script, /saveAsNameTextField/);
-  assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
+  assert.match(script, /set value of text field 2 of saveRoot to "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
-  assert.match(script, /findAccessibilityIdentifier\(saveWindow, "OKButton"\)/);
-  assert.match(script, /findAccessibilityIdentifier\(saveWindow, "action-button-1"\)/);
+  assert.match(script, /on findAccessibilityIdentifier\(container, expectedIdentifier, depth\)/);
+  assert.match(script, /if depth > 12 then return missing value/);
+  assert.match(script, /set saveRoot to first UI element of saveWindow/);
+  assert.match(script, /set value of text field 2 of saveRoot/);
+  assert.match(script, /perform action "AXPress" of button 3 of saveRoot/);
+  assert.match(script, /perform action "AXPress" of button 2 of sheet 1 of saveWindow/);
+  assert.doesNotMatch(script, /entire contents of saveContainer/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -936,7 +945,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /set value of nameField[\s\S]*?findAccessibilityIdentifier\(saveWindow, "OKButton"\)/);
+  assert.match(script, /set value of text field 2 of saveRoot[\s\S]*?perform action "AXPress" of button 3 of saveRoot/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
