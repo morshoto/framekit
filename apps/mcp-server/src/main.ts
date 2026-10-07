@@ -231,6 +231,9 @@ const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
+      documentDelivery: liveAdapter!,
+      targetLibraryUid: process.env.FRAMEKIT_FINAL_CUT_LIBRARY_UID,
+      allowHeadedFallback: process.env.FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT === "1",
       liveState: () => liveAdapter!.readLiveState(),
     })
   : undefined;

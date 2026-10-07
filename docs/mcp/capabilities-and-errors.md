@@ -265,12 +265,15 @@ canonical timeline evidence, canonical snapshot support, project selection, or
 native UI access. A missing provider returns an unavailable descriptor rather
 than an empty or invented catalog.
 
-`artifactPublish` is true only when the MCP server has a configured headed
-project publisher with native writes enabled. `artifactPublishMode` reports
-`headed-only` for that guarded path and `unavailable` when it is not enabled;
-the current implementation does not advertise a background-capable mode. The
-job tools remain available when a managed artifact is configured so callers can
-prepare and inspect a no-UI handoff. `artifactPublish` is separate from both
+`artifactPublish` is true only when the MCP server has a configured project
+publisher with native writes enabled. `artifactPublishMode` reports
+`background-capable` when the Workflow Extension document-open bridge is
+configured, `headed-only` for the explicit Accessibility fallback, and
+`unavailable` when publishing is not enabled. Background-capable means only
+that Framekit can attempt `NSWorkspace` document delivery with
+`activates=false`; it does not claim import completion or target-bound
+readback. The job tools remain available when a managed artifact is configured
+so callers can prepare and inspect a bounded handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
 new project is neither an artifact edit nor an edit of the open timeline.
 
@@ -505,8 +508,9 @@ currently open timeline is directly writable. Missing confirmation fails with
 `PUBLISH_TARGET_MISMATCH`.
 
 The job-based `artifact.publish.preview`, `artifact.publish.execute`, and
-`artifact.publish.status` tools make the headed-only boundary explicit. They
-return `awaiting-final-cut` when no headed provider is available and
+`artifact.publish.status` tools make the delivery boundary explicit. They
+return `awaiting-final-cut` when the provider reports unavailable or
+user-interaction-required and
 `verification-pending` when an import may have started but live readback is
 temporarily unavailable. A retry of the latter verifies the existing import
 and does not import the artifact again. Only `verified` includes a

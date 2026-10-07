@@ -97,3 +97,14 @@ test("read-only experiment runner records artifact and environment evidence with
   assert.match(documentation, /targetBoundReadback: unavailable/);
   assert.match(documentation, /safeToOverwrite: false/);
 });
+
+test("native FCPXML delivery is an explicit non-activating bridge with a target gate", async () => {
+  const bridge = await readFile(join(process.cwd(), "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift"), "utf8");
+  assert.match(bridge, /case "deliver-fcpxml"/);
+  assert.match(bridge, /NSWorkspace\.OpenConfiguration/);
+  assert.match(bridge, /configuration\.activates = requestedActivates/);
+  assert.match(bridge, /configuration\.promptsUserIfNeeded = false/);
+  assert.match(bridge, /FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE/);
+  assert.match(bridge, /requested-unverified/);
+  assert.doesNotMatch(bridge, /perform action "AXPress"/);
+});

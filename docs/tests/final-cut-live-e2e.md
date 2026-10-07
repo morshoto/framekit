@@ -227,13 +227,15 @@ disposable FCPXML artifact and an existing Final Cut project, then run:
 ```sh
 FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH="/absolute/path/to/disposable publisher.fcpxml" \
 FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT="Imported Publisher E2E" \
+FRAMEKIT_FINAL_CUT_E2E_LIBRARY_UID="target-library-uid" \
 FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE="Main" \
 pnpm run test:final-cut-publisher-headed \
   > docs/tests/evidence/$(date +%F)-publisher-live.json
 ```
 
 The runner checks the managed artifact, prepares it through a verified artifact
-transaction, calls `artifact.publish` with explicit confirmation, and compares
+transaction, requests non-activating document delivery to the explicit library,
+calls `artifact.publish` with explicit confirmation, and compares
 the live project and sequence identities before and after import. The publisher
 Accessibility state machine discovers the nested Import XML command, targets the
 path control in the Import XML sheet, waits for the sheet and window to close,
