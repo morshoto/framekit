@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
 import {
+  normalizeFastTimelineObservation,
+  timelineIrDigest,
+  type FastTimelineObservation,
+  type TimelineIr,
+} from "@framekit/runtime";
+import type { ContextRevision } from "@framekit/runtime";
+import {
   decodeFinalCutKeyedArchive,
   type FinalCutKeyedArchiveJsonDecoder,
   type ParsedFinalCutKeyedArchive,
@@ -60,6 +67,18 @@ export interface FinalCutPasteboardObservation {
     timing: FinalCutPasteboardCoverage;
     anchoredItems: FinalCutPasteboardCoverage;
   };
+}
+
+export interface FinalCutPasteboardTimelineNormalizationOptions {
+  framekitRevision: ContextRevision;
+  artifactDigest: string;
+  providerRevision: ContextRevision;
+  observedAt: string;
+  projectName: string;
+  sequenceName: string;
+  timeUnit: "frames" | "seconds";
+  timescale: number;
+  sequenceDuration?: number;
 }
 
 export type FinalCutPasteboardCaptureStatus = "captured" | "user-interaction-required" | "unsupported" | "failed";
@@ -204,6 +223,112 @@ export function decodeFinalCutPasteboardObservation(
   };
 }
 
+/** Convert only the fields the pasteboard decoder actually proved into the runtime envelope. */
+export function normalizeFinalCutPasteboardObservation(
+  input: FinalCutPasteboardObservation,
+  options: FinalCutPasteboardTimelineNormalizationOptions,
+): FastTimelineObservation {
+  const timescale = integer(options.timescale, "timescale");
+  const target = parseTarget(input.target);
+  const projectName = requiredText(options.projectName, "projectName");
+  const sequenceName = requiredText(options.sequenceName, "sequenceName");
+  const resources = new Map<string, TimelineIr["resources"][number]>();
+  const occurrences = input.items.map((item) => {
+    if (!resources.has(item.resourceId)) {
+      resources.set(item.resourceId, {
+        id: item.resourceId,
+        name: item.resourceId,
+        mediaKind: item.role === "audio" || item.role === "music" ? "audio" : "video",
+        binding: { provider: "final-cut", kind: "resource", identity: item.resourceId },
+      });
+    }
+    return {
+      id: item.occurrenceId,
+      name: item.occurrenceId,
+      startTime: toRational(item.start, options.timeUnit, timescale, "item start"),
+      durationTime: toRational(item.duration, options.timeUnit, timescale, "item duration"),
+      track: item.lane,
+      ...(item.role ? { role: item.role === "music" ? "music" : item.role === "audio" ? "audio" : "video" } : {}),
+      mediaId: item.resourceId,
+      binding: { provider: "final-cut", kind: "occurrence", identity: item.occurrenceId },
+    } satisfies TimelineIr["sequence"]["occurrences"][number];
+  });
+  const anchoredItems = input.anchoredItems.map((item) => ({
+    id: item.occurrenceId,
+    name: item.occurrenceId,
+    startTime: toRational(item.start, options.timeUnit, timescale, "anchored item start"),
+    durationTime: toRational(item.duration, options.timeUnit, timescale, "anchored item duration"),
+    track: item.lane,
+    ...(item.role ? { role: item.role === "music" ? "music" : item.role === "audio" ? "audio" : "video" } : {}),
+    mediaId: item.resourceId,
+    attachedTo: item.occurrenceId,
+    binding: { provider: "final-cut", kind: "occurrence", identity: item.occurrenceId },
+  } satisfies TimelineIr["sequence"]["occurrences"][number]));
+  const allItems = [...input.items, ...input.anchoredItems];
+  const computedDuration = allItems.reduce((end, item) => Math.max(end, item.start + item.duration), 0);
+  const duration = toRational(options.sequenceDuration ?? computedDuration, options.timeUnit, timescale, "sequence duration");
+  const timeline: TimelineIr = {
+    schemaVersion: 1,
+    project: {
+      id: target.projectId,
+      name: projectName,
+      binding: { provider: "final-cut", kind: "project", identity: target.projectId },
+    },
+    sequence: {
+      id: target.sequenceId,
+      name: sequenceName,
+      durationTime: duration,
+      frameDuration: { value: "1", timescale: String(timescale) },
+      occurrences: [...occurrences, ...anchoredItems],
+      storyElements: [],
+      markers: [],
+      captions: [],
+      binding: { provider: "final-cut", kind: "sequence", identity: target.sequenceId },
+    },
+    resources: [...resources.values()],
+    revision: structuredClone(options.providerRevision),
+  };
+  const unknowns = [...input.unknownFields];
+  for (const [field, state] of Object.entries(input.coverage)) {
+    if (state !== "complete") unknowns.push(`coverage.${field}`);
+  }
+  for (const [field, state] of Object.entries(input.sideEffects)) {
+    if (state === "unknown") unknowns.push(`sideEffects.${field}`);
+  }
+  unknowns.push("storylineRelationships", "markersCaptions");
+  const freshness = Object.values(input.sideEffects).every((state) => typeof state === "boolean")
+    ? "editor-read" as const
+    : "unknown" as const;
+  return normalizeFastTimelineObservation({
+    schemaVersion: 1,
+    provider: "final-cut",
+    sourceType: "pasteboard",
+    canonical: false,
+    target,
+    provenance: {
+      framekitRevision: structuredClone(options.framekitRevision),
+      artifactDigest: requiredText(options.artifactDigest, "artifactDigest"),
+      target,
+    },
+    observedAt: requiredText(options.observedAt, "observedAt"),
+    trust: "normalized",
+    freshness,
+    revision: structuredClone(options.providerRevision),
+    observationDigest: input.payloadDigest,
+    timelineDigest: timelineIrDigest(timeline),
+    coverage: {
+      occurrences: input.coverage.occurrences === "complete" ? "complete" : "partial",
+      resources: input.coverage.sourceBindings === "complete" ? "complete" : "partial",
+      timing: input.coverage.timing === "complete" ? "complete" : "partial",
+      roles: input.coverage.sourceBindings === "complete" ? "complete" : "partial",
+      storylineRelationships: "unknown",
+      markersCaptions: "unknown",
+    },
+    unknowns: [...new Set(unknowns)],
+    timeline,
+  });
+}
+
 function blockedCapture(
   request: FinalCutPasteboardCaptureRequest,
   code: string,
@@ -298,4 +423,21 @@ function stableJson(value: unknown): string {
       .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function toRational(value: number, unit: "frames" | "seconds", timescale: number, label: string): { value: string; timescale: string } {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`FINAL_CUT_PASTEBOARD_TIMING_INVALID: ${label} must be non-negative and finite`);
+  const frames = unit === "frames" ? value : value * timescale;
+  if (!Number.isSafeInteger(frames)) throw new Error(`FINAL_CUT_PASTEBOARD_TIMING_INVALID: ${label} is not exactly representable at ${timescale} fps`);
+  return { value: String(frames), timescale: String(timescale) };
+}
+
+function integer(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`FINAL_CUT_PASTEBOARD_INPUT_INVALID: ${name} must be a positive integer`);
+  return value;
+}
+
+function requiredText(value: string, name: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`FINAL_CUT_PASTEBOARD_INPUT_INVALID: ${name} is required`);
+  return value.trim();
 }

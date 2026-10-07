@@ -7,6 +7,7 @@ import {
   FinalCutSqliteWalObservationProvider,
   buildFinalCutSqliteInspectionQuery,
   diffFinalCutSqliteWalObservations,
+  normalizeFinalCutSqliteWalObservation,
 } from "@framekit/final-cut";
 
 const target = { projectId: "project-1", sequenceId: "sequence-1" };
@@ -91,6 +92,18 @@ test("read-only SQLite/WAL capture records storage evidence without canonical cl
   assert.equal(observation.storage.shm.present, false);
   assert.equal(observation.coverage.editorFreshness, "unknown");
   assert.equal(observation.coverage.canonicalTimeline, "unavailable");
+});
+
+test("normalizes SQLite/WAL evidence as partial provider-neutral storage evidence", async () => {
+  const normalized = normalizeFinalCutSqliteWalObservation(await capture());
+
+  assert.equal(normalized.provider, "final-cut");
+  assert.equal(normalized.sourceType, "sqlite-wal");
+  assert.equal(normalized.trust, "structural");
+  assert.equal(normalized.freshness, "storage-observed");
+  assert.equal(normalized.timeline, undefined);
+  assert.equal(normalized.coverage.occurrences, "partial");
+  assert.match(normalized.unknowns.join(" "), /semanticOperation/);
 });
 
 test("SQLite inspection query is read-only and never foregrounds Final Cut", () => {

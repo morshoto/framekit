@@ -6,6 +6,7 @@ import {
   FinalCutPasteboardProvider,
   decodeFinalCutPasteboardArchive,
   decodeFinalCutPasteboardObservation,
+  normalizeFinalCutPasteboardObservation,
 } from "@framekit/final-cut";
 
 const target = { projectId: "project-1", sequenceId: "sequence-1" };
@@ -56,6 +57,35 @@ test("pasteboard observations are deterministic and explicitly non-canonical", (
     "sourceBindings.completeness",
     "timing.completeness",
   ]);
+});
+
+test("normalizes pasteboard fields into provider-neutral Timeline IR without erasing unknowns", () => {
+  const decoded = decodeFinalCutPasteboardObservation({
+    uti: FINAL_CUT_PASTEBOARD_UTI,
+    sourceVersion: "10.7.1",
+    payload,
+    target,
+    sideEffects,
+  });
+  const normalized = normalizeFinalCutPasteboardObservation(decoded, {
+    framekitRevision: { id: "materialized", sequence: 1, timestamp: "2026-09-26T00:00:00.000Z" },
+    artifactDigest: "a".repeat(64),
+    providerRevision: { id: "provider", sequence: 2, timestamp: "2026-09-26T00:01:00.000Z" },
+    observedAt: "2026-09-26T00:01:01.000Z",
+    projectName: "Project",
+    sequenceName: "Main",
+    timeUnit: "frames",
+    timescale: 30,
+    sequenceDuration: 120,
+  });
+
+  assert.equal(normalized.provider, "final-cut");
+  assert.equal(normalized.sourceType, "pasteboard");
+  assert.equal(normalized.timeline?.sequence.occurrences[0]?.mediaId, "resource-1");
+  assert.deepEqual(normalized.timeline?.sequence.occurrences[0]?.startTime, { value: "0", timescale: "30" });
+  assert.equal(normalized.coverage.occurrences, "partial");
+  assert.equal(normalized.coverage.storylineRelationships, "unknown");
+  assert.match(normalized.unknowns.join(" "), /storylineRelationships/);
 });
 
 test("pasteboard observations fail closed for wrong UTI and incomplete payloads", () => {

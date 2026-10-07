@@ -3,6 +3,10 @@ import { readFile as readFileCallback, stat as statCallback } from "node:fs";
 import { promisify } from "node:util";
 import type { ContextRevision } from "@framekit/runtime";
 import {
+  normalizeFastTimelineObservation,
+  type FastTimelineObservation,
+} from "@framekit/runtime";
+import {
   FinalCutSqliteInspectionProvider,
   type FinalCutSqliteInspectionResult,
   type FinalCutSqliteCollectionRow,
@@ -238,6 +242,39 @@ export function diffFinalCutSqliteWalObservations(
     recommendation: changed || ambiguous ? "canonical-resync-required" : "no-change-observed",
     reasons: reasons.length > 0 ? reasons : ["no SQLite/WAL/SHM change observed"],
   };
+}
+
+/** Convert SQLite/WAL evidence into the provider-neutral envelope without inventing Timeline IR. */
+export function normalizeFinalCutSqliteWalObservation(
+  observation: FinalCutSqliteWalObservation,
+): FastTimelineObservation {
+  return normalizeFastTimelineObservation({
+    schemaVersion: 1,
+    provider: "final-cut",
+    sourceType: "sqlite-wal",
+    canonical: false,
+    target: structuredClone(observation.target),
+    provenance: structuredClone(observation.provenance),
+    observedAt: observation.storage.capturedAt,
+    trust: "structural",
+    freshness: "storage-observed",
+    revision: structuredClone(observation.database.revision),
+    observationDigest: observation.database.digest,
+    coverage: {
+      occurrences: "partial",
+      resources: "partial",
+      timing: "unknown",
+      roles: "unknown",
+      storylineRelationships: "unknown",
+      markersCaptions: "unknown",
+    },
+    unknowns: [
+      "timeline.semanticOperation",
+      "timeline.editorFreshness",
+      "timeline.canonicalTimeline",
+      "archivedPayloads",
+    ],
+  });
 }
 
 export type FinalCutSqliteControlledOperation =
