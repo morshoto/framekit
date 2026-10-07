@@ -158,7 +158,7 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
-    coverage: materializationCoverage(timeline),
+    coverage: materializationCoverage(timeline, destination.mode),
     provenance: {
       source: "framekit-timeline-ir",
       schemaVersion: 1,
@@ -190,14 +190,15 @@ function unsupportedFeatures(timeline: TimelineIr): string[] {
     if (occurrence.role === "title") unsupported.add("title-occurrences");
   }
   for (const element of timeline.sequence.storyElements) {
-    if (element.kind !== "gap" && (element.occurrenceId === undefined || !timeline.sequence.occurrences.some(({ id }) => id === element.occurrenceId))) {
-      unsupported.add(`story-element:${element.kind}`);
-    }
+    if (element.kind !== "gap") unsupported.add(`story-element:${element.kind}`);
   }
   return [...unsupported].sort((left, right) => left.localeCompare(right));
 }
 
-function materializationCoverage(timeline: TimelineIr): TimelineIrMaterializationCoverage {
+function materializationCoverage(
+  timeline: TimelineIr,
+  destinationMode: TimelineIrToFcpxmlResult["destination"]["mode"],
+): TimelineIrMaterializationCoverage {
   const exact = new Set([
     "artifact",
     "project",
@@ -205,7 +206,6 @@ function materializationCoverage(timeline: TimelineIr): TimelineIrMaterializatio
     "resources",
     "source-ranges",
     "primary-storyline-order",
-    "versioned-destination",
     "provenance",
   ]);
   if (timeline.sequence.occurrences.some(({ attachedTo }) => attachedTo !== undefined)
@@ -213,6 +213,7 @@ function materializationCoverage(timeline: TimelineIr): TimelineIrMaterializatio
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
   if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
+  if (destinationMode === "versioned") exact.add("versioned-destination");
   if (timeline.sequence.markers.length > 0) exact.add("markers");
   if (timeline.sequence.captions.length > 0) exact.add("captions");
   return { exact: [...exact].sort(), degraded: [], unsupported: [] };
@@ -244,7 +245,7 @@ function resolveDestination(
     };
   }
 
-  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timelineIrDigest(timeline)}`);
+  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}`);
   const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
   return {
     mode: "versioned",

@@ -582,6 +582,12 @@ a retryable blocker using the same digest-verified artifact. A provider request
 is not completion: canonical readback must match the desired Timeline IR and
 identify the exact created library/event/project/sequence target.
 
+Materialization job records use schema version 2. A schema-version-1 job that
+does not contain the target-bound coverage/provenance fields is migrated to an
+explicit non-retryable `MATERIALIZATION_JOB_METADATA_UNAVAILABLE` failure; it
+is never forwarded to a publisher with guessed metadata. Re-run preview and
+execute to create a fresh job.
+
 When `FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND` is configured in
 live mode, it receives the staged request through stdin as an explicit non-UI
 provider contract. The command must create a new versioned project without

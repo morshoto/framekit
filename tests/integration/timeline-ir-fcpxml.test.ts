@@ -127,6 +127,19 @@ test("sanitizes versioned destination IDs without regex backtracking", () => {
   assert.match(result.destination.sequenceUid, /^sequence-name-framekit-[a-f0-9]{10}$/);
 });
 
+test("binds versioned destination identities to the canonical revision", () => {
+  const nextRevision = timeline();
+  nextRevision.revision = { ...nextRevision.revision, id: "revision-2", sequence: 5 };
+  const first = compileTimelineIrToFcpxml(timeline(), { target });
+  const second = compileTimelineIrToFcpxml(nextRevision, { target });
+
+  assert.notEqual(first.destination.projectUid, second.destination.projectUid);
+  assert.notEqual(first.destination.sequenceUid, second.destination.sequenceUid);
+  assert.notEqual(first.destination.projectName, second.destination.projectName);
+  assert.equal(first.coverage.exact.includes("versioned-destination"), true);
+  assert.equal(compileTimelineIrToFcpxml(timeline(), { target: { ...target, materialization: "reuse-existing" } }).coverage.exact.includes("versioned-destination"), false);
+});
+
 test("emits connected elements with parent-relative exact offsets", () => {
   const value = timeline();
   value.sequence.occurrences.push({
@@ -206,6 +219,22 @@ test("requires an explicit Final Cut target and fails closed for unsupported IR"
       sequence: { ...timeline().sequence, occurrences: [{ ...timeline().sequence.occurrences[0]!, transform: { scaleX: 0.5, scaleY: 0.5 } }] },
     }, { target }),
     /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: transforms/,
+  );
+  assert.throws(
+    () => compileTimelineIrToFcpxml({
+      ...timeline(),
+      sequence: {
+        ...timeline().sequence,
+        storyElements: [{
+          id: "linked-title",
+          kind: "title",
+          occurrenceId: "occurrence-1",
+          startTime: { value: "1001", timescale: "24000" },
+          durationTime: { value: "1001", timescale: "24000" },
+        }],
+      },
+    }, { target }),
+    /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: story-element:title/,
   );
 });
 

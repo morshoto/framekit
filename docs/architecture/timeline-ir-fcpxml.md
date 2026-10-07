@@ -18,7 +18,9 @@ suffixes, and the returned artifact includes a SHA-256 digest plus the logical
 resource-to-FCPXML ID map. The result also reports exact/degraded/unsupported
 coverage and a target-bound provenance record containing the canonical revision
 and Timeline IR digest. Versioned project and sequence names include the
-revision identity; the stable destination UIDs include the content digest.
+revision identity; stable destination UIDs include both revision identity and
+content digest so repeated content at different canonical revisions remains
+distinct.
 
 Timeline and source coordinates remain exact rational values. The compiler
 normalizes equivalent fractions only when writing FCPXML, never through a

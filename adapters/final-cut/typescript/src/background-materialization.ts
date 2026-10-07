@@ -120,6 +120,9 @@ function validateMaterializationMetadata(request: FinalCutBackgroundMaterializat
     || provenance.projectId !== request.desired.project.id
     || provenance.sequenceId !== request.desired.sequence.id
     || provenance.timelineDigest !== request.desiredDigest
+    || provenance.revision?.id !== request.desired.revision.id
+    || provenance.revision?.sequence !== request.desired.revision.sequence
+    || provenance.revision?.timestamp !== request.desired.revision.timestamp
     || provenance.target?.libraryUid !== request.target.libraryUid
     || provenance.target?.eventUid !== request.target.eventUid
     || provenance.target?.projectUid !== request.target.projectUid

@@ -166,6 +166,46 @@ test("previews without mutation and resumes a blocked immutable materialization 
   }
 });
 
+test("recovers legacy jobs without target-bound materialization metadata", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-legacy-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-legacy", provider: { id: "final-cut" }, base: timeline() } });
+    const executed = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-legacy", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const jobPath = join(directory, "materializations", "jobs", `${executed.jobId}.json`);
+    const legacy = JSON.parse(await readFile(jobPath, "utf8"));
+    legacy.schemaVersion = 1;
+    delete legacy.coverage;
+    delete legacy.provenance;
+    await writeFile(jobPath, `${JSON.stringify(legacy)}\n`, "utf8");
+
+    const requests: string[] = [];
+    const second = await connect(directory, {
+      publish: async (request) => {
+        requests.push(request.jobId);
+        return { state: "blocked", code: "UNEXPECTED", message: "publisher must not receive legacy metadata", retryable: true };
+      },
+    });
+    const restored = payload(await second.client.callTool({ name: "session.materialize.status", arguments: { jobId: executed.jobId } }));
+    assert.equal(restored.state, "failed");
+    assert.equal(restored.error.code, "MATERIALIZATION_JOB_METADATA_UNAVAILABLE");
+    assert.equal(restored.error.retryable, false);
+    const retried = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: executed.jobId } }));
+    assert.equal(retried.state, "failed");
+    assert.deepEqual(requests, []);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("completes only after matching canonical provider readback", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-"));
   const published: Array<{ artifactPath: string; projectUid: string; timelineDigest: string }> = [];

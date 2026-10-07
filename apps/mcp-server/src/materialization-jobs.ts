@@ -37,7 +37,7 @@ export interface SessionMaterializationPublisher {
 }
 
 export interface SessionMaterializationJob {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   jobId: string;
   sessionId: string;
   state: "blocked" | "publishing" | "completed" | "failed";
@@ -48,8 +48,8 @@ export interface SessionMaterializationJob {
   destination: TimelineIrToFcpxmlResult["destination"];
   desired: TimelineIr;
   desiredDigest: string;
-  coverage: TimelineIrMaterializationCoverage;
-  provenance: TimelineIrMaterializationProvenance;
+  coverage?: TimelineIrMaterializationCoverage;
+  provenance?: TimelineIrMaterializationProvenance;
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   evidence: {
@@ -103,7 +103,7 @@ export class SessionMaterializationJobs {
     await this.sessions.checkpoint(sessionId, session);
 
     let job: SessionMaterializationJob = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       jobId,
       sessionId,
       state: "blocked",
@@ -136,8 +136,10 @@ export class SessionMaterializationJobs {
   public async status(jobId: string): Promise<SessionMaterializationJob> {
     try {
       const job = JSON.parse(await readFile(this.jobPath(jobId), "utf8")) as SessionMaterializationJob;
-      if (job.schemaVersion !== 1 || job.jobId !== jobId) throw new Error("MATERIALIZATION_JOB_INVALID: persisted job is invalid");
-      return structuredClone(job);
+      if (job.jobId !== jobId || (job.schemaVersion !== 1 && job.schemaVersion !== 2)) {
+        throw new Error("MATERIALIZATION_JOB_INVALID: persisted job is invalid");
+      }
+      return structuredClone(normalizePersistedJob(job));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(`MATERIALIZATION_JOB_NOT_FOUND: unknown materialization job ${jobId}`);
@@ -173,8 +175,8 @@ export class SessionMaterializationJobs {
         collisionPolicy: "create-only",
         desired: structuredClone(claimed.desired),
         desiredDigest: claimed.desiredDigest,
-        coverage: structuredClone(claimed.coverage),
-        provenance: structuredClone(claimed.provenance),
+        coverage: structuredClone(claimed.coverage!),
+        provenance: structuredClone(claimed.provenance!),
       });
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
@@ -237,6 +239,40 @@ export class SessionMaterializationJobs {
       return {
         code: "MATERIALIZATION_DESIRED_SNAPSHOT_INVALID",
         message: "The staged desired Timeline IR is unavailable or does not match its immutable digest",
+        retryable: false,
+      };
+    }
+    if (!job.coverage || !job.provenance) {
+      return {
+        code: "MATERIALIZATION_JOB_METADATA_UNAVAILABLE",
+        message: "This persisted materialization job predates target-bound coverage and provenance; execute a new preview before retrying",
+        retryable: false,
+      };
+    }
+    if (job.provenance.timelineDigest !== job.desiredDigest
+      || job.provenance.projectId !== job.desired.project.id
+      || job.provenance.sequenceId !== job.desired.sequence.id
+      || job.provenance.revision?.id !== job.desired.revision.id
+      || job.provenance.revision?.sequence !== job.desired.revision.sequence
+      || job.provenance.revision?.timestamp !== job.desired.revision.timestamp
+      || job.provenance.target?.libraryUid !== job.target.libraryUid
+      || job.provenance.target?.eventUid !== job.target.eventUid
+      || job.provenance.target?.projectUid !== job.target.projectUid
+      || job.provenance.target?.sequenceUid !== job.target.sequenceUid
+      || job.provenance.destination?.projectUid !== job.destination.projectUid
+      || job.provenance.destination?.sequenceUid !== job.destination.sequenceUid) {
+      return {
+        code: "MATERIALIZATION_PROVENANCE_INVALID",
+        message: "The persisted materialization provenance does not bind to the desired revision and target",
+        retryable: false,
+      };
+    }
+    if (!Array.isArray(job.coverage.exact) || !Array.isArray(job.coverage.degraded) || !Array.isArray(job.coverage.unsupported)
+      || ![...job.coverage.exact, ...job.coverage.degraded, ...job.coverage.unsupported].every((value) => typeof value === "string" && value.trim())
+      || job.coverage.unsupported.length > 0) {
+      return {
+        code: "MATERIALIZATION_COVERAGE_INVALID",
+        message: "The persisted materialization coverage is unsupported or malformed",
         retryable: false,
       };
     }
@@ -380,6 +416,23 @@ function compileTimelineIrToFcxmlVersioned(
     throw new Error("FINAL_CUT_BACKGROUND_MATERIALIZATION_REUSE_FORBIDDEN: materialization jobs are create-only");
   }
   return compileTimelineIrToFcpxml(desired, { target: { ...target, materialization: "versioned" } });
+}
+
+function normalizePersistedJob(job: SessionMaterializationJob): SessionMaterializationJob {
+  if (job.schemaVersion === 2) return job;
+  if (job.coverage && job.provenance) return { ...job, schemaVersion: 2 };
+  return {
+    ...job,
+    schemaVersion: 2,
+    state: "failed",
+    nextAction: "none",
+    claim: undefined,
+    error: {
+      code: "MATERIALIZATION_JOB_METADATA_UNAVAILABLE",
+      message: "This persisted materialization job predates target-bound coverage and provenance; execute a new preview before retrying",
+      retryable: false,
+    },
+  };
 }
 
 function materializationFailure(error: unknown, providerRequested: boolean): MaterializationFailure {
