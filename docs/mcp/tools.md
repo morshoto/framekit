@@ -127,7 +127,7 @@ is a separate, confirmed `artifact.publish` step.
 | `editor.native.trim-to-duration.execute` | Execute a previewed trim-to-duration operation | Requires unchanged sequence revision and duration |
 | `context.inspect` | Compact, source-bound agent context with a revision cursor | Backend-dependent; canonical project data remains available when supported |
 | `context.changes` | Incremental timeline, live-state, and asset changes with provenance and changed scopes | Backend-dependent; fails closed when unavailable |
-| `project.inspect` | Canonical project snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
+| `project.inspect` | Canonical project snapshot, or a session-bound baseline/resync when `sessionId` is supplied | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge; `requestedCanonical` and `finalVerification` force a canonical checkpoint |
 | `project.list` | Stable project and sequence catalog plus reconciled active IDs | Deterministic fixture, FCPXML-backed session, canonical-capable live bridge, or an injected background library provider advertised as `observation.library` |
 | `project.select` | Select a project and explicit sequence when needed | Deterministic fixture, FCPXML-backed session, or a canonical-capable live bridge; ambiguous targets fail closed |
 | `artifact.inspect` | Identify the managed FCPXML artifact and its source digest | FCPXML-backed session; unsupported backends fail closed |
@@ -150,7 +150,7 @@ is a separate, confirmed `artifact.publish` step.
 | `editor.timeline.edit.execute` | Execute one live timeline preview token and verify the timeline transaction | Requires an unexpired, single-use live timeline preview token |
 | `timeline.mask.add.preview` | Preview a rectangle or supplied-alpha mask for an explicit project, sequence, revision, and occurrence | Non-mutating; requires `editor.masking` and canonical transaction guarantees |
 | `timeline.mask.add.execute` | Execute one mask preview token and verify the requested mask state | Requires an unexpired, single-use preview token; person cutout remains unavailable |
-| `timeline.inspect` | Canonical timeline snapshot | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
+| `timeline.inspect` | Canonical timeline snapshot, or a session-bound baseline/resync when `sessionId` is supplied | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge; `requestedCanonical` and `finalVerification` force a canonical checkpoint |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff with stable IDs, source/revision provenance, exact rational timing, and deterministic before/after values | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `speech.filler.remove.preview` | Analyze a selected canonical timeline range and preview high-confidence filler removal with safe rational ranges | Requires speech analysis, canonical timeline snapshot/write, read-after-write, and rollback |
