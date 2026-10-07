@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.1.16](https://github.com/morshoto/framekit/compare/v0.1.15...v0.1.16) - 2026-10-07
+
+### Feature changes
+- feat: harden editable FCPXML materialization by @morshoto in https://github.com/morshoto/framekit/pull/495
+- feat: deliver FCPXML through non-activating bridge by @morshoto in https://github.com/morshoto/framekit/pull/497
+- feat: add experimental Final Cut pasteboard observation boundary by @morshoto in https://github.com/morshoto/framekit/pull/439
+- feat: observe read-only Final Cut SQLite WAL deltas by @morshoto in https://github.com/morshoto/framekit/pull/498
+- feat: reconcile provider-neutral Final Cut observations by @morshoto in https://github.com/morshoto/framekit/pull/440
+- feat: verify materialization base and readback by @morshoto in https://github.com/morshoto/framekit/pull/499
+- feat: add materialization continuation resync by @morshoto in https://github.com/morshoto/framekit/pull/500
+### Patch changes
+- fix: bind headed native edits to canonical occurrences by @morshoto in https://github.com/morshoto/framekit/pull/501
+### Maintenance and internal
+- docs: define background editable handoff by @morshoto in https://github.com/morshoto/framekit/pull/446
+- perf: route canonical timeline resync by @morshoto in https://github.com/morshoto/framekit/pull/441
+
 ## [v0.1.15](https://github.com/morshoto/framekit/compare/v0.1.14...v0.1.15) - 2026-10-06
 
 ### Feature changes
