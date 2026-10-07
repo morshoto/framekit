@@ -1,5 +1,58 @@
 # Changelog
 
+## [v0.1.15](https://github.com/morshoto/framekit/compare/v0.1.14...v0.1.15) - 2026-10-06
+
+### Feature changes
+- docs: define headless core boundary by @morshoto in https://github.com/morshoto/framekit/pull/473
+- feat: persist canonical Framekit projects by @morshoto in https://github.com/morshoto/framekit/pull/474
+- feat: register local media in headless projects by @morshoto in https://github.com/morshoto/framekit/pull/475
+- feat: add headless project transactions by @morshoto in https://github.com/morshoto/framekit/pull/476
+- feat: add headless structural timeline edits by @morshoto in https://github.com/morshoto/framekit/pull/477
+- feat: add headless property edits by @morshoto in https://github.com/morshoto/framekit/pull/478
+- feat: add headless titles and transitions by @morshoto in https://github.com/morshoto/framekit/pull/479
+- feat: define provider-neutral headless render contract by @morshoto in https://github.com/morshoto/framekit/pull/480
+- feat: add deterministic headless render fixtures by @morshoto in https://github.com/morshoto/framekit/pull/481
+- feat: add FFmpeg Timeline IR renderer by @morshoto in https://github.com/morshoto/framekit/pull/482
+- feat: render and independently verify Framekit output by @morshoto in https://github.com/morshoto/framekit/pull/483
+- feat: expose headless project lifecycle through MCP by @morshoto in https://github.com/morshoto/framekit/pull/484
+- feat: make headless SSoT the default editing route by @morshoto in https://github.com/morshoto/framekit/pull/485
+- test: add v0.1.15 production headless release gate by @morshoto in https://github.com/morshoto/framekit/pull/486
+- test: assert semantic headless release output by @morshoto in https://github.com/morshoto/framekit/pull/490
+### Patch changes
+- test: stabilize concurrent project saves by @morshoto in https://github.com/morshoto/framekit/pull/489
+- test: make headless source ranges observable by @morshoto in https://github.com/morshoto/framekit/pull/488
+- test: assert deterministic Timeline IR encoding by @morshoto in https://github.com/morshoto/framekit/pull/491
+### Maintenance and internal
+- chore: add UI-free Final Cut read capability probe by @morshoto in https://github.com/morshoto/framekit/pull/461
+- docs: record background read NO-GO gate by @morshoto in https://github.com/morshoto/framekit/pull/462
+
+## [v0.1.14](https://github.com/morshoto/framekit/compare/v0.1.13...v0.1.14) - 2026-10-02
+
+### Patch changes
+- fix: recover overlay before media-insert preflight by @morshoto in https://github.com/morshoto/framekit/pull/434
+### Maintenance and internal
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/458
+- chore(deps): update dependency @modelcontextprotocol/sdk to v1.31.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/459
+- docs: define layered Final Cut readback by @morshoto in https://github.com/morshoto/framekit/pull/438
+
+## [v0.1.13](https://github.com/morshoto/framekit/compare/v0.1.12...v0.1.13) - 2026-09-29
+
+### Feature changes
+- feat: expose compact source-bound agent context by @morshoto in https://github.com/morshoto/framekit/pull/413
+- perf: add complete timeline diff provenance by @morshoto in https://github.com/morshoto/framekit/pull/412
+- feat: expose ordered canonical timeline changes by @morshoto in https://github.com/morshoto/framekit/pull/414
+### Patch changes
+- fix: wait for npm publication validation by @morshoto in https://github.com/morshoto/framekit/pull/386
+- fix: expose background catalog target blocker by @morshoto in https://github.com/morshoto/framekit/pull/430
+- fix: recover Final Cut export dialogs by @morshoto in https://github.com/morshoto/framekit/pull/429
+- fix: robust Final Cut save-panel traversal by @morshoto in https://github.com/morshoto/framekit/pull/451
+### Maintenance and internal
+- feat: Gate session execution on external drift reconciliation by @morshoto in https://github.com/morshoto/framekit/pull/410
+- design: define canonical incremental sync contract by @morshoto in https://github.com/morshoto/framekit/pull/411
+- chore: add QA issue template by @morshoto in https://github.com/morshoto/framekit/pull/431
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/456
+- chore: add v0.1.13 incremental sync QA by @morshoto in https://github.com/morshoto/framekit/pull/433
+
 ## [v0.1.12](https://github.com/morshoto/framekit/compare/v0.1.11...v0.1.12) - 2026-09-24
 
 ### Feature changes

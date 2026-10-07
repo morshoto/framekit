@@ -68,6 +68,7 @@ test("stdio MCP rejects an out-of-bounds ripple-delete before issuing a token", 
         sequenceId: before.timeline.id,
         baseRevision: before.revision,
         operations: [rippleDelete(9, 11, before.timeline.id)],
+        path: "headed",
       },
     });
 

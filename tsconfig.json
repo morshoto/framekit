@@ -7,7 +7,8 @@
     "paths": {
       "@framekit/runtime": ["./packages/runtime/src/index.ts"],
       "@framekit/testkit": ["./packages/testkit/src/index.ts"],
-      "@framekit/final-cut": ["./adapters/final-cut/typescript/src/index.ts"]
+      "@framekit/final-cut": ["./adapters/final-cut/typescript/src/index.ts"],
+      "@framekit/headless-renderer": ["./adapters/headless/typescript/src/index.ts"]
     }
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts", "adapters/**/*.ts", "tests/**/*.ts"],

@@ -632,6 +632,56 @@ test("Final Cut live adapter reads native state and incremental events", async (
   assert.deepEqual(transport.requests.map(({ method }) => method), ["state", "capabilities", "changes"]);
 });
 
+test("Final Cut live adapter requests non-activating FCPXML document delivery", async () => {
+  const transport = new FakeFinalCutLiveTransport();
+  const adapter = new FinalCutLiveAdapter(transport);
+  (transport as FakeFinalCutLiveTransport & { request: FakeFinalCutLiveTransport["request"] }).request = async (request) => {
+    transport.requests.push(request);
+    const identity = { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" };
+    const capabilities = {
+      editor: { projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false },
+      analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+    };
+    return {
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity,
+        capabilities,
+        delivery: {
+          status: "dispatched",
+          route: "background-document-open",
+          attempted: true,
+          imported: false,
+          requestedActivates: false,
+          activation: "preserved",
+          ui: "none",
+          target: { requestedLibraryUid: "library-1", guarantee: "requested-unverified" },
+        },
+      },
+    };
+  };
+
+  const result = await adapter.deliverFcpxml({
+    artifactPath: "/tmp/framekit-project.fcpxml",
+    targetLibraryUid: "library-1",
+    activates: false,
+  });
+
+  assert.equal(result.status, "dispatched");
+  assert.equal(result.requestedActivates, false);
+  assert.equal(result.activation, "preserved");
+  assert.deepEqual(transport.requests.at(-1), {
+    version: 1,
+    id: transport.requests.at(-1)?.id,
+    method: "deliver-fcpxml",
+    artifactPath: "/tmp/framekit-project.fcpxml",
+    targetLibraryUid: "library-1",
+    activates: false,
+  });
+});
+
 test("metadata-only live context stays source-bound without canonical timeline data", async () => {
   const runtime = new AgentVideoRuntime(new FinalCutLiveAdapter(new FakeFinalCutLiveTransport()));
   const context = await runtime.inspectContext();
