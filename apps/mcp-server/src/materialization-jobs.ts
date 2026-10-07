@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { timelineIrDigest, type TimelineIr } from "@framekit/runtime";
+import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
   type TimelineIrMaterializationCoverage,
@@ -28,6 +28,13 @@ export interface SessionMaterializationPublishRequest {
 
 export type MaterializationVerificationTier = "artifact" | "delivery" | "storage-observed" | "canonical-verified" | "interaction-required";
 
+export type MaterializationDeliveryState = "background" | "activated" | "prompted" | "failed" | "interaction-required";
+
+export interface MaterializationDeliveryEvidence {
+  state: MaterializationDeliveryState;
+  route: "background" | "headed" | "unknown";
+}
+
 export interface MaterializationStructuralDiff {
   target: { projectId: string; sequenceId: string };
   desiredDigest: string;
@@ -44,17 +51,26 @@ export interface MaterializationVerification {
   canonicalReadbackDigest?: string;
   canonicalTarget?: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   structuralDiff?: MaterializationStructuralDiff;
+  delivery?: MaterializationDeliveryEvidence;
 }
 
 export interface SessionMaterializationPublisher {
+  readCanonicalTarget?(request: {
+    target: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
+  }): Promise<{
+    canonicalReadback: TimelineIr;
+    canonicalTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
+    delivery?: MaterializationDeliveryEvidence;
+  }>;
   publish(request: SessionMaterializationPublishRequest): Promise<
     | {
         state: "completed";
         canonicalReadback: TimelineIr;
         canonicalTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
         headedNativeVerified: boolean;
+        delivery?: MaterializationDeliveryEvidence;
       }
-    | { state: "blocked"; code: string; message: string; retryable: boolean }
+    | { state: "blocked"; code: string; message: string; retryable: boolean; delivery?: MaterializationDeliveryEvidence }
   >;
 }
 
@@ -75,6 +91,14 @@ export interface SessionMaterializationJob {
   coverage?: TimelineIrMaterializationCoverage;
   provenance?: TimelineIrMaterializationProvenance;
   verification?: MaterializationVerification;
+  continuation?: {
+    state: "canonical-resync-required" | "resynced";
+    reason: string;
+    sessionId?: string;
+    readbackDigest?: string;
+    changeSinceHandoff?: "changed" | "unchanged" | "unknown";
+    delivery?: MaterializationDeliveryEvidence;
+  };
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   evidence: {
@@ -189,6 +213,60 @@ export class SessionMaterializationJobs {
     return this.attempt(job);
   }
 
+  public async resync(jobId: string, sessionId: string) {
+    const job = await this.status(jobId);
+    if (job.state !== "completed") {
+      throw new Error("MATERIALIZATION_NOT_COMPLETED: canonical continuation requires a completed handoff");
+    }
+    const verification = job.verification;
+    const target = verification?.canonicalTarget;
+    if (!target) {
+      throw new Error("MATERIALIZATION_TARGET_UNAVAILABLE: completed handoff has no verified target identity");
+    }
+    if (!this.publisher?.readCanonicalTarget) {
+      throw new Error("MATERIALIZATION_CANONICAL_RESYNC_UNAVAILABLE: no target-bound canonical readback capability is configured");
+    }
+    const result = await this.publisher.readCanonicalTarget({ target: structuredClone(target) });
+    validateTimelineIr(result.canonicalReadback);
+    if (!sameTarget(result.canonicalTarget, target)
+      || result.canonicalReadback.project.id !== target.projectUid
+      || result.canonicalReadback.sequence.id !== target.sequenceUid) {
+      throw new Error("MATERIALIZATION_RESYNC_TARGET_MISMATCH: canonical readback does not identify the completed handoff target");
+    }
+    const readbackDigest = timelineIrDigest(result.canonicalReadback);
+    const changeSinceHandoff = verification.canonicalReadbackDigest
+      ? readbackDigest === verification.canonicalReadbackDigest ? "unchanged" as const : "changed" as const
+      : "unknown" as const;
+    const created = await this.sessions.create({
+      sessionId,
+      base: result.canonicalReadback,
+      provider: { id: job.target.provider },
+    });
+    const continuation = {
+      state: "resynced" as const,
+      reason: changeSinceHandoff === "changed"
+        ? "Canonical state changed after handoff; a fresh session was created from the current target readback."
+        : changeSinceHandoff === "unchanged"
+          ? "Canonical state matches the handoff readback; a fresh session was created from the current target readback."
+          : "A fresh session was created from target-bound canonical readback; comparison with the handoff snapshot was unavailable.",
+      sessionId,
+      readbackDigest,
+      changeSinceHandoff,
+      ...(result.delivery ? { delivery: result.delivery } : {}),
+    };
+    await this.save({ ...job, continuation });
+    return {
+      jobId,
+      state: continuation.state,
+      sessionId,
+      changeSinceHandoff,
+      canonicalTarget: structuredClone(result.canonicalTarget),
+      readbackDigest,
+      document: created.document,
+      ...(result.delivery ? { delivery: result.delivery } : {}),
+    };
+  }
+
   private async attempt(job: SessionMaterializationJob): Promise<SessionMaterializationJob> {
     if (!this.publisher || job.state === "publishing") return job;
     const initialFailure = await this.validateStagedJob(job);
@@ -227,6 +305,7 @@ export class SessionMaterializationJobs {
             artifactDigest: claimed.verification?.artifactDigest ?? claimed.artifactDigest,
             desiredDigest: claimed.verification?.desiredDigest ?? claimed.desiredDigest,
             reason: result.message,
+            ...(result.delivery ? { delivery: result.delivery } : { delivery: deliveryEvidenceForBlockedCode(result.code) }),
           },
           error: { code: result.code, message: result.message, retryable: result.retryable },
         };
@@ -276,6 +355,14 @@ export class SessionMaterializationJobs {
           desiredDigest: claimed.desiredDigest,
           canonicalReadbackDigest: timelineIrDigest(result.canonicalReadback),
           canonicalTarget: structuredClone(result.canonicalTarget),
+          delivery: result.delivery ?? {
+            state: result.headedNativeVerified ? "activated" : "background",
+            route: result.headedNativeVerified ? "headed" : "background",
+          },
+        },
+        continuation: {
+          state: "canonical-resync-required",
+          reason: "Canonical readback verified this handoff once. Re-read the materialized target before later edits to detect subsequent manual Final Cut changes.",
         },
       };
       await this.save(completed);
@@ -451,6 +538,7 @@ export class SessionMaterializationJobs {
         desiredDigest: job.desiredDigest,
         reason: failure.message,
         ...(failure.structuralDiff ? { structuralDiff: failure.structuralDiff } : {}),
+        ...(failure.delivery ? { delivery: failure.delivery } : {}),
       },
     };
     await this.save(failed);
@@ -488,6 +576,7 @@ interface MaterializationFailure {
   providerRequested?: boolean;
   verificationTier?: MaterializationVerificationTier;
   structuralDiff?: MaterializationStructuralDiff;
+  delivery?: MaterializationDeliveryEvidence;
 }
 
 function digestSession(session: { serialize(): string }): string {
@@ -529,6 +618,12 @@ function materializationFailure(error: unknown, providerRequested: boolean): Mat
 
 function verificationTierForBlockedCode(code: string): MaterializationVerificationTier {
   return /INTERACTION_REQUIRED|CONSOLE_LOCKED|PROMPT/i.test(code) ? "interaction-required" : "artifact";
+}
+
+function deliveryEvidenceForBlockedCode(code: string): MaterializationDeliveryEvidence {
+  if (/INTERACTION_REQUIRED/i.test(code)) return { state: "interaction-required", route: "headed" };
+  if (/PROMPT/i.test(code)) return { state: "prompted", route: "headed" };
+  return { state: "failed", route: "unknown" };
 }
 
 function createMaterializationStructuralDiff(desired: TimelineIr, actual: TimelineIr): MaterializationStructuralDiff {

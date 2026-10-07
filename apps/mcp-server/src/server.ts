@@ -1108,6 +1108,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().min(1) },
   }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
 
+  server.registerTool("session.materialize.resync", {
+    description: "Read the completed versioned handoff target and create a fresh editing-session baseline for continuation.",
+    inputSchema: { jobId: z.string().min(1), sessionId: z.string().min(1) },
+  }, async ({ jobId, sessionId }) => sessionResult(async () => requireMaterializations().resync(jobId, sessionId)));
+
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
