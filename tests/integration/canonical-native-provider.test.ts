@@ -841,6 +841,7 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /if container is focusedCandidate then return container/);
   assert.match(script, /if my matchesCanonicalPathField\(focusedCandidate\) then return focusedCandidate/);
   assert.match(script, /keystroke "a" using \{command down\}[\s\S]*?keystroke "\/tmp"[\s\S]*?key code 36/);
+  assert.match(script, /text field 1 of sheet 1 of window "Export XML"/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
   assert.doesNotMatch(script, /set pathField to my findSavePathField/);
   assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);

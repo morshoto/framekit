@@ -565,8 +565,13 @@ tell application "System Events"
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
           keystroke "g" using {command down, shift down}
           delay 1
-          keystroke "a" using {command down}
-          keystroke ${appleScriptString(exportDirectory)}
+          try
+            set pathField to text field 1 of sheet 1 of window "Export XML"
+            set value of pathField to ${appleScriptString(exportDirectory)}
+          on error
+            keystroke "a" using {command down}
+            keystroke ${appleScriptString(exportDirectory)}
+          end try
           delay 0.5
           key code 36
           delay 0.8
