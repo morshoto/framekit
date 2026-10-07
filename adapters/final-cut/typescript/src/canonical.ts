@@ -592,8 +592,14 @@ tell application "System Events"
             keystroke "a" using {command down}
             keystroke ${appleScriptString(exportName)}
           end if
-          if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then key code 36
-      my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
+          set saveButton to my findAccessibilityIdentifier(saveWindow, "OKButton")
+          if saveButton is not missing value then
+            perform action "AXPress" of saveButton
+          else
+            key code 36
+          end if
+      set replaceButton to my findAccessibilityIdentifier(saveWindow, "action-button-1")
+      if replaceButton is not missing value then perform action "AXPress" of replaceButton
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
       set cleanupComplete to my cleanupCanonicalExport(finalCut)

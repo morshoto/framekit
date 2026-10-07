@@ -849,8 +849,8 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /saveAsNameTextField/);
   assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
-  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
-  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
+  assert.match(script, /findAccessibilityIdentifier\(saveWindow, "OKButton"\)/);
+  assert.match(script, /findAccessibilityIdentifier\(saveWindow, "action-button-1"\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -935,7 +935,7 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
   assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /set value of nameField[\s\S]*?my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.match(script, /set value of nameField[\s\S]*?findAccessibilityIdentifier\(saveWindow, "OKButton"\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
