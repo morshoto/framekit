@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  EditingSession,
+  normalizeFastTimelineObservation,
   reconcileFastTimelineObservation,
   timelineIrDigest,
   type FastTimelineObservation,
@@ -14,35 +16,48 @@ function timeline(): TimelineIr {
     sequence: {
       id: "sequence-1",
       name: "Main",
-      durationTime: { value: "120", timescale: "30" },
+      durationTime: { value: "300", timescale: "30" },
       frameDuration: { value: "1", timescale: "30" },
-      occurrences: [{
-        id: "occurrence-1",
-        name: "Opening",
-        startTime: { value: "0", timescale: "30" },
-        durationTime: { value: "90", timescale: "30" },
-        track: 0,
-        role: "video",
-        mediaId: "media-1",
-      }],
+      occurrences: [
+        { id: "a", name: "A", startTime: { value: "0", timescale: "30" }, durationTime: { value: "90", timescale: "30" }, track: 0, role: "video" },
+        { id: "b", name: "B", startTime: { value: "90", timescale: "30" }, durationTime: { value: "90", timescale: "30" }, track: 0, role: "video" },
+      ],
       storyElements: [],
       markers: [],
       captions: [],
     },
-    resources: [{ id: "media-1", name: "opening.mov", mediaKind: "video", source: "/media/opening.mov" }],
-    revision: { id: "revision-1", sequence: 1, timestamp: "2026-09-26T00:00:00.000Z" },
+    resources: [],
+    revision: { id: "base-revision", sequence: 1, timestamp: "2026-09-14T00:00:00.000Z" },
   };
 }
 
-function observation(value: TimelineIr, coverage: FastTimelineObservation["coverage"] = completeCoverage()): FastTimelineObservation {
+function copy(value: TimelineIr): TimelineIr {
+  return structuredClone(value);
+}
+
+function observation(value: TimelineIr, overrides: Partial<FastTimelineObservation> = {}): FastTimelineObservation {
+  const target = { projectId: value.project.id, sequenceId: value.sequence.id };
   return {
-    provider: "final-cut-pasteboard",
+    schemaVersion: 1,
+    provider: "final-cut",
+    sourceType: "pasteboard-fixture",
     canonical: false,
-    target: { projectId: value.project.id, sequenceId: value.sequence.id },
+    target,
+    provenance: {
+      framekitRevision: { id: "materialized", sequence: 1, timestamp: "2026-09-14T00:00:00.000Z" },
+      artifactDigest: "a".repeat(64),
+      target,
+    },
+    observedAt: "2026-09-14T00:04:00.000Z",
+    trust: "normalized",
+    freshness: "editor-read",
     revision: value.revision,
+    observationDigest: "b".repeat(64),
     timelineDigest: timelineIrDigest(value),
-    coverage,
+    coverage: completeCoverage(),
+    unknowns: [],
     timeline: value,
+    ...overrides,
   };
 }
 
@@ -57,43 +72,133 @@ function completeCoverage(): FastTimelineObservation["coverage"] {
   };
 }
 
-test("fast observations distinguish unchanged and expected Framekit edits", () => {
-  const base = timeline();
-  const desired = structuredClone(base);
-  desired.sequence.occurrences[0]!.name = "Opening revised";
-
-  assert.equal(reconcileFastTimelineObservation({ base, desired, observation: observation(base) }).status, "unchanged");
-  assert.equal(reconcileFastTimelineObservation({
+function session(base = timeline()): EditingSession {
+  return EditingSession.create({
     base,
-    desired,
-    observation: observation({ ...desired, revision: { id: "revision-2", sequence: 2, timestamp: "2026-09-26T00:01:00.000Z" } }),
-  }).status, "advanced-by-framekit");
+    provider: { id: "final-cut" },
+    clock: () => "2026-09-14T00:03:00.000Z",
+  });
+}
+
+test("normalization creates a validated envelope and computes a missing timeline digest", () => {
+  const value = observation(timeline());
+  delete value.timelineDigest;
+
+  const normalized = normalizeFastTimelineObservation(value);
+
+  assert.equal(normalized.timelineDigest, timelineIrDigest(value.timeline!));
+  assert.deepEqual(normalized.provenance.target, value.target);
+  assert.equal(normalized.canonical, false);
 });
 
-test("fast observations escalate incomplete evidence without canonical promotion", () => {
-  const base = timeline();
+test("reconciles unchanged evidence through the EditingSession state", () => {
+  const editing = session();
+  const result = reconcileFastTimelineObservation({ session: editing, observation: observation(editing.base()) });
+
+  assert.equal(result.status, "unchanged");
+  assert.equal(result.session.state, "clean");
+  assert.equal(editing.state(), "clean");
+});
+
+test("reconciles expected Framekit advancement and returns session evidence", () => {
+  const editing = session();
+  editing.apply([{ type: "rename-occurrence", occurrenceId: "a", name: "A edited" }]);
+
+  const result = reconcileFastTimelineObservation({ session: editing, observation: observation(editing.desired()) });
+
+  assert.equal(result.status, "advanced-by-framekit");
+  assert.equal(result.reconciliation?.status, "rebased");
+  assert.equal(result.session.desired.sequence.occurrences[0]?.name, "A edited");
+  assert.equal(result.session.state, "rebased");
+});
+
+test("advances a complete normalized external structural delta only through EditingSession", () => {
+  const editing = session();
+  const external = copy(editing.base());
+  external.sequence.occurrences[1]!.gainDb = -6;
+  external.revision = { id: "provider-revision", sequence: 2, timestamp: "2026-09-14T00:02:00.000Z" };
+
+  const result = reconcileFastTimelineObservation({ session: editing, observation: observation(external) });
+
+  assert.equal(result.status, "proven-structural-delta");
+  assert.equal(result.session.base.sequence.occurrences[1]?.gainDb, -6);
+  assert.equal(editing.state(), "rebased");
+});
+
+test("blocks partial and storage-only evidence without replacing canonical fields", () => {
+  const editing = session();
   const result = reconcileFastTimelineObservation({
-    base,
-    desired: base,
-    observation: observation(base, { ...completeCoverage(), occurrences: "partial" }),
+    session: editing,
+    observation: observation(editing.base(), {
+      sourceType: "sqlite-wal",
+      trust: "structural",
+      freshness: "storage-observed",
+      timeline: undefined,
+      timelineDigest: undefined,
+      coverage: { ...completeCoverage(), occurrences: "partial" },
+      unknowns: ["timeline.semanticOperation"],
+    }),
   });
 
-  assert.equal(result.status, "canonical-resync-required");
-  assert.equal(result.canonical, false);
-  assert.match(result.reason, /incomplete coverage/);
+  assert.equal(result.status, "possibly-stale");
+  assert.equal(result.session.state, "possibly_stale");
+  assert.equal(result.session.base.sequence.occurrences[0]?.name, "A");
+  assert.equal(editing.state(), "possibly_stale");
 });
 
-test("fast observations surface target and external-edit conflicts", () => {
-  const base = timeline();
-  const wrongTarget = observation(base);
-  wrongTarget.target.projectId = "other-project";
-  assert.equal(reconcileFastTimelineObservation({ base, desired: base, observation: wrongTarget }).status, "canonical-resync-required");
+test("fails closed for target mismatch and provider incompatibility", () => {
+  const wrongTarget = session();
+  const targetObservation = observation(wrongTarget.base(), {
+    target: { projectId: "other", sequenceId: "sequence-1" },
+    provenance: {
+      ...observation(wrongTarget.base()).provenance,
+      target: { projectId: "other", sequenceId: "sequence-1" },
+    },
+  });
+  const targetResult = reconcileFastTimelineObservation({ session: wrongTarget, observation: targetObservation });
+  assert.equal(targetResult.status, "target-mismatch");
+  assert.equal(wrongTarget.state(), "conflicted");
 
-  const desired = structuredClone(base);
-  desired.sequence.occurrences[0]!.name = "Agent rename";
-  const provider = structuredClone(base);
-  provider.sequence.occurrences[0]!.name = "Manual rename";
-  const result = reconcileFastTimelineObservation({ base, desired, observation: observation(provider) });
+  const wrongProvider = session();
+  const providerResult = reconcileFastTimelineObservation({
+    session: wrongProvider,
+    observation: observation(wrongProvider.base(), { provider: "other-editor" }),
+  });
+  assert.equal(providerResult.status, "provider-incompatible");
+  assert.equal(wrongProvider.state(), "conflicted");
+});
+
+test("rejects contradictory timeline digest and revision provenance", () => {
+  const digestSession = session();
+  const digestResult = reconcileFastTimelineObservation({
+    session: digestSession,
+    observation: observation(digestSession.base(), { timelineDigest: "c".repeat(64) }),
+  });
+  assert.equal(digestResult.status, "canonical-resync-required");
+  assert.equal(digestSession.state(), "conflicted");
+
+  const revisionSession = session();
+  const revisionResult = reconcileFastTimelineObservation({
+    session: revisionSession,
+    observation: observation(revisionSession.base(), {
+      revision: { id: "declared", sequence: 2, timestamp: "2026-09-14T00:02:00.000Z" },
+    }),
+  });
+  assert.equal(revisionResult.status, "canonical-resync-required");
+  assert.match(revisionResult.reason, /revision/);
+});
+
+test("surfaces three-way conflicts without promoting non-canonical evidence", () => {
+  const editing = session();
+  editing.apply([{ type: "rename-occurrence", occurrenceId: "a", name: "Agent rename" }]);
+  const provider = copy(editing.base());
+  provider.sequence.occurrences[0]!.name = "Provider rename";
+  provider.revision = { id: "provider-revision", sequence: 2, timestamp: "2026-09-14T00:02:00.000Z" };
+
+  const result = reconcileFastTimelineObservation({ session: editing, observation: observation(provider) });
+
   assert.equal(result.status, "conflicted");
   assert.equal(result.canonical, false);
+  assert.equal(editing.state(), "conflicted");
+  assert.equal(result.reconciliation?.conflicts[0]?.kind, "property-conflict");
 });
