@@ -49,7 +49,7 @@ neither metadata nor a detected private symbol can enable canonical reads.
 | Existing SpliceKit bridge | NO-GO: its documented approach patches and re-signs a copied Final Cut application and uses private runtime interfaces. Its published API reference targets Final Cut Pro 11.1, not this 10.7.1 compatibility target. It does not establish safe installation, 10.7.1 compatibility, or Framekit's complete snapshot/freshness contract. See [SpliceKit](https://github.com/elliotttate/SpliceKit), [API reference](https://github.com/elliotttate/SpliceKit/blob/main/docs/FCP_API_REFERENCE.md), and [application internals](https://github.com/elliotttate/SpliceKit/blob/main/docs/FCP_APPLICATION_INTERNALS.md). |
 | `.fcpbundle` / SQLite | Observation only: existing investigation found partial project/media inventory and storage-drift signals, but no complete target-bound ordered occurrence graph or source-bound editor revision. |
 | Workflow Extension / Apple Events | Retain as metadata/live-state layer; current capabilities remain non-canonical. |
-| Pasteboard experiment #416 | Insufficient fallback: current #439 work adds a decoder for supplied pasteboard data, not a passive capture path. A `Select All -> Copy` capture requires timeline selection and clipboard mutation, so it fails the v0.1.15 normal-read criteria. Keep it experimental and non-canonical. |
+| Pasteboard experiment #416 | Insufficient normal-read fallback: #439 now defines an explicit headed acquisition boundary, binary keyed-archive evidence decoding, target binding, partial coverage, and structured unavailable states, but it does not enable a passive capture path. A `Select All -> Copy` capture requires timeline selection and clipboard mutation, so it remains experimental and non-canonical. |
 | Explicit FCPXML | Retain for user-requested verification/interchange and headed canonical reads; it is not an automatic normal-read fallback. |
 
 No target-version private bridge was injected or launched for this gate. That
@@ -63,7 +63,8 @@ that the available evidence cannot support shipping or advertising that path.
 
 The #416 pasteboard experiment cannot satisfy the same background-read exit
 criteria because it can require focus, selection changes, and clipboard
-mutation. No safe fallback meets all v0.1.15 criteria. Therefore the milestone
+mutation. Its provider therefore fails closed unless an explicit headed
+acquisition port is configured and reports those side effects. No safe fallback meets all v0.1.15 criteria. Therefore the milestone
 is **BLOCKED**; do not implement #453/#454 as a forced private-runtime path,
 do not close #455, and do not claim milestone completion.
 

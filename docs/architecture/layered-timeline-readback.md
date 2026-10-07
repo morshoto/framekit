@@ -77,7 +77,9 @@ session, fixture, and semantic-media evidence cannot satisfy that capability.
 - The supported Apple Events / Workflow Extension baseline is reproduced by
   the [UI-free read capability probe](../final-cut/ui-free-read-capability-probe.md).
 - #452–#454 investigate, bridge, and provide the preferred background read path.
-- #416 decodes the private pasteboard payload as an experimental fallback.
+- #416 provides an experimental pasteboard observation boundary and decoder;
+  its default acquisition state is structured unavailable until an explicit
+  headed capture port is configured.
 - #417 normalizes and reconciles provider observations into Timeline IR.
 - #418 routes headed FCPXML export as an explicit canonical checkpoint.
 - #455 validates the background-read exit criteria on the supported Final Cut version.
