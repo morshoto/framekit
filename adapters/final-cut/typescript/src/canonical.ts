@@ -564,20 +564,9 @@ tell application "System Events"
           delay 0.2
           set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
           keystroke "g" using {command down, shift down}
-          delay 0.8
-          set pathField to missing value
-          try
-            if (count of sheets of saveWindow) > 0 then
-              set pathSheet to sheet 1 of saveWindow
-              set pathField to my findAccessibilityIdentifier(pathSheet, "PathTextField")
-            end if
-          end try
-          if pathField is not missing value then
-            set value of pathField to ${appleScriptString(exportDirectory)}
-          else
-            keystroke "a" using {command down}
-            keystroke ${appleScriptString(exportDirectory)}
-          end if
+          delay 1
+          keystroke "a" using {command down}
+          keystroke ${appleScriptString(exportDirectory)}
           delay 0.5
           key code 36
           delay 0.8
