@@ -147,9 +147,24 @@ test('release workflow validates the package before publishing', async () => {
 	const validation = workflow.indexOf(
 		'node scripts/validate-release-contract.mjs',
 	);
+	const ffmpegFixtureToolchain = workflow.indexOf(
+		'name: Install FFmpeg fixture toolchain',
+	);
+	const releaseGate = workflow.indexOf(
+		'pnpm run release-gate --output-dir',
+	);
 	const publication = workflow.indexOf('npm publish');
 
 	assert.notEqual(validation, -1);
+	assert.notEqual(ffmpegFixtureToolchain, -1);
+	assert.ok(
+		ffmpegFixtureToolchain < releaseGate,
+		'release gate must install its FFmpeg fixture dependency first',
+	);
+	assert.match(
+		workflow,
+		/name: Install FFmpeg fixture toolchain[\s\S]*?sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg/,
+	);
 	assert.ok(
 		validation < publication,
 		'release validation must run before npm publish',
