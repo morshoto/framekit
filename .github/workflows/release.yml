@@ -210,6 +210,9 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
+            - name: Install FFmpeg fixture toolchain
+              run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
+
             - name: Build release package
               run: pnpm run build:package
 
