@@ -165,6 +165,65 @@ test("local audio analysis rejects a source identity mismatch", async () => {
   );
 });
 
+test("media understanding rejects stale audio revisions instead of caching them", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async ({ project }) => ({
+        revision: { ...project.revision, timestamp: "2026-01-01T00:00:00.000Z" },
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+
+  const understanding = await runtime.understandMedia("media-semantic-1");
+  const audio = understanding.analysis.find((record) => record.capability === "audio");
+
+  assert.equal(audio?.status, "unavailable");
+  assert.match(audio?.reason ?? "", /ANALYSIS_STALE: audio analysis revision/);
+  assert.equal(understanding.audio, undefined);
+});
+
+test("audio analysis rejects a requested range outside the source duration", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: new FixtureAudioAnalyzer(),
+  });
+
+  await assert.rejects(
+    runtime.analyzeAudio("media-semantic-1", { start: 11, end: 15 }),
+    /ANALYSIS_INVALID: requested audio range must be finite, positive, and inside the source duration/,
+  );
+});
+
+test("post-write audio reanalysis rejects stale revisions before verification", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async ({ project }, range) => ({
+        revision: { ...project.revision, timestamp: "2026-01-01T00:00:00.000Z" },
+        measuredRange: range,
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+
+  await assert.rejects(
+    runtime.edit(
+      { type: "rename-clip", clipId: "clip-semantic-1", name: "Interview - Clean" },
+      { assertions: [{ type: "audio-loudness", mediaId: "media-semantic-1", targetLufs: -18 }] },
+    ),
+    /ANALYSIS_FAILED: post-write verification analysis failed \(Error: ANALYSIS_STALE: audio analysis revision/,
+  );
+
+  const restored = await runtime.inspectProject();
+  assert.equal(restored.timeline.clips[0]?.name, "Interview");
+});
+
 test("media understanding cache rejects changed source identities", async () => {
   for (const patch of [
     { sourceDigest: "sha256:replacement" },
