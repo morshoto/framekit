@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -10,7 +13,7 @@ import {
   FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
-import { AgentVideoRuntime, type MediaContext } from "@framekit/runtime";
+import { AgentVideoRuntime, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function textFrom(result: unknown): string {
@@ -522,4 +525,75 @@ test("command analyzer factory exposes independent metadata capability", () => {
 
   assert.equal(analyzers.metadataAnalyzer?.descriptor?.provider, "command");
   assert.equal(analyzers.metadataAnalyzer?.descriptor?.id, "command.metadata");
+});
+
+test("semantic media index persists source-bound understanding and reuses matching analyzer cache", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-semantic-index-"));
+  try {
+    const storePath = join(directory, "index.json");
+    const fixture = semanticFixture();
+    const delegate = new FixtureSpeechAnalyzer();
+    let calls = 0;
+    const analyzer = {
+      descriptor: delegate.descriptor,
+      capabilities: delegate.capabilities,
+      analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+        calls += 1;
+        return delegate.analyze(...args);
+      },
+    };
+    const first = new AgentVideoRuntime(fixture.adapter, {
+      speechAnalyzer: analyzer,
+      semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
+    });
+
+    await first.understandMedia("media-semantic-1");
+    assert.equal(calls, 1);
+
+    const reopened = new AgentVideoRuntime(fixture.adapter, {
+      speechAnalyzer: analyzer,
+      semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
+    });
+    await reopened.understandMedia("media-semantic-1");
+    assert.equal(calls, 1);
+    assert.equal((await reopened.indexMedia({ query: "hello" })).length, 1);
+
+    fixture.adapter.replaceMedia({ sourceDigest: "sha256:replacement" });
+    await reopened.understandMedia("media-semantic-1");
+    assert.equal(calls, 2);
+    const entries = await new JsonSemanticMediaIndexStore(storePath).list();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.sourceIdentity.sourceDigest, "sha256:replacement");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("semantic media index invalidates when analyzer provenance changes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-semantic-index-"));
+  try {
+    const storePath = join(directory, "index.json");
+    const fixture = semanticFixture();
+    let calls = 0;
+    const analyzer = (version: string) => ({
+      descriptor: { id: "fixture.speech", provider: "fixture", version },
+      capabilities: { transcription: true, vad: true },
+      analyze: async () => {
+        calls += 1;
+        return {
+          words: [{ text: "cached", start: 1, end: 2, confidence: 0.9 }],
+          vadSegments: [{ start: 1, end: 2, kind: "speech" as const, confidence: 0.9 }],
+        };
+      },
+    });
+    const store = new JsonSemanticMediaIndexStore(storePath);
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("1"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("2"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+
+    assert.equal(calls, 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

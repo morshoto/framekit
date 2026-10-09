@@ -154,6 +154,11 @@ export class MediaAnalysisService {
   public async understandMedia(mediaId: string): Promise<MediaUnderstanding> {
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
+    const cached = await this.loadCachedUnderstanding(project, media);
+    if (cached) {
+      this.context.attachMediaUnderstanding(cached);
+      return structuredClone(cached);
+    }
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
       settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
@@ -188,6 +193,7 @@ export class MediaAnalysisService {
       analysisRevision: project.revision,
     };
     this.context.attachMediaUnderstanding(understanding);
+    await this.options.semanticMediaIndexStore?.save(understanding);
     return structuredClone(understanding);
   }
 
@@ -202,13 +208,51 @@ export class MediaAnalysisService {
 
   public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
     const project = await this.project.inspectProject();
-    return this.indexFromProject(project, query);
+    const current = this.indexFromProject(project, query);
+    const persisted = await this.persistedIndexEntries(query);
+    return mergeIndexEntries(persisted, current);
   }
 
   public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
     const project = await this.project.inspectProject();
     const { maxShots: _maxShots, ...query } = request;
-    return planRoughCut(this.indexFromProject(project, query), project.revision, request);
+    const current = this.indexFromProject(project, query);
+    const persisted = await this.persistedIndexEntries(query);
+    return planRoughCut(mergeIndexEntries(persisted, current), project.revision, request);
+  }
+
+  private async loadCachedUnderstanding(
+    project: ProjectSnapshot,
+    media: MediaContext,
+  ): Promise<MediaUnderstanding | undefined> {
+    const store = this.options.semanticMediaIndexStore;
+    if (!store) return undefined;
+    const cached = await store.load(sourceIdentityOf(media));
+    if (!cached || !cacheMatchesAnalyzers(cached, this.options)) return undefined;
+    const rebound = structuredClone(cached);
+    const sourceIdentity = sourceIdentityOf(media);
+    rebound.sourceIdentity = sourceIdentity;
+    rebound.mediaId = media.mediaId;
+    rebound.source = media.source;
+    rebound.analysisRevision = structuredClone(project.revision);
+    if (rebound.speech) {
+      rebound.speech.mediaId = media.mediaId;
+      rebound.speech.sourceIdentity = sourceIdentity;
+      rebound.speech.revision = structuredClone(project.revision);
+    }
+    if (rebound.audio) {
+      rebound.audio.mediaId = media.mediaId;
+      rebound.audio.sourceIdentity = sourceIdentity;
+      rebound.audio.revision = structuredClone(project.revision);
+    }
+    return rebound;
+  }
+
+  private async persistedIndexEntries(query: MediaIndexQuery): Promise<MediaIndexEntry[]> {
+    const entries = await this.options.semanticMediaIndexStore?.list() ?? [];
+    return entries
+      .map(understandingToIndexEntry)
+      .filter((entry) => matchesMediaIndexQuery(entry, query));
   }
 
   private indexFromProject(project: ProjectSnapshot, query: MediaIndexQuery): MediaIndexEntry[] {
@@ -447,10 +491,14 @@ function mergeRanges(ranges: TimeRange[]): TimeRange[] {
   for (const range of [...ranges].sort((left, right) => left.start - right.start || left.end - right.end)) {
     const previous = merged[merged.length - 1];
     if (!previous || range.start > previous.end) {
-      merged.push({ start: range.start, end: range.end });
+      merged.push(structuredClone(range));
       continue;
     }
-    previous.end = Math.max(previous.end, range.end);
+    if (range.end > previous.end) {
+      previous.end = range.end;
+      delete previous.startTime;
+      delete previous.durationTime;
+    }
   }
   return merged;
 }
@@ -471,6 +519,11 @@ function semanticFromAnalyses(
   visual: VisualAnalysis | undefined,
   metadata: MetadataAnalysis | undefined,
 ): MediaSemanticDescription {
+  const usableRanges = mergeRanges([
+    ...(metadata?.usableRanges ?? []),
+    ...(visual?.scenes ?? []).map((scene) => ({ start: scene.start, end: scene.end })),
+    ...(speech?.vadSegments ?? []).filter((segment) => segment.kind === "speech").map((segment) => ({ start: segment.start, end: segment.end })),
+  ]);
   return {
     subjects: [
       ...(visual?.subjects ?? []).map((subject) => ({ value: subject.label, confidence: subject.confidence })),
@@ -484,7 +537,7 @@ function semanticFromAnalyses(
     timeOfDay: metadata?.timeOfDay ? structuredClone(metadata.timeOfDay) : [],
     moods: metadata?.moods ? structuredClone(metadata.moods) : [],
     ...(visual?.motion ? { motion: structuredClone(visual.motion) } : {}),
-    usableRanges: metadata?.usableRanges ? structuredClone(metadata.usableRanges) : [],
+    usableRanges,
     ...(speech ? { transcript: speech.words.map((word) => word.text).join(" ") } : {}),
     ...(audio ? {
       audio: {
@@ -496,6 +549,52 @@ function semanticFromAnalyses(
     } : {}),
   };
 }
+
+function understandingToIndexEntry(understanding: MediaUnderstanding): MediaIndexEntry {
+  return {
+    sourceIdentity: structuredClone(understanding.sourceIdentity),
+    semantic: structuredClone(understanding.semantic),
+    analysis: structuredClone(understanding.analysis),
+    analysisRevision: understanding.analysisRevision.id,
+  };
+}
+
+function mergeIndexEntries(
+  persisted: MediaIndexEntry[],
+  current: MediaIndexEntry[],
+): MediaIndexEntry[] {
+  const merged = new Map<string, MediaIndexEntry>();
+  for (const entry of [...persisted, ...current]) {
+    const key = JSON.stringify(entry.sourceIdentity);
+    const previous = merged.get(key);
+    if (!previous || indexEntryScore(entry) >= indexEntryScore(previous)) merged.set(key, structuredClone(entry));
+  }
+  return [...merged.values()].sort((left, right) => left.sourceIdentity.mediaId.localeCompare(right.sourceIdentity.mediaId));
+}
+
+function indexEntryScore(entry: MediaIndexEntry): number {
+  return entry.analysis.filter((record) => record.status === "analyzed").length
+    + entry.semantic.usableRanges.length
+    + (entry.semantic.transcript?.trim() ? 1 : 0);
+}
+
+function cacheMatchesAnalyzers(understanding: MediaUnderstanding, options: RuntimeOptions): boolean {
+  const configured: Array<[MediaAnalysisCapability, { descriptor?: AnalyzerDescriptor } | undefined]> = [
+    ["speech", options.speechAnalyzer],
+    ["audio", options.audioAnalyzer],
+    ["noise", options.noiseAnalyzer],
+    ["visual", options.visualAnalyzer],
+    ["metadata", options.metadataAnalyzer],
+  ];
+  return configured.every(([capability, analyzer]) => {
+    if (!analyzer) return true;
+    const record = understanding.analysis.find((candidate) => candidate.capability === capability);
+    return record?.status === "analyzed"
+      && record.provenance?.analyzer !== undefined
+      && sameDescriptor(record.provenance.analyzer, analyzer.descriptor ?? { id: `framekit.${capability}`, provider: "unknown" });
+  });
+}
+
 
 function emptySemanticDescription(): MediaSemanticDescription {
   return {
