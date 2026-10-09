@@ -26,7 +26,7 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { HeadlessProjectService } from "./headless-projects.js";
@@ -195,6 +195,7 @@ const editor = liveMode
     })
   : fixture;
 
+const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
 const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
@@ -212,8 +213,10 @@ const analyzers = liveMode
       metadataAnalyzer: new FixtureMetadataAnalyzer(),
     };
 
-const runtime = new AgentVideoRuntime(editor, analyzers);
-const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
+const runtime = new AgentVideoRuntime(editor, {
+  ...analyzers,
+  semanticMediaIndexStore: new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json")),
+});
 const headlessProjects = new HeadlessProjectService({
   directory: join(framekitStateDirectory, "projects"),
   mediaProbe: new FfmpegMediaMetadataProbe(),

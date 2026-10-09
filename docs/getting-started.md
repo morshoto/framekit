@@ -104,6 +104,13 @@ Speech wrapper setup and its
 revision-bound schema are documented in the [local speech analysis guide](./speech-analysis.md).
 The complete Final Cut provider setup is documented in the [Final Cut installation guide](./final-cut/installation.md).
 
+Successful source-media understanding is cached in the versioned local index
+`$FRAMEKIT_STATE_DIR/semantic-media-index.json` (default:
+`~/.framekit/semantic-media-index.json`). Entries are keyed by source identity,
+source digest, and analyzer provenance; a changed source or analyzer version
+causes a fresh analysis. The index is provider-neutral and does not launch
+Final Cut Pro.
+
 ## Connect Codex to Final Cut
 
 Install the signed Framekit Workflow Extension from a
