@@ -122,6 +122,8 @@ export interface MediaIndexEntry {
   sourceIdentity: MediaSourceIdentity;
   semantic: MediaSemanticDescription;
   analysis: MediaAnalysisStatus[];
+  speech?: SpeechAnalysis;
+  audio?: AudioAnalysis;
   analysisRevision?: string;
 }
 
@@ -148,6 +150,23 @@ export interface RoughCutShot {
   confidence: number;
   matchedProperties: string[];
   rationale: string;
+  evidence?: RoughCutSpeechEvidence;
+}
+
+export interface RoughCutSpeechEvidence {
+  kind: "speech";
+  transcript: string;
+  wordCount: number;
+  averageWordConfidence: number;
+  vad?: {
+    kind: SpeechSegmentKind;
+    confidence?: number;
+  };
+  audio?: {
+    integratedLufs?: number;
+    truePeakDb?: number;
+    silenceMs?: number;
+  };
 }
 
 export interface RoughCutPlan {

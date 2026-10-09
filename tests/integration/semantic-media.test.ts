@@ -412,6 +412,47 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.match(shot?.rationale ?? "", /subject "person"/);
 });
 
+test("rough-cut planning selects speech-first ranges and excludes silence", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({
+    metadata: { usableRanges: [] },
+    speech: {
+      words: [
+        { text: "setup", start: 0.5, end: 1, confidence: 0.8 },
+        { text: "highlight", start: 2, end: 2.5, confidence: 0.96 },
+        { text: "moment", start: 2.6, end: 3.1, confidence: 0.94 },
+      ],
+      vadSegments: [
+        { start: 0.5, end: 1, kind: "speech", confidence: 0.8 },
+        { start: 1, end: 2, kind: "silence", confidence: 0.99 },
+        { start: 2, end: 3.1, kind: "speech", confidence: 0.95 },
+      ],
+      silenceSegments: [{ start: 1, end: 2, kind: "silence" }],
+    },
+    audio: { integratedLufs: -18, truePeakDb: -1, silenceMs: 1000 },
+  });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: new FixtureAudioAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({ query: "highlight", maxShots: 10 });
+
+  assert.equal(plan.shots.length, 2);
+  assert.deepEqual(plan.shots[0]?.range, { start: 2, end: 3.1 });
+  assert.deepEqual(plan.shots[0]?.evidence, {
+    kind: "speech",
+    transcript: "highlight moment",
+    wordCount: 2,
+    averageWordConfidence: 0.95,
+    vad: { kind: "speech", confidence: 0.95 },
+    audio: { integratedLufs: -18, truePeakDb: -1, silenceMs: 1000 },
+  });
+  assert.match(plan.shots[0]?.rationale ?? "", /highlight moment/);
+  assert.equal(plan.shots.some((shot) => shot.range.start === 1), false);
+});
+
 test("rough-cut planning excludes audio-only media from shots", async () => {
   const fixture = semanticFixture();
   fixture.adapter.replaceMedia({ mediaKind: "audio" });

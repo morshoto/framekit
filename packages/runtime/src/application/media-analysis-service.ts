@@ -340,6 +340,12 @@ export class MediaAnalysisService {
           analysisStatus("visual", this.options.visualAnalyzer, sourceIdentityOf(media), false),
           analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentityOf(media), false),
         ],
+        ...(media.analysis?.some((record) => record.capability === "speech" && record.status === "analyzed") && media.speech
+          ? { speech: structuredClone(media.speech) }
+          : {}),
+        ...(media.analysis?.some((record) => record.capability === "audio" && record.status === "analyzed") && media.audio
+          ? { audio: structuredClone(media.audio) }
+          : {}),
         ...(media.analysisRevision ? { analysisRevision: media.analysisRevision } : {}),
       }))
       .filter((entry) => matchesMediaIndexQuery(entry, query));
@@ -751,6 +757,8 @@ function understandingToIndexEntry(understanding: MediaUnderstanding): MediaInde
     sourceIdentity: structuredClone(understanding.sourceIdentity),
     semantic: structuredClone(understanding.semantic),
     analysis: structuredClone(understanding.analysis),
+    ...(understanding.speech ? { speech: structuredClone(understanding.speech) } : {}),
+    ...(understanding.audio ? { audio: structuredClone(understanding.audio) } : {}),
     analysisRevision: understanding.analysisRevision.id,
   };
 }
