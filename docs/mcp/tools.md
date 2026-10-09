@@ -163,7 +163,7 @@ is a separate, confirmed `artifact.publish` step.
 | `media.search` | Search media references through configured filesystem discovery or canonical observation | Requires `observation.media`; background discovery is read-only and does not activate Final Cut; unavailable sessions return structured `CAPABILITY_UNAVAILABLE`; capable sessions may return `[]` |
 | `media.index` | Query analyzed media by semantic properties, capabilities, and usable ranges | Fixture or configured analyzer providers; unconfigured capabilities are explicit |
 | `speech.analyze` | Speech and filler analysis | Fixture or configured local JSON provider |
-| `audio.analyze` | Loudness, peak, and silence analysis | Fixture or configured local JSON provider |
+| `audio.analyze` | Source-range-bound loudness, peak, and silence analysis; omitted range analyzes the full known source | Fixture or configured local JSON provider; rejects ranges outside the source and stale or mismatched analyzer provenance |
 | `audio.noise.analyze` | Noise-floor analysis and affected ranges | Requires a configured noise analyzer |
 | `audio.noise.reduce.preview` | Preview a bounded noise-reduction adjustment for one audio occurrence | Requires noise analysis, native noise-reduction capability, and canonical transaction guarantees |
 | `audio.noise.reduce.execute` | Execute the noise preview and return post-write measurement verification/rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |

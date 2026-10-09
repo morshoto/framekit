@@ -52,11 +52,11 @@ export class MediaAnalysisService {
     return this.analyzeSpeechForProject(project, media, range);
   }
 
-  public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
+  public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
     if (!this.options.audioAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
     const project = await this.project.inspectProject();
     const media = findMedia(project, mediaId);
-    return this.options.audioAnalyzer.analyze({ project, media });
+    return this.analyzeAudioForProject(project, media, range);
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
@@ -77,19 +77,8 @@ export class MediaAnalysisService {
     const media = findMedia(project, mediaId);
     const sourceStart = clip.sourceStart ?? 0;
     const requestedRange = { start: sourceStart, end: sourceStart + clip.duration };
-    const analysis = await this.options.audioAnalyzer.analyze({ project, media }, requestedRange);
-    validateAudioProvenance(analysis, {
-      media,
-      mediaId,
-      project,
-      provider: this.options.audioAnalyzer.descriptor,
-      requestedRange,
-    });
-    const measuredRange = analysis.measuredRange ?? {
-      start: requestedRange.start,
-      end: requestedRange.start + (analysis.analyzedDurationSeconds ?? clip.duration),
-    };
-    validateAudioRange(measuredRange, requestedRange, "measured audio range");
+    const analysis = await this.analyzeAudioForProject(project, media, requestedRange);
+    const measuredRange = analysis.measuredRange ?? requestedRange;
     const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? measuredRange.end - measuredRange.start;
     if (Math.abs(analyzedDurationSeconds - (measuredRange.end - measuredRange.start)) > 0.000001) {
       throw new Error("ANALYSIS_INVALID: audio measured duration does not match its measured range");
@@ -168,7 +157,7 @@ export class MediaAnalysisService {
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
       settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
-      settle(() => this.options.audioAnalyzer?.analyze(input)),
+      settle(() => this.options.audioAnalyzer ? this.analyzeAudioForProject(project, media) : undefined),
       settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
       settle(() => this.options.metadataAnalyzer?.analyze(input)),
@@ -282,7 +271,7 @@ export class MediaAnalysisService {
         }
       }
       if (requirements.audio && this.options.audioAnalyzer) {
-        const analyses = await Promise.all(ranges.map((range) => this.options.audioAnalyzer!.analyze(input, range)));
+        const analyses = await Promise.all(ranges.map((range) => this.analyzeAudioForProject(next, media, range)));
         if (analyses[analyses.length - 1]) media.audio = analyses[analyses.length - 1];
       }
       if (requirements.noise && this.options.noiseAnalyzer) {
@@ -324,6 +313,46 @@ export class MediaAnalysisService {
       range,
       provider: analyzer.descriptor,
     });
+  }
+
+  private async analyzeAudioForProject(
+    project: ProjectSnapshot,
+    media: MediaContext,
+    range?: TimeRange,
+  ): Promise<AudioAnalysis> {
+    const analyzer = this.options.audioAnalyzer;
+    if (!analyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
+    const requestedRange = range ?? (media.duration === undefined ? undefined : { start: 0, end: media.duration });
+    validateRequestedAudioRange(requestedRange, media.duration, "requested audio range");
+    const analysis = await analyzer.analyze({ project, media }, requestedRange);
+    validateAudioProvenance(analysis, {
+      media,
+      mediaId: media.mediaId,
+      project,
+      provider: analyzer.descriptor,
+      requestedRange,
+    });
+    const measuredRange = analysis.measuredRange ?? (requestedRange ? structuredClone(requestedRange) : undefined);
+    if (measuredRange && requestedRange) validateAudioRange(measuredRange, requestedRange, "measured audio range");
+    if (measuredRange) validateRequestedAudioRange(measuredRange, media.duration, "measured audio source range");
+    const analyzedDurationSeconds = measuredRange
+      ? analysis.analyzedDurationSeconds ?? measuredRange.end - measuredRange.start
+      : analysis.analyzedDurationSeconds;
+    if (measuredRange && analyzedDurationSeconds !== undefined
+      && Math.abs(analyzedDurationSeconds - (measuredRange.end - measuredRange.start)) > 0.000001) {
+      throw new Error("ANALYSIS_INVALID: audio measured duration does not match its measured range");
+    }
+    return {
+      ...structuredClone(analysis),
+      schemaVersion: 1,
+      mediaId: media.mediaId,
+      sourceIdentity: sourceIdentityOf(media),
+      ...(requestedRange ? { requestedRange: structuredClone(requestedRange) } : {}),
+      ...(measuredRange ? { measuredRange: structuredClone(measuredRange) } : {}),
+      revision: structuredClone(project.revision),
+      provider: analysis.provider ?? analyzer.descriptor ?? { id: "framekit.audio", provider: "unknown" },
+      ...(analyzedDurationSeconds !== undefined ? { analyzedDurationSeconds } : {}),
+    };
   }
 }
 
@@ -569,7 +598,7 @@ function validateAudioProvenance(
     mediaId: string;
     project: ProjectSnapshot;
     provider?: AnalyzerDescriptor;
-    requestedRange: TimeRange;
+    requestedRange?: TimeRange;
   },
 ): void {
   if (analysis.schemaVersion !== undefined && analysis.schemaVersion !== 1) {
@@ -582,11 +611,12 @@ function validateAudioProvenance(
     && !sameMediaSourceIdentity(analysis.sourceIdentity, sourceIdentityOf(expected.media))) {
     throw new Error("TARGET_MISMATCH: audio analysis source identity does not match the requested media");
   }
-  if (analysis.requestedRange !== undefined && !sameRange(analysis.requestedRange, expected.requestedRange)) {
+  if (analysis.requestedRange !== undefined && expected.requestedRange !== undefined
+    && !sameRange(analysis.requestedRange, expected.requestedRange)) {
     throw new Error("ANALYSIS_INVALID: audio requested range does not match the runtime request");
   }
   if (analysis.revision !== undefined
-    && (analysis.revision.id !== expected.project.revision.id || analysis.revision.sequence !== expected.project.revision.sequence)) {
+    && !sameContextRevision(analysis.revision, expected.project.revision)) {
     throw new Error("ANALYSIS_STALE: audio analysis revision does not match the inspected project");
   }
   if (analysis.provider !== undefined && expected.provider !== undefined
@@ -596,10 +626,23 @@ function validateAudioProvenance(
 }
 
 function validateAudioRange(range: TimeRange, requested: TimeRange, label: string): void {
-  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)
-    || range.start < requested.start || range.end > requested.end || range.end <= range.start) {
+  validateRequestedAudioRange(range, undefined, label);
+  if (range.start < requested.start || range.end > requested.end) {
     throw new Error(`ANALYSIS_INVALID: ${label} must fit inside the requested occurrence range`);
   }
+}
+
+function validateRequestedAudioRange(range: TimeRange | undefined, duration: number | undefined, label: string): void {
+  if (!range) return;
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)
+    || range.start < 0 || range.end <= range.start
+    || (duration !== undefined && range.end > duration)) {
+    throw new Error(`ANALYSIS_INVALID: ${label} must be finite, positive, and inside the source duration`);
+  }
+}
+
+function sameContextRevision(left: { id: string; sequence: number; timestamp: string }, right: { id: string; sequence: number; timestamp: string }): boolean {
+  return left.id === right.id && left.sequence === right.sequence && left.timestamp === right.timestamp;
 }
 
 function sameRange(left: TimeRange, right: TimeRange): boolean {
