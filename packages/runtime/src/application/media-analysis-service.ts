@@ -17,6 +17,10 @@ import type {
   NoiseMeasurement,
   SpeechAnalysis,
   RevisionBoundSpeechAnalysis,
+  TimelineSemanticContext,
+  TimelineSemanticContextQuery,
+  TimelineSemanticObservation,
+  TimelineSemanticOccurrenceContext,
   VisualAnalysis,
 } from "../domain/media.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
@@ -219,6 +223,75 @@ export class MediaAnalysisService {
     const current = this.indexFromProject(project, query);
     const persisted = await this.persistedIndexEntries(query);
     return planRoughCut(mergeIndexEntries(persisted, current), project.revision, request);
+  }
+
+  public async inspectTimelineSemanticContext(
+    query: TimelineSemanticContextQuery = {},
+  ): Promise<TimelineSemanticContext> {
+    const project = await this.project.inspectProject();
+    const requestedOccurrenceIds = query.occurrenceIds ? new Set(query.occurrenceIds) : undefined;
+    const occurrences: TimelineSemanticOccurrenceContext[] = [];
+    for (const clip of project.timeline.clips) {
+      if (requestedOccurrenceIds && !requestedOccurrenceIds.has(clip.id)) continue;
+      const context = await this.inspectTimelineOccurrence(project, clip, query);
+      if (context.status === "available" || requestedOccurrenceIds || !query.query) {
+        if (!query.query || context.status === "unavailable" || context.observations.length > 0) {
+          occurrences.push(context);
+        }
+      }
+    }
+    return {
+      projectId: project.projectId,
+      timelineId: project.timeline.id,
+      revision: structuredClone(project.revision),
+      query: structuredClone(query),
+      occurrences,
+    };
+  }
+
+  private async inspectTimelineOccurrence(
+    project: ProjectSnapshot,
+    clip: ProjectSnapshot["timeline"]["clips"][number],
+    query: TimelineSemanticContextQuery,
+  ): Promise<TimelineSemanticOccurrenceContext> {
+    if (!clip.mediaId) return unavailableTimelineOccurrence(clip.id, "timeline occurrence has no media binding");
+    const media = project.media.find((candidate) => candidate.mediaId === clip.mediaId);
+    if (!media) return unavailableTimelineOccurrence(clip.id, `media binding is unavailable: ${clip.mediaId}`, clip.mediaId);
+    const sourceStart = clip.sourceStart ?? (clip.sourceStartTime ? rationalSeconds(clip.sourceStartTime) : 0);
+    const sourceDuration = clip.durationTime ? rationalSeconds(clip.durationTime) : clip.duration;
+    const sourceRange: TimeRange = {
+      start: sourceStart,
+      end: sourceStart + sourceDuration,
+      ...(clip.sourceStartTime ? { startTime: structuredClone(clip.sourceStartTime) } : {}),
+      durationTime: structuredClone(clip.durationTime),
+    };
+    if (!Number.isFinite(sourceRange.start) || !Number.isFinite(sourceRange.end) || sourceRange.start < 0 || sourceRange.end <= sourceRange.start) {
+      return unavailableTimelineOccurrence(clip.id, "timeline occurrence source range is invalid", clip.mediaId, sourceRange);
+    }
+    if (media.duration !== undefined && sourceRange.end > media.duration + 0.000001) {
+      return unavailableTimelineOccurrence(clip.id, "timeline occurrence source range exceeds media duration", clip.mediaId, sourceRange);
+    }
+
+    const sourceIdentity = sourceIdentityOf(media);
+    const understanding = await this.options.semanticMediaIndexStore?.load(sourceIdentity)
+      ?? understandingFromMediaContext(media, project.revision);
+    if (!understanding) {
+      return unavailableTimelineOccurrence(clip.id, "source-bound semantic index entry is unavailable", clip.mediaId, sourceRange, sourceIdentity);
+    }
+    const observations = timelineSemanticObservations(understanding, sourceRange);
+    const filtered = query.query
+      ? observations.filter((observation) => timelineObservationMatches(observation, query.query!))
+      : observations;
+    return {
+      occurrenceId: clip.id,
+      status: "available",
+      mediaId: clip.mediaId,
+      sourceIdentity: structuredClone(understanding.sourceIdentity),
+      sourceRange,
+      observations: filtered,
+      analysis: structuredClone(understanding.analysis),
+      analysisRevision: understanding.analysisRevision.id,
+    };
   }
 
   private async loadCachedUnderstanding(
@@ -548,6 +621,129 @@ function semanticFromAnalyses(
       },
     } : {}),
   };
+}
+
+function understandingFromMediaContext(
+  media: MediaContext,
+  revision: ProjectSnapshot["revision"],
+): MediaUnderstanding | undefined {
+  if (!media.semantic && !media.analysis && !media.speech && !media.visual && !media.metadata) return undefined;
+  const sourceIdentity = sourceIdentityOf(media);
+  return {
+    mediaId: media.mediaId,
+    source: media.source,
+    sourceIdentity,
+    ...(media.metadata ? { metadata: structuredClone(media.metadata) } : {}),
+    ...(media.speech ? { speech: structuredClone(media.speech) } : {}),
+    ...(media.audio ? { audio: structuredClone(media.audio) } : {}),
+    ...(media.noise ? { noise: structuredClone(media.noise) } : {}),
+    ...(media.visual ? { visual: structuredClone(media.visual) } : {}),
+    semantic: structuredClone(media.semantic ?? emptySemanticDescription()),
+    analysis: structuredClone(media.analysis ?? []),
+    analysisRevision: {
+      id: media.analysisRevision ?? revision.id,
+      sequence: revision.sequence,
+      timestamp: revision.timestamp,
+    },
+  };
+}
+
+function timelineSemanticObservations(
+  understanding: MediaUnderstanding,
+  sourceRange: TimeRange,
+): TimelineSemanticObservation[] {
+  const observations: TimelineSemanticObservation[] = [];
+  const analyzerFor = (capability: TimelineSemanticObservation["capability"]): AnalyzerDescriptor | undefined =>
+    understanding.analysis.find((status) => status.capability === capability)?.provenance?.analyzer;
+  for (const word of understanding.speech?.words ?? []) {
+    const range = intersectTimeRanges({ start: word.start, end: word.end }, sourceRange);
+    if (!range) continue;
+    observations.push({
+      capability: "speech",
+      range,
+      text: word.text,
+      confidence: word.confidence,
+      ...(analyzerFor("speech") ? { analyzer: structuredClone(analyzerFor("speech")) } : {}),
+    });
+  }
+  for (const scene of understanding.visual?.scenes ?? []) {
+    const range = intersectTimeRanges({ start: scene.start, end: scene.end }, sourceRange);
+    if (!range) continue;
+    observations.push({
+      capability: "visual",
+      range,
+      ...(scene.label ? { label: scene.label } : {}),
+      ...(scene.confidence !== undefined ? { confidence: scene.confidence } : {}),
+      ...(analyzerFor("visual") ? { analyzer: structuredClone(analyzerFor("visual")) } : {}),
+    });
+  }
+  for (const subject of understanding.visual?.subjects ?? []) {
+    const range = intersectTimeRanges({
+      start: subject.start ?? sourceRange.start,
+      end: subject.end ?? sourceRange.end,
+    }, sourceRange);
+    if (!range) continue;
+    observations.push({
+      capability: "visual",
+      range,
+      label: subject.label,
+      confidence: subject.confidence,
+      ...(analyzerFor("visual") ? { analyzer: structuredClone(analyzerFor("visual")) } : {}),
+    });
+  }
+  for (const range of understanding.metadata?.usableRanges ?? []) {
+    const clipped = intersectTimeRanges(range, sourceRange);
+    if (!clipped) continue;
+    observations.push({
+      capability: "metadata",
+      range: clipped,
+      ...(analyzerFor("metadata") ? { analyzer: structuredClone(analyzerFor("metadata")) } : {}),
+    });
+  }
+  return observations.sort((left, right) => left.range.start - right.range.start
+    || left.range.end - right.range.end
+    || left.capability.localeCompare(right.capability)
+    || (left.text ?? left.label ?? "").localeCompare(right.text ?? right.label ?? ""));
+}
+
+function intersectTimeRanges(left: TimeRange, right: TimeRange): TimeRange | undefined {
+  const start = Math.max(left.start, right.start);
+  const end = Math.min(left.end, right.end);
+  return start < end ? { start, end } : undefined;
+}
+
+function timelineObservationMatches(observation: TimelineSemanticObservation, query: string): boolean {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return [observation.text, observation.label]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value.toLocaleLowerCase().includes(normalized));
+}
+
+function unavailableTimelineOccurrence(
+  occurrenceId: string,
+  reason: string,
+  mediaId?: string,
+  sourceRange?: TimeRange,
+  sourceIdentity?: MediaSourceIdentity,
+): TimelineSemanticOccurrenceContext {
+  return {
+    occurrenceId,
+    status: "unavailable",
+    ...(mediaId ? { mediaId } : {}),
+    ...(sourceIdentity ? { sourceIdentity: structuredClone(sourceIdentity) } : {}),
+    ...(sourceRange ? { sourceRange: structuredClone(sourceRange) } : {}),
+    reason,
+    observations: [],
+    analysis: [],
+  };
+}
+
+function rationalSeconds(time: { value: string; timescale: string }): number {
+  const parsed = parseRational(time, "TIMELINE_SEMANTIC_CONTEXT_INVALID");
+  const seconds = Number(parsed.value) / Number(parsed.timescale);
+  if (!Number.isFinite(seconds)) throw new Error("TIMELINE_SEMANTIC_CONTEXT_INVALID: rational time is outside supported range");
+  return seconds;
 }
 
 function understandingToIndexEntry(understanding: MediaUnderstanding): MediaIndexEntry {

@@ -146,6 +146,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "timeline.export",
         "timeline.frame.capture",
         "timeline.inspect",
+        "timeline.semantic.inspect",
         "visual.analyze",
         "headless.project.create",
         "headless.project.list",

@@ -13,7 +13,7 @@ import {
   FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
-import { AgentVideoRuntime, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
+import { AgentVideoRuntime, InMemorySemanticMediaIndexStore, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function textFrom(result: unknown): string {
@@ -483,6 +483,36 @@ test("MCP exposes semantic indexing and rough-cut planning", async () => {
       arguments: { subject: "person", maxShots: 1 },
     });
     assert.equal(JSON.parse(textFrom(plan)).shots[0].sourceIdentity.sourceDigest, "sha256:interview");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP exposes source-range-bound timeline semantic context", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    semanticMediaIndexStore: new InMemorySemanticMediaIndexStore(),
+  });
+  await runtime.understandMedia("media-semantic-1");
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "timeline-semantic-context-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const context = JSON.parse(textFrom(await client.callTool({
+      name: "timeline.semantic.inspect",
+      arguments: { query: "hello" },
+    })));
+
+    assert.equal(context.occurrences.length, 1);
+    assert.equal(context.occurrences[0].status, "available");
+    assert.equal(context.occurrences[0].observations.some((observation: { text?: string }) => observation.text === "hello"), true);
   } finally {
     await client.close();
     await server.close();
