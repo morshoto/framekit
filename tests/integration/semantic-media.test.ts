@@ -438,6 +438,8 @@ test("rough-cut planning selects speech-first ranges and excludes silence", asyn
 
   await runtime.understandMedia("media-semantic-1");
   const plan = await runtime.planRoughCut({ query: "highlight", maxShots: 10 });
+  assert.equal((await runtime.indexMedia({ query: "highlight", range: { start: 2.2, end: 2.8 } })).length, 1);
+  assert.equal((await runtime.indexMedia({ query: "highlight", range: { start: 4, end: 5 } })).length, 0);
 
   assert.equal(plan.shots.length, 2);
   assert.deepEqual(plan.shots[0]?.range, { start: 2, end: 3.1 });

@@ -830,11 +830,20 @@ function matchesMediaIndexQuery(entry: MediaIndexEntry, query: MediaIndexQuery):
   if (query.timeOfDay && !matchesTag(entry.semantic.timeOfDay, query.timeOfDay)) return false;
   if (query.mood && !matchesTag(entry.semantic.moods, query.mood)) return false;
   if (query.motion && entry.semantic.motion?.label !== query.motion) return false;
-  if (query.range && !entry.semantic.usableRanges.some((range) => range.end > query.range!.start && range.start < query.range!.end)) return false;
+  if (query.range && !indexEntryRanges(entry).some((range) => range.end > query.range!.start && range.start < query.range!.end)) return false;
   if (query.capabilities?.some((capability) => !entry.analysis.some((record) => record.capability === capability && record.status !== "unavailable"))) {
     return false;
   }
   return true;
+}
+
+function indexEntryRanges(entry: MediaIndexEntry): TimeRange[] {
+  const speechRanges = entry.speech?.vadSegments
+    ?.filter((segment) => segment.kind === "speech")
+    .map(({ start, end }) => ({ start, end }))
+    ?? entry.speech?.words.map(({ start, end }) => ({ start, end }))
+    ?? [];
+  return [...entry.semantic.usableRanges, ...speechRanges];
 }
 
 function matchesTag(tags: Array<{ value: string }>, query: string): boolean {
