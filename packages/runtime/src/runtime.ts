@@ -37,6 +37,8 @@ import type {
   TimelineChangesRequest,
   TimelineChangesResult,
   TimelineFrameCapture,
+  TimelineSemanticContext,
+  TimelineSemanticContextQuery,
   TimeRange,
   VerificationPolicy,
   VisualAnalysis,
@@ -303,6 +305,12 @@ export class AgentVideoRuntime {
 
   public async planRoughCut(request: SemanticRoughCutPlanRequest): Promise<SemanticRoughCutPlan> {
     return this.media.planRoughCut(request);
+  }
+
+  public async inspectTimelineSemanticContext(
+    query: TimelineSemanticContextQuery = {},
+  ): Promise<TimelineSemanticContext> {
+    return this.media.inspectTimelineSemanticContext(query);
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

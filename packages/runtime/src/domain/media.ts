@@ -161,6 +161,40 @@ export interface RoughCutPlan {
   warnings: string[];
 }
 
+export interface TimelineSemanticContextQuery {
+  query?: string;
+  occurrenceIds?: string[];
+}
+
+export interface TimelineSemanticObservation {
+  capability: "speech" | "visual" | "metadata";
+  range: TimeRange;
+  text?: string;
+  label?: string;
+  confidence?: number;
+  analyzer?: AnalyzerDescriptor;
+}
+
+export interface TimelineSemanticOccurrenceContext {
+  occurrenceId: string;
+  status: "available" | "unavailable";
+  mediaId?: string;
+  sourceIdentity?: MediaSourceIdentity;
+  sourceRange?: TimeRange;
+  reason?: string;
+  observations: TimelineSemanticObservation[];
+  analysis: MediaAnalysisStatus[];
+  analysisRevision?: string;
+}
+
+export interface TimelineSemanticContext {
+  projectId: string;
+  timelineId: string;
+  revision: ContextRevision;
+  query: TimelineSemanticContextQuery;
+  occurrences: TimelineSemanticOccurrenceContext[];
+}
+
 export interface SpeechAnalysis {
   /** Provenance fields are optional for backwards-compatible provider ports. */
   schemaVersion?: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;

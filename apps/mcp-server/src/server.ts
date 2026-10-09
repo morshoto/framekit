@@ -104,6 +104,10 @@ const mediaIndexQuerySchema = z.object({
   range: rangeSchema.optional(),
   capabilities: z.array(z.enum(["metadata", "speech", "audio", "noise", "visual"])).optional(),
 });
+const timelineSemanticContextQuerySchema = z.object({
+  query: z.string().optional(),
+  occurrenceIds: z.array(z.string().min(1)).optional(),
+}).strict();
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
 });
@@ -1945,6 +1949,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
     try {
       return jsonResult(await runtime.inspectTimeline());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
+
+  server.registerTool("timeline.semantic.inspect", {
+    description: "Enrich timeline occurrences with source-range-bound semantic speech, visual, and metadata context without mutating the timeline.",
+    inputSchema: timelineSemanticContextQuerySchema.shape,
+  }, async (query) => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) {
+      return capabilityErrorResult("timeline.semantic.inspect", "canonicalDocument.read", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectTimelineSemanticContext(query));
     } catch (error) {
       return capabilityUnavailableErrorResult(error);
     }

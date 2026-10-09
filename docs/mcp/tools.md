@@ -151,6 +151,7 @@ is a separate, confirmed `artifact.publish` step.
 | `timeline.mask.add.preview` | Preview a rectangle or supplied-alpha mask for an explicit project, sequence, revision, and occurrence | Non-mutating; requires `editor.masking` and canonical transaction guarantees |
 | `timeline.mask.add.execute` | Execute one mask preview token and verify the requested mask state | Requires an unexpired, single-use preview token; person cutout remains unavailable |
 | `timeline.inspect` | Canonical timeline snapshot, or a session-bound baseline/resync when `sessionId` is supplied | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge; `requestedCanonical` and `finalVerification` force a canonical checkpoint |
+| `timeline.semantic.inspect` | Source-range-bound speech, visual, and metadata observations for timeline occurrences | Read-only; requires canonical timeline observation and an exact source-bound semantic index entry |
 | `timeline.frame.capture` | Image at an exact rational timeline position, with timecode and timeline metadata; optional visual analysis | Deterministic fixture; other backends fail with `CAPABILITY_UNAVAILABLE` until a capture provider is configured |
 | `timeline.changes` | Canonical timeline diff with stable IDs, source/revision provenance, exact rational timing, and deterministic before/after values | Fixture/FCPXML-backed session or a canonical-capable live Final Cut bridge |
 | `speech.filler.remove.preview` | Analyze a selected canonical timeline range and preview high-confidence filler removal with safe rational ranges | Requires speech analysis, canonical timeline snapshot/write, read-after-write, and rollback |
@@ -413,6 +414,17 @@ excluded from the shots and reported in `warnings`. Each shot includes its exact
 source identity, usable range, confidence, matched properties, and rationale.
 The planner is read-only; it produces planning data and does not add clips to a
 timeline.
+
+`timeline.semantic.inspect` joins each current timeline occurrence to an exact
+source identity and source range. It clips transcript words, visual scenes, and
+subjects to that occurrence range, preserves analyzer descriptors and
+confidence, and returns the timeline revision separately from semantic analysis
+revision/provenance. Repeated uses of one source therefore receive independent
+context. Missing media bindings, out-of-bounds ranges, and source-digest
+mismatches return explicit unavailable occurrences rather than filename-based
+guesses. Supplying `query` performs a read-only search over transcript text and
+visual labels; `occurrenceIds` can request unavailable diagnostics for selected
+occurrences.
 
 Range-taking analysis and planning tools require `end` to be greater than
 `start`. An invalid range returns an MCP input-validation error before the tool
