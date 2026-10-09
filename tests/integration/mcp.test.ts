@@ -157,6 +157,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "headless.edit.execute",
         "headless.render",
         "headless.render.inspect",
+        "headless.rough-cut.execute",
+        "headless.rough-cut.preview",
       ].sort(),
     );
     const nativeMaskPreviewTool = tools.tools.find((tool) => tool.name === "editor.native.mask.preview");

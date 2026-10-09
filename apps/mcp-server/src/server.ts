@@ -19,6 +19,7 @@ import {
   type EditTransaction,
   type EditTarget,
   type RuntimeCapabilities,
+  type RoughCutPlan,
   type TimelineFrameCapture,
   type TimelineIr,
   type TimelineIrEditOperation,
@@ -58,7 +59,11 @@ import {
   SessionMaterializationJobs,
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
-import { HeadlessProjectService } from "./headless-projects.js";
+import {
+  HeadlessProjectService,
+  type HeadlessRoughCutExecutionRequest,
+  type HeadlessRoughCutRequest,
+} from "./headless-projects.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
@@ -1315,6 +1320,67 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     overwrite: z.boolean().optional(),
   }).strict();
 
+  const roughCutExecutionPlanSchema = z.object({
+    planner: z.object({ id: z.string().min(1), version: z.number().int().nonnegative() }).strict(),
+    revision: revisionValueSchema,
+    query: z.record(z.unknown()),
+    shots: z.array(z.object({
+      order: z.number().int().positive(),
+      sourceIdentity: z.object({
+        mediaId: z.string().min(1),
+        source: z.string().min(1),
+        sourceDigest: z.string().optional(),
+        mediaKind: z.enum(["video", "audio"]).optional(),
+        duration: z.number().finite().positive().optional(),
+      }).strict(),
+      range: z.object({
+        start: z.number().finite().nonnegative(),
+        end: z.number().finite().positive(),
+        startTime: rationalTimeSchema.optional(),
+        durationTime: rationalTimeSchema.optional(),
+      }).strict(),
+      confidence: z.number().finite().nonnegative(),
+      matchedProperties: z.array(z.string()),
+      rationale: z.string().min(1),
+      evidence: z.object({
+        kind: z.literal("speech"),
+        transcript: z.string(),
+        wordCount: z.number().int().nonnegative(),
+        averageWordConfidence: z.number().finite().min(0).max(1),
+        vad: z.object({
+          kind: z.enum(["speech", "silence", "breath", "laughter", "noise"]),
+          confidence: z.number().finite().min(0).max(1).optional(),
+        }).strict().optional(),
+        audio: z.object({
+          integratedLufs: z.number().finite().optional(),
+          truePeakDb: z.number().finite().optional(),
+          silenceMs: z.number().finite().nonnegative().optional(),
+        }).strict().optional(),
+      }).strict().optional(),
+    }).strict()),
+    warnings: z.array(z.string()),
+  }).strict();
+  const headlessFcpxmlTargetSchema = z.object({
+    provider: z.literal("final-cut"),
+    libraryUid: z.string().min(1),
+    eventUid: z.string().min(1),
+    projectUid: z.string().min(1),
+    sequenceUid: z.string().min(1),
+    eventName: z.string().min(1).optional(),
+    materialization: z.enum(["versioned", "reuse-existing"]).optional(),
+  }).strict();
+  const headlessRoughCutRequestSchema = z.object({
+    projectId: z.string().min(1),
+    sequenceId: z.string().min(1),
+    plan: roughCutExecutionPlanSchema,
+    render: headlessRenderParametersSchema,
+    fcpxml: z.object({
+      path: z.string().min(1),
+      target: headlessFcpxmlTargetSchema,
+      overwrite: z.boolean().optional(),
+    }).strict(),
+  }).strict();
+
   server.registerTool("headless.render", {
     description: "Render and independently verify one immutable Framekit revision without launching an NLE.",
     inputSchema: {
@@ -1324,6 +1390,20 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       parameters: headlessRenderParametersSchema,
     },
   }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
+
+  server.registerTool("headless.rough-cut.preview", {
+    description: "Preview an approved semantic rough-cut plan as guarded Timeline IR operations, source provenance, and FCPXML output intent without mutation.",
+    inputSchema: headlessRoughCutRequestSchema.shape,
+  }, async (request) => sessionResult(() => requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest)));
+
+  server.registerTool("headless.rough-cut.execute", {
+    description: "Execute an explicitly approved semantic rough-cut plan headlessly, verify MP4 output, and write equivalent editable FCPXML.",
+    inputSchema: {
+      ...headlessRoughCutRequestSchema.shape,
+      approved: z.boolean(),
+      planDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    },
+  }, async (request) => sessionResult(() => requireHeadlessProjects().executeRoughCut(request as unknown as HeadlessRoughCutExecutionRequest)));
 
   server.registerTool("headless.render.inspect", {
     description: "Inspect a persisted headless render record, provenance, and independent verification evidence.",

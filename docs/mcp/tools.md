@@ -10,7 +10,11 @@ For a Framekit-owned project, use the headless path by default:
    edit surface as one headless capability.
 2. Confirm `selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"`.
 3. Use `headless.project.open` or `headless.project.inspect`, then
-   `headless.edit.preview` and `headless.edit.execute`.
+   `headless.edit.preview` and `headless.edit.execute`. For semantic rough cuts,
+   pass the read-only `rough-cut.plan` result to
+   `headless.rough-cut.preview`, review its provenance and output intent, then
+   call `headless.rough-cut.execute` with the returned plan digest and explicit
+   approval.
 4. Reopen/inspect the exact revision before `headless.render`, then inspect
    its independent verification record.
 
@@ -88,6 +92,7 @@ is a separate, confirmed `artifact.publish` step.
 | `headless.media.register` | Register a local source by stable path, digest, and ffprobe metadata | Read-only source handling; persists only canonical project metadata |
 | `headless.edit.preview` / `headless.edit.execute` | Preview or commit Timeline IR operations against an expected revision | Headless SSoT path; stale and unsupported operations fail closed |
 | `headless.render` / `headless.render.inspect` | Render a selected canonical revision and inspect its independent verification record | External renderer is explicit and never a native/UI fallback |
+| `headless.rough-cut.preview` / `headless.rough-cut.execute` | Map an explainable semantic rough-cut plan to guarded Timeline IR operations, then render a verified MP4 and editable FCPXML after approval | Exact source identity/ranges, plan digest, revision guard, and independent artifact verification are required; Final Cut is not contacted |
 | `editing.duration.plan` | Compare requested duration with usable footage and return explicit editorial alternatives | Read-only; ambiguous duration requests default to a soft constraint; reuse, slow motion, and generated assets are never implicit |
 | `editor.native.inspect` | Passive native Final Cut readiness, selection/playhead, and UI focus diagnostics | Requires native writes opt-in and Accessibility permission; does not activate or focus Final Cut |
 | `editor.native.focus` | Explicitly activate Final Cut and focus the timeline without editing | Bounded retry; returns readiness diagnostics on failure |

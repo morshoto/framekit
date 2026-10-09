@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, rm } from "node:fs/promises";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -154,6 +154,95 @@ test("headless project open fails closed when local media has no metadata probe"
       error instanceof Error
       && error.message.startsWith("HEADLESS_MEDIA_PROBE_UNAVAILABLE:")
     ));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless rough-cut preview and execution preserve provenance and produce verified artifacts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-rough-cut-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    const service = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer(),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    const created = await service.create(emptyTimeline());
+    const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
+    const source = registered.resource;
+    const plan = {
+      planner: { id: "framekit.rough-cut", version: 1 },
+      revision: registered.project.timeline.revision,
+      query: { query: "speech" },
+      shots: [{
+        order: 1,
+        sourceIdentity: {
+          mediaId: source.id,
+          source: source.source!,
+          sourceDigest: source.sourceDigest!,
+          mediaKind: "video" as const,
+          duration: 2,
+        },
+        range: { start: 0.25, end: 1.25 },
+        confidence: 0.91,
+        matchedProperties: ["query:speech"],
+        rationale: "contains the approved speech highlight",
+      }],
+      warnings: [],
+    };
+    const request = {
+      projectId: created.timeline.project.id,
+      sequenceId: created.timeline.sequence.id,
+      plan,
+      render: {
+        outputPath: join(directory, "rough-cut.mp4"),
+        format: "mp4" as const,
+        width: 320,
+        height: 180,
+        frameRate: { value: "30", timescale: "1" },
+      },
+      fcpxml: {
+        path: join(directory, "rough-cut.fcpxml"),
+        target: {
+          provider: "final-cut" as const,
+          libraryUid: "library-v017",
+          eventUid: "event-v017",
+          projectUid: "project-v017",
+          sequenceUid: "sequence-v017",
+        },
+      },
+    };
+    const preview = await service.previewRoughCut(request);
+    assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
+    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "1", timescale: "4" });
+    assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");
+    assert.equal(preview.provenance[0]?.rationale, "contains the approved speech highlight");
+    assert.equal(preview.outputIntent.fcpxml.target.projectUid, "project-v017");
+    await assert.rejects(
+      service.executeRoughCut({ ...request, approved: false, planDigest: preview.planDigest }),
+      /HEADLESS_ROUGH_CUT_APPROVAL_REQUIRED:/,
+    );
+    await assert.rejects(
+      service.executeRoughCut({ ...request, approved: true, planDigest: "0".repeat(64) }),
+      /HEADLESS_ROUGH_CUT_PLAN_MISMATCH:/,
+    );
+    await assert.rejects(
+      service.previewRoughCut({ ...request, plan: { ...plan, revision: { ...plan.revision, sequence: plan.revision.sequence + 1 } } }),
+      /HEADLESS_ROUGH_CUT_STALE_REVISION:/,
+    );
+    await assert.rejects(
+      service.previewRoughCut({ ...request, plan: { ...plan, shots: [{ ...plan.shots[0]!, sourceIdentity: { ...plan.shots[0]!.sourceIdentity, sourceDigest: "f".repeat(64) } }] } }),
+      /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
+    );
+
+    const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    assert.equal(executed.committed, true);
+    assert.equal(executed.render.status, "passed");
+    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.match(await readFile(request.fcpxml.path, "utf8"), /start="1\/4s"/);
+    assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
