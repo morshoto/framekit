@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.1.17](https://github.com/morshoto/framekit/compare/v0.1.16...v0.1.17) - 2026-10-09
+
+### Feature changes
+- fix: bind every local audio analysis result by @morshoto in https://github.com/morshoto/framekit/pull/507
+- feat: persist semantic media index by @morshoto in https://github.com/morshoto/framekit/pull/508
+- feat: add local Whisper speech backend by @morshoto in https://github.com/morshoto/framekit/pull/509
+- feat: expose source-range-bound timeline semantic context by @morshoto in https://github.com/morshoto/framekit/pull/510
+- feat: execute approved semantic rough cuts headlessly by @morshoto in https://github.com/morshoto/framekit/pull/511
+- feat: make rough-cut selection speech-first by @morshoto in https://github.com/morshoto/framekit/pull/514
+- test: validate v0.1.17 semantic media workflow by @morshoto in https://github.com/morshoto/framekit/pull/515
+### Patch changes
+- fix: install ffmpeg for release gate by @morshoto in https://github.com/morshoto/framekit/pull/503
+- fix: suppress background Final Cut relaunch by @morshoto in https://github.com/morshoto/framekit/pull/513
+
 ## [v0.1.16](https://github.com/morshoto/framekit/compare/v0.1.15...v0.1.16) - 2026-10-07
 
 ### Feature changes
