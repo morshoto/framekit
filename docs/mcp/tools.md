@@ -177,7 +177,7 @@ is a separate, confirmed `artifact.publish` step.
 | `color.correction.execute` | Execute the color preview and return before/after diff, verification, and rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
 | `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
-| `rough-cut.plan` | Explainable read-only shot plan from semantic media ranges | Requires analyzed usable ranges; never mutates the timeline |
+| `rough-cut.plan` | Explainable read-only, speech-first shot plan from semantic media ranges | Uses analyzed VAD speech intervals or transcript word ranges before metadata-only ranges; returns exact source identity, evidence, and rationale; never mutates the timeline |
 | `editor.assets` | Search editor assets by text, kind, vendor, and explicit discovery mode; IDs are provider-qualified and include discovery provenance | `discovery: "background"` is the default filesystem registry; `discovery: "native"` explicitly requires Accessibility and Final Cut frontmost; `discovery: "all"` composes both |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
@@ -410,15 +410,20 @@ missing modality.
 
 `media.index` searches the attached, provenance-aware descriptions. Filters can
 match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free text,
-overlapping usable `range`, and required analyzer `capabilities`. Every analyzed
-status carries the analyzer ID/provider and source identity used to produce it.
+overlapping semantic or analyzed speech `range`, and required analyzer
+`capabilities`. Every analyzed status carries the analyzer ID/provider and source
+identity used to produce it.
 
 `rough-cut.plan` consumes the same index and returns deterministic video shots
-sorted by media ID and source range. Audio-only entries with usable ranges are
-excluded from the shots and reported in `warnings`. Each shot includes its exact
-source identity, usable range, confidence, matched properties, and rationale.
-The planner is read-only; it produces planning data and does not add clips to a
-timeline.
+sorted by query relevance, media ID, and source range. When speech evidence is
+available, speech VAD intervals (or grouped transcript word ranges) are selected
+first and silence intervals are excluded. Each shot includes its exact source
+identity, source range, confidence, matched properties, rationale, and optional
+speech evidence with transcript, word confidence, VAD, and loudness metadata.
+Audio-only entries with usable ranges are excluded from the shots and reported in
+`warnings`. The planner is read-only; it produces planning data and does not add
+clips to a timeline. Metadata-only usable ranges remain a compatibility fallback
+when speech analysis is unavailable.
 
 `timeline.semantic.inspect` joins each current timeline occurrence to an exact
 source identity and source range. It clips transcript words, visual scenes, and
