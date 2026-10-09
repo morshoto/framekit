@@ -1,6 +1,6 @@
 {
   "name": "@morshoto/framekit",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "packageManager": "pnpm@12.5.1",
   "private": false,
   "type": "module",
