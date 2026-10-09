@@ -57,6 +57,11 @@ export interface FinalCutConnectionOptions {
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
+export interface FinalCutEnsureConnectedOptions {
+  /** Background lifecycle probes must never reopen an editor the user quit. */
+  allowEditorLaunch?: boolean;
+}
+
 export interface CanonicalProviderConfiguration {
   required: boolean;
   fcpxmlPath?: string;
@@ -165,8 +170,8 @@ export class FinalCutConnectionManager {
 
   public startAutoConnect(): void {
     if (this.interval) return;
-    void this.ensureConnected();
-    this.interval = setInterval(() => void this.ensureConnected(), this.pollIntervalMs);
+    void this.ensureConnected({ allowEditorLaunch: false });
+    this.interval = setInterval(() => void this.ensureConnected({ allowEditorLaunch: false }), this.pollIntervalMs);
   }
 
   public stopAutoConnect(): void {
@@ -174,15 +179,15 @@ export class FinalCutConnectionManager {
     this.interval = undefined;
   }
 
-  public async ensureConnected(): Promise<FinalCutConnectionStatus> {
+  public async ensureConnected(options: FinalCutEnsureConnectedOptions = {}): Promise<FinalCutConnectionStatus> {
     if (this.attempt) return this.attempt;
-    this.attempt = this.connect().finally(() => {
+    this.attempt = this.connect(options.allowEditorLaunch ?? true).finally(() => {
       this.attempt = undefined;
     });
     return this.attempt;
   }
 
-  private async connect(): Promise<FinalCutConnectionStatus> {
+  private async connect(allowEditorLaunch: boolean): Promise<FinalCutConnectionStatus> {
     try {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
@@ -208,6 +213,13 @@ export class FinalCutConnectionManager {
       const editorDetected = await this.detectFinalCut();
       this.update({ editorDetected });
       if (!editorDetected) {
+        if (!allowEditorLaunch) {
+          return this.fail(
+            "FINAL_CUT_AUTO_LAUNCH_SUPPRESSED",
+            "Final Cut Pro is not running; background reconnect will not reopen an explicitly closed editor",
+            "needs-user-action",
+          );
+        }
         this.update({ state: "launching" });
         await this.launchFinalCut();
         const deadline = Date.now() + Math.min(5_000, this.startupTimeoutMs);
