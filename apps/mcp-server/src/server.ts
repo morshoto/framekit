@@ -1342,6 +1342,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       confidence: z.number().finite().nonnegative(),
       matchedProperties: z.array(z.string()),
       rationale: z.string().min(1),
+      evidence: z.object({
+        kind: z.literal("speech"),
+        transcript: z.string(),
+        wordCount: z.number().int().nonnegative(),
+        averageWordConfidence: z.number().finite().min(0).max(1),
+        vad: z.object({
+          kind: z.enum(["speech", "silence", "breath", "laughter", "noise"]),
+          confidence: z.number().finite().min(0).max(1).optional(),
+        }).strict().optional(),
+        audio: z.object({
+          integratedLufs: z.number().finite().optional(),
+          truePeakDb: z.number().finite().optional(),
+          silenceMs: z.number().finite().nonnegative().optional(),
+        }).strict().optional(),
+      }).strict().optional(),
     }).strict()),
     warnings: z.array(z.string()),
   }).strict();

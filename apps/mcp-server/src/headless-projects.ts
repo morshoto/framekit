@@ -79,7 +79,28 @@ export interface HeadlessRoughCutShotProvenance {
   confidence: number;
   matchedProperties: string[];
   rationale: string;
+  evidence?: HeadlessRoughCutSpeechEvidence;
 }
+
+interface HeadlessRoughCutSpeechEvidence {
+  kind: "speech";
+  transcript: string;
+  wordCount: number;
+  averageWordConfidence: number;
+  vad?: {
+    kind: "speech" | "silence" | "breath" | "laughter" | "noise";
+    confidence?: number;
+  };
+  audio?: {
+    integratedLufs?: number;
+    truePeakDb?: number;
+    silenceMs?: number;
+  };
+}
+
+type RoughCutShotWithEvidence = RoughCutPlan["shots"][number] & {
+  evidence?: HeadlessRoughCutSpeechEvidence;
+};
 
 export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   plan: RoughCutPlan;
@@ -326,6 +347,7 @@ export class HeadlessProjectService {
     const provenance: HeadlessRoughCutShotProvenance[] = [];
     const operations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
+      const shotWithEvidence = shot as RoughCutShotWithEvidence;
       const occurrenceId = `rough-cut-${shot.order}`;
       if (existingOccurrenceIds.has(occurrenceId)) {
         throw new Error(`HEADLESS_ROUGH_CUT_OCCURRENCE_COLLISION: ${occurrenceId} already exists`);
@@ -361,6 +383,7 @@ export class HeadlessProjectService {
         confidence: shot.confidence,
         matchedProperties: [...shot.matchedProperties],
         rationale: shot.rationale,
+        ...(shotWithEvidence.evidence ? { evidence: structuredClone(shotWithEvidence.evidence) } : {}),
       });
     }
     const command: ProjectEditCommand = {
