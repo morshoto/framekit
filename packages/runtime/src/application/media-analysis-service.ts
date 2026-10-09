@@ -340,6 +340,12 @@ export class MediaAnalysisService {
           analysisStatus("visual", this.options.visualAnalyzer, sourceIdentityOf(media), false),
           analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentityOf(media), false),
         ],
+        ...(media.analysis?.some((record) => record.capability === "speech" && record.status === "analyzed") && media.speech
+          ? { speech: structuredClone(media.speech) }
+          : {}),
+        ...(media.analysis?.some((record) => record.capability === "audio" && record.status === "analyzed") && media.audio
+          ? { audio: structuredClone(media.audio) }
+          : {}),
         ...(media.analysisRevision ? { analysisRevision: media.analysisRevision } : {}),
       }))
       .filter((entry) => matchesMediaIndexQuery(entry, query));
@@ -751,6 +757,8 @@ function understandingToIndexEntry(understanding: MediaUnderstanding): MediaInde
     sourceIdentity: structuredClone(understanding.sourceIdentity),
     semantic: structuredClone(understanding.semantic),
     analysis: structuredClone(understanding.analysis),
+    ...(understanding.speech ? { speech: structuredClone(understanding.speech) } : {}),
+    ...(understanding.audio ? { audio: structuredClone(understanding.audio) } : {}),
     analysisRevision: understanding.analysisRevision.id,
   };
 }
@@ -822,11 +830,20 @@ function matchesMediaIndexQuery(entry: MediaIndexEntry, query: MediaIndexQuery):
   if (query.timeOfDay && !matchesTag(entry.semantic.timeOfDay, query.timeOfDay)) return false;
   if (query.mood && !matchesTag(entry.semantic.moods, query.mood)) return false;
   if (query.motion && entry.semantic.motion?.label !== query.motion) return false;
-  if (query.range && !entry.semantic.usableRanges.some((range) => range.end > query.range!.start && range.start < query.range!.end)) return false;
+  if (query.range && !indexEntryRanges(entry).some((range) => range.end > query.range!.start && range.start < query.range!.end)) return false;
   if (query.capabilities?.some((capability) => !entry.analysis.some((record) => record.capability === capability && record.status !== "unavailable"))) {
     return false;
   }
   return true;
+}
+
+function indexEntryRanges(entry: MediaIndexEntry): TimeRange[] {
+  const speechRanges = entry.speech?.vadSegments
+    ?.filter((segment) => segment.kind === "speech")
+    .map(({ start, end }) => ({ start, end }))
+    ?? entry.speech?.words.map(({ start, end }) => ({ start, end }))
+    ?? [];
+  return [...entry.semantic.usableRanges, ...speechRanges];
 }
 
 function matchesTag(tags: Array<{ value: string }>, query: string): boolean {
