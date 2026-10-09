@@ -130,6 +130,44 @@ test("headless connection probes an existing bridge without launching or activat
   assert.deepEqual(events, []);
 });
 
+test("background reconnect never relaunches Final Cut after an explicit quit", async () => {
+  const events: string[] = [];
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    pollIntervalMs: 1,
+    startupTimeoutMs: 10,
+    detectFinalCut: async () => false,
+    launchFinalCut: async () => { events.push("launch"); },
+    probe: async () => { throw new Error("socket missing"); },
+    sleep: async () => {},
+  });
+
+  manager.startAutoConnect();
+  const status = await manager.ensureConnected({ allowEditorLaunch: false });
+  manager.stopAutoConnect();
+
+  assert.deepEqual(events, []);
+  assert.equal(status.lastError?.code, "FINAL_CUT_AUTO_LAUNCH_SUPPRESSED");
+});
+
+test("explicit connection requests may still launch Final Cut", async () => {
+  let detected = false;
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    detectFinalCut: async () => detected,
+    launchFinalCut: async () => { detected = true; },
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.editorDetected, true);
+});
+
 test("headless ready status preserves the checked extension installation state", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-headless-ready-extension-test-"));
   const manager = new FinalCutConnectionManager({
