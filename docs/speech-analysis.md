@@ -33,6 +33,31 @@ test -x "$FRAMEKIT_SPEECH_ANALYZER"
 test -x "$FRAMEKIT_SPEECH_BACKEND"
 ```
 
+For a direct local Whisper transcription backend, the repository also includes
+[`scripts/whisper-speech-backend.py`](../scripts/whisper-speech-backend.py).
+It uses an already-installed `mlx-whisper` or `openai-whisper` package, keeps
+the model outside the repository, and emits source-time word evidence. MLX is
+the preferred backend on Apple Silicon; the OpenAI Whisper package is a
+portable fallback:
+
+```sh
+python3 -m venv /absolute/path/to/framekit-whisper-venv
+/absolute/path/to/framekit-whisper-venv/bin/pip install mlx-whisper
+export FRAMEKIT_SPEECH_ANALYZER=/absolute/path/to/framekit/scripts/speech-analyzer-wrapper.mjs
+export FRAMEKIT_SPEECH_BACKEND=/absolute/path/to/framekit/scripts/whisper-speech-backend.py
+export FRAMEKIT_WHISPER_BACKEND=mlx-whisper
+export FRAMEKIT_WHISPER_MODEL=mlx-community/whisper-tiny
+export FRAMEKIT_WHISPER_LANGUAGE=en
+export FRAMEKIT_SPEECH_ANALYZER_VERSION=mlx-whisper@<installed-version>/whisper-tiny
+```
+
+The backend requires `FRAMEKIT_WHISPER_MODEL` so model downloads remain an
+explicit operator choice. It filters full-source Whisper output to a requested
+source range and preserves absolute timestamps. It does not invent VAD; pair it
+with the configured VAD/audio analyzer when a workflow requires speech/silence
+boundaries. Missing Python packages, models, media, or backend output are
+reported as structured setup, unavailable, or invalid-output failures.
+
 ## JSON protocol
 
 Framekit writes one request to wrapper stdin and reads one JSON object from
