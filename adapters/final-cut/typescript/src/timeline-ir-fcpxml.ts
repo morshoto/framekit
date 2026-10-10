@@ -4,10 +4,13 @@ import { pathToFileURL } from "node:url";
 import type {
   TimelineIr,
   TimelineIrOccurrence,
+  TimelineIrTitle,
 } from "@framekit/runtime";
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
+const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
+const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
 
 /** Stable Final Cut identities required for target-bound publication. */
 export interface FinalCutTargetIdentity {
@@ -70,7 +73,7 @@ export interface TimelineIrToFcpxmlResult {
 
 interface RenderableElement {
   id: string;
-  kind: "asset-clip" | "gap";
+  kind: "asset-clip" | "gap" | "title";
   startTime: { value: string; timescale: string };
   durationTime: { value: string; timescale: string };
   lane?: number;
@@ -81,6 +84,7 @@ interface RenderableElement {
   role?: "audio" | "music";
   gainDb?: number;
   enabled?: boolean;
+  text?: string;
 }
 
 /**
@@ -124,6 +128,9 @@ export function compileTimelineIrToFcpxml(
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
     `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}" />`,
+    ...(timeline.sequence.titles?.length
+      ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
+      : []),
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
@@ -182,7 +189,9 @@ export function compileTimelineIrToFcpxml(
 
 function unsupportedFeatures(timeline: TimelineIr): string[] {
   const unsupported = new Set<string>();
-  if (timeline.sequence.titles?.length) unsupported.add("titles");
+  if (timeline.sequence.titles?.some(({ style, position }) => style !== undefined || position !== undefined)) {
+    unsupported.add("styled-or-positioned-titles");
+  }
   if (timeline.sequence.transitions?.length) unsupported.add("transitions");
   for (const occurrence of timeline.sequence.occurrences) {
     if (occurrence.transform !== undefined) unsupported.add("transforms");
@@ -213,6 +222,10 @@ function materializationCoverage(
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
   if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
+  if (timeline.sequence.titles?.length) {
+    exact.add("connected-elements");
+    exact.add("editable-titles");
+  }
   if (destinationMode === "versioned") exact.add("versioned-destination");
   if (timeline.sequence.markers.length > 0) exact.add("markers");
   if (timeline.sequence.captions.length > 0) exact.add("captions");
@@ -302,10 +315,13 @@ function renderResource(
   } catch (error) {
     throw new Error(`FCPXML_RESOURCE_SOURCE_UNSUPPORTED: resource ${resource.id} has an invalid file URL: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const mediaAttributes = resource.mediaKind === "video"
-    ? ' hasVideo="1" hasAudio="0"'
-    : ' hasVideo="0" hasAudio="1"';
-  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}" src="${xmlEscape(src)}"${mediaAttributes} />`;
+  const videoAttribute = resource.mediaKind === "video" ? ' hasVideo="1"' : ' hasVideo="0"';
+  const audioAttribute = resource.mediaKind === "audio"
+    ? ' hasAudio="1"'
+    : resource.metadata?.streams
+      ? ` hasAudio="${resource.metadata.streams.some((stream) => stream.kind === "audio") ? "1" : "0"}"`
+      : "";
+  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}" src="${xmlEscape(src)}"${videoAttribute}${audioAttribute} />`;
 }
 
 function renderableElements(timeline: TimelineIr, resourceIds: Map<string, string>): RenderableElement[] {
@@ -326,7 +342,34 @@ function renderableElements(timeline: TimelineIr, resourceIds: Map<string, strin
       ...(element.attachedTo !== undefined ? { parentId: element.attachedTo } : {}),
     });
   }
+  for (const title of timeline.sequence.titles ?? []) {
+    elements.push(renderableTitle(title, timeline));
+  }
   return elements;
+}
+
+function renderableTitle(title: TimelineIrTitle, timeline: TimelineIr): RenderableElement {
+  const titleEnd = addExactTimes(title.startTime, title.durationTime);
+  const parent = timeline.sequence.occurrences.find((occurrence) => {
+    if (occurrence.track !== 0 || occurrence.role !== undefined && occurrence.role !== "video") return false;
+    const occurrenceEnd = addExactTimes(occurrence.startTime, occurrence.durationTime);
+    return compareExactTimes(title.startTime, occurrence.startTime) >= 0
+      && compareExactTimes(titleEnd, occurrenceEnd) <= 0;
+  });
+  if (!parent) {
+    throw new Error(`FCPXML_TITLE_ANCHOR_NOT_FOUND: title ${title.id} must fit within one primary video occurrence`);
+  }
+  return {
+    id: title.id,
+    kind: "title",
+    startTime: title.startTime,
+    durationTime: title.durationTime,
+    lane: title.lane,
+    parentId: parent.id,
+    name: title.id,
+    resourceId: BASIC_TITLE_EFFECT_ID,
+    text: title.text,
+  };
 }
 
 function renderOccurrence(
@@ -401,16 +444,28 @@ function renderElements(elements: RenderableElement[]): string[] {
             ...(element.role ? [`role="${element.role}"`] : []),
             ...(element.enabled !== undefined ? [`enabled="${element.enabled ? "1" : "0"}"`] : []),
           ]
-        : [
+        : element.kind === "title"
+          ? [
+            `id="${xmlEscape(element.id)}"`,
+            `ref="${xmlEscape(element.resourceId!)}"`,
+            `name="${xmlEscape(element.name!)}"`,
+            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
+            `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
+            ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
+          ]
+          : [
             `id="${xmlEscape(element.id)}"`,
             `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
           ];
       const opening = `<${element.kind} ${attributes.join(" ")}>`;
-      const childLines = element.gainDb !== undefined
-        ? [`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`]
-        : [];
+      const childLines = [
+        ...(element.gainDb !== undefined
+          ? [`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`]
+          : []),
+        ...(element.kind === "title" ? [`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`] : []),
+      ];
       const childStart = childLines.length > 0 ? childLines : [];
       if (children.length === 0 && childStart.length === 0) {
         lines.push(`${indent}<${element.kind} ${attributes.join(" ")} />`);
@@ -431,12 +486,32 @@ function renderElements(elements: RenderableElement[]): string[] {
 }
 
 function compareTimedItems(left: { id: string; startTime: { value: string; timescale: string }; lane?: number }, right: { id: string; startTime: { value: string; timescale: string }; lane?: number }): number {
-  const leftTime = parseExactRational(left.startTime);
-  const rightTime = parseExactRational(right.startTime);
-  const difference = leftTime.value * rightTime.timescale - rightTime.value * leftTime.timescale;
-  if (difference !== 0n) return difference < 0n ? -1 : 1;
+  const difference = compareExactTimes(left.startTime, right.startTime);
+  if (difference !== 0) return difference;
   if ((left.lane ?? 0) !== (right.lane ?? 0)) return (left.lane ?? 0) - (right.lane ?? 0);
   return left.id.localeCompare(right.id);
+}
+
+function addExactTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = parseExactRational(left);
+  const rightValue = parseExactRational(right);
+  return {
+    value: (leftValue.value * rightValue.timescale + rightValue.value * leftValue.timescale).toString(),
+    timescale: (leftValue.timescale * rightValue.timescale).toString(),
+  };
+}
+
+function compareExactTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): number {
+  const leftTime = parseExactRational(left);
+  const rightTime = parseExactRational(right);
+  const difference = leftTime.value * rightTime.timescale - rightTime.value * leftTime.timescale;
+  return difference === 0n ? 0 : difference < 0n ? -1 : 1;
 }
 
 function formatRational(value: { value: string; timescale: string }, field: string): string {

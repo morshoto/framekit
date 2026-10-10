@@ -114,6 +114,88 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.deepEqual(first.provenance, second.provenance);
 });
 
+test("compiles an opening Timeline IR title as editable Final Cut text", async () => {
+  const value = timeline();
+  value.sequence.occurrences = [{
+    ...value.sequence.occurrences[0]!,
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "10", timescale: "1" },
+    sourceStartTime: { value: "0", timescale: "1" },
+  }];
+  value.sequence.storyElements = [];
+  value.sequence.titles = [{
+    id: "opening-title",
+    text: "FrameKit MVP Test",
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "6", timescale: "1" },
+    lane: 1,
+  }];
+
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-title-"));
+  const path = join(directory, "opening.fcpxml");
+  try {
+    const artifact = compileTimelineIrToFcpxml(value, { target });
+    assert.match(artifact.xml, /<effect id="effect-basic-title" name="Basic Title" uid="\.\.\.\/Titles\.localized\/Bumper:Opener\.localized\/Basic Title\.localized\/Basic Title\.moti" \/>/);
+    assert.match(artifact.xml, /<title id="opening-title" ref="effect-basic-title" name="opening-title" offset="0s" duration="6s" lane="1">\s*<text>FrameKit MVP Test<\/text>\s*<\/title>/);
+    assert.deepEqual(artifact.coverage.degraded, []);
+    assert.deepEqual(artifact.coverage.unsupported, []);
+
+    await writeFile(path, artifact.xml, "utf8");
+    const readback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(
+      readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ text, start, duration, lane }) => ({ text, start, duration, lane })),
+      [{ text: "FrameKit MVP Test", start: 0, duration: 6, lane: 1 }],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("preserves embedded video audio and a separate music asset in FCPXML", () => {
+  const value = timeline();
+  value.sequence.occurrences = [{
+    ...value.sequence.occurrences[0]!,
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "10", timescale: "1" },
+    sourceStartTime: { value: "0", timescale: "1" },
+  }, {
+    id: "music-bed",
+    name: "Music bed",
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "10", timescale: "1" },
+    sourceStartTime: { value: "0", timescale: "1" },
+    track: 1,
+    role: "music",
+    mediaId: "music-1",
+    gainDb: -12,
+  }];
+  value.sequence.storyElements = [];
+  value.resources[0]!.metadata = {
+    durationTime: { value: "10", timescale: "1" },
+    streams: [
+      { kind: "video", width: 1920, height: 1080, frameRate: { value: "30", timescale: "1" } },
+      { kind: "audio", sampleRate: 48_000, channels: 1 },
+    ],
+  };
+  value.resources.push({
+    id: "music-1",
+    name: "licensed-music.wav",
+    mediaKind: "audio",
+    source: "/media/licensed-music.wav",
+    metadata: {
+      durationTime: { value: "10", timescale: "1" },
+      streams: [{ kind: "audio", sampleRate: 48_000, channels: 1 }],
+    },
+  });
+
+  const artifact = compileTimelineIrToFcpxml(value, { target });
+
+  assert.match(artifact.xml, /name="opening\.mov" src="file:\/\/\/media\/opening\.mov" hasVideo="1" hasAudio="1" \/>/);
+  assert.match(artifact.xml, /name="licensed-music\.wav" src="file:\/\/\/media\/licensed-music\.wav" hasVideo="0" hasAudio="1" \/>/);
+  assert.match(artifact.xml, /<asset-clip id="music-bed"[^>]+role="music">/);
+  assert.match(artifact.xml, /<adjust-volume amount="-12dB" \/>/);
+});
+
 test("sanitizes versioned destination IDs without regex backtracking", () => {
   const result = compileTimelineIrToFcpxml(timeline(), {
     target: {
