@@ -151,7 +151,7 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
   }
 });
 
-test("preserves embedded video audio and a separate music asset in FCPXML", () => {
+test("preserves embedded video audio and a separate music asset in FCPXML", async () => {
   const value = timeline();
   value.sequence.occurrences = [{
     ...value.sequence.occurrences[0]!,
@@ -192,8 +192,19 @@ test("preserves embedded video audio and a separate music asset in FCPXML", () =
 
   assert.match(artifact.xml, /name="opening\.mov" src="file:\/\/\/media\/opening\.mov" hasVideo="1" hasAudio="1" \/>/);
   assert.match(artifact.xml, /name="licensed-music\.wav" src="file:\/\/\/media\/licensed-music\.wav" hasVideo="0" hasAudio="1" \/>/);
-  assert.match(artifact.xml, /<asset-clip id="music-bed"[^>]+role="music">/);
+  assert.match(artifact.xml, /<asset-clip id="music-bed"[^>]+audioRole="music">/);
+  assert.doesNotMatch(artifact.xml, /<asset-clip id="music-bed"[^>]+\srole="music"/);
   assert.match(artifact.xml, /<adjust-volume amount="-12dB" \/>/);
+
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-music-role-"));
+  const path = join(directory, "music-role.fcpxml");
+  try {
+    await writeFile(path, artifact.xml, "utf8");
+    const readback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.equal(readback.timeline.clips.find(({ id }) => id === "music-bed")?.role, "music");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("sanitizes versioned destination IDs without regex backtracking", () => {

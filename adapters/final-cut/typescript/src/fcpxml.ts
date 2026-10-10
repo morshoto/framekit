@@ -926,9 +926,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const gain = firstChild(node, "adjust-volume");
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
-    const roleAttribute = attribute(node, "role");
+    const roleAttributeName = kind === "audio" ? "role" : kind === "asset-clip" ? "audioRole" : undefined;
+    const roleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
     const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music"
-      ? audioRoleFromXml(node)
+      ? audioRoleFromXml(node, roleAttributeName ?? "role")
       : undefined;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
@@ -1132,8 +1133,8 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
   };
 }
 
-function audioRoleFromXml(node: XmlNode): "audio" | "music" {
-  const role = attribute(node, "role");
+function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "music" {
+  const role = attribute(node, attributeName);
   if (role === undefined || role === "audio") return "audio";
   if (role === "music") return "music";
   throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);

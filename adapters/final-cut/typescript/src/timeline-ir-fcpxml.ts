@@ -441,7 +441,7 @@ function renderElements(elements: RenderableElement[]): string[] {
             ...(element.sourceStartTime ? [`start="${formatRational(element.sourceStartTime, `${element.id}.sourceStartTime`)}"`] : []),
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
-            ...(element.role ? [`role="${element.role}"`] : []),
+            ...(element.role ? [`audioRole="${element.role}"`] : []),
             ...(element.enabled !== undefined ? [`enabled="${element.enabled ? "1" : "0"}"`] : []),
           ]
         : element.kind === "title"
