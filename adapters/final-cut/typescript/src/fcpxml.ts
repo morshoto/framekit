@@ -926,7 +926,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const gain = firstChild(node, "adjust-volume");
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
-    const role = kind === "audio" ? audioRoleFromXml(node) : undefined;
+    const roleAttribute = attribute(node, "role");
+    const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music"
+      ? audioRoleFromXml(node)
+      : undefined;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);

@@ -22,6 +22,18 @@ If the route returns `HEADLESS_UNAVAILABLE`, treat it as a structured blocker.
 Do not invoke a native tool as an implicit fallback. The headless path never
 launches or activates Final Cut Pro.
 
+`headless.rough-cut.preview` also accepts ordered Timeline IR `operations` to
+include titles, audio occurrences, and other supported edits in the same
+revision as the planned shots. Set `sourceAudioPolicy: "preserve-and-mix"` to
+make the source-audio behavior explicit: embedded video audio is retained and
+registered audio/music occurrences are mixed with their configured gain. The
+returned `planDigest` binds the plan, operations, audio policy, and render and
+FCPXML output intent. Review the preview's `diff.operations`, final timeline,
+FCPXML coverage, and output intent
+before passing the unchanged plan, operations, and output settings with the
+returned digest and `approved: true` to execute. The transaction renders MP4
+and writes matching editable FCPXML from one proposed revision.
+
 ## Explicit headed/editor-first routing
 
 For a caller that explicitly selects the headed path, follow this order:
