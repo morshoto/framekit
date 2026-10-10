@@ -926,7 +926,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const gain = firstChild(node, "adjust-volume");
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
-    const role = kind === "audio" ? audioRoleFromXml(node) : undefined;
+    const roleAttributeName = kind === "audio" ? "role" : kind === "asset-clip" ? "audioRole" : undefined;
+    const roleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
+    const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music"
+      ? audioRoleFromXml(node, roleAttributeName ?? "role")
+      : undefined;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
@@ -1129,8 +1133,8 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
   };
 }
 
-function audioRoleFromXml(node: XmlNode): "audio" | "music" {
-  const role = attribute(node, "role");
+function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "music" {
+  const role = attribute(node, attributeName);
   if (role === undefined || role === "audio") return "audio";
   if (role === "music") return "music";
   throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);
@@ -1153,24 +1157,28 @@ function mediaKindCompatible(role: "video" | "music" | "audio", mediaKind?: "vid
 function timelineEntries(spine: XmlNode): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
 
-  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string): void => {
+  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string, parentKind?: string): void => {
     storyEntries(node).forEach(({ kind, node: child }, index) => {
       const path = parentPath.length === 0 ? String(index) : `${parentPath}.${index}`;
-      const localStart = parseRational(
+      const localOffset = parseRational(
         attribute(child, "offset")
           ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
           ?? "0s",
       );
+      const localStart = parentKind === "asset-clip"
+        && (kind === "title" || kind === "asset-clip" && attribute(child, "audioRole") === "music")
+        ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
+        : localOffset;
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
       const startTime = addRational(parentStart, localStart);
       if (TIMELINE_KINDS.has(kind)) {
         entries.push({ kind, node: child, path, startTime, durationTime, parent: node, parentStartTime: parentStart });
       }
-      visit(child, startTime, path);
+      visit(child, startTime, path, kind);
     });
   };
 
-  visit(spine, { value: "0", timescale: "1" }, "");
+  visit(spine, { value: "0", timescale: "1" }, "", "spine");
   return entries;
 }
 
@@ -1299,6 +1307,13 @@ function rationalTime(parts: { numerator: bigint; denominator: bigint }): Ration
 function addRational(left: RationalTime, right: RationalTime): RationalTime {
   return rationalTime({
     numerator: BigInt(left.value) * BigInt(right.timescale) + BigInt(right.value) * BigInt(left.timescale),
+    denominator: BigInt(left.timescale) * BigInt(right.timescale),
+  });
+}
+
+function subtractRational(left: RationalTime, right: RationalTime): RationalTime {
+  return rationalTime({
+    numerator: BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale),
     denominator: BigInt(left.timescale) * BigInt(right.timescale),
   });
 }

@@ -1373,6 +1373,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     projectId: z.string().min(1),
     sequenceId: z.string().min(1),
     plan: roughCutExecutionPlanSchema,
+    operations: z.array(z.unknown()).optional().describe("Ordered Timeline IR edit operations included in the preview and bound into planDigest."),
+    sourceAudioPolicy: z.literal("preserve-and-mix").optional().describe("Retain source audio and mix registered audio/music occurrences using their configured gain."),
     render: headlessRenderParametersSchema,
     fcpxml: z.object({
       path: z.string().min(1),
@@ -1392,12 +1394,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
 
   server.registerTool("headless.rough-cut.preview", {
-    description: "Preview an approved semantic rough-cut plan as guarded Timeline IR operations, source provenance, and FCPXML output intent without mutation.",
+    description: "Preview a semantic rough-cut plan with optional Timeline IR operations; the digest binds both, and preview returns provenance and FCPXML output intent without mutation.",
     inputSchema: headlessRoughCutRequestSchema.shape,
   }, async (request) => sessionResult(() => requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest)));
 
   server.registerTool("headless.rough-cut.execute", {
-    description: "Execute an explicitly approved semantic rough-cut plan headlessly, verify MP4 output, and write equivalent editable FCPXML.",
+    description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and write equivalent editable FCPXML.",
     inputSchema: {
       ...headlessRoughCutRequestSchema.shape,
       approved: z.boolean(),
