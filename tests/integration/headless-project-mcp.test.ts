@@ -190,6 +190,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(preview.outputIntent.sourceAudioPolicy, "preserve-and-mix");
     assert.deepEqual(preview.diff.operations, preview.command.operations);
     assert.ok(preview.fcpxml.coverage.exact.includes("editable-titles"));
+    assert.ok(preview.fcpxml.coverage.exact.includes("connected-elements"));
     assert.ok(preview.fcpxml.coverage.exact.includes("gain"));
     assert.equal(preview.fcpxml.provenance.revision.id, preview.after.timeline.revision.id);
     await assert.rejects(stat(outputPath), { code: "ENOENT" });

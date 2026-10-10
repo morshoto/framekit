@@ -137,6 +137,7 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
     const artifact = compileTimelineIrToFcpxml(value, { target });
     assert.match(artifact.xml, /<effect id="effect-basic-title" name="Basic Title" uid="\.\.\.\/Titles\.localized\/Bumper:Opener\.localized\/Basic Title\.localized\/Basic Title\.moti" \/>/);
     assert.match(artifact.xml, /<title id="opening-title" ref="effect-basic-title" name="opening-title" offset="0s" duration="6s" lane="1">\s*<text>FrameKit MVP Test<\/text>\s*<\/title>/);
+    assert.equal(artifact.coverage.exact.includes("connected-elements"), true);
     assert.deepEqual(artifact.coverage.degraded, []);
     assert.deepEqual(artifact.coverage.unsupported, []);
 

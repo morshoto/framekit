@@ -165,7 +165,7 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
-    coverage: materializationCoverage(timeline, destination.mode),
+    coverage: materializationCoverage(timeline, destination.mode, elements),
     provenance: {
       source: "framekit-timeline-ir",
       schemaVersion: 1,
@@ -207,6 +207,7 @@ function unsupportedFeatures(timeline: TimelineIr): string[] {
 function materializationCoverage(
   timeline: TimelineIr,
   destinationMode: TimelineIrToFcpxmlResult["destination"]["mode"],
+  elements: readonly RenderableElement[],
 ): TimelineIrMaterializationCoverage {
   const exact = new Set([
     "artifact",
@@ -217,13 +218,11 @@ function materializationCoverage(
     "primary-storyline-order",
     "provenance",
   ]);
-  if (timeline.sequence.occurrences.some(({ attachedTo }) => attachedTo !== undefined)
-    || timeline.sequence.storyElements.some(({ attachedTo }) => attachedTo !== undefined)) exact.add("connected-elements");
+  if (elements.some(({ parentId }) => parentId !== undefined)) exact.add("connected-elements");
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
   if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
   if (timeline.sequence.titles?.length) {
-    exact.add("connected-elements");
     exact.add("editable-titles");
   }
   if (destinationMode === "versioned") exact.add("versioned-destination");
