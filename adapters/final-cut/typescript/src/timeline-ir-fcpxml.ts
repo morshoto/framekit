@@ -394,13 +394,14 @@ function renderOccurrence(
   if (occurrence.attachedTo !== undefined && !occurrenceIds.has(occurrence.attachedTo)) {
     throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${occurrence.id} -> ${occurrence.attachedTo}`);
   }
+  const parentId = occurrence.attachedTo ?? musicAttachmentTarget(occurrence, timeline);
   return {
     id: occurrence.id,
     kind: "asset-clip",
     startTime: occurrence.startTime,
     durationTime: occurrence.durationTime,
     ...(occurrence.track > 0 ? { lane: occurrence.track } : {}),
-    ...(occurrence.attachedTo !== undefined ? { parentId: occurrence.attachedTo } : {}),
+    ...(parentId !== undefined ? { parentId } : {}),
     name: occurrence.name,
     resourceId: resource,
     ...(occurrence.sourceStartTime ? { sourceStartTime: occurrence.sourceStartTime } : {}),
@@ -408,6 +409,19 @@ function renderOccurrence(
     ...(occurrence.gainDb !== undefined ? { gainDb: occurrence.gainDb } : {}),
     ...(occurrence.enabled !== undefined ? { enabled: occurrence.enabled } : {}),
   };
+}
+
+function musicAttachmentTarget(occurrence: TimelineIrOccurrence, timeline: TimelineIr): string | undefined {
+  if (occurrence.role !== "music" || occurrence.track <= 0) return undefined;
+  const parent = timeline.sequence.occurrences
+    .filter((candidate) => candidate.track === 0
+      && candidate.role === "video"
+      && compareExactTimes(candidate.startTime, occurrence.startTime) <= 0)
+    .sort((left, right) => compareExactTimes(right.startTime, left.startTime))[0];
+  if (!parent) {
+    throw new Error(`FCPXML_MUSIC_ANCHOR_NOT_FOUND: ${occurrence.id} must start at or after a primary video occurrence`);
+  }
+  return parent.id;
 }
 
 function renderElements(elements: RenderableElement[]): string[] {
@@ -433,7 +447,8 @@ function renderElements(elements: RenderableElement[]): string[] {
         : parentElement?.startTime;
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
       const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
-      const titleOffsetTime = element.kind === "title" && parentElement?.kind === "asset-clip"
+      const offsetTime = parentElement?.kind === "asset-clip"
+        && (element.kind === "title" || element.role === "music")
         && parentElement.sourceStartTime !== undefined
         ? addExactTimes(localStartTime, parentElement.sourceStartTime)
         : localStartTime;
@@ -442,7 +457,7 @@ function renderElements(elements: RenderableElement[]): string[] {
             `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
-            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             ...(element.sourceStartTime ? [`start="${formatRational(element.sourceStartTime, `${element.id}.sourceStartTime`)}"`] : []),
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
@@ -454,13 +469,13 @@ function renderElements(elements: RenderableElement[]): string[] {
             `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
-            `offset="${formatRational(titleOffsetTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
           ]
           : [
             `id="${xmlEscape(element.id)}"`,
-            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
           ];

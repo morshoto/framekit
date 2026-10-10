@@ -188,16 +188,17 @@ test("anchors titles after a primary clip source in-point", async () => {
 
 test("preserves embedded video audio and a separate music asset in FCPXML", async () => {
   const value = timeline();
+  value.sequence.durationTime = { value: "30", timescale: "1" };
   value.sequence.occurrences = [{
     ...value.sequence.occurrences[0]!,
     startTime: { value: "0", timescale: "1" },
     durationTime: { value: "10", timescale: "1" },
-    sourceStartTime: { value: "0", timescale: "1" },
+    sourceStartTime: { value: "5", timescale: "1" },
   }, {
     id: "music-bed",
     name: "Music bed",
     startTime: { value: "0", timescale: "1" },
-    durationTime: { value: "10", timescale: "1" },
+    durationTime: { value: "30", timescale: "1" },
     sourceStartTime: { value: "0", timescale: "1" },
     track: 1,
     role: "music",
@@ -206,7 +207,7 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
   }];
   value.sequence.storyElements = [];
   value.resources[0]!.metadata = {
-    durationTime: { value: "10", timescale: "1" },
+    durationTime: { value: "20", timescale: "1" },
     streams: [
       { kind: "video", width: 1920, height: 1080, frameRate: { value: "30", timescale: "1" } },
       { kind: "audio", sampleRate: 48_000, channels: 1 },
@@ -218,7 +219,7 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
     mediaKind: "audio",
     source: "/media/licensed-music.wav",
     metadata: {
-      durationTime: { value: "10", timescale: "1" },
+      durationTime: { value: "30", timescale: "1" },
       streams: [{ kind: "audio", sampleRate: 48_000, channels: 1 }],
     },
   });
@@ -228,6 +229,8 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
   assert.match(artifact.xml, /name="opening\.mov" src="file:\/\/\/media\/opening\.mov" hasVideo="1" hasAudio="1" \/>/);
   assert.match(artifact.xml, /name="licensed-music\.wav" src="file:\/\/\/media\/licensed-music\.wav" hasVideo="0" hasAudio="1" \/>/);
   assert.match(artifact.xml, /<asset-clip id="music-bed"[^>]+audioRole="music">/);
+  assert.match(artifact.xml, /<asset-clip id="occurrence-1"[^>]*>[\s\S]*?<asset-clip id="music-bed"[^>]*offset="5s"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music">/);
+  assert.doesNotMatch(artifact.xml, /<spine>\s*<asset-clip id="music-bed"/);
   assert.doesNotMatch(artifact.xml, /<asset-clip id="music-bed"[^>]+\srole="music"/);
   assert.match(artifact.xml, /<adjust-volume amount="-12dB" \/>/);
 
@@ -237,6 +240,13 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
     await writeFile(path, artifact.xml, "utf8");
     const readback = await new FcpxmlDocumentAdapter(path).readProject();
     assert.equal(readback.timeline.clips.find(({ id }) => id === "music-bed")?.role, "music");
+    assert.deepEqual(
+      readback.timeline.clips.find(({ id }) => id === "music-bed") && {
+        start: readback.timeline.clips.find(({ id }) => id === "music-bed")?.start,
+        duration: readback.timeline.clips.find(({ id }) => id === "music-bed")?.duration,
+      },
+      { start: 0, duration: 30 },
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
