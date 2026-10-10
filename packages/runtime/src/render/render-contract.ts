@@ -10,6 +10,7 @@ export type FramekitRenderFeature =
   | "local-media"
   | "structural-edits"
   | "audio-gain"
+  | "audio-mixing"
   | "transform"
   | "titles"
   | "cross-dissolve";
@@ -119,6 +120,7 @@ export function createFramekitRenderRequest(input: FramekitRenderRequestInput): 
 export function inferFramekitRenderFeatures(timeline: TimelineIr): FramekitRenderFeature[] {
   const features: FramekitRenderFeature[] = ["local-media", "structural-edits"];
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) features.push("audio-gain");
+  if (timeline.sequence.occurrences.some(({ role }) => role === "audio" || role === "music")) features.push("audio-mixing");
   if (timeline.sequence.occurrences.some(({ transform }) => transform !== undefined)) features.push("transform");
   if ((timeline.sequence.titles ?? []).length > 0) features.push("titles");
   if ((timeline.sequence.transitions ?? []).some(({ kind }) => kind === "cross-dissolve")) features.push("cross-dissolve");
@@ -180,6 +182,7 @@ const RENDER_FEATURES: FramekitRenderFeature[] = [
   "local-media",
   "structural-edits",
   "audio-gain",
+  "audio-mixing",
   "transform",
   "titles",
   "cross-dissolve",

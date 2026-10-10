@@ -74,6 +74,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
         "local-media": supportsLocalMedia(timeline) ? "supported" : "unsupported",
         "structural-edits": supportsStructuralEdits(timeline) ? "supported" : "unsupported",
         "audio-gain": supportsAudioGain(timeline) ? "supported" : "unsupported",
+        "audio-mixing": supportsAudioMixing(timeline) ? "supported" : "unsupported",
         transform: supportsTransforms(timeline) ? "supported" : "unsupported",
         titles: supportsTitles(timeline) ? "supported" : "unsupported",
         "cross-dissolve": supportsCrossDissolve(timeline) ? "supported" : "unsupported",
@@ -141,6 +142,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
 interface RenderModel {
   timeline: TimelineIr;
   occurrences: TimelineIrOccurrence[];
+  audioOccurrences: TimelineIrOccurrence[];
   resources: Map<string, TimelineIrResource>;
   sourcePaths: string[];
   duration: number;
@@ -154,7 +156,12 @@ interface RenderModel {
 async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel> {
   const timeline = structuredClone(plan.timeline);
   const sequence = timeline.sequence;
-  const occurrences = [...sequence.occurrences].sort((left, right) => compareSeconds(left.startTime, right.startTime));
+  const occurrences = sequence.occurrences
+    .filter(isPrimaryVideoOccurrence)
+    .sort((left, right) => compareSeconds(left.startTime, right.startTime));
+  const audioOccurrences = sequence.occurrences
+    .filter(isIndependentAudioOccurrence)
+    .sort((left, right) => compareSeconds(left.startTime, right.startTime));
   if (!supportsStructuralEdits(timeline)) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "markers, captions, story elements, disabled clips, and non-primary tracks are not supported");
   }
@@ -162,6 +169,9 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "Timeline IR contains unsupported renderer semantics");
   }
   if (occurrences.length === 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "at least one video occurrence is required");
+  if (occurrences.length + audioOccurrences.length !== sequence.occurrences.length) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "occurrence roles and lanes do not form a primary video storyline with connected audio layers");
+  }
 
   const duration = rationalSeconds(sequence.durationTime, "sequence duration");
   const frameRate = 1 / rationalSeconds(sequence.frameDuration, "sequence frame duration");
@@ -178,11 +188,11 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
   const audioAvailability = new Set<boolean>();
   let previousEnd = 0;
   for (const occurrence of occurrences) {
-    if (occurrence.track !== 0 || occurrence.role === "audio" || occurrence.role === "music" || occurrence.role === "title") {
-      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `occurrence role or track is not renderable: ${occurrence.id}`);
-    }
     if (occurrence.enabled === false || occurrence.attachedTo) {
       throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `occurrence has unsupported state: ${occurrence.id}`);
+    }
+    if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio fades are not renderable: ${occurrence.id}`);
     }
     const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
     const clipDuration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
@@ -192,10 +202,31 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
     previousEnd = start + clipDuration;
     const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
     if (!resource) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `occurrence has no registered media: ${occurrence.id}`);
+    if (resource.mediaKind !== "video") throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `primary occurrence does not reference video media: ${occurrence.id}`);
     const source = await verifyResource(resource, occurrence, clipDuration);
     const sourcePath = source.path;
     audioAvailability.add(resource.metadata?.streams.some((stream) => stream.kind === "audio") ?? false);
     if (!sourcePaths.includes(sourcePath)) sourcePaths.push(sourcePath);
+    if (!sourceIdentities.some((identity) => identity.path === source.path && identity.digest === source.digest)) {
+      sourceIdentities.push(source);
+    }
+  }
+  for (const occurrence of audioOccurrences) {
+    if (occurrence.enabled === false || occurrence.attachedTo) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio occurrence has unsupported state: ${occurrence.id}`);
+    }
+    if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio fades are not renderable: ${occurrence.id}`);
+    }
+    const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
+    const clipDuration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    if (clipDuration <= 0 || start + clipDuration > duration + 1e-7) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio occurrence exceeds the sequence duration: ${occurrence.id}`);
+    }
+    const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
+    if (!resource) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio occurrence has no registered media: ${occurrence.id}`);
+    const source = await verifyAudioResource(resource, occurrence, clipDuration);
+    if (!sourcePaths.includes(source.path)) sourcePaths.push(source.path);
     if (!sourceIdentities.some((identity) => identity.path === source.path && identity.digest === source.digest)) {
       sourceIdentities.push(source);
     }
@@ -213,6 +244,7 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
   return {
     timeline,
     occurrences,
+    audioOccurrences,
     resources,
     sourcePaths,
     duration,
@@ -257,6 +289,38 @@ async function verifyResource(resource: TimelineIrResource, occurrence: Timeline
   return { path: sourcePath, digest: actualDigest };
 }
 
+async function verifyAudioResource(resource: TimelineIrResource, occurrence: TimelineIrOccurrence, duration: number): Promise<{ path: string; digest: string }> {
+  if (resource.mediaKind !== "audio" || resource.sourceKind !== "local-file" || !resource.source || !resource.sourceDigest) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is not registered local audio: ${resource.id}`);
+  }
+  const sourcePath = resolve(resource.source);
+  let details;
+  try {
+    details = await lstat(sourcePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_MISSING", `registered source is missing: ${sourcePath}`);
+    }
+    throw error;
+  }
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_MISSING", `registered source is not a regular file: ${sourcePath}`);
+  }
+  const actualDigest = await digestFile(sourcePath);
+  if (actualDigest !== resource.sourceDigest) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed: ${sourcePath}`);
+  }
+  if (!resource.metadata?.streams.some((stream) => stream.kind === "audio")) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is missing audio metadata: ${resource.id}`);
+  }
+  const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+  const sourceDuration = resource.metadata ? rationalSeconds(resource.metadata.durationTime, `${resource.id}.durationTime`) : 0;
+  if (sourceStart < 0 || duration <= 0 || sourceStart + duration > sourceDuration + 1e-7) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `source audio range exceeds registered media: ${occurrence.id}`);
+  }
+  return { path: sourcePath, digest: actualDigest };
+}
+
 async function assertSourcesUnchanged(model: RenderModel): Promise<void> {
   for (const identity of model.sourceIdentities) {
     let details;
@@ -276,12 +340,20 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
   const inputArguments: string[] = [];
   const videoLabels: string[] = [];
   const audioLabels: string[] = [];
+  const musicLabels: string[] = [];
   const fps = formatNumber(model.frameRate);
+  const inputIndices = new Map<string, number>();
 
-  for (const [index, occurrence] of model.occurrences.entries()) {
+  for (const [index, occurrence] of [...model.occurrences, ...model.audioOccurrences].entries()) {
     const resource = model.resources.get(occurrence.mediaId!);
     const inputPath = resolve(resource!.source!);
     inputArguments.push("-i", inputPath);
+    inputIndices.set(occurrence.id, index);
+  }
+
+  for (const occurrence of model.occurrences) {
+    const index = inputIndices.get(occurrence.id)!;
+    const resource = model.resources.get(occurrence.mediaId!);
     const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
     const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
     const videoInput = `[${index}:v]`;
@@ -297,11 +369,27 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
     }
   }
 
+  for (const occurrence of model.audioOccurrences) {
+    const index = inputIndices.get(occurrence.id)!;
+    const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+    const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
+    const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    const gain = occurrence.gainDb ?? 0;
+    const delaySamples = Math.round(start * 48_000);
+    const audioLabel = `bed-audio${index}`;
+    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
+    musicLabels.push(`[${audioLabel}]`);
+  }
+
   const transition = model.timeline.sequence.transitions?.[0];
   const videoBase = addVideoComposition(filters, videoLabels, model, transition);
   const videoOutput = addTitleOverlays(filters, videoBase, model, fontFile);
   let audioOutput: string | undefined;
   if (audioLabels.length > 0) audioOutput = addAudioComposition(filters, audioLabels, model, transition);
+  if (musicLabels.length > 0) {
+    const inputs = [...(audioOutput ? [`[${audioOutput}]`] : []), ...musicLabels];
+    audioOutput = addAudioMix(filters, inputs, model.duration);
+  }
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
   if (audioOutput) {
@@ -309,6 +397,13 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
   }
   args.push("-map_metadata", "-1", "-t", formatNumber(model.duration), "-movflags", "+faststart", stagingPath);
   return args;
+}
+
+function addAudioMix(filters: string[], labels: string[], duration: number): string {
+  if (labels.length === 1) return labels[0]!.slice(1, -1);
+  const output = "audio-mix";
+  filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS[${output}]`);
+  return output;
 }
 
 function addVideoComposition(
@@ -407,16 +502,31 @@ function supportsLocalMedia(timeline: TimelineIr): boolean {
 }
 
 function supportsStructuralEdits(timeline: TimelineIr): boolean {
+  const primaryOccurrences = timeline.sequence.occurrences.filter(isPrimaryVideoOccurrence);
   return timeline.sequence.storyElements.length === 0
     && timeline.sequence.markers.length === 0
     && timeline.sequence.captions.length === 0
-    && timeline.sequence.occurrences.length > 0
-    && timeline.sequence.occurrences.every((occurrence) => occurrence.track === 0
-      && occurrence.role !== "audio"
-      && occurrence.role !== "music"
-      && occurrence.role !== "title"
+    && primaryOccurrences.length > 0
+    && primaryOccurrences.length + timeline.sequence.occurrences.filter(isIndependentAudioOccurrence).length === timeline.sequence.occurrences.length
+    && timeline.sequence.occurrences.every((occurrence) => (isPrimaryVideoOccurrence(occurrence) || isIndependentAudioOccurrence(occurrence))
       && occurrence.enabled !== false
-      && !occurrence.attachedTo);
+      && !occurrence.attachedTo
+      && occurrence.fadeIn === undefined
+      && occurrence.fadeOut === undefined);
+}
+
+function supportsAudioMixing(timeline: TimelineIr): boolean {
+  return timeline.sequence.occurrences
+    .filter((occurrence) => occurrence.role === "audio" || occurrence.role === "music")
+    .every(isIndependentAudioOccurrence);
+}
+
+function isPrimaryVideoOccurrence(occurrence: TimelineIrOccurrence): boolean {
+  return occurrence.track === 0 && (occurrence.role === undefined || occurrence.role === "video");
+}
+
+function isIndependentAudioOccurrence(occurrence: TimelineIrOccurrence): boolean {
+  return occurrence.track > 0 && (occurrence.role === "audio" || occurrence.role === "music");
 }
 
 function supportsAudioGain(timeline: TimelineIr): boolean {
@@ -443,9 +553,10 @@ function supportsTitles(timeline: TimelineIr): boolean {
 
 function supportsCrossDissolve(timeline: TimelineIr): boolean {
   const transitions = timeline.sequence.transitions ?? [];
+  const primaryCount = timeline.sequence.occurrences.filter(isPrimaryVideoOccurrence).length;
   return transitions.length <= 1
     && transitions.every((transition) => transition.kind === "cross-dissolve")
-    && (transitions.length === 0 || timeline.sequence.occurrences.length === 2);
+    && (transitions.length === 0 || primaryCount === 2);
 }
 
 async function assertOutputPath(outputPath: string, overwrite: boolean, sourcePaths: string[]): Promise<void> {
