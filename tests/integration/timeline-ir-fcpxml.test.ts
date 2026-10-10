@@ -151,6 +151,41 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
   }
 });
 
+test("anchors titles after a primary clip source in-point", async () => {
+  const value = timeline();
+  value.sequence.occurrences = [{
+    ...value.sequence.occurrences[0]!,
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "10", timescale: "1" },
+    sourceStartTime: { value: "5", timescale: "1" },
+  }];
+  value.sequence.storyElements = [];
+  value.sequence.titles = [{
+    id: "trimmed-opening-title",
+    text: "Trimmed source title",
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "6", timescale: "1" },
+    lane: 1,
+  }];
+
+  const artifact = compileTimelineIrToFcpxml(value, { target });
+
+  assert.match(artifact.xml, /<asset-clip id="occurrence-1"[^>]*start="5s"[^>]*>[\s\S]*?<title id="trimmed-opening-title"[^>]*offset="5s"/);
+
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-trimmed-title-"));
+  const path = join(directory, "trimmed-title.fcpxml");
+  try {
+    await writeFile(path, artifact.xml, "utf8");
+    const readback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(
+      readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ start, duration }) => ({ start, duration })),
+      [{ start: 0, duration: 6 }],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("preserves embedded video audio and a separate music asset in FCPXML", async () => {
   const value = timeline();
   value.sequence.occurrences = [{

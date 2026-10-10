@@ -1157,24 +1157,27 @@ function mediaKindCompatible(role: "video" | "music" | "audio", mediaKind?: "vid
 function timelineEntries(spine: XmlNode): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
 
-  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string): void => {
+  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string, parentKind?: string): void => {
     storyEntries(node).forEach(({ kind, node: child }, index) => {
       const path = parentPath.length === 0 ? String(index) : `${parentPath}.${index}`;
-      const localStart = parseRational(
+      const localOffset = parseRational(
         attribute(child, "offset")
           ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
           ?? "0s",
       );
+      const localStart = parentKind === "asset-clip" && kind === "title"
+        ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
+        : localOffset;
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
       const startTime = addRational(parentStart, localStart);
       if (TIMELINE_KINDS.has(kind)) {
         entries.push({ kind, node: child, path, startTime, durationTime, parent: node, parentStartTime: parentStart });
       }
-      visit(child, startTime, path);
+      visit(child, startTime, path, kind);
     });
   };
 
-  visit(spine, { value: "0", timescale: "1" }, "");
+  visit(spine, { value: "0", timescale: "1" }, "", "spine");
   return entries;
 }
 
@@ -1303,6 +1306,13 @@ function rationalTime(parts: { numerator: bigint; denominator: bigint }): Ration
 function addRational(left: RationalTime, right: RationalTime): RationalTime {
   return rationalTime({
     numerator: BigInt(left.value) * BigInt(right.timescale) + BigInt(right.value) * BigInt(left.timescale),
+    denominator: BigInt(left.timescale) * BigInt(right.timescale),
+  });
+}
+
+function subtractRational(left: RationalTime, right: RationalTime): RationalTime {
+  return rationalTime({
+    numerator: BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale),
     denominator: BigInt(left.timescale) * BigInt(right.timescale),
   });
 }

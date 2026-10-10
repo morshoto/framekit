@@ -427,11 +427,16 @@ function renderElements(elements: RenderableElement[]): string[] {
       if (rendered.has(element.id)) throw new Error(`FCPXML_CYCLIC_ATTACHMENT: ${element.id}`);
       rendered.add(element.id);
       const children = byParent.get(element.id) ?? [];
+      const parentElement = element.parentId === undefined ? undefined : byId.get(element.parentId);
       const parentStartTime = element.parentId === undefined
         ? { value: "0", timescale: "1" }
-        : byId.get(element.parentId)?.startTime;
+        : parentElement?.startTime;
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
       const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
+      const titleOffsetTime = element.kind === "title" && parentElement?.kind === "asset-clip"
+        && parentElement.sourceStartTime !== undefined
+        ? addExactTimes(localStartTime, parentElement.sourceStartTime)
+        : localStartTime;
       const attributes = element.kind === "asset-clip"
         ? [
             `id="${xmlEscape(element.id)}"`,
@@ -449,7 +454,7 @@ function renderElements(elements: RenderableElement[]): string[] {
             `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
-            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(titleOffsetTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
           ]
