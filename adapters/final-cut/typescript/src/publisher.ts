@@ -159,7 +159,7 @@ export class FinalCutProjectPublisher {
   }
 
   public isAvailable(): boolean {
-    return this.enabled;
+    return this.enabled && Boolean(this.liveState);
   }
 
   public executionMode(): "background-capable" | "headed-only" {
