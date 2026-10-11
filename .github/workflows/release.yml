@@ -79,6 +79,47 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
 
+            - name: Format draft release notes
+              if: >-
+                steps.requested-tag.outputs.tag != '' ||
+                steps.existing-tag.outputs.tag != '' ||
+                steps.run-tagpr.outputs.tag != ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  original="${RUNNER_TEMP}/draft-release-body.md"
+                  formatted="${RUNNER_TEMP}/draft-release-body-formatted.md"
+                  payload="${RUNNER_TEMP}/draft-release-body.json"
+                  release_json="${RUNNER_TEMP}/draft-release.json"
+
+                  gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${release_json}"
+                  release_id="$(jq -r 'select(.draft == true) | .id // empty' "${release_json}")"
+                  if [ -z "${release_id}" ]; then
+                    echo "No draft release for ${RELEASE_TAG}; nothing to format."
+                    exit 0
+                  fi
+
+                  jq -r '.body // ""' "${release_json}" > "${original}"
+                  if ! grep -Fq '<!-- Release notes generated' "${original}"; then
+                    echo "Draft body is not GitHub-generated; preserving it without edits."
+                    exit 0
+                  fi
+
+                  node scripts/format-release-notes.mjs < "${original}" > "${formatted}"
+                  if cmp -s "${original}" "${formatted}"; then
+                    exit 0
+                  fi
+
+                  jq -Rs '{body: .}' < "${formatted}" > "${payload}"
+                  gh api --method PATCH \
+                    "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+                    --input "${payload}" \
+                    --silent
+
             - id: classify
               name: Classify milestone release
               env:
