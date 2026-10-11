@@ -519,6 +519,9 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.deepEqual(executed.after.timeline.revision, executed.transaction.after.timeline.revision);
+    assert.deepEqual(executed.render.outcome.render.projectRevision, executed.transaction.after.timeline.revision);
+    assert.deepEqual(executed.fcpxml.provenance.revision, executed.transaction.after.timeline.revision);
     assert.equal(typeof (executed as any).executionId, "string");
     assert.equal(typeof (service as any).verifyPublishableRoughCut, "function");
     const executionId = (executed as any).executionId as string;
