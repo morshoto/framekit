@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, rename, writeFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   FramekitProjectStore,
   LocalMediaRegistrar,
@@ -19,6 +19,7 @@ import {
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
+  timelineIrDigest,
 } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
@@ -117,6 +118,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
 }
 
 export interface HeadlessRoughCutExecution extends HeadlessRoughCutPreview {
+  executionId: string;
   committed: true;
   render: {
     renderId: string;
@@ -130,6 +132,62 @@ export interface HeadlessRoughCutExecution extends HeadlessRoughCutPreview {
     verified: true;
   };
   transaction: ProjectEditResult;
+}
+
+export interface HeadlessRoughCutPublishProof {
+  executionId: string;
+  sourceTransactionId: string;
+  projectId: string;
+  sequenceId: string;
+  sourceRevision: ContextRevision;
+  canonicalRevision: ContextRevision;
+  planDigest: string;
+  renderId: string;
+  artifactPath: string;
+  artifactDigest: string;
+  sourceAudioPolicy: "preserve-and-mix";
+  target: TimelineIrToFcpxmlTarget;
+  destination: TimelineIrToFcpxmlResult["destination"];
+  coverage: TimelineIrToFcpxmlResult["coverage"];
+  provenance: HeadlessRoughCutShotProvenance[];
+  targetBinding: { projectId: string; sequenceId: string };
+  targetLibraryUid: string;
+}
+
+interface HeadlessRoughCutExecutionRecord {
+  schemaVersion: 1;
+  executionId: string;
+  approved: true;
+  projectId: string;
+  sequenceId: string;
+  sourceRevision: ContextRevision;
+  canonicalRevision: ContextRevision;
+  plan: RoughCutPlan;
+  operations: TimelineIrEditOperation[];
+  outputIntent: HeadlessRoughCutPreview["outputIntent"];
+  planDigest: string;
+  inputDigest: string;
+  renderId: string;
+  artifactPath: string;
+  artifactDigest: string;
+  artifactBytes: number;
+  fcpxml: HeadlessRoughCutPreview["fcpxml"];
+  provenance: HeadlessRoughCutShotProvenance[];
+  evidenceDigest: string;
+}
+
+interface HeadlessRoughCutApprovalRecord {
+  schemaVersion: 1;
+  planDigest: string;
+  inputDigest: string;
+  projectId: string;
+  sequenceId: string;
+  sourceRevision: ContextRevision;
+  canonicalRevision: ContextRevision;
+  artifactPath: string;
+  artifactDigest: string;
+  outputIntent: HeadlessRoughCutPreview["outputIntent"];
+  evidenceDigest: string;
 }
 
 export class HeadlessProjectService {
@@ -208,13 +266,23 @@ export class HeadlessProjectService {
 
   public async previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview> {
     const prepared = await this.prepareRoughCut(request);
-    const transaction = new ProjectTransactionService(this.store(request.projectId), { clock: this.clock });
-    const preview = await transaction.preview(prepared.command);
-    const fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, { target: request.fcpxml.target });
+    const timestamp = this.clock();
+    const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    const approval = createRoughCutApproval({
+      inputDigest: prepared.inputDigest,
+      projectId: request.projectId,
+      sequenceId: request.sequenceId,
+      sourceRevision: request.plan.revision,
+      canonicalRevision: preview.after.timeline.revision,
+      artifactPath: resolve(request.fcpxml.path),
+      artifactDigest: fcpxml.digest,
+      outputIntent: prepared.outputIntent,
+    });
+    await this.saveRoughCutApproval(approval);
     return {
       ...preview,
       plan: structuredClone(request.plan),
-      planDigest: prepared.planDigest,
+      planDigest: approval.planDigest,
       provenance: prepared.provenance,
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
@@ -226,13 +294,40 @@ export class HeadlessProjectService {
       throw new Error("HEADLESS_ROUGH_CUT_APPROVAL_REQUIRED: set approved=true after reviewing the preview");
     }
     const prepared = await this.prepareRoughCut(request);
-    if (request.planDigest !== prepared.planDigest) {
+    if (!/^[a-f0-9]{64}$/.test(request.planDigest)) {
+      throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: planDigest does not match the submitted rough-cut plan");
+    }
+    let approval: HeadlessRoughCutApprovalRecord;
+    try {
+      approval = await this.readRoughCutApproval(request.planDigest);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: planDigest has no persisted preview approval");
+      }
+      throw error;
+    }
+    if (approval.inputDigest !== prepared.inputDigest
+      || approval.projectId !== request.projectId
+      || approval.sequenceId !== request.sequenceId
+      || !sameRevision(approval.sourceRevision, request.plan.revision)
+      || approval.artifactPath !== resolve(request.fcpxml.path)
+      || stableJson(approval.outputIntent) !== stableJson(prepared.outputIntent)) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: planDigest does not match the submitted rough-cut plan");
     }
 
-    const transaction = new ProjectTransactionService(this.store(request.projectId), { clock: this.clock });
-    const preview = await transaction.preview(prepared.command);
-    const fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, { target: request.fcpxml.target });
+    const transaction = new ProjectTransactionService(this.store(request.projectId), {
+      clock: () => approval.canonicalRevision.timestamp,
+    });
+    const { preview, fcpxml } = await this.previewPreparedRoughCut(
+      request,
+      prepared,
+      approval.canonicalRevision.timestamp,
+      transaction,
+    );
+    if (!sameRevision(preview.after.timeline.revision, approval.canonicalRevision)
+      || fcpxml.digest !== approval.artifactDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: replayed preview differs from the approved revision or FCPXML digest");
+    }
     const renderRequest = createFramekitRenderRequest({
       timeline: preview.after.timeline,
       target: { projectId: request.projectId, sequenceId: request.sequenceId },
@@ -264,18 +359,152 @@ export class HeadlessProjectService {
       request.fcpxml.overwrite === true,
     );
     const committed = await transaction.execute(prepared.command);
+    const executionId = `rough-cut-${randomUUID()}`;
+    await this.saveRoughCutExecution({
+      schemaVersion: 1,
+      executionId,
+      approved: true,
+      projectId: request.projectId,
+      sequenceId: request.sequenceId,
+      sourceRevision: structuredClone(request.plan.revision),
+      canonicalRevision: structuredClone(committed.after.timeline.revision),
+      plan: structuredClone(request.plan),
+      operations: structuredClone(request.operations ?? []),
+      outputIntent: structuredClone(prepared.outputIntent),
+      planDigest: approval.planDigest,
+      inputDigest: prepared.inputDigest,
+      renderId,
+      artifactPath: resolve(fcpxmlArtifact.path),
+      artifactDigest: fcpxmlArtifact.digest,
+      artifactBytes: fcpxmlArtifact.bytes,
+      fcpxml: selectFcpxmlMetadata(fcpxml),
+      provenance: structuredClone(prepared.provenance),
+    });
     return {
       ...preview,
+      after: committed.after,
       plan: structuredClone(request.plan),
-      planDigest: prepared.planDigest,
+      planDigest: approval.planDigest,
       provenance: prepared.provenance,
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
+      executionId,
       committed: true,
       render: { renderId, status: "passed", outcome },
       fcpxmlArtifact,
       transaction: committed,
     };
+  }
+
+  public async verifyPublishableRoughCut(
+    executionId: string,
+    artifactPath: string,
+    artifactDigest?: string,
+  ): Promise<HeadlessRoughCutPublishProof> {
+    validateExecutionId(executionId);
+    let record: HeadlessRoughCutExecutionRecord;
+    try {
+      record = JSON.parse(await readFile(this.executionPath(executionId), "utf8")) as HeadlessRoughCutExecutionRecord;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`HEADLESS_ROUGH_CUT_EXECUTION_NOT_FOUND: unknown approved rough-cut execution ${executionId}`);
+      }
+      throw error;
+    }
+    const { evidenceDigest, ...unsignedRecord } = record;
+    if (record.schemaVersion !== 1 || record.executionId !== executionId || record.approved !== true
+      || !evidenceDigest || hash(stableJson(unsignedRecord)) !== evidenceDigest) {
+      throw new Error(`HEADLESS_ROUGH_CUT_EXECUTION_INVALID: approved rough-cut provenance is invalid for ${executionId}`);
+    }
+    const expectedInputDigest = digestRoughCutPlan(record.plan, record.operations, record.outputIntent);
+    if (expectedInputDigest !== record.inputDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: persisted rough-cut input digest does not match its plan and output intent");
+    }
+    const approval = await this.readRoughCutApproval(record.planDigest);
+    if (approval.inputDigest !== record.inputDigest
+      || approval.projectId !== record.projectId
+      || approval.sequenceId !== record.sequenceId
+      || !sameRevision(approval.sourceRevision, record.sourceRevision)
+      || !sameRevision(approval.canonicalRevision, record.canonicalRevision)
+      || approval.artifactPath !== record.artifactPath
+      || approval.artifactDigest !== record.artifactDigest
+      || stableJson(approval.outputIntent) !== stableJson(record.outputIntent)) {
+      throw new Error("HEADLESS_ROUGH_CUT_EXECUTION_INVALID: persisted execution differs from its approved preview");
+    }
+    if (!sameRevision(record.sourceRevision, record.plan.revision)) {
+      throw new Error("HEADLESS_ROUGH_CUT_EXECUTION_INVALID: source revision differs from the approved plan revision");
+    }
+    if (!sameRevision(record.canonicalRevision, record.fcpxml.provenance.revision)) {
+      throw new Error("HEADLESS_ROUGH_CUT_REVISION_MISMATCH: FCPXML provenance differs from the committed canonical revision");
+    }
+    if (record.fcpxml.destination.mode !== "versioned") {
+      throw new Error("HEADLESS_ROUGH_CUT_TARGET_NOT_CREATE_ONLY: native delivery requires a versioned create-only project target");
+    }
+    if (resolve(artifactPath) !== record.artifactPath) {
+      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_TARGET_MISMATCH: requested path differs from the approved artifact path");
+    }
+    if (artifactDigest !== undefined && artifactDigest !== record.artifactDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: requested digest differs from the approved artifact digest");
+    }
+
+    const project = await this.open(record.projectId);
+    if (project.timeline.sequence.id !== record.sequenceId
+      || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
+      throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
+    }
+    const render = await this.inspectRender(record.renderId);
+    if (render.status !== "passed" || render.projectId !== record.projectId || render.sequenceId !== record.sequenceId
+      || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
+    }
+    const artifact = await readFile(record.artifactPath, "utf8");
+    if (hash(artifact) !== record.artifactDigest || Buffer.byteLength(artifact) !== record.artifactBytes) {
+      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML no longer matches its recorded digest");
+    }
+    if (!record.fcpxml.target.libraryUid?.trim()
+      || !record.fcpxml.destination.projectUid?.trim()
+      || !record.fcpxml.destination.sequenceUid?.trim()) {
+      throw new Error("HEADLESS_ROUGH_CUT_TARGET_INVALID: approved FCPXML has no explicit library, project, and sequence target");
+    }
+
+    return {
+      executionId,
+      sourceTransactionId: `headless-rough-cut:${executionId}`,
+      projectId: record.projectId,
+      sequenceId: record.sequenceId,
+      sourceRevision: structuredClone(record.sourceRevision),
+      canonicalRevision: structuredClone(record.canonicalRevision),
+      planDigest: record.planDigest,
+      renderId: record.renderId,
+      artifactPath: record.artifactPath,
+      artifactDigest: record.artifactDigest,
+      sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,
+      target: structuredClone(record.fcpxml.target),
+      destination: structuredClone(record.fcpxml.destination),
+      coverage: structuredClone(record.fcpxml.coverage),
+      provenance: structuredClone(record.provenance),
+      targetBinding: {
+        projectId: record.fcpxml.destination.projectUid,
+        sequenceId: record.fcpxml.destination.sequenceUid,
+      },
+      targetLibraryUid: record.fcpxml.target.libraryUid,
+    };
+  }
+
+  public async verifyPublishableRoughCutTransaction(request: {
+    sourceTransactionId: string;
+    artifactPath: string;
+    artifactDigest: string;
+  }): Promise<HeadlessRoughCutPublishProof> {
+    const prefix = "headless-rough-cut:";
+    if (!request.sourceTransactionId.startsWith(prefix)) {
+      throw new Error("HEADLESS_ROUGH_CUT_EXECUTION_INVALID: source transaction is not a rough-cut execution");
+    }
+    return this.verifyPublishableRoughCut(
+      request.sourceTransactionId.slice(prefix.length),
+      request.artifactPath,
+      request.artifactDigest,
+    );
   }
 
   public async render(
@@ -326,12 +555,52 @@ export class HeadlessProjectService {
     return join(this.directory, `${projectId}.json`);
   }
 
+  private executionPath(executionId: string): string {
+    validateExecutionId(executionId);
+    return join(this.directory, `${executionId}.json`);
+  }
+
+  private approvalPath(planDigest: string): string {
+    validatePlanDigest(planDigest);
+    return join(this.directory, `${planDigest}.approval.json`);
+  }
+
   private async saveRender(record: HeadlessRenderRecord): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const path = join(this.directory, `${record.renderId}.json`);
     const temporary = `${path}.${randomUUID()}.tmp`;
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
     await rename(temporary, path);
+  }
+
+  private async saveRoughCutExecution(record: Omit<HeadlessRoughCutExecutionRecord, "evidenceDigest">): Promise<void> {
+    await mkdir(this.directory, { recursive: true });
+    const execution = { ...record, evidenceDigest: hash(stableJson(record)) };
+    const path = this.executionPath(record.executionId);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(execution)}\n`, { encoding: "utf8", flag: "wx" });
+    await rename(temporary, path);
+  }
+
+  private async saveRoughCutApproval(record: Omit<HeadlessRoughCutApprovalRecord, "evidenceDigest">): Promise<void> {
+    await mkdir(this.directory, { recursive: true });
+    const approval = { ...record, evidenceDigest: hash(stableJson(record)) };
+    const path = this.approvalPath(record.planDigest);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx" });
+    await rename(temporary, path);
+  }
+
+  private async readRoughCutApproval(planDigest: string): Promise<HeadlessRoughCutApprovalRecord> {
+    const approval = JSON.parse(await readFile(this.approvalPath(planDigest), "utf8")) as HeadlessRoughCutApprovalRecord;
+    const { evidenceDigest, ...unsignedApproval } = approval;
+    const { planDigest: storedDigest, ...digestFields } = unsignedApproval;
+    if (approval.schemaVersion !== 1 || storedDigest !== planDigest
+      || !evidenceDigest || hash(stableJson(unsignedApproval)) !== evidenceDigest
+      || hash(stableJson(digestFields)) !== planDigest) {
+      throw new Error(`HEADLESS_ROUGH_CUT_APPROVAL_INVALID: persisted approval is invalid for ${planDigest}`);
+    }
+    return approval;
   }
 
   private async prepareRoughCut(request: HeadlessRoughCutRequest): Promise<PreparedRoughCut> {
@@ -355,7 +624,7 @@ export class HeadlessProjectService {
         overwrite: request.fcpxml.overwrite === true,
       },
     };
-    const planDigest = digestRoughCutPlan(request.plan, operations, outputIntent);
+    const inputDigest = digestRoughCutPlan(request.plan, operations, outputIntent);
     const existingOccurrenceIds = new Set(project.timeline.sequence.occurrences.map(({ id }) => id));
     const resourceByMediaId = new Map(project.timeline.resources.map((resource) => [resource.id, resource]));
     const provenance: HeadlessRoughCutShotProvenance[] = [];
@@ -385,7 +654,7 @@ export class HeadlessProjectService {
           track: 0,
           role: "video",
           mediaId: resource.id,
-          binding: { provider: "framekit.rough-cut", kind: "occurrence", identity: `${planDigest}:${shot.order}` },
+          binding: { provider: "framekit.rough-cut", kind: "occurrence", identity: `${inputDigest}:${shot.order}` },
         },
       });
       provenance.push({
@@ -407,15 +676,45 @@ export class HeadlessProjectService {
       expectedRevision: structuredClone(request.plan.revision),
       operations: editOperations,
     };
-    return { command, planDigest, provenance, outputIntent };
+    return { command, inputDigest, provenance, outputIntent };
+  }
+
+  private async previewPreparedRoughCut(
+    request: HeadlessRoughCutRequest,
+    prepared: PreparedRoughCut,
+    timestamp: string,
+    transaction = new ProjectTransactionService(this.store(request.projectId), { clock: () => timestamp }),
+  ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
+    const rawPreview = await transaction.preview(prepared.command);
+    const canonicalRevision: ContextRevision = {
+      id: `ir:${timelineIrDigest(rawPreview.after.timeline)}`,
+      sequence: rawPreview.before.timeline.revision.sequence + 1,
+      timestamp,
+    };
+    const canonicalTimeline = structuredClone(rawPreview.after.timeline);
+    canonicalTimeline.revision = canonicalRevision;
+    const preview: ProjectEditPreview = {
+      ...rawPreview,
+      after: { ...rawPreview.after, timeline: canonicalTimeline },
+    };
+    const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
+    return { preview, fcpxml };
   }
 }
 
 interface PreparedRoughCut {
   command: ProjectEditCommand;
-  planDigest: string;
+  inputDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
+}
+
+function createRoughCutApproval(
+  fields: Omit<HeadlessRoughCutApprovalRecord, "schemaVersion" | "planDigest" | "evidenceDigest">,
+): Omit<HeadlessRoughCutApprovalRecord, "evidenceDigest"> {
+  const digestFields = { schemaVersion: 1 as const, ...fields };
+  const planDigest = hash(stableJson(digestFields));
+  return { ...digestFields, planDigest };
 }
 
 function digestRoughCutPlan(
@@ -536,4 +835,16 @@ function validateProjectId(projectId: string): void {
 
 function validateRenderId(renderId: string): void {
   if (!/^render-[0-9a-f-]{36}$/.test(renderId)) throw new Error("HEADLESS_RENDER_INVALID: renderId is invalid");
+}
+
+function validateExecutionId(executionId: string): void {
+  if (!/^rough-cut-[0-9a-f-]{36}$/.test(executionId)) throw new Error("HEADLESS_ROUGH_CUT_EXECUTION_INVALID: executionId is invalid");
+}
+
+function validatePlanDigest(planDigest: string): void {
+  if (!/^[a-f0-9]{64}$/.test(planDigest)) throw new Error("HEADLESS_ROUGH_CUT_APPROVAL_INVALID: planDigest is invalid");
+}
+
+function hash(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }

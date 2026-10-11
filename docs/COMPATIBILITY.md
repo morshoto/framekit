@@ -54,7 +54,7 @@ changed.
 | Surface | Target | Revision | Read-after-write | Undo | Resulting project state |
 | --- | --- | --- | --- | --- | --- |
 | `artifact.edit` | Managed FCPXML artifact ID and path | Artifact snapshot revision | Reads the same artifact after the write | Restores the artifact transaction | Updates the FCPXML artifact; it does not claim to change the open Final Cut project |
-| `artifact.publish` | Verified artifact path and source transaction | Verified source transaction plus `confirm: true` | Reports the created project/sequence and active project before/after | Does not undo the imported project through artifact undo | Creates/imports a new Final Cut project and never silently replaces the active project |
+| `artifact.publish` | Verified artifact path and source transaction; the job flow also accepts an approved headless rough-cut execution | Verified source plus `confirm: true` | Reports the created project/sequence and active project before/after | Does not undo the imported project through artifact undo | Creates/imports a new Final Cut project and never silently replaces the active project |
 | `editor.timeline.edit` | Explicit active project ID and sequence ID | Required live base revision | Reads the identified live timeline after the write | Restores the identified live timeline transaction | Changes the selected live project only when canonical live-write capability is available |
 
 An artifact edit and a live timeline edit are not interchangeable, even when
@@ -119,11 +119,12 @@ exact property readback, and native Undo. Neither native placement operation
 upgrades the live Workflow Extension's canonical timeline capabilities, and
 person cutout remains unavailable.
 
-When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
-`artifact.publish` accepts a verified artifact transaction, its managed
-`artifactPath`, and explicit `confirm: true` before importing a new Final Cut
-project. It reports the created project target and active project before/after;
-the active project is never replaced automatically.
+When both `FRAMEKIT_FCPXML_PATH` and native writes are configured, the
+job-based `artifact.publish.preview` accepts a verified artifact
+transaction or approved headless rough-cut execution for its `artifactPath`.
+`artifact.publish.execute` requires explicit `confirm: true` before importing a
+new Final Cut project. It reports the created project target and active project
+before/after; the active project is never replaced automatically.
 
 The publisher uses the Workflow Extension's non-activating FCPXML document-open
 route when a target library UID is configured. That route reports dispatch and

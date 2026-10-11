@@ -507,15 +507,16 @@ missing. Both tools include `timelineWindowAvailable`, `timelineFocused`,
 focus tool changes application focus only; it does not select a project or
 mutate timeline content, and it never clicks the Framekit close button.
 
-`artifact.publish` is reported separately from `timelineWrite`. It accepts a
-verified artifact transaction, matching `artifactPath`, and `confirm: true` to
-import a new Final Cut project. A native target-binding provider must reserve
-the created project and sequence IDs; an FCPXML destination UID is not native
-readback. Its result identifies the source artifact, created project/sequence,
-and active project before/after; it does not mean the currently open timeline
-is directly writable. Missing confirmation fails with
-`PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
-`PUBLISH_TARGET_MISMATCH`.
+`artifact.publish` is reported separately from `timelineWrite`. The job-based
+`artifact.publish.preview` accepts either a verified artifact transaction or a
+durable, approved headless rough-cut execution, bound to the matching
+`artifactPath`. `artifact.publish.execute` requires `confirm: true` before a
+A native target-binding provider must reserve the created project and sequence
+IDs; an FCPXML destination UID is not native readback. Its result identifies
+the source artifact, created project/sequence, and active project before/after;
+it does not mean the currently open timeline is directly writable. Missing
+confirmation fails with `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched
+artifact fails closed.
 
 The job-based `artifact.publish.preview`, `artifact.publish.execute`, and
 `artifact.publish.status` tools make the delivery boundary explicit. They
