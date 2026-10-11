@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
 	extractIssueReferences,
@@ -82,6 +83,40 @@ test('updates a PR only after GitHub confirms the issue cross-reference', async 
 
 	assert.deepEqual(result, { action: 'updated', milestoneNumber: 21 });
 	assert.ok(requests.some(({ method, url, body }) => method === 'PATCH' && url.endsWith('/issues/22') && (body as any).milestone === 21));
+});
+
+test('ignores body references that GitHub has not linked to the PR', async () => {
+	const requests: Array<{ url: string; method: string }> = [];
+	const fetchImpl = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+		const url = String(input);
+		const method = init.method ?? 'GET';
+		requests.push({ url, method });
+		if (url.endsWith('/issues/22')) return jsonResponse({ number: 22, milestone: null });
+		if (url.endsWith('/issues/123')) {
+			return jsonResponse({ number: 123, milestone: { id: 21, number: 21, title: 'Release for v0.1.18' } });
+		}
+		if (url.endsWith('/issues/123/timeline?per_page=100')) return jsonResponse([]);
+		throw new Error(`Unexpected request: ${method} ${url}`);
+	};
+
+	const result = await syncPullRequestMilestone({
+		repository: 'acme/framekit',
+		pullRequestNumber: 22,
+		body: 'A plain #123 mention is not enough by itself.',
+		token: 'test-token',
+		apiUrl: 'https://api.github.com',
+		fetchImpl,
+	});
+
+	assert.deepEqual(result, { action: 'skip', reason: 'no-linked-issues' });
+	assert.equal(requests.some(({ method }) => method === 'PATCH'), false);
+});
+
+test('rechecks PR body edits with write permission for milestones', async () => {
+	const workflow = await readFile(new URL('../../.github/workflows/assign.yml', import.meta.url), 'utf8');
+	assert.match(workflow, /types:\s*\[[^\]]*edited/);
+	assert.match(workflow, /sync-pull-request-milestone:/);
+	assert.match(workflow, /pull-requests:\s*write/);
 });
 
 function jsonResponse(value: unknown): Response {
