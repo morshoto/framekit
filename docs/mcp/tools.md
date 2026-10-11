@@ -27,12 +27,14 @@ include titles, audio occurrences, and other supported edits in the same
 revision as the planned shots. Set `sourceAudioPolicy: "preserve-and-mix"` to
 make the source-audio behavior explicit: embedded video audio is retained and
 registered audio/music occurrences are mixed with their configured gain. The
-returned `planDigest` binds the plan, operations, audio policy, and render and
-FCPXML output intent. Review the preview's `diff.operations`, final timeline,
-FCPXML coverage, and output intent
-before passing the unchanged plan, operations, and output settings with the
-returned digest and `approved: true` to execute. The transaction renders MP4
-and writes matching editable FCPXML from one proposed revision.
+returned `planDigest` binds the plan, operations, output intent, source and
+predicted committed revisions, resolved FCPXML output path, and compiled
+artifact digest. Review the preview's `diff.operations`, final timeline,
+FCPXML coverage, and output intent before passing the unchanged plan,
+operations, and output settings with the returned digest and `approved: true`
+to execute. The transaction renders MP4 and writes matching editable FCPXML
+from one approved revision. The resulting `executionId` can be passed to
+`artifact.publish.preview` for a separately confirmed native handoff.
 
 ## Explicit headed/editor-first routing
 
