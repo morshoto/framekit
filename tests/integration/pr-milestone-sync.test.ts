@@ -55,7 +55,7 @@ test('updates a PR only after GitHub confirms the issue cross-reference', async 
 		const method = init.method ?? 'GET';
 		requests.push({ url, method, ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) });
 		if (url.endsWith('/issues/22') && method === 'GET') {
-			return jsonResponse({ number: 22, milestone: null });
+			return jsonResponse({ number: 22, milestone: null, pull_request: { url: 'https://api.github.com/repos/acme/framekit/pulls/22' } });
 		}
 		if (url.endsWith('/issues/123') && method === 'GET') {
 			return jsonResponse({ number: 123, milestone: { id: 21, number: 21, title: 'Release for v0.1.18' } });
@@ -91,7 +91,9 @@ test('ignores body references that GitHub has not linked to the PR', async () =>
 		const url = String(input);
 		const method = init.method ?? 'GET';
 		requests.push({ url, method });
-		if (url.endsWith('/issues/22')) return jsonResponse({ number: 22, milestone: null });
+		if (url.endsWith('/issues/22')) {
+			return jsonResponse({ number: 22, milestone: null, pull_request: { url: 'https://api.github.com/repos/acme/framekit/pulls/22' } });
+		}
 		if (url.endsWith('/issues/123')) {
 			return jsonResponse({ number: 123, milestone: { id: 21, number: 21, title: 'Release for v0.1.18' } });
 		}
