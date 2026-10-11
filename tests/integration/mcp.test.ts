@@ -178,6 +178,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.deepEqual(artifactEditRename?.required?.slice().sort(), ["artifactPath", "baseRevision", "clipId", "name", "type"]);
     const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
     assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
+    const timelinePublishTool = tools.tools.find((tool) => tool.name === "timeline.publish.new-project");
+    assert.deepEqual(timelinePublishTool?.inputSchema.required?.slice().sort(), ["confirm", "transactionId"]);
     const artifactPublishPreviewTool = tools.tools.find((tool) => tool.name === "artifact.publish.preview");
     assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "transactionId"]);
     const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
