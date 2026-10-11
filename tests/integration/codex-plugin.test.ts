@@ -71,6 +71,37 @@ test("Framekit plugin guidance preserves live capability and safety boundaries",
   assert.match(skill, /not prerequisites?\s+for headless read-only access/i);
 });
 
+test("Framekit plugin exposes a headless video workflow and separately authorized native delivery", async () => {
+  const manifest = await readJson("plugins/framekit/.codex-plugin/plugin.json") as {
+    interface?: { shortDescription?: string; longDescription?: string; defaultPrompt?: string[] };
+  };
+  assert.match(manifest.interface?.shortDescription ?? "", /video production/i);
+  assert.match(manifest.interface?.longDescription ?? "", /headless media analysis/i);
+  assert.ok(manifest.interface?.defaultPrompt?.some((prompt) => /rough cut from local media/i.test(prompt)));
+
+  const skill = await readFile(resolve(repository, "plugins/framekit/skills/framekit/SKILL.md"), "utf8");
+  for (const expected of [
+    "headless video production",
+    "projectId",
+    "media.understand",
+    "rough-cut.plan",
+    "headless.rough-cut.preview",
+    "headless.rough-cut.execute",
+    "artifact.publish.preview",
+    "artifact.publish.execute",
+    "explicit user authorization",
+    "CAPABILITY_UNAVAILABLE",
+    "codex-video-production-e2e.md",
+  ]) {
+    assert.ok(skill.toLowerCase().includes(expected.toLowerCase()), `skill includes ${expected}`);
+  }
+
+  const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
+  for (const expected of ["FRAMEKIT_SPEECH_ANALYZER", "Codex", "artifact.publish.status", "pending", "Final Cut"]) {
+    assert.ok(runbook.includes(expected), `runbook includes ${expected}`);
+  }
+});
+
 test("CI runs the clean Codex plugin installation smoke test", async () => {
   const packageManifest = await readJson("package.json") as { scripts?: Record<string, string> };
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
