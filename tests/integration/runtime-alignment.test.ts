@@ -42,7 +42,7 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
-function metadataOnlyRuntime(): AgentVideoRuntime {
+function metadataOnlyRuntime(fingerprint = extensionFingerprint): AgentVideoRuntime {
   const live = new FinalCutLiveAdapter({
     request: async (request) => ({
       version: 1,
@@ -53,7 +53,7 @@ function metadataOnlyRuntime(): AgentVideoRuntime {
           name: "Final Cut Pro",
           version: "10.7.1",
           backend: "workflow-extension-ipc",
-          buildFingerprint: extensionFingerprint,
+          buildFingerprint: fingerprint,
         },
         capabilities: bridgeCapabilities,
       },
@@ -71,7 +71,11 @@ class FailingInspectionAdapter extends InMemoryEditorAdapter {
 async function withClient(
   runtime: AgentVideoRuntime,
   callback: (client: Client) => Promise<void>,
-  overrides: { buildFingerprint?: { version: string; commit: string }; requireBuildAlignment?: boolean; validationCommit?: string } = {},
+  overrides: {
+    buildFingerprint?: { version: string; commit: string };
+    requireBuildAlignment?: boolean;
+    validationCommit?: string;
+  } = {},
 ): Promise<void> {
   const server = createMcpServer(runtime, {
     processMode: "headless",
@@ -138,6 +142,17 @@ test("required local alignment fails clearly for a stale extension", async () =>
     requireBuildAlignment: true,
     validationCommit: "intended-commit",
   });
+});
+
+test("required local alignment fails clearly for a different extension version", async () => {
+  await withClient(metadataOnlyRuntime({ version: "0.1.6", commit: "test-commit" }), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
+
+    assert.equal(status.state, "unavailable");
+    assert.equal(status.lastError?.code, "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH");
+    assert.match(status.lastError?.message ?? "", /extension version 0\.1\.6 does not match runtime version 0\.1\.7/);
+    assert.equal(status.preflight, undefined);
+  }, { requireBuildAlignment: true });
 });
 
 test("connection status becomes unavailable when inspection fails", async () => {
