@@ -57,6 +57,8 @@ export interface HeadlessRoughCutRequest {
   projectId: string;
   sequenceId: string;
   plan: RoughCutPlan;
+  operations?: TimelineIrEditOperation[];
+  sourceAudioPolicy?: "preserve-and-mix";
   render: FramekitRenderParameters;
   fcpxml: {
     path: string;
@@ -107,6 +109,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   planDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
   outputIntent: {
+    sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
     fcpxml: { path: string; target: TimelineIrToFcpxmlTarget; overwrite: boolean };
   };
@@ -341,11 +344,22 @@ export class HeadlessProjectService {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: rough-cut plan revision does not match the persisted project");
     }
     if (!request.plan.shots.length) throw new Error("HEADLESS_ROUGH_CUT_EMPTY_PLAN: rough-cut plan must contain at least one shot");
-    const planDigest = digestRoughCutPlan(request.plan);
+    const operations = structuredClone(request.operations ?? []);
+    const sourceAudioPolicy = request.sourceAudioPolicy ?? "preserve-and-mix";
+    const outputIntent = {
+      sourceAudioPolicy,
+      render: structuredClone(request.render),
+      fcpxml: {
+        path: request.fcpxml.path,
+        target: structuredClone(request.fcpxml.target),
+        overwrite: request.fcpxml.overwrite === true,
+      },
+    };
+    const planDigest = digestRoughCutPlan(request.plan, operations, outputIntent);
     const existingOccurrenceIds = new Set(project.timeline.sequence.occurrences.map(({ id }) => id));
     const resourceByMediaId = new Map(project.timeline.resources.map((resource) => [resource.id, resource]));
     const provenance: HeadlessRoughCutShotProvenance[] = [];
-    const operations: TimelineIrEditOperation[] = [];
+    const planOperations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
       const shotWithEvidence = shot as RoughCutShotWithEvidence;
       const occurrenceId = `rough-cut-${shot.order}`;
@@ -359,7 +373,7 @@ export class HeadlessProjectService {
       const sourceStartTime = shot.range.startTime ?? secondsToRational(shot.range.start);
       const durationTime = shot.range.durationTime ?? secondsToRational(shot.range.end - shot.range.start);
       assertSourceRange(resource, shot.range, sourceStartTime, durationTime);
-      operations.push({
+      planOperations.push({
         type: "insert-occurrence",
         placement: "append",
         occurrence: {
@@ -386,19 +400,12 @@ export class HeadlessProjectService {
         ...(shotWithEvidence.evidence ? { evidence: structuredClone(shotWithEvidence.evidence) } : {}),
       });
     }
+    const editOperations = [...planOperations, ...operations];
     const command: ProjectEditCommand = {
       schemaVersion: 1,
       target: { projectId: request.projectId, sequenceId: request.sequenceId },
       expectedRevision: structuredClone(request.plan.revision),
-      operations,
-    };
-    const outputIntent = {
-      render: structuredClone(request.render),
-      fcpxml: {
-        path: request.fcpxml.path,
-        target: structuredClone(request.fcpxml.target),
-        overwrite: request.fcpxml.overwrite === true,
-      },
+      operations: editOperations,
     };
     return { command, planDigest, provenance, outputIntent };
   }
@@ -411,8 +418,12 @@ interface PreparedRoughCut {
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
 }
 
-function digestRoughCutPlan(plan: RoughCutPlan): string {
-  return createHash("sha256").update(stableJson(plan)).digest("hex");
+function digestRoughCutPlan(
+  plan: RoughCutPlan,
+  operations: TimelineIrEditOperation[],
+  outputIntent: HeadlessRoughCutPreview["outputIntent"],
+): string {
+  return createHash("sha256").update(stableJson({ plan, operations, outputIntent })).digest("hex");
 }
 
 function stableJson(value: unknown): string {

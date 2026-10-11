@@ -148,6 +148,64 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
   }
 });
 
+test("FFmpeg mixes independent music with source audio at the requested gain", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-music-mix-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const musicPath = join(directory, "music-1760hz.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
+      "-c:a", "pcm_s16le", "-y", musicPath,
+    ], { cwd: repositoryRoot, env: process.env });
+
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.resources.push(audioResource("music", musicPath, await digest(musicPath)));
+    source.sequence.occurrences.push({
+      id: "music-bed",
+      name: "Music bed",
+      startTime: { value: "0", timescale: "1" },
+      durationTime: { value: "2", timescale: "1" },
+      sourceStartTime: { value: "0", timescale: "1" },
+      track: 1,
+      role: "music",
+      mediaId: "music",
+      gainDb: -6,
+    });
+    const outputPath = join(directory, "music-mix.mp4");
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    const capabilities = renderer.capabilities(request);
+    assert.ok(request.requiredFeatures.includes("audio-mixing"));
+    assert.equal(capabilities.features["audio-mixing"], "supported");
+    const plan = createFramekitRenderPlan(request, capabilities);
+
+    await renderer.render(plan);
+    const pcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-i", outputPath, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
+    ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+    const samples = pcm.stdout as unknown as Buffer;
+    const sourceMusicPcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-i", musicPath, "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
+    ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+
+    assert.ok(frequencyAmplitude(samples, 440, 48_000) > 0.002, "source audio should remain audible in the mix");
+    const observedMusicAmplitude = frequencyAmplitude(samples, 1_760, 48_000);
+    const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
+    assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
+    assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer reports unsupported required semantics before rendering", () => {
   const source = timelineWithoutMedia();
   source.sequence.captions.push({
@@ -332,6 +390,35 @@ function resource(id: string, source: string, sourceDigest: string) {
       ],
     },
   };
+}
+
+function audioResource(id: string, source: string, sourceDigest: string) {
+  return {
+    id,
+    name: "Music bed",
+    mediaKind: "audio" as const,
+    source,
+    sourceKind: "local-file" as const,
+    sourceDigest,
+    metadata: {
+      durationTime: { value: "2", timescale: "1" },
+      streams: [{ kind: "audio" as const, sampleRate: 48_000, channels: 1 }],
+    },
+  };
+}
+
+function frequencyAmplitude(samples: Buffer, frequency: number, sampleRate: number): number {
+  const coefficient = 2 * Math.cos((2 * Math.PI * frequency) / sampleRate);
+  let previous = 0;
+  let previous2 = 0;
+  const sampleCount = Math.floor(samples.length / 4);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const current = samples.readFloatLE(index * 4) + coefficient * previous - previous2;
+    previous2 = previous;
+    previous = current;
+  }
+  const power = previous2 ** 2 + previous ** 2 - coefficient * previous * previous2;
+  return Math.sqrt(Math.max(0, power)) / sampleCount;
 }
 
 function parameters(outputPath: string): FramekitRenderParameters {
