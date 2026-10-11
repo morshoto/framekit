@@ -63,9 +63,11 @@ canonical snapshot and atomic construction port.
 
 `rough-cut.construction.plan` and `rough-cut.construction.preview` construct a
 canonical workflow for the selected target. They never silently replace the
-currently open Final Cut project. A verified artifact can be published as a new project through
-`timeline.publish.new-project`, which requires a verified transaction and the
-configured `FinalCutProjectPublisher`. The publisher imports a temporary copy
+currently open Final Cut project. A verified artifact can be published as a
+new project through `timeline.publish.new-project`, which requires a verified
+transaction, the configured `FinalCutProjectPublisher`, and literal
+`confirm: true`. Publishing is unavailable for metadata-only connections or
+publishers without live project/sequence verification. The publisher imports a temporary copy
 of the FCPXML artifact through an Accessibility-driven Import XML state machine,
 waits for the import sheet to disappear, verifies the resulting project and
 sequence identities against the prior active target. Final Cut makes the imported

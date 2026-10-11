@@ -324,7 +324,10 @@ The three editing surfaces have separate targets and guarantees:
 
 The target-specific tools are preferred. The older `timeline.edit` and
 `timeline.publish.new-project` names remain registered as compatibility aliases;
-new callers should select the target-specific surface.
+new callers should select the target-specific surface. The publishing alias
+requires both `transactionId` and literal `confirm: true`; it applies the same
+route, artifact-target, digest, and transaction-verification checks as
+`artifact.publish`.
 
 `project.list` and `project.select` use stable IDs supplied by the selected
 backend. The current Workflow Extension exposes only the active project and
@@ -500,7 +503,9 @@ advertise atomic preview, execution, read-after-write, and rollback support.
 
 Rough-cut construction does not create or replace the active Final Cut
 project. After a verified artifact exists, `timeline.publish.new-project` is
-the explicit publishing path for importing it as a new project.
+the explicit publishing path for importing it as a new project and requires
+`confirm: true`. Publishing is unavailable for metadata-only connections or
+publishers without live project/sequence verification.
 
 ## Composite editing transactions
 

@@ -270,15 +270,15 @@ canonical timeline evidence, canonical snapshot support, project selection, or
 native UI access. A missing provider returns an unavailable descriptor rather
 than an empty or invented catalog.
 
-`artifactPublish` is true only when the MCP server has a configured project
-publisher with native writes enabled. `artifactPublishMode` reports
-`background-capable` when the Workflow Extension document-open bridge is
-configured, `headed-only` for the explicit Accessibility fallback, and
-`unavailable` when publishing is not enabled. Background-capable means only
-that Framekit can attempt `NSWorkspace` document delivery with
-`activates=false`; it does not claim import completion or target-bound
-readback. The job tools remain available when a managed artifact is configured
-so callers can prepare and inspect a bounded handoff. `artifactPublish` is separate from both
+`artifactPublish` is true when a configured publisher has a supported route.
+`artifactPublishMode` reports `background-capable` when the Workflow Extension
+document-open bridge is configured, `headed-only` for the explicit
+Accessibility path when the process has a live non-metadata Final Cut route,
+and `unavailable` otherwise. Background-capable means only that Framekit can
+attempt `NSWorkspace` document delivery with `activates=false`; it does not
+claim import completion or target-bound readback. The job tools remain
+available when a managed artifact is configured so callers can prepare and
+inspect a bounded handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
 new project is neither an artifact edit nor an edit of the open timeline.
 
