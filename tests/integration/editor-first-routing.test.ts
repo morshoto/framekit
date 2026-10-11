@@ -682,9 +682,21 @@ test("MCP keeps publishing unavailable for a metadata-only connection", async ()
   runtime.inspectEditor = async () => metadataInspection;
   let importCalled = false;
   const server = createMcpServer(runtime, {
+    processMode: "headed",
     projectPublisher: new FinalCutProjectPublisher({
       enabled: true,
       sourcePath: "/tmp/metadata-only.fcpxml",
+      liveState: async () => ({
+        project: { id: "metadata-project", name: "Metadata Project" },
+        sequence: {
+          id: "metadata-sequence",
+          name: "Metadata Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "metadata-revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
       executor: async () => {
         importCalled = true;
         return "imported";
@@ -715,6 +727,46 @@ test("MCP keeps publishing unavailable for a metadata-only connection", async ()
     assert.equal(publish.isError, true);
     assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
     assert.equal(importCalled, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP does not advertise headed publishing in headless mode", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Headless Publisher",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    processMode: "headless",
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: "/tmp/headless-publisher.fcpxml",
+      liveState: async () => ({
+        project: { id: "project", name: "Project" },
+        sequence: {
+          id: "sequence",
+          name: "Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
+    }),
+  });
+  const client = new Client({ name: "headless-publisher-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.families.publishing.projectCreation.available, false);
   } finally {
     await client.close();
     await server.close();
