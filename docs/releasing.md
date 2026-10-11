@@ -45,7 +45,9 @@ works without this secret.
    generate the milestone report.
 4. The `publish-npm` job installs npm 11.5.1, runs the repository release gate,
    publishes the matching package, waits up to 16 minutes for npm validation,
-   verifies the version on the public registry, and publishes the GitHub release.
+   verifies the version on the public registry, installs the published package
+   through a clean Codex profile, and publishes the GitHub release. The clean
+   install evidence is uploaded as `clean-mcp-clients-<tag>`.
 5. Native Final Cut assets are deliberately outside this publication critical
    path. Run the separate `Native release assets` workflow for the published
    tag when a trusted Final Cut-capable Mac is available.
@@ -95,8 +97,15 @@ an exact tag safely replaces a partial or stale native upload. It then runs:
 pnpm run verify-release-provenance
 ```
 
-That post-upload check verifies package, MCP server, plugin, tag, workflow,
-GitHub release, npm, native archive, and checksum alignment.
+That post-upload check reads the actual release workflow run and its clean
+Codex artifact, queries the current native packaging job from GitHub Actions,
+and checks npm, plugin, MCP server, and extension fingerprints against the
+exact tag commit from clean source checkouts. It verifies the uploaded archive checksum and embedded
+Workflow Extension version and commit. The machine-readable
+`artifacts/release-provenance/<run-id>/provenance.json` includes per-artifact
+reasons and an overall `GO` or `NO_GO`. The verifier job still records a
+`NO_GO` report when tag validation passed but native packaging failed. A
+locally modified release checkout cannot pass the package preflight or candidate gate.
 
 ## Retrying npm/GitHub publication
 
@@ -181,13 +190,17 @@ npm pack --dry-run
 pnpm run release-gate --output-dir artifacts/release-gate/local-run
 ```
 
-After the native assets exist on a published release, the authenticated
-provenance check can also be run locally:
+The same command can inspect public release and npm metadata locally:
 
 ```sh
 RELEASE_TAG=v0.1.10 GITHUB_REPOSITORY=morshoto/framekit \
   pnpm run verify-release-provenance
 ```
+
+When run outside the native-release workflow, it cannot attest that the
+current run's signing job succeeded, so the candidate remains `NO_GO` for the
+native extension. Use the report artifact from the native workflow for the
+final signing and release decision.
 
 For the v0.1.6 release gate, attach `report.json` and `manifest.json` as
 evidence. The deterministic, FCPXML artifact, metadata-only, canonical-live,
