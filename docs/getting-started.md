@@ -131,8 +131,13 @@ The plugin starts Framekit with `--editor final-cut-live --headless`. Headless
 mode probes an already-running Workflow Extension socket and does not launch,
 activate, focus, or edit Final Cut through Accessibility. Start with
 `connection.status`, then inspect the live capability flags before choosing
-other tools. Missing Final Cut, extension, or socket prerequisites
-remain actionable failures rather than a ready connection.
+other live tools. Missing Final Cut, extension, or socket prerequisites remain
+actionable failures for live operations. They do not block a Framekit-owned
+headless video project: register local media, call `media.understand` and
+`rough-cut.plan` with its `projectId`, review the plan, and preview/execute the
+approved render. The
+[Codex video production runbook](./tests/codex-video-production-e2e.md)
+covers a three-source edit and a separately authorized native handoff.
 
 Accessibility and Automation permissions are required only for an explicit
 headed native-write setup; they are not prerequisites for headless read-only

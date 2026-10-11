@@ -65,6 +65,7 @@ import {
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
 } from "./headless-projects.js";
+import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
@@ -116,6 +117,7 @@ const timelineSemanticContextQuerySchema = z.object({
 }).strict();
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
+  projectId: z.string().min(1).optional(),
 });
 const durationRangeSchema = z.object({
   startSeconds: z.number().finite().nonnegative(),
@@ -2152,14 +2154,27 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
 
   server.registerTool("media.understand", {
-    description: "Return combined speech, audio, and visual understanding for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
+    description: "Return combined speech, audio, and visual understanding for one media item in the selected editor project or a named headless project.",
+    inputSchema: { mediaId: z.string().min(1), projectId: z.string().min(1).optional() },
+  }, async ({ mediaId, projectId }) => {
+    if (!projectId) return jsonResult(await runtime.understandMedia(mediaId));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("rough-cut.plan", {
-    description: "Create a deterministic, explainable, read-only shot plan from analyzed media; does not mutate the timeline.",
+    description: "Create a deterministic, explainable, read-only shot plan from analyzed editor or named headless project media; does not mutate the timeline.",
     inputSchema: roughCutPlanSchema.shape,
-  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
+  }, async (request) => {
+    const { projectId, ...planRequest } = request;
+    if (!projectId) return jsonResult(await runtime.planRoughCut(planRequest));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.planRoughCutInProject(planRequest, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("editor.assets", {
     description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
