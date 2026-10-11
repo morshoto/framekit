@@ -117,7 +117,9 @@ test('ignores body references that GitHub has not linked to the PR', async () =>
 test('rechecks PR body edits with write permission for milestones', async () => {
 	const workflow = await readFile(new URL('../../.github/workflows/assign.yml', import.meta.url), 'utf8');
 	assert.match(workflow, /types:\s*\[[^\]]*edited/);
+	assert.match(workflow, /pull_request_target:\s*\n\s+types:/);
 	assert.match(workflow, /sync-pull-request-milestone:/);
+	assert.match(workflow, /head\.repo\.full_name != github\.repository/);
 	assert.match(workflow, /pull-requests:\s*write/);
 });
 
