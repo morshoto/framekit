@@ -10,8 +10,10 @@ For a Framekit-owned project, use the headless path by default:
    edit surface as one headless capability.
 2. Confirm `selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"`.
 3. Use `headless.project.open` or `headless.project.inspect`, then
-   `headless.edit.preview` and `headless.edit.execute`. For semantic rough cuts,
-   pass the read-only `rough-cut.plan` result to
+   `headless.edit.preview` and `headless.edit.execute`. For a new semantic
+   rough cut, register sources with `headless.media.register`, call
+   `media.understand` and `rough-cut.plan` with that project's `projectId`, and
+   pass the read-only plan to
    `headless.rough-cut.preview`, review its provenance and output intent, then
    call `headless.rough-cut.execute` with the returned plan digest and explicit
    approval.
@@ -190,8 +192,8 @@ is a separate, confirmed `artifact.publish` step.
 | `color.correction.preview` | Preview exposure, contrast, saturation, white balance, or a basic preset on one clip | Requires explicit clip targeting and advertised color-correction capability |
 | `color.correction.execute` | Execute the color preview and return before/after diff, verification, and rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
-| `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
-| `rough-cut.plan` | Explainable read-only, speech-first shot plan from semantic media ranges | Uses analyzed VAD speech intervals or transcript word ranges before metadata-only ranges; returns exact source identity, evidence, and rationale; never mutates the timeline |
+| `media.understand` | Combined speech, audio, visual, and metadata understanding for editor media or one `projectId` headless project | Returns per-capability analyzed or unavailable statuses; headless media uses configured analyzers without requiring a connected Final Cut session |
+| `rough-cut.plan` | Explainable read-only, speech-first shot plan from editor media or one `projectId` headless project | Uses analyzed VAD speech intervals or transcript word ranges before metadata-only ranges; returns exact source identity, evidence, and rationale; never mutates the timeline |
 | `editor.assets` | Search editor assets by text, kind, vendor, and explicit discovery mode; IDs are provider-qualified and include discovery provenance | `discovery: "background"` is the default filesystem registry; `discovery: "native"` explicitly requires Accessibility and Final Cut frontmost; `discovery: "all"` composes both |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
@@ -325,11 +327,14 @@ The three editing surfaces have separate targets and guarantees:
   readback evidence, and active project before and after delivery. Missing confirmation returns
   `PUBLISH_CONFIRMATION_REQUIRED`; a different artifact returns
   `PUBLISH_TARGET_MISMATCH`.
-- `artifact.publish.preview` records the explicit destination path along with
-  the verified source transaction. `artifact.publish.execute` requires
-  confirmation; `artifact.publish.status` is read-only.
-- `artifact.publish.execute` and
-  `artifact.publish.status` expose a bounded publish handoff state machine.
+- `artifact.publish.preview` accepts either a verified artifact transaction or
+  a durable approved headless rough-cut execution through `headlessExecutionId`.
+  It records the matching `artifactPath` and new absolute
+  `.fcpbundle` `targetLibraryPath`; `artifact.publish.execute` requires explicit
+  confirmation, and `artifact.publish.status` is read-only. The native
+  publisher requires a separately configured Final Cut server.
+- `artifact.publish.preview`, `artifact.publish.execute`, and
+  `artifact.publish.status` expose a bounded native handoff state machine.
   `awaiting-final-cut` is retryable before import; `verification-pending` is
   retryable verification only and never repeats the import. Neither state has
   a `createdTarget`, and only `verified` has a successful publish result.
@@ -428,12 +433,17 @@ not replace that target with a UI index or coordinate-only match.
 ## Semantic media understanding
 
 `media.understand` runs the independently configured speech, audio, visual, and
-metadata analyzers for one media item. Its response includes the exact source
-identity (`mediaId`, source, optional digest, kind, and duration), semantic tags,
-usable source ranges, and one machine-readable status per capability. A provider
-failure or missing provider is reported as `unavailable`; successful modalities
-remain available in a partial result, and no description is invented for a
-missing modality.
+metadata analyzers for one media item. Supply `projectId` to read that media
+from a persisted Framekit headless project; the tool reopens the project,
+revalidates its registered local source, and analyzes a runtime snapshot of its
+Timeline IR without using the live editor context. Its response includes the
+exact source identity (`mediaId`, source, optional digest, kind, and duration),
+semantic tags, usable source ranges, and one machine-readable status per
+capability. A provider failure or missing provider is reported as
+`unavailable`; successful modalities remain available in a partial result, and
+no description is invented for a missing modality. The source-bound index is
+persisted so `rough-cut.plan` with the same `projectId` can consume the analysis
+after an MCP restart.
 
 `media.index` searches the attached, provenance-aware descriptions. Filters can
 match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free text,
@@ -442,9 +452,11 @@ overlapping semantic or analyzed speech `range`, and required analyzer
 identity used to produce it.
 
 `rough-cut.plan` consumes the same index and returns deterministic video shots
-sorted by query relevance, media ID, and source range. When speech evidence is
-available, speech VAD intervals (or grouped transcript word ranges) are selected
-first and silence intervals are excluded. Each shot includes its exact source
+sorted by query relevance, media ID, and source range. When `projectId` is
+provided, results are limited to exact source identities registered in that
+headless project. When speech evidence is available, speech VAD intervals (or
+grouped transcript word ranges) are selected first and silence intervals are
+excluded. Each shot includes its exact source
 identity, source range, confidence, matched properties, rationale, and optional
 speech evidence with transcript, word confidence, VAD, and loudness metadata.
 Audio-only entries with usable ranges are excluded from the shots and reported in
