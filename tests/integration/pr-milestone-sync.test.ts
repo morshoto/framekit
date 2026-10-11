@@ -119,7 +119,9 @@ test('rechecks PR body edits with write permission for milestones', async () => 
 	assert.match(workflow, /types:\s*\[[^\]]*edited/);
 	assert.match(workflow, /pull_request_target:\s*\n\s+types:/);
 	assert.match(workflow, /sync-pull-request-milestone:/);
+	assert.match(workflow, /head\.repo\.full_name == github\.repository/);
 	assert.match(workflow, /head\.repo\.full_name != github\.repository/);
+	assert.match(workflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
 	assert.match(workflow, /pull-requests:\s*write/);
 });
 
