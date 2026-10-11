@@ -97,7 +97,22 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
   }
 
   const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
-  for (const expected of ["FRAMEKIT_SPEECH_ANALYZER", "Codex", "artifact.publish.status", "pending", "Final Cut"]) {
+  for (const expected of [
+    "FRAMEKIT_SPEECH_ANALYZER",
+    "Codex",
+    "artifact.publish.status",
+    "pending",
+    "Final Cut",
+    "B-A-C",
+    "FrameKit MVP Test",
+    "preserve-and-mix",
+    "0-6",
+    "0-30",
+    "-12 dB",
+    "rejected approval",
+    "stale revision",
+    "interrupted handoff",
+  ]) {
     assert.ok(runbook.includes(expected), `runbook includes ${expected}`);
   }
 });
