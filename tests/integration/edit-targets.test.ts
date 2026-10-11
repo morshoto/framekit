@@ -263,6 +263,51 @@ test("MCP propagates the native document-open publishing capability", async () =
   }
 });
 
+test("timeline publishing rejects missing confirmation before import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-publish-confirmation-"));
+  try {
+    const artifactPath = join(directory, "managed.fcpxml");
+    await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-confirm" name="Confirm Project"><sequence uid="sequence-confirm" duration="1s"><spine><asset-clip id="clip-confirm" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
+    const transaction = await runtime.editArtifact(
+      artifactPath,
+      { type: "rename-clip", clipId: "clip-confirm", name: "Confirmed source", baseRevision: before.revision },
+    );
+    let importCalls = 0;
+    const server = createMcpServer(runtime, {
+      projectPublisher: new FinalCutProjectPublisher({
+        enabled: true,
+        sourcePath: artifactPath,
+        waitMs: 0,
+        executor: async () => {
+          importCalls += 1;
+          return "imported";
+        },
+        liveState: publisherLiveState("Confirm Project"),
+      }),
+    });
+    const client = new Client({ name: "publish-confirmation-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const result = await client.callTool({
+        name: "timeline.publish.new-project",
+        arguments: { transactionId: transaction.id },
+      });
+
+      assert.equal(result.isError, true);
+      assert.equal(importCalls, 0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("MCP reports disabled artifact publishing as unavailable", async () => {
   const server = createMcpServer(new AgentVideoRuntime(fixtureAdapter()), {
     projectPublisher: new FinalCutProjectPublisher({ sourcePath: "/tmp/managed.fcpxml" }),
