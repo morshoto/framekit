@@ -242,6 +242,15 @@ test("FCPXML publisher requires live project and sequence verification", async (
   }), /FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE/);
 });
 
+test("FCPXML publisher is unavailable without live project verification", () => {
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath: "/tmp/managed.fcpxml",
+  });
+
+  assert.equal(publisher.isAvailable(), false);
+});
+
 test("FCPXML publisher waits for the imported project identity to settle", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-poll-"));
   const sourcePath = join(directory, "project.fcpxml");
