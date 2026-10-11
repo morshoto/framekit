@@ -165,6 +165,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
       { type: "rename-clip", clipId: "clip-artifact", name: "Published source", baseRevision: before.revision },
     );
     const server = createMcpServer(runtime, {
+      processMode: "headed",
       projectPublisher: new FinalCutProjectPublisher({
         enabled: true,
         sourcePath: artifactPath,
@@ -182,6 +183,13 @@ test("MCP publishing requires the verified artifact target and returns the creat
       assert.equal(editor.capabilities.editor.artifactPublish, true);
       assert.equal(editor.capabilities.editor.artifactPublishMode, "headed-only");
       assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
+      const route = JSON.parse(textFrom(await client.callTool({
+        name: "editing.route",
+        arguments: { operation: "timeline.publish.new-project" },
+      })));
+      assert.equal(route.status, "editor-selected");
+      assert.equal(route.provider.backend, "fcpxml-publisher");
+      assert.equal(route.provider.guarantee, "verified");
       const published = await client.callTool({
         name: "artifact.publish",
         arguments: { artifactPath, transactionId: transaction.id, confirm: true },
@@ -276,6 +284,7 @@ test("timeline publishing rejects missing confirmation before import", async () 
     );
     let importCalls = 0;
     const server = createMcpServer(runtime, {
+      processMode: "headed",
       projectPublisher: new FinalCutProjectPublisher({
         enabled: true,
         sourcePath: artifactPath,
@@ -399,8 +408,9 @@ test("MCP refuses publishing when the verified artifact changes before publish",
     sourcePath: artifactPath,
     waitMs: 0,
     executor: async () => "imported",
+    liveState: publisherLiveState("Artifact Project"),
   });
-  const server = createMcpServer(runtime, { projectPublisher: publisher });
+  const server = createMcpServer(runtime, { processMode: "headed", projectPublisher: publisher });
   const client = new Client({ name: "artifact-publish-race-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const verifyTransaction = runtime.verifyTransaction.bind(runtime);
