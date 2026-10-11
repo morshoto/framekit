@@ -39,6 +39,9 @@ test("production rough-cut tools expose digest-bound edit operations", async () 
       assert.ok(tool, `${name} is registered`);
       assert.ok((tool.inputSchema as any).properties.operations, `${name} accepts edit operations`);
     }
+    const publishPreview = tools.tools.find((entry) => entry.name === "artifact.publish.preview");
+    assert.ok(publishPreview);
+    assert.ok((publishPreview.inputSchema as any).properties.headlessExecutionId);
   } finally {
     await client?.close();
     await transport?.close();
@@ -498,6 +501,8 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.equal(typeof executed.executionId, "string");
+    assert.equal(typeof (service as any).verifyPublishableRoughCut, "function");
     assert.match(await readFile(request.fcpxml.path, "utf8"), /start="1\/4s"/);
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
   } finally {
