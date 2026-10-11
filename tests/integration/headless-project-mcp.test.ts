@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { chmod, readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -53,6 +53,7 @@ test("headless project media can be understood and planned without a Final Cut c
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-analysis-"));
   const here = dirname(fileURLToPath(import.meta.url));
   const sourcePath = join(directory, "source.mp4");
+  const stateDirectory = join(directory, "state");
   const speechAnalyzer = await makeHeadlessSpeechAnalyzer(directory);
   const audioAnalyzer = await makeFixedAnalyzer(directory, "audio", JSON.stringify({
     integratedLufs: -18,
@@ -67,7 +68,7 @@ test("headless project media can be understood and planned without a Final Cut c
     FRAMEKIT_FINAL_CUT_HEADLESS: "1",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
     FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
-    FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_STATE_DIR: stateDirectory,
     FRAMEKIT_SPEECH_ANALYZER: speechAnalyzer,
     FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1",
     FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
@@ -77,6 +78,32 @@ test("headless project media can be understood and planned without a Final Cut c
   let transport: StdioClientTransport | undefined;
   try {
     await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 5 }], 440);
+    const unrelatedSource = {
+      mediaId: "000-unrelated-project-media",
+      source: join(directory, "unrelated.mp4"),
+      sourceDigest: "f".repeat(64),
+      mediaKind: "video",
+      duration: 5,
+    };
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(join(stateDirectory, "semantic-media-index.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [{
+        mediaId: unrelatedSource.mediaId,
+        source: unrelatedSource.source,
+        sourceIdentity: unrelatedSource,
+        semantic: {
+          subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [],
+          usableRanges: [{ start: 0, end: 5 }], transcript: "highlight",
+        },
+        analysis: [{ capability: "speech", status: "analyzed" }],
+        speech: {
+          words: [{ text: "highlight", start: 0.5, end: 1.4, confidence: 0.99 }],
+          vadSegments: [{ start: 0, end: 2, kind: "speech", confidence: 0.99 }],
+        },
+        analysisRevision: { id: "unrelated-revision", sequence: 1, timestamp: "2026-10-12T00:00:00.000Z" },
+      }],
+    }));
     ({ client, transport } = await connectProductionClient(here, environment));
 
     const connection = payload(await client.callTool({ name: "connection.status", arguments: {} }));

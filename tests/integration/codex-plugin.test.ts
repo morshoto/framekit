@@ -113,7 +113,7 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     "stale revision",
     "interrupted handoff",
   ]) {
-    assert.ok(runbook.includes(expected), `runbook includes ${expected}`);
+    assert.ok(runbook.toLowerCase().includes(expected.toLowerCase()), `runbook includes ${expected}`);
   }
 });
 
