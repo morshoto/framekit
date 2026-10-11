@@ -33,8 +33,10 @@ and [Interacting with the Final Cut Pro Timeline](https://developer.apple.com/do
 
 Every publish job is bound to:
 
-- the exact managed FCPXML `artifactPath`;
-- the verified source `transactionId`; and
+- the exact FCPXML `artifactPath`, either managed by the publisher or bound to
+  an approved headless rough-cut execution;
+- exactly one verified artifact `transactionId` or approved
+  `headlessExecutionId`; and
 - the source `artifactDigest`, which is checked again immediately before any
   import attempt; and
 - an explicit absolute `targetLibraryPath` ending in `.fcpbundle`, whose parent
@@ -77,9 +79,10 @@ created target until verification succeeds.
 
 ## MCP tools
 
-- `artifact.publish.preview` validates the verified artifact transaction and
-  explicit new library path, then returns a non-mutating job without opening
-  Final Cut. The job records the exact source and destination for approval.
+- `artifact.publish.preview` validates either a verified artifact transaction
+  or an approved headless rough-cut execution, plus the explicit new library
+  path, then returns a non-mutating job without opening Final Cut. The job
+  records the exact source and destination for approval.
 - `artifact.publish.execute` accepts a job ID and literal `confirm: true`.
   It returns `verified`, `awaiting-final-cut`, `verification-pending`, or a
   fail-closed `failed` state when target-binding proof is unavailable.
@@ -87,10 +90,10 @@ created target until verification succeeds.
   Cut.
 
 The existing `artifact.publish` tool remains an explicit compatibility path for
-the publisher. Its confirmation, artifact target, digest, and live readback
-guards remain in force with the same new library path. The headed publisher E2E is still the opt-in proof for
-actual Final Cut project creation; deterministic job tests prove only the
-state-machine and safety contract.
+managed artifacts. Its confirmation, artifact target, digest, and live readback
+guards remain in force with the same new library path. The headed publisher E2E
+is still the opt-in proof for actual Final Cut project creation; deterministic
+job tests prove only the state-machine and safety contract.
 
 The `timeline.publish.new-project` compatibility alias also requires literal
 `confirm: true`, an explicit new library path, and passes through the same

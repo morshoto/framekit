@@ -515,17 +515,23 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
     );
 
-    const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    const resumedAfterPreview = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer(),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
     assert.deepEqual(executed.after.timeline.revision, executed.transaction.after.timeline.revision);
-    assert.deepEqual(executed.render.outcome.render.projectRevision, executed.transaction.after.timeline.revision);
+    assert.deepEqual((executed.render.outcome as any).render.projectRevision, executed.transaction.after.timeline.revision);
     assert.deepEqual(executed.fcpxml.provenance.revision, executed.transaction.after.timeline.revision);
     assert.equal(typeof (executed as any).executionId, "string");
-    assert.equal(typeof (service as any).verifyPublishableRoughCut, "function");
+    assert.equal(typeof (resumedAfterPreview as any).verifyPublishableRoughCut, "function");
     const executionId = (executed as any).executionId as string;
-    const proof = await (service as any).verifyPublishableRoughCut(executionId, request.fcpxml.path);
+    const proof = await resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path);
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
@@ -543,7 +549,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
       /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
     );
-    assert.match(await readFile(request.fcpxml.path, "utf8"), /start="1\/4s"/);
+    assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
   } finally {
     await rm(directory, { recursive: true, force: true });

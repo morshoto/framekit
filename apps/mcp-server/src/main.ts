@@ -253,6 +253,14 @@ const projectPublisher = liveMode && fcpxmlPath
         }
         return backgroundLibraryProvider.resolveProjectBinding(targetLibraryPath, identity);
       },
+      headlessSourceVerifier: async (request) => {
+        const proof = await headlessProjects.verifyPublishableRoughCutTransaction({
+          sourceTransactionId: request.sourceTransactionId,
+          artifactPath: request.artifactPath,
+          artifactDigest: request.artifactDigest,
+        });
+        return { targetLibraryUid: proof.targetLibraryUid };
+      },
     })
   : undefined;
 const backgroundMaterializationCommand = liveMode

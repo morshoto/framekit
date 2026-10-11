@@ -54,7 +54,7 @@ changed.
 | Surface | Target | Revision | Read-after-write | Undo | Resulting project state |
 | --- | --- | --- | --- | --- | --- |
 | `artifact.edit` | Managed FCPXML artifact ID and path | Artifact snapshot revision | Reads the same artifact after the write | Restores the artifact transaction | Updates the FCPXML artifact; it does not claim to change the open Final Cut project |
-| `artifact.publish` | Verified artifact, source transaction, and new `.fcpbundle` path | Verified source transaction plus `confirm: true` | Reads created project/sequence from the requested library and reports active project before/after | Does not undo the imported project through artifact undo | Creates/imports into the requested new library; reports any activation side effect |
+| `artifact.publish` | Verified managed artifact or approved headless rough-cut artifact, source proof, and new `.fcpbundle` path | Verified source plus `confirm: true` | Reads created project/sequence from the requested library and reports active project before/after | Does not undo the imported project through artifact undo | Creates/imports into the requested new library; reports any activation side effect |
 | `editor.timeline.edit` | Explicit active project ID and sequence ID | Required live base revision | Reads the identified live timeline after the write | Restores the identified live timeline transaction | Changes the selected live project only when canonical live-write capability is available |
 
 An artifact edit and a live timeline edit are not interchangeable, even when
@@ -120,10 +120,11 @@ upgrades the live Workflow Extension's canonical timeline capabilities, and
 person cutout remains unavailable.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
-`artifact.publish` accepts a verified artifact transaction, its managed
-`artifactPath`, a new absolute `.fcpbundle` `targetLibraryPath`, and explicit
-`confirm: true` before importing a new Final Cut project. The staged XML binds
-the import to that library; the approved artifact remains unchanged. The
+`artifact.publish.preview` accepts either a verified artifact transaction or an
+approved headless rough-cut execution for its exact `artifactPath`, plus a new
+absolute `.fcpbundle` `targetLibraryPath`. `artifact.publish.execute` requires
+literal `confirm: true` before importing a new Final Cut project. The staged XML
+binds the import to that library; the approved artifact remains unchanged. The
 publisher reports the created project target and active project before/after,
 including any activation Final Cut performs while opening the document.
 
