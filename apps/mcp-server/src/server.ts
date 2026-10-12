@@ -977,6 +977,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       ...(options.nativeOperationSession
         ? { nativeOperationSession: withBuildAlignmentGuard(options.nativeOperationSession, assertAlignment) }
         : {}),
+      ...(options.projectPublisher
+        ? {
+            projectPublisher: withBuildAlignmentGuard(
+              options.projectPublisher,
+              assertAlignment,
+              ["isAvailable", "executionMode", "getPublishJob"],
+            ),
+          }
+        : {}),
+      ...(options.videoExporter
+        ? { videoExporter: withBuildAlignmentGuard(options.videoExporter, assertAlignment, ["isAvailable"]) }
+        : {}),
     };
   }
   const server = new McpServer(
@@ -1583,7 +1595,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: nativeOperationSessionJobSchema,
   }, async ({ jobId }) => {
     if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
-    return jsonResult(options.nativeOperationSession.status(jobId));
+    return jsonResult(await options.nativeOperationSession.status(jobId));
   });
 
   server.registerTool("editor.native.operation.retry", {

@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type {
+  FinalCutProjectPublisher,
+  FinalCutVideoExporter,
+  NativeOperationSession,
+} from "@framekit/final-cut";
 import { FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import type { RuntimeCapabilities } from "@framekit/runtime";
@@ -77,6 +82,9 @@ async function withClient(
     requireBuildAlignment?: boolean;
     validationCommit?: string;
     nativeEditor?: NativeFinalCutEditor;
+    nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
+    projectPublisher?: FinalCutProjectPublisher;
+    videoExporter?: FinalCutVideoExporter;
   } = {},
 ): Promise<void> {
   const server = createMcpServer(runtime, {
@@ -85,6 +93,9 @@ async function withClient(
     requireBuildAlignment: overrides.requireBuildAlignment,
     validationCommit: overrides.validationCommit,
     nativeEditor: overrides.nativeEditor,
+    nativeOperationSession: overrides.nativeOperationSession,
+    projectPublisher: overrides.projectPublisher,
+    videoExporter: overrides.videoExporter,
     connectionStatus: () => ({
       state: "ready",
       editorDetected: true,
@@ -180,6 +191,76 @@ test("required local alignment blocks direct native edits when the extension is 
     requireBuildAlignment: true,
     validationCommit: "intended-commit",
     nativeEditor,
+  });
+});
+
+test("required local alignment blocks native publishing and export providers", async () => {
+  let publishCalls = 0;
+  let exportCalls = 0;
+  const projectPublisher = {
+    isAvailable: () => true,
+    executionMode: () => "headed-only",
+    getPublishJob: () => undefined,
+    executePublishJob: async () => {
+      publishCalls += 1;
+      return { state: "completed" };
+    },
+  } as unknown as FinalCutProjectPublisher;
+  const videoExporter = {
+    isAvailable: () => true,
+    exportVideo: async () => {
+      exportCalls += 1;
+      return { verified: true };
+    },
+  } as unknown as FinalCutVideoExporter;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const publish = await client.callTool({
+      name: "artifact.publish.execute",
+      arguments: { jobId: "job-1", confirm: true },
+    });
+    assert.equal(publish.isError, true);
+    assert.match(textFrom(publish), /FRAMEKIT_BUILD_ALIGNMENT_MISMATCH/);
+    assert.equal(publishCalls, 0);
+
+    const exportResult = await client.callTool({
+      name: "timeline.export",
+      arguments: { outputPath: "/tmp/final.mp4", preset: "master" },
+    });
+    assert.equal(exportResult.isError, true);
+    assert.match(textFrom(exportResult), /FRAMEKIT_BUILD_ALIGNMENT_MISMATCH/);
+    assert.equal(exportCalls, 0);
+  }, {
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
+    projectPublisher,
+    videoExporter,
+  });
+});
+
+test("required local alignment serializes native operation status results", async () => {
+  const job = {
+    jobId: "job-1",
+    operation: "replace-clip",
+    state: "waiting_for_final_cut",
+    accepted: true,
+    completed: false,
+    verified: false,
+    restored: false,
+  };
+  const nativeOperationSession = {
+    status: () => job,
+  } as unknown as Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const result = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.operation.status",
+      arguments: { jobId: "job-1" },
+    })));
+    assert.deepEqual(result, job);
+  }, {
+    requireBuildAlignment: true,
+    nativeOperationSession,
   });
 });
 
