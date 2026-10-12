@@ -146,7 +146,7 @@ interface RenderModel {
   resources: Map<string, TimelineIrResource>;
   sourcePaths: string[];
   duration: number;
-  frameRate: number;
+  frameRate: { value: string; timescale: string };
   width: number;
   height: number;
   format: FramekitRenderFormat;
@@ -174,8 +174,8 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
   }
 
   const duration = rationalSeconds(sequence.durationTime, "sequence duration");
-  const frameRate = 1 / rationalSeconds(sequence.frameDuration, "sequence frame duration");
-  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(frameRate) || frameRate <= 0) {
+  const sequenceFrameRate = 1 / rationalSeconds(sequence.frameDuration, "sequence frame duration");
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(sequenceFrameRate) || sequenceFrameRate <= 0) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "sequence duration and frame rate must be finite and positive");
   }
   if (!Number.isSafeInteger(plan.parameters.width) || !Number.isSafeInteger(plan.parameters.height)) {
@@ -248,7 +248,7 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
     resources,
     sourcePaths,
     duration,
-    frameRate,
+    frameRate: structuredClone(plan.parameters.frameRate),
     width: plan.parameters.width,
     height: plan.parameters.height,
     format: plan.parameters.format,
@@ -341,7 +341,7 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
   const videoLabels: string[] = [];
   const audioLabels: string[] = [];
   const musicLabels: string[] = [];
-  const fps = formatNumber(model.frameRate);
+  const fps = `${model.frameRate.value}/${model.frameRate.timescale}`;
   const inputIndices = new Map<string, number>();
 
   for (const [index, occurrence] of [...model.occurrences, ...model.audioOccurrences].entries()) {
