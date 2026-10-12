@@ -159,7 +159,7 @@ export class FinalCutProjectPublisher {
   }
 
   public isAvailable(): boolean {
-    return this.enabled && Boolean(this.liveState);
+    return this.enabled && Boolean(this.liveState && this.targetBinding);
   }
 
   public executionMode(): "background-capable" | "headed-only" {
@@ -243,13 +243,7 @@ export class FinalCutProjectPublisher {
 
     let targetBinding: FinalCutProjectPublishTargetBinding;
     try {
-      if (!this.targetBinding) {
-        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
-      }
-      targetBinding = await this.targetBinding();
-      if (!targetBinding.projectId.trim() || !targetBinding.sequenceId.trim()) {
-        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: native target binding did not return project and sequence identities; no import was attempted");
-      }
+      targetBinding = await this.resolveTargetBinding();
     } catch (error) {
       return this.markFailed(job, error);
     }
@@ -297,8 +291,21 @@ export class FinalCutProjectPublisher {
     if (!this.liveState) {
       throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
     }
+    const targetBinding = await this.resolveTargetBinding();
     const beforeLive = await readLiveState(this.liveState, "before import");
-    return this.importAndVerify(request, source, identity, beforeLive);
+    const runtime: PublishJobRuntime = { beforeLive, identity, targetBinding };
+    return this.importAndVerify(request, source, identity, beforeLive, runtime);
+  }
+
+  private async resolveTargetBinding(): Promise<FinalCutProjectPublishTargetBinding> {
+    if (!this.targetBinding) {
+      throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
+    }
+    const targetBinding = await this.targetBinding();
+    if (!targetBinding.projectId.trim() || !targetBinding.sequenceId.trim()) {
+      throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: native target binding did not return project and sequence identities; no import was attempted");
+    }
+    return targetBinding;
   }
 
   private async readValidatedSource(

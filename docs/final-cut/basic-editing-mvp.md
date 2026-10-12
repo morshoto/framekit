@@ -139,8 +139,11 @@ only after structural verification passes.
 
 `artifact.publish` is a different capability: it imports a verified FCPXML
 artifact as a new Final Cut project after receiving the matching `artifactPath`
-and explicit `confirm: true`. It is not an export and does not mean that the
-currently open Final Cut timeline is directly writable.
+explicit `confirm: true`, and a native provider that reserves the created
+project and sequence IDs. An FCPXML destination UID alone does not establish
+the native target. Publishing remains unavailable without that binding. It is
+not an export and does not mean that the currently open Final Cut timeline is
+directly writable.
 The current live MCP implementation exposes `timeline.export` with explicit
 `outputPath` and `preset` values, and verifies the rendered file with `ffprobe`.
 When `transactionId` is supplied, the MCP export path requires that the
