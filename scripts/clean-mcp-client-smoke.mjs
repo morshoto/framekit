@@ -74,7 +74,6 @@ export async function main() {
         installedPackage.executable,
         installedPackage.version,
         packageStatus,
-        environment.gitCommit,
         installedPackage.source,
         stateDirectory,
       ));
@@ -118,6 +117,7 @@ export async function main() {
     });
     const evidence = sanitizeCleanMcpEvidence({
       schemaVersion: 1,
+      passed: true,
       recordedAt: new Date().toISOString(),
       framekit: { version: packageManifest.version, packageName },
       runtime: { version: runtimeManifest.version, packageName: "@framekit/runtime" },
@@ -146,7 +146,7 @@ function expectedClientNamesForSelection(selection) {
   throw new Error("FRAMEKIT_CLEAN_CLIENT must be all, codex, or claude");
 }
 
-async function runCodexWorkflow(executable, framekitVersion, packageStatus, pluginCommit, packageSource, stateDirectory) {
+async function runCodexWorkflow(executable, framekitVersion, packageStatus, packageSource, stateDirectory) {
   const codexHome = await mkdtemp(join(os.tmpdir(), "framekit-clean-codex-"));
   try {
     const marketplace = await runJson("codex", ["plugin", "marketplace", "add", root, "--json"], {
@@ -178,7 +178,7 @@ async function runCodexWorkflow(executable, framekitVersion, packageStatus, plug
         status: "passed",
         command: "codex plugin marketplace add <release-checkout>; codex plugin add framekit@framekit",
         publicPackage: packageStatus,
-        plugin: { version: installed.version, commit: pluginCommit },
+        plugin: { version: installed.version },
         packageSource,
       },
     };

@@ -63,6 +63,43 @@ test("clean MCP evidence preserves both client records and versioned workflow re
   ]);
 });
 
+test("clean MCP evidence rejects a run marked as failed", () => {
+  const failed = rawEvidence();
+  failed.passed = false;
+
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(failed),
+    /CLEAN_MCP_EVIDENCE_INCOMPLETE: clean MCP workflow did not pass/,
+  );
+});
+
+test("clean MCP evidence leaves an unverified plugin commit unknown", () => {
+  const raw = rawEvidence();
+  Object.assign(raw.clients[0]!.registration, { plugin: { version: "0.1.0" } });
+
+  const evidence = sanitizeCleanMcpEvidence(raw);
+
+  assert.deepEqual(evidence.clients[0]?.registration.plugin, { version: "0.1.0" });
+  const candidateCommit = raw.environment.gitCommit;
+  const candidate = assessReleaseCandidate({
+    target: { version: "0.1.0", commit: candidateCommit },
+    artifacts: {
+      npmPackage: { available: true, version: "0.1.0", commit: candidateCommit },
+      codexPlugin: { installed: true, version: "0.1.0" },
+      mcpServer: { connected: true, version: "0.1.0", commit: candidateCommit },
+      nativeExtension: {
+        verified: true,
+        version: "0.1.0",
+        commit: candidateCommit,
+        signed: true,
+        checksumVerified: true,
+      },
+    },
+  });
+  assert.equal(candidate.status, "NO_GO");
+  assert.equal(candidate.artifacts.codexPlugin.status, "NO_GO");
+});
+
 test("clean MCP evidence reports package fingerprints and release artifact GO or NO_GO states", () => {
 	const raw = rawEvidence() as ReturnType<typeof rawEvidence> & { releaseCandidate?: unknown };
 	const candidateCommit = raw.environment.gitCommit;
@@ -256,6 +293,7 @@ test("clean MCP client instructions document both supported registration paths",
 function rawEvidence() {
   return {
     schemaVersion: 1,
+    passed: true,
     recordedAt: "2026-08-28T00:00:00.000Z",
     framekit: { version: "0.1.0", packageName: "@morshoto/framekit" },
     runtime: { version: "0.1.0", packageName: "@framekit/runtime" },

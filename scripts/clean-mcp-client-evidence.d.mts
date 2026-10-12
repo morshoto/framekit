@@ -18,7 +18,7 @@ export interface CleanMcpEvidence {
         commit?: string;
         reason?: string;
       };
-      plugin?: { version: string; commit: string };
+      plugin?: { version: string; commit?: string };
       packageSource?: "published-package" | "packed-source";
     };
     server: {
