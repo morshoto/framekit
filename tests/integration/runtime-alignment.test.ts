@@ -214,7 +214,15 @@ test("required local alignment blocks native publishing and export providers", a
     },
   } as unknown as FinalCutVideoExporter;
 
-  await withClient(metadataOnlyRuntime(), async (client) => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Alignment Guard Test",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+
+  await withClient(runtime, async (client) => {
     const publish = await client.callTool({
       name: "artifact.publish.execute",
       arguments: { jobId: "job-1", confirm: true },
