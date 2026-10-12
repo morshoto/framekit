@@ -16,6 +16,20 @@ export function assessBuildAlignment(
   targetCommit = runtime.commit,
 ): BuildAlignmentReport {
   const target = { version: runtime.version, commit: targetCommit };
+  const unavailableCommit = [
+    ["runtime", runtime.commit],
+    ["target", target.commit],
+    ...(extension ? [["extension", extension.commit] as const] : []),
+  ].find(([, commit]) => !commit.trim() || commit.trim().toLowerCase() === "unknown");
+  if (unavailableCommit) {
+    return {
+      status: "missing",
+      target,
+      runtime,
+      ...(extension ? { extension } : {}),
+      message: `${unavailableCommit[0]} commit identity is unavailable`,
+    };
+  }
   if (runtime.commit !== target.commit) {
     return {
       status: "mismatched",

@@ -964,6 +964,21 @@ export interface McpServerOptions {
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
+  if (options.requireBuildAlignment) {
+    const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
+    options = {
+      ...options,
+      ...(options.nativeEditor
+        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities"]) }
+        : {}),
+      ...(options.disposableNative
+        ? { disposableNative: withBuildAlignmentGuard(options.disposableNative, assertAlignment) }
+        : {}),
+      ...(options.nativeOperationSession
+        ? { nativeOperationSession: withBuildAlignmentGuard(options.nativeOperationSession, assertAlignment) }
+        : {}),
+    };
+  }
   const server = new McpServer(
     { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
@@ -2664,6 +2679,37 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
+}
+
+async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options: McpServerOptions): Promise<void> {
+  const inspected = await runtime.inspectEditor();
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  const alignment = assessBuildAlignment(
+    fingerprint,
+    inspected.identity.buildFingerprint,
+    options.validationCommit,
+  );
+  if (alignment.status !== "matched") {
+    throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
+  }
+}
+
+function withBuildAlignmentGuard<T extends object>(
+  provider: T,
+  assertAlignment: () => Promise<void>,
+  synchronousMethods: readonly PropertyKey[] = [],
+): T {
+  const synchronous = new Set(synchronousMethods);
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function" || synchronous.has(property)) return value;
+      return async (...args: unknown[]) => {
+        await assertAlignment();
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
 }
 
 function requireArtifactTransaction(

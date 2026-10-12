@@ -3,6 +3,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
+import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -75,6 +76,7 @@ async function withClient(
     buildFingerprint?: { version: string; commit: string };
     requireBuildAlignment?: boolean;
     validationCommit?: string;
+    nativeEditor?: NativeFinalCutEditor;
   } = {},
 ): Promise<void> {
   const server = createMcpServer(runtime, {
@@ -82,6 +84,7 @@ async function withClient(
     buildFingerprint: overrides.buildFingerprint ?? { version: "0.1.7", commit: "test-commit" },
     requireBuildAlignment: overrides.requireBuildAlignment,
     validationCommit: overrides.validationCommit,
+    nativeEditor: overrides.nativeEditor,
     connectionStatus: () => ({
       state: "ready",
       editorDetected: true,
@@ -153,6 +156,31 @@ test("required local alignment fails clearly for a different extension version",
     assert.match(status.lastError?.message ?? "", /extension version 0\.1\.6 does not match runtime version 0\.1\.7/);
     assert.equal(status.preflight, undefined);
   }, { requireBuildAlignment: true });
+});
+
+test("required local alignment blocks direct native edits when the extension is stale", async () => {
+  let editCalls = 0;
+  const nativeEditor = {
+    edit: async () => {
+      editCalls += 1;
+      return { status: "edited" };
+    },
+  } as unknown as NativeFinalCutEditor;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const result = await client.callTool({
+      name: "editor.native.edit",
+      arguments: { type: "add-marker-at-playhead", name: "Review" },
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /FRAMEKIT_BUILD_ALIGNMENT_MISMATCH/);
+    assert.equal(editCalls, 0);
+  }, {
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
+    nativeEditor,
+  });
 });
 
 test("connection status becomes unavailable when inspection fails", async () => {
