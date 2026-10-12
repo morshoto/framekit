@@ -251,7 +251,6 @@ const projectPublisher = liveMode && fcpxmlPath
       headlessSourceVerifier: async (request) => {
         const proof = await headlessProjects.verifyPublishableRoughCutTransaction(request);
         return {
-          targetBinding: proof.targetBinding,
           targetLibraryUid: proof.targetLibraryUid,
         };
       },

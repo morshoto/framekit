@@ -64,7 +64,6 @@ export interface FinalCutProjectPublishTargetBinding {
 }
 
 export interface FinalCutHeadlessPublishSourceProof {
-  targetBinding: FinalCutProjectPublishTargetBinding;
   targetLibraryUid: string;
 }
 
@@ -90,7 +89,6 @@ export interface FinalCutProjectPublishJob {
     artifactPath: string;
   };
   artifactDigest: string;
-  targetBinding?: FinalCutProjectPublishTargetBinding;
   projectName: string;
   sequenceName: string;
   confirmationRequired: boolean;
@@ -190,7 +188,6 @@ export class FinalCutProjectPublisher {
       sourcePath: request.artifactPath,
       sourceTarget: { kind: "artifact", artifactPath: request.artifactPath },
       artifactDigest: request.artifactDigest,
-      ...(validated.targetBinding ? { targetBinding: structuredClone(validated.targetBinding) } : {}),
       projectName: validated.identity.projectName,
       sequenceName: validated.identity.sequenceName,
       confirmationRequired: true,
@@ -327,7 +324,6 @@ export class FinalCutProjectPublisher {
   ): Promise<{
     source: string;
     identity: { projectName: string; sequenceName: string };
-    targetBinding?: FinalCutProjectPublishTargetBinding;
   }> {
     if (!request.sourceTransactionId.trim()) throw new Error("INVALID_PUBLISH_REQUEST: sourceTransactionId is required");
     if (!request.artifactDigest.trim()) throw new Error("INVALID_PUBLISH_REQUEST: artifactDigest is required");
@@ -355,7 +351,6 @@ export class FinalCutProjectPublisher {
     return {
       source,
       identity: projectIdentityFromXml(source),
-      ...(sourceProof ? { targetBinding: structuredClone(sourceProof.targetBinding) } : {}),
     };
   }
 
@@ -761,13 +756,6 @@ function delay(milliseconds: number): Promise<void> {
 
 function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
-}
-
-function sameTargetBinding(
-  left: FinalCutProjectPublishTargetBinding,
-  right: FinalCutProjectPublishTargetBinding,
-): boolean {
-  return left.projectId === right.projectId && left.sequenceId === right.sequenceId;
 }
 
 function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {

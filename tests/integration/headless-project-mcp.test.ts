@@ -244,10 +244,9 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(publishPreview.sourceTransactionId, `headless-rough-cut:${executed.executionId}`);
     assert.equal(publishPreview.sourceProof.planDigest, preview.planDigest);
     assert.equal(publishPreview.sourceProof.renderId, executed.render.renderId);
-    assert.deepEqual(publishPreview.targetBinding, {
-      projectId: executed.fcpxml.destination.projectUid,
-      sequenceId: executed.fcpxml.destination.sequenceUid,
-    });
+    assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml.destination.projectUid);
+    assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    assert.equal(publishPreview.targetBinding, undefined);
     const publishBlocked = payload(await client.callTool({
       name: "artifact.publish.execute",
       arguments: { jobId: publishPreview.jobId, confirm: true },
@@ -535,8 +534,8 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
-    assert.equal(proof.targetBinding.projectId, executed.fcpxml.destination.projectUid);
-    assert.equal(proof.targetBinding.sequenceId, executed.fcpxml.destination.sequenceUid);
+    assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
+    assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     const restarted = new HeadlessProjectService({
       directory: join(directory, "projects"),
       mediaProbe: new FfmpegMediaMetadataProbe(),

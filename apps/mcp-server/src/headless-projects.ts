@@ -150,7 +150,6 @@ export interface HeadlessRoughCutPublishProof {
   destination: TimelineIrToFcpxmlResult["destination"];
   coverage: TimelineIrToFcpxmlResult["coverage"];
   provenance: HeadlessRoughCutShotProvenance[];
-  targetBinding: { projectId: string; sequenceId: string };
   targetLibraryUid: string;
 }
 
@@ -483,10 +482,6 @@ export class HeadlessProjectService {
       destination: structuredClone(record.fcpxml.destination),
       coverage: structuredClone(record.fcpxml.coverage),
       provenance: structuredClone(record.provenance),
-      targetBinding: {
-        projectId: record.fcpxml.destination.projectUid,
-        sequenceId: record.fcpxml.destination.sequenceUid,
-      },
       targetLibraryUid: record.fcpxml.target.libraryUid,
     };
   }
