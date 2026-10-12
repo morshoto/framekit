@@ -40,6 +40,7 @@ const prohibitedPublicTextPatterns = [
 
 export function sanitizeCleanMcpEvidence(run, options = {}) {
   assert(run?.schemaVersion === 1, "schema version must be 1");
+  assert(run.passed === true, "clean MCP workflow did not pass");
   const clients = requireClients(run.clients, options.expectedClientNames);
   const environment = sanitizeEnvironment(run.environment);
   const releaseCandidate = run.releaseCandidate ? sanitizeReleaseCandidate(run.releaseCandidate) : undefined;
@@ -149,7 +150,9 @@ function sanitizeRegistration(registration, clientName) {
   if (registration.plugin) {
     result.plugin = {
       version: sanitizePublicText(registration.plugin.version, `${clientName} plugin version`),
-      commit: sanitizeCommit(registration.plugin.commit, `${clientName} plugin commit`),
+      ...(registration.plugin.commit
+        ? { commit: sanitizeCommit(registration.plugin.commit, `${clientName} plugin commit`) }
+        : {}),
     };
   }
   if (registration.packageSource) {
