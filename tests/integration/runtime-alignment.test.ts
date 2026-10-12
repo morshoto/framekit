@@ -81,6 +81,7 @@ async function withClient(
     buildFingerprint?: { version: string; commit: string };
     requireBuildAlignment?: boolean;
     validationCommit?: string;
+    includeConnectionCapabilities?: boolean;
     nativeEditor?: NativeFinalCutEditor;
     nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
     projectPublisher?: FinalCutProjectPublisher;
@@ -106,7 +107,7 @@ async function withClient(
         backend: "workflow-extension-ipc",
         buildFingerprint: extensionFingerprint,
       },
-      capabilities: bridgeCapabilities,
+      ...(overrides.includeConnectionCapabilities === false ? {} : { capabilities: bridgeCapabilities }),
     }),
   });
   const client = new Client({ name: "runtime-alignment-test", version: "0.1.0" });
@@ -241,6 +242,7 @@ test("required local alignment blocks native publishing and export providers", a
   }, {
     requireBuildAlignment: true,
     validationCommit: "intended-commit",
+    includeConnectionCapabilities: false,
     projectPublisher,
     videoExporter,
   });
