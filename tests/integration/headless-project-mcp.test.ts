@@ -377,7 +377,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
       .map((resource: any) => ({ source: resource.source, sha256: resource.sourceDigest }))
       .sort((left: any, right: any) => left.source.localeCompare(right.source));
     assert.deepEqual(publishPreview.sourceProof.sourceMediaDigests, approvedMediaDigests);
-    assert.equal(publishPreview.targetBinding, undefined);
+    assert.equal("targetBinding" in publishPreview, false);
     const publishBlocked = payload(await client.callTool({
       name: "artifact.publish.execute",
       arguments: { jobId: publishPreview.jobId, confirm: true },
@@ -668,6 +668,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
+    assert.equal("targetBinding" in proof, false);
     const restarted = new HeadlessProjectService({
       directory: join(directory, "projects"),
       mediaProbe: new FfmpegMediaMetadataProbe(),
