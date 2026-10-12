@@ -1,11 +1,18 @@
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { FinalCutConnectionManager } from "@framekit/final-cut";
 
 const execFile = promisify(execFileCallback);
+type StatusOutput = Pick<NodeJS.WriteStream, "write">;
+
+export interface McpStartupDependencies {
+  connectDevelopmentExtension?: (args: string[], output: StatusOutput) => Promise<ReturnType<FinalCutConnectionManager["getStatus"]>>;
+  spawnChild?: typeof spawn;
+  stderr?: StatusOutput;
+}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -27,7 +34,10 @@ async function main(): Promise<void> {
   if (command !== "help") process.exitCode = 1;
 }
 
-async function connectFinalCut(args: string[]): Promise<ReturnType<FinalCutConnectionManager["getStatus"]>> {
+async function connectFinalCut(
+  args: string[],
+  output: StatusOutput = process.stdout,
+): Promise<ReturnType<FinalCutConnectionManager["getStatus"]>> {
   if (args[0] !== "finalcut") {
     throw new Error("Usage: framekit connect finalcut [--development] [--json]");
   }
@@ -41,9 +51,10 @@ async function connectFinalCut(args: string[]): Promise<ReturnType<FinalCutConne
   const manager = new FinalCutConnectionManager({
     extensionSourcePath,
     restartAfterInstall: true,
+    installBeforeProbe: development,
   });
   const status = await manager.ensureConnected();
-  printStatus(status, json);
+  printStatus(status, json, output);
   if (status.state !== "ready") process.exitCode = 1;
   return status;
 }
@@ -55,7 +66,7 @@ async function doctorFinalCut(args: string[]): Promise<void> {
   if (status.state !== "ready") process.exitCode = 1;
 }
 
-async function runMcp(args: string[]): Promise<void> {
+export async function runMcp(args: string[], dependencies: McpStartupDependencies = {}): Promise<void> {
   const editorIndex = args.indexOf("--editor");
   const editor = editorIndex >= 0 ? args[editorIndex + 1] : "final-cut-live";
   const headless = args.includes("--headless");
@@ -70,13 +81,14 @@ async function runMcp(args: string[]): Promise<void> {
     throw new Error("Usage: --development is only supported with --editor final-cut-live");
   }
   if (development) {
-    const status = await connectFinalCut(["finalcut", "--development", "--json"]);
+    const connect = dependencies.connectDevelopmentExtension ?? connectFinalCut;
+    const status = await connect(["finalcut", "--development", "--json"], dependencies.stderr ?? process.stderr);
     if (status.state !== "ready") return;
   }
   const root = repoRoot();
   const compiled = fileURLToPath(import.meta.url).endsWith(".js");
   const entrypoint = join(root, `apps/mcp-server/src/main.${compiled ? "js" : "ts"}`);
-  const child = spawn(process.execPath, [...(compiled ? [] : ["--import", "tsx"]), entrypoint], {
+  const child = (dependencies.spawnChild ?? spawn)(process.execPath, [...(compiled ? [] : ["--import", "tsx"]), entrypoint], {
     stdio: "inherit",
     env: {
       ...process.env,
@@ -110,17 +122,21 @@ function repoRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "../../..");
 }
 
-function printStatus(status: ReturnType<FinalCutConnectionManager["getStatus"]>, json: boolean): void {
+function printStatus(
+  status: ReturnType<FinalCutConnectionManager["getStatus"]>,
+  json: boolean,
+  output: StatusOutput = process.stdout,
+): void {
   if (json) {
-    process.stdout.write(`${JSON.stringify(status)}\n`);
+    output.write(`${JSON.stringify(status)}\n`);
     return;
   }
-  process.stdout.write(`Framekit Final Cut: ${status.state}\n`);
-  process.stdout.write(`Final Cut detected: ${status.editorDetected ? "yes" : "no"}\n`);
-  process.stdout.write(`Extension: ${status.extensionInstalled ? status.extensionPath : "not installed"}\n`);
-  process.stdout.write(`Socket: ${status.socketPath}\n`);
-  if (status.identity) process.stdout.write(`Editor: ${status.identity.name} (${status.identity.backend})\n`);
-  if (status.lastError) process.stdout.write(`Reason: ${status.lastError.code}: ${status.lastError.message}\n`);
+  output.write(`Framekit Final Cut: ${status.state}\n`);
+  output.write(`Final Cut detected: ${status.editorDetected ? "yes" : "no"}\n`);
+  output.write(`Extension: ${status.extensionInstalled ? status.extensionPath : "not installed"}\n`);
+  output.write(`Socket: ${status.socketPath}\n`);
+  if (status.identity) output.write(`Editor: ${status.identity.name} (${status.identity.backend})\n`);
+  if (status.lastError) output.write(`Reason: ${status.lastError.code}: ${status.lastError.message}\n`);
 }
 
 function printHelp(): void {
@@ -137,7 +153,9 @@ function printHelp(): void {
   ].join("\n"));
 }
 
-void main().catch((error) => {
-  process.stderr.write(`${String(error)}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  void main().catch((error) => {
+    process.stderr.write(`${String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

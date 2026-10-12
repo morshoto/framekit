@@ -15,6 +15,16 @@ test("local validation accepts matching runtime and extension fingerprints", () 
   assert.equal(alignment.message, "runtime and extension fingerprints match");
 });
 
+test("local validation never matches fingerprints without known commit identities", () => {
+  for (const commit of ["unknown", "", "   "]) {
+    const fingerprint = { version: runtime.version, commit };
+    const alignment = assessBuildAlignment(fingerprint, fingerprint);
+
+    assert.equal(alignment.status, "missing");
+    assert.match(alignment.message, /commit identity is unavailable/);
+  }
+});
+
 test("local validation reports a missing extension fingerprint", () => {
   const alignment = assessBuildAlignment(runtime, undefined);
 
@@ -65,7 +75,7 @@ test("the local MCP launcher provisions development mode and requires alignment"
   const cli = await readFile(resolve(repository, "apps/cli/src/main.ts"), "utf8");
 
   assert.match(cli, /mcp --editor final-cut-live \[--headless\] \[--development\]/);
-  assert.match(cli, /connectFinalCut\(\["finalcut", "--development", "--json"\]\)/);
+  assert.match(cli, /connect\(\["finalcut", "--development", "--json"\], dependencies\.stderr \?\? process\.stderr\)/);
   assert.match(cli, /FRAMEKIT_REQUIRE_BUILD_ALIGNMENT: "1"/);
 });
 
