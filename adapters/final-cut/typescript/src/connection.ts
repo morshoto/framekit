@@ -53,6 +53,8 @@ export interface FinalCutConnectionOptions {
   activateExtension?: (options?: FinalCutActivationOptions) => Promise<void>;
   restartFinalCut?: () => Promise<void>;
   restartAfterInstall?: boolean;
+  /** Install the configured extension source before accepting an existing bridge. */
+  installBeforeProbe?: boolean;
   probe?: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -116,6 +118,7 @@ export class FinalCutConnectionManager {
   private readonly activateExtension: (options?: FinalCutActivationOptions) => Promise<void>;
   private readonly restartFinalCut: () => Promise<void>;
   private readonly restartAfterInstall: boolean;
+  private readonly installBeforeProbe: boolean;
   private readonly probe: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private status: FinalCutConnectionStatus;
@@ -147,6 +150,7 @@ export class FinalCutConnectionManager {
     this.registerExtension = options.registerExtension ?? (() => defaultRegisterExtension(this.extensionInstallPath));
     this.activateExtension = options.activateExtension ?? ((activationOptions) => defaultActivateFinalCut(activationOptions));
     this.restartAfterInstall = options.restartAfterInstall ?? false;
+    this.installBeforeProbe = options.installBeforeProbe ?? false;
     this.restartFinalCut = options.restartFinalCut ?? (() => defaultRestartFinalCut(
       this.detectFinalCut,
       this.launchFinalCut,
@@ -192,7 +196,7 @@ export class FinalCutConnectionManager {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
       this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
-      if (existing.result) return this.ready(existing.result);
+      if (existing.result && !this.installBeforeProbe) return this.ready(existing.result);
 
       if (this.canonicalProviderRequired) {
         return this.fail(

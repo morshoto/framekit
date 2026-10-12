@@ -49,6 +49,7 @@ import {
   type EditingRouteEditType,
   type EditingRouteOperation,
 } from "./routing.js";
+import { assessBuildAlignment, type BuildAlignmentReport } from "./build-alignment.js";
 import {
   FRAMEKIT_BUILD_FINGERPRINT,
   FRAMEKIT_VERSION,
@@ -938,6 +939,7 @@ export interface McpConnectionStatus {
 
 export interface McpCapabilityPreflight extends CapabilityPreflight {
   fingerprint: FramekitBuildFingerprint;
+  buildAlignment: BuildAlignmentReport;
 }
 
 export interface McpServerOptions {
@@ -950,6 +952,8 @@ export interface McpServerOptions {
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
+  requireBuildAlignment?: boolean;
+  validationCommit?: string;
   sessionDirectory?: string;
   sessionChangeSource?: EditingSessionChangeSource;
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
@@ -960,6 +964,33 @@ export interface McpServerOptions {
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
+  if (options.requireBuildAlignment) {
+    const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
+    options = {
+      ...options,
+      ...(options.nativeEditor
+        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities"]) }
+        : {}),
+      ...(options.disposableNative
+        ? { disposableNative: withBuildAlignmentGuard(options.disposableNative, assertAlignment) }
+        : {}),
+      ...(options.nativeOperationSession
+        ? { nativeOperationSession: withBuildAlignmentGuard(options.nativeOperationSession, assertAlignment) }
+        : {}),
+      ...(options.projectPublisher
+        ? {
+            projectPublisher: withBuildAlignmentGuard(
+              options.projectPublisher,
+              assertAlignment,
+              ["isAvailable", "executionMode", "getPublishJob"],
+            ),
+          }
+        : {}),
+      ...(options.videoExporter
+        ? { videoExporter: withBuildAlignmentGuard(options.videoExporter, assertAlignment, ["isAvailable"]) }
+        : {}),
+    };
+  }
   const server = new McpServer(
     { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
@@ -1564,7 +1595,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: nativeOperationSessionJobSchema,
   }, async ({ jobId }) => {
     if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
-    return jsonResult(options.nativeOperationSession.status(jobId));
+    return jsonResult(await options.nativeOperationSession.status(jobId));
   });
 
   server.registerTool("editor.native.operation.retry", {
@@ -2550,7 +2581,7 @@ async function effectiveConnectionStatus(
       ...status,
       state: "unavailable",
       lastError: {
-        code: "CAPABILITY_UNAVAILABLE",
+        code: message.match(/\bFRAMEKIT_[A-Z_]+\b/)?.[0] ?? "CAPABILITY_UNAVAILABLE",
         message: `effective runtime capability inspection failed: ${message}`,
       },
       identity: undefined,
@@ -2562,6 +2593,15 @@ async function effectiveConnectionStatus(
 
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  const buildAlignment = assessBuildAlignment(
+    fingerprint,
+    inspected.identity.buildFingerprint,
+    options.validationCommit,
+  );
+  if (options.requireBuildAlignment && buildAlignment.status !== "matched") {
+    throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${buildAlignment.message}`);
+  }
   const native = options.nativeEditor?.capabilities();
   const publishingAvailable = Boolean(options.projectPublisher && (
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
@@ -2646,10 +2686,42 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
         processMode: options.processMode ?? (native ? "headed" : "headless"),
         nativeWrite: Boolean(native?.selectionEdit),
       }),
-      fingerprint: options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT,
+      fingerprint,
+      buildAlignment,
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
+}
+
+async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options: McpServerOptions): Promise<void> {
+  const inspected = await runtime.inspectEditor();
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  const alignment = assessBuildAlignment(
+    fingerprint,
+    inspected.identity.buildFingerprint,
+    options.validationCommit,
+  );
+  if (alignment.status !== "matched") {
+    throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
+  }
+}
+
+function withBuildAlignmentGuard<T extends object>(
+  provider: T,
+  assertAlignment: () => Promise<void>,
+  synchronousMethods: readonly PropertyKey[] = [],
+): T {
+  const synchronous = new Set(synchronousMethods);
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function" || synchronous.has(property)) return value;
+      return async (...args: unknown[]) => {
+        await assertAlignment();
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
 }
 
 function requireArtifactTransaction(

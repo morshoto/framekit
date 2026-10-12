@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type {
+  FinalCutProjectPublisher,
+  FinalCutVideoExporter,
+  NativeOperationSession,
+} from "@framekit/final-cut";
 import { FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
+import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -31,6 +37,8 @@ const bridgeCapabilities: RuntimeCapabilities = {
   },
 };
 
+const extensionFingerprint = { version: "0.1.7", commit: "test-commit" };
+
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
@@ -40,14 +48,19 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
-function metadataOnlyRuntime(): AgentVideoRuntime {
+function metadataOnlyRuntime(fingerprint = extensionFingerprint): AgentVideoRuntime {
   const live = new FinalCutLiveAdapter({
     request: async (request) => ({
       version: 1,
       id: request.id,
       ok: true,
       result: {
-        identity: { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" },
+        identity: {
+          name: "Final Cut Pro",
+          version: "10.7.1",
+          backend: "workflow-extension-ipc",
+          buildFingerprint: fingerprint,
+        },
         capabilities: bridgeCapabilities,
       },
     }),
@@ -64,16 +77,37 @@ class FailingInspectionAdapter extends InMemoryEditorAdapter {
 async function withClient(
   runtime: AgentVideoRuntime,
   callback: (client: Client) => Promise<void>,
+  overrides: {
+    buildFingerprint?: { version: string; commit: string };
+    requireBuildAlignment?: boolean;
+    validationCommit?: string;
+    includeConnectionCapabilities?: boolean;
+    nativeEditor?: NativeFinalCutEditor;
+    nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
+    projectPublisher?: FinalCutProjectPublisher;
+    videoExporter?: FinalCutVideoExporter;
+  } = {},
 ): Promise<void> {
   const server = createMcpServer(runtime, {
     processMode: "headless",
-    buildFingerprint: { version: "0.1.7", commit: "test-commit" },
+    buildFingerprint: overrides.buildFingerprint ?? { version: "0.1.7", commit: "test-commit" },
+    requireBuildAlignment: overrides.requireBuildAlignment,
+    validationCommit: overrides.validationCommit,
+    nativeEditor: overrides.nativeEditor,
+    nativeOperationSession: overrides.nativeOperationSession,
+    projectPublisher: overrides.projectPublisher,
+    videoExporter: overrides.videoExporter,
     connectionStatus: () => ({
       state: "ready",
       editorDetected: true,
       extensionInstalled: true,
-      identity: { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" },
-      capabilities: bridgeCapabilities,
+      identity: {
+        name: "Final Cut Pro",
+        version: "10.7.1",
+        backend: "workflow-extension-ipc",
+        buildFingerprint: extensionFingerprint,
+      },
+      ...(overrides.includeConnectionCapabilities === false ? {} : { capabilities: bridgeCapabilities }),
     }),
   });
   const client = new Client({ name: "runtime-alignment-test", version: "0.1.0" });
@@ -104,6 +138,139 @@ test("connection status and editor inspection share effective preflight", async 
     assert.equal(status.capabilities.editor.projectRead, false);
     assert.equal(status.preflight.fingerprint.version, "0.1.7");
     assert.equal(status.preflight.fingerprint.commit, "test-commit");
+    assert.deepEqual(status.identity.buildFingerprint, extensionFingerprint);
+    assert.deepEqual(editor.identity.buildFingerprint, extensionFingerprint);
+    assert.equal(status.preflight.buildAlignment?.status, "matched");
+  });
+});
+
+test("required local alignment fails clearly for a stale extension", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
+
+    assert.equal(status.state, "unavailable");
+    assert.equal(status.lastError?.code, "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH");
+    assert.match(status.lastError?.message ?? "", /extension commit test-commit does not match runtime commit intended-commit/);
+    assert.equal(status.preflight, undefined);
+  }, {
+    buildFingerprint: { version: "0.1.7", commit: "intended-commit" },
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
+  });
+});
+
+test("required local alignment fails clearly for a different extension version", async () => {
+  await withClient(metadataOnlyRuntime({ version: "0.1.6", commit: "test-commit" }), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
+
+    assert.equal(status.state, "unavailable");
+    assert.equal(status.lastError?.code, "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH");
+    assert.match(status.lastError?.message ?? "", /extension version 0\.1\.6 does not match runtime version 0\.1\.7/);
+    assert.equal(status.preflight, undefined);
+  }, { requireBuildAlignment: true });
+});
+
+test("required local alignment blocks direct native edits when the extension is stale", async () => {
+  let editCalls = 0;
+  const nativeEditor = {
+    edit: async () => {
+      editCalls += 1;
+      return { status: "edited" };
+    },
+  } as unknown as NativeFinalCutEditor;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const result = await client.callTool({
+      name: "editor.native.edit",
+      arguments: { type: "add-marker-at-playhead", name: "Review" },
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /FRAMEKIT_BUILD_ALIGNMENT_MISMATCH/);
+    assert.equal(editCalls, 0);
+  }, {
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
+    nativeEditor,
+  });
+});
+
+test("required local alignment blocks native publishing and export providers", async () => {
+  let publishCalls = 0;
+  let exportCalls = 0;
+  const projectPublisher = {
+    isAvailable: () => true,
+    executionMode: () => "background-capable",
+    getPublishJob: () => undefined,
+    executePublishJob: async () => {
+      publishCalls += 1;
+      return { state: "completed" };
+    },
+  } as unknown as FinalCutProjectPublisher;
+  const videoExporter = {
+    isAvailable: () => true,
+    exportVideo: async () => {
+      exportCalls += 1;
+      return { verified: true };
+    },
+  } as unknown as FinalCutVideoExporter;
+
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Alignment Guard Test",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+
+  await withClient(runtime, async (client) => {
+    const publish = await client.callTool({
+      name: "artifact.publish.execute",
+      arguments: { jobId: "job-1", confirm: true },
+    });
+    assert.equal(publish.isError, true);
+    assert.match(textFrom(publish), /FRAMEKIT_BUILD_ALIGNMENT_MISMATCH/);
+    assert.equal(publishCalls, 0);
+
+    const exportResult = await client.callTool({
+      name: "timeline.export",
+      arguments: { outputPath: "/tmp/final.mp4", preset: "master" },
+    });
+    assert.equal(exportResult.isError, true);
+    assert.match(textFrom(exportResult), /FRAMEKIT_BUILD_ALIGNMENT_MISMATCH/);
+    assert.equal(exportCalls, 0);
+  }, {
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
+    includeConnectionCapabilities: false,
+    projectPublisher,
+    videoExporter,
+  });
+});
+
+test("required local alignment serializes native operation status results", async () => {
+  const job = {
+    jobId: "job-1",
+    operation: "replace-clip",
+    state: "waiting_for_final_cut",
+    accepted: true,
+    completed: false,
+    verified: false,
+    restored: false,
+  };
+  const nativeOperationSession = {
+    status: () => job,
+  } as unknown as Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const result = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.operation.status",
+      arguments: { jobId: "job-1" },
+    })));
+    assert.deepEqual(result, job);
+  }, {
+    requireBuildAlignment: true,
+    nativeOperationSession,
   });
 });
 

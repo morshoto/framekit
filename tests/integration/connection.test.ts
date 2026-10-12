@@ -440,6 +440,50 @@ test("explicit connection restarts Final Cut after replacing the extension", asy
   assert.deepEqual(events, ["install", "register", "restart", "launch-extension", "activate"]);
 });
 
+test("development connection replaces an already responding extension before accepting its probe", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-development-restart-test-"));
+  const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");
+  const installPath = join(directory, "Applications", "FramekitFinalCutWorkflow.app");
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(installPath, { recursive: true });
+  const events: string[] = [];
+
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    extensionSourcePath: sourcePath,
+    extensionInstallPath: installPath,
+    restartAfterInstall: true,
+    installBeforeProbe: true,
+    detectFinalCut: async () => { events.push("detect"); return true; },
+    installExtension: async () => { events.push("install"); },
+    registerExtension: async () => { events.push("register"); },
+    restartFinalCut: async () => { events.push("restart"); },
+    launchExtension: async () => { events.push("launch-extension"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => {
+      if (!events.includes("restart")) {
+        events.push("probe-stale");
+        return {
+          identity: { name: "Final Cut Pro", version: "stale", backend: "workflow-extension-ipc" },
+          capabilities,
+        };
+      }
+      events.push("probe-current");
+      return {
+        identity: { name: "Final Cut Pro", version: "checkout", backend: "workflow-extension-ipc" },
+        capabilities,
+      };
+    },
+    sleep: async () => {},
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.identity?.version, "checkout");
+  assert.deepEqual(events, ["probe-stale", "detect", "install", "register", "restart", "launch-extension", "activate", "probe-current"]);
+});
+
 test("background connection does not restart Final Cut after extension replacement", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-no-restart-test-"));
   const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");

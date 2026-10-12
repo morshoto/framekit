@@ -276,6 +276,10 @@ const server = createMcpServer(runtime, {
   projectPublisher,
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
+  requireBuildAlignment: process.env.FRAMEKIT_REQUIRE_BUILD_ALIGNMENT === "1",
+  ...(process.env.FRAMEKIT_VALIDATION_COMMIT?.trim()
+    ? { validationCommit: process.env.FRAMEKIT_VALIDATION_COMMIT.trim() }
+    : {}),
   sessionDirectory: join(framekitStateDirectory, "sessions"),
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
