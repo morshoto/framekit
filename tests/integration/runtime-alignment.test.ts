@@ -200,7 +200,7 @@ test("required local alignment blocks native publishing and export providers", a
   let exportCalls = 0;
   const projectPublisher = {
     isAvailable: () => true,
-    executionMode: () => "headed-only",
+    executionMode: () => "background-capable",
     getPublishJob: () => undefined,
     executePublishJob: async () => {
       publishCalls += 1;
