@@ -900,3 +900,87 @@ test("FCPXML publish jobs fail closed without target binding proof", async () =>
   assert.equal(failed.createdTarget, undefined);
   assert.equal(executorCalled, false);
 });
+
+test("headless FCPXML destination UIDs cannot substitute for native target binding", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-headless-binding-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="fcpxml-project" name="Headless Publish"><sequence uid="fcpxml-sequence" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    headlessSourceVerifier: async () => ({
+      targetLibraryUid: "library-1",
+    }),
+    liveState: async () => ({
+      project: { id: "existing-project", name: "Existing" },
+      sequence: { id: "existing-sequence", name: "Existing", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "before-revision", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+  });
+
+  const job = await publisher.preparePublish({
+    sourceTransactionId: "headless-rough-cut:execution-1",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath: join(directory, "Target.fcpbundle"),
+  });
+  const result = await publisher.executePublishJob(job.jobId, true);
+
+  assert.equal("targetBinding" in job, false);
+  assert.equal(result.state, "failed");
+  assert.equal(result.error?.code, "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE");
+  assert.equal(executorCalled, false);
+});
+
+test("FCPXML publisher rejects native IDs that disagree with catalog readback", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-remapped-target-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Remapped Publish"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let liveStateCalls = 0;
+  let executorCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    targetBinding: async () => ({ projectId: "reserved-project", sequenceId: "reserved-sequence" }),
+    executor: async () => {
+      executorCalls += 1;
+      return "imported";
+    },
+    liveState: async () => {
+      liveStateCalls += 1;
+      const imported = liveStateCalls > 1;
+      return {
+        project: { id: imported ? "remapped-project" : "existing-project", name: imported ? "Remapped Publish" : "Existing" },
+        sequence: {
+          id: imported ? "remapped-sequence" : "existing-sequence",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+  });
+  const job = await publisher.preparePublish({
+    sourceTransactionId: "txn-remapped-target",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+  });
+
+  const result = await publisher.executePublishJob(job.jobId, true);
+
+  assert.equal(result.state, "verification-pending");
+  assert.equal(result.error?.code, "FINAL_CUT_PUBLISH_TARGET_MISMATCH");
+  assert.equal(result.result, undefined);
+  assert.equal(executorCalls, 1);
+});
