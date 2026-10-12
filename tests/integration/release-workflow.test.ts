@@ -9,9 +9,11 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const releaseConfigPath = resolve(repository, '.github/release.yml');
 
 const expectedReleaseCategories = [
-	{ title: 'Feature changes', labels: ['Type: New Feature'] },
-	{ title: 'Patch changes', labels: ['Problem: Bug'] },
-	{ title: 'Maintenance and internal', labels: ['*'] },
+	{ title: 'New Features', labels: ['Type: New Feature'] },
+	{ title: 'Bug Fixes', labels: ['Problem: Bug'] },
+	{ title: 'Documentation', labels: ['Type: Document'] },
+	{ title: 'Chores', labels: ['Type: Chore'] },
+	{ title: 'Other changes', labels: ['*'] },
 ];
 
 type ReleaseCategory = {
@@ -560,17 +562,22 @@ test('release notes classify representative v0.1.7 changes by label', async () =
 		{
 			pullRequest: 220,
 			labels: ['Type: New Feature'],
-			category: 'Feature changes',
+			category: 'New Features',
 		},
 		{
 			pullRequest: 228,
 			labels: ['Problem: Bug'],
-			category: 'Patch changes',
+			category: 'Bug Fixes',
 		},
 		{
 			pullRequest: 226,
 			labels: ['Type: Document'],
-			category: 'Maintenance and internal',
+			category: 'Documentation',
+		},
+		{
+			pullRequest: 247,
+			labels: ['Type: Chore'],
+			category: 'Chores',
 		},
 	];
 

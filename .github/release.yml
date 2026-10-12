@@ -3,12 +3,18 @@ changelog:
         labels:
             - tagpr
     categories:
-        - title: 'Feature changes'
+        - title: 'New Features'
           labels:
               - 'Type: New Feature'
-        - title: 'Patch changes'
+        - title: 'Bug Fixes'
           labels:
               - 'Problem: Bug'
-        - title: 'Maintenance and internal'
+        - title: 'Documentation'
+          labels:
+              - 'Type: Document'
+        - title: 'Chores'
+          labels:
+              - 'Type: Chore'
+        - title: 'Other changes'
           labels:
               - '*'
