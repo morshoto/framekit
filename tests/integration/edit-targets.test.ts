@@ -171,6 +171,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
         sourcePath: artifactPath,
         waitMs: 0,
         executor: async () => "imported",
+        targetBinding: async () => ({ projectId: "published-project", sequenceId: "published-sequence" }),
         liveState: publisherLiveState("Artifact Project"),
       }),
     });
@@ -250,6 +251,7 @@ test("MCP propagates the native document-open publishing capability", async () =
             target: { requestedLibraryUid: "library-1", guarantee: "requested-unverified" },
           }),
         },
+        targetBinding: async () => ({ projectId: "published-project", sequenceId: "published-sequence" }),
         liveState: publisherLiveState("Background Project"),
       }),
     });
@@ -407,8 +409,9 @@ test("MCP refuses publishing when the verified artifact changes before publish",
     enabled: true,
     sourcePath: artifactPath,
     waitMs: 0,
-    executor: async () => "imported",
-    liveState: publisherLiveState("Artifact Project"),
+        executor: async () => "imported",
+        targetBinding: async () => ({ projectId: "published-project", sequenceId: "published-sequence" }),
+        liveState: publisherLiveState("Artifact Project"),
   });
   const server = createMcpServer(runtime, { processMode: "headed", projectPublisher: publisher });
   const client = new Client({ name: "artifact-publish-race-test", version: "0.1.0" });

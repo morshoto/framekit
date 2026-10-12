@@ -311,8 +311,10 @@ The three editing surfaces have separate targets and guarantees:
   verification, diff, and undo refer to that live timeline only. It fails closed
   when canonical live-write capability is unavailable or the target changes.
 - `artifact.publish` requires the verified artifact `transactionId`, matching
-  `artifactPath`, and `confirm: true`. It is a create/import operation, not an
-  edit of the active project. The result identifies `sourceTarget`,
+  `artifactPath`, `confirm: true`, and a native target-binding provider that
+  reserves the exact new project/sequence IDs. It is a create/import operation,
+  not an edit of the active project. Without target-binding proof, publishing
+  is unavailable and import does not run. The result identifies `sourceTarget`,
   `createdTarget`, and `activeProject` before/after; it reports
   `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
   guessing.
@@ -505,7 +507,8 @@ Rough-cut construction does not create or replace the active Final Cut
 project. After a verified artifact exists, `timeline.publish.new-project` is
 the explicit publishing path for importing it as a new project and requires
 `confirm: true`. Publishing is unavailable for metadata-only connections or
-publishers without live project/sequence verification.
+publishers without live project/sequence verification and a native
+target-binding provider.
 
 ## Composite editing transactions
 

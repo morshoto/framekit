@@ -28,6 +28,7 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
       scripts.push(script);
       return "imported";
     },
+    targetBinding: async () => ({ projectId: "project-2", sequenceId: "sequence-2" }),
     liveState: async () => ({
       project: liveStateCalls++ === 0
         ? { id: "project-before", name: "Existing Project" }
@@ -118,6 +119,7 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
       },
     },
     targetLibraryUid: "library-1",
+    targetBinding: async () => ({ projectId: "project-imported", sequenceId: "sequence-imported" }),
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
     executor: async () => {
@@ -183,6 +185,7 @@ test("FCPXML publisher exposes target selection as an interaction-required bound
       headedFallbackCalled = true;
       return "unexpected";
     },
+    targetBinding: async () => ({ projectId: "project-imported", sequenceId: "sequence-imported" }),
     liveState: async () => {
       liveStateCalls += 1;
       return { revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } };
@@ -215,13 +218,14 @@ test("FCPXML publisher rejects a stale active project with matching names", asyn
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
     executor: async () => "imported",
+    targetBinding: async () => ({ projectId: "new-project", sequenceId: "new-sequence" }),
     liveState: async () => staleState,
   }).publishNewProject({
     sourceTransactionId: "txn-stale",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
     confirm: true,
-  }), /FINAL_CUT_PUBLISH_VERIFICATION_FAILED/);
+  }), /FINAL_CUT_PUBLISH_TARGET_MISMATCH/);
 });
 
 test("FCPXML publisher requires live project and sequence verification", async () => {
@@ -251,6 +255,58 @@ test("FCPXML publisher is unavailable without live project verification", () => 
   assert.equal(publisher.isAvailable(), false);
 });
 
+test("FCPXML publisher is unavailable when the production setup cannot bind a created target", () => {
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath: "/tmp/managed.fcpxml",
+    documentDelivery: { deliverFcpxml: async () => ({
+      status: "user-interaction-required",
+      route: "background-document-open",
+      attempted: false,
+      imported: false,
+      requestedActivates: false,
+      activation: "unknown",
+      ui: "none",
+      target: { guarantee: "unavailable" },
+    }) },
+    targetLibraryUid: "configured-library",
+    liveState: async () => ({
+      revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  });
+
+  assert.equal(publisher.isAvailable(), false);
+});
+
+test("FCPXML publisher refuses a direct import without a target-binding provider", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-unbound-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Unbound"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    liveState: async () => ({
+      project: { id: "before-project", name: "Existing" },
+      sequence: { id: "before-sequence", name: "Existing", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "before-revision", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async () => {
+      executorCalled = true;
+      return "unexpected";
+    },
+  });
+
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn-unbound",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    confirm: true,
+  }), /FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE/);
+  assert.equal(executorCalled, false);
+});
+
 test("FCPXML publisher waits for the imported project identity to settle", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-poll-"));
   const sourcePath = join(directory, "project.fcpxml");
@@ -269,6 +325,7 @@ test("FCPXML publisher waits for the imported project identity to settle", async
     verificationTimeoutMs: 100,
     pollIntervalMs: 0,
     executor: async () => "imported",
+    targetBinding: async () => ({ projectId: "imported-project", sequenceId: "imported-sequence" }),
     liveState: async () => {
       const state = states[Math.min(stateIndex++, states.length - 1)]!;
       return {
@@ -307,6 +364,7 @@ test("FCPXML publisher retries transient live-state errors", async () => {
     verificationTimeoutMs: 100,
     pollIntervalMs: 0,
     executor: async () => "imported",
+    targetBinding: async () => ({ projectId: "imported-project", sequenceId: "imported-sequence" }),
     liveState: async () => {
       liveStateCalls += 1;
       if (liveStateCalls === 2) throw new Error("temporary bridge unavailable");
