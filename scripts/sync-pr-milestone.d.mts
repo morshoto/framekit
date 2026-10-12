@@ -21,4 +21,6 @@ export function syncPullRequestMilestone(options: {
 	token: string;
 	apiUrl: string;
 	fetchImpl?: typeof fetch;
+	timelineRetryDelaysMs?: number[];
+	sleepImpl?: (milliseconds: number) => Promise<void>;
 }): Promise<{ action: 'updated'; milestoneNumber: number } | MilestoneDecision>;

@@ -27,6 +27,8 @@ export function resolvePullRequestMilestone(linkedIssues, currentMilestone) {
 	return { action: 'update', milestone };
 }
 
+const DEFAULT_TIMELINE_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000];
+
 export async function syncPullRequestMilestone({
 	repository,
 	pullRequestNumber,
@@ -34,6 +36,8 @@ export async function syncPullRequestMilestone({
 	token,
 	apiUrl = 'https://api.github.com',
 	fetchImpl = fetch,
+	timelineRetryDelaysMs = DEFAULT_TIMELINE_RETRY_DELAYS_MS,
+	sleepImpl = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
 }) {
 	if (!/^[^/]+\/[^/]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY_INVALID');
 	if (!Number.isInteger(pullRequestNumber) || pullRequestNumber <= 0) throw new Error('PULL_REQUEST_NUMBER_INVALID');
@@ -73,6 +77,16 @@ export async function syncPullRequestMilestone({
 		}
 		return events;
 	};
+	const hasPullRequestCrossReference = async (issueNumber) => {
+		for (let attempt = 0; attempt <= timelineRetryDelaysMs.length; attempt += 1) {
+			if (attempt > 0) await sleepImpl(timelineRetryDelaysMs[attempt - 1]);
+			const events = await readTimeline(issueNumber);
+			if (events.some((event) => event.event === 'cross-referenced'
+				&& event.source?.issue?.number === pullRequestNumber
+				&& event.source.issue.pull_request)) return true;
+		}
+		return false;
+	};
 
 	const pullRequest = await request(`/issues/${pullRequestNumber}`);
 	if (!pullRequest?.pull_request) throw new Error('PULL_REQUEST_NOT_FOUND');
@@ -80,10 +94,7 @@ export async function syncPullRequestMilestone({
 	for (const issueNumber of extractIssueReferences(body).filter((number) => number !== pullRequestNumber)) {
 		const issue = await request(`/issues/${issueNumber}`, { allowNotFound: true });
 		if (!issue || issue.pull_request) continue;
-		const events = await readTimeline(issueNumber);
-		const isGitHubLinked = events.some((event) => event.event === 'cross-referenced'
-			&& event.source?.issue?.number === pullRequestNumber
-			&& event.source.issue.pull_request);
+		const isGitHubLinked = await hasPullRequestCrossReference(issueNumber);
 		if (isGitHubLinked) linkedIssues.push({ number: issueNumber, milestone: issue.milestone ?? null });
 	}
 
