@@ -165,11 +165,13 @@ test("MCP publishing requires the verified artifact target and returns the creat
       { type: "rename-clip", clipId: "clip-artifact", name: "Published source", baseRevision: before.revision },
     );
     const server = createMcpServer(runtime, {
+      processMode: "headed",
       projectPublisher: new FinalCutProjectPublisher({
         enabled: true,
         sourcePath: artifactPath,
         waitMs: 0,
         executor: async () => "imported",
+        targetBinding: async () => ({ projectId: "published-project", sequenceId: "published-sequence" }),
         liveState: publisherLiveState("Artifact Project"),
       }),
     });
@@ -182,6 +184,13 @@ test("MCP publishing requires the verified artifact target and returns the creat
       assert.equal(editor.capabilities.editor.artifactPublish, true);
       assert.equal(editor.capabilities.editor.artifactPublishMode, "headed-only");
       assert.equal("timelinePublishNewProject" in editor.capabilities.editor, false);
+      const route = JSON.parse(textFrom(await client.callTool({
+        name: "editing.route",
+        arguments: { operation: "timeline.publish.new-project" },
+      })));
+      assert.equal(route.status, "editor-selected");
+      assert.equal(route.provider.backend, "fcpxml-publisher");
+      assert.equal(route.provider.guarantee, "verified");
       const published = await client.callTool({
         name: "artifact.publish",
         arguments: { artifactPath, transactionId: transaction.id, confirm: true },
@@ -242,6 +251,7 @@ test("MCP propagates the native document-open publishing capability", async () =
             target: { requestedLibraryUid: "library-1", guarantee: "requested-unverified" },
           }),
         },
+        targetBinding: async () => ({ projectId: "published-project", sequenceId: "published-sequence" }),
         liveState: publisherLiveState("Background Project"),
       }),
     });
@@ -254,6 +264,52 @@ test("MCP propagates the native document-open publishing capability", async () =
       assert.equal(editor.capabilities.editor.artifactPublish, true);
       assert.equal(editor.capabilities.editor.artifactPublishMode, "background-capable");
       assert.equal(editor.capabilities.families.publishing.projectCreation.backend, "fcpxml-document-open");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("timeline publishing rejects missing confirmation before import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-publish-confirmation-"));
+  try {
+    const artifactPath = join(directory, "managed.fcpxml");
+    await writeFile(artifactPath, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-confirm" name="Confirm Project"><sequence uid="sequence-confirm" duration="1s"><spine><asset-clip id="clip-confirm" name="Original" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(artifactPath));
+    const before = await runtime.inspectProject();
+    const transaction = await runtime.editArtifact(
+      artifactPath,
+      { type: "rename-clip", clipId: "clip-confirm", name: "Confirmed source", baseRevision: before.revision },
+    );
+    let importCalls = 0;
+    const server = createMcpServer(runtime, {
+      processMode: "headed",
+      projectPublisher: new FinalCutProjectPublisher({
+        enabled: true,
+        sourcePath: artifactPath,
+        waitMs: 0,
+        executor: async () => {
+          importCalls += 1;
+          return "imported";
+        },
+        liveState: publisherLiveState("Confirm Project"),
+      }),
+    });
+    const client = new Client({ name: "publish-confirmation-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const result = await client.callTool({
+        name: "timeline.publish.new-project",
+        arguments: { transactionId: transaction.id },
+      });
+
+      assert.equal(result.isError, true);
+      assert.equal(importCalls, 0);
     } finally {
       await client.close();
       await server.close();
@@ -353,9 +409,11 @@ test("MCP refuses publishing when the verified artifact changes before publish",
     enabled: true,
     sourcePath: artifactPath,
     waitMs: 0,
-    executor: async () => "imported",
+        executor: async () => "imported",
+        targetBinding: async () => ({ projectId: "published-project", sequenceId: "published-sequence" }),
+        liveState: publisherLiveState("Artifact Project"),
   });
-  const server = createMcpServer(runtime, { projectPublisher: publisher });
+  const server = createMcpServer(runtime, { processMode: "headed", projectPublisher: publisher });
   const client = new Client({ name: "artifact-publish-race-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const verifyTransaction = runtime.verifyTransaction.bind(runtime);

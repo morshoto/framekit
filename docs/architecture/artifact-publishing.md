@@ -81,6 +81,11 @@ guards remain unchanged. The headed publisher E2E is still the opt-in proof for
 actual Final Cut project creation; deterministic job tests prove only the
 state-machine and safety contract.
 
+The `timeline.publish.new-project` compatibility alias also requires literal
+`confirm: true` and passes through the same eligible-route, verified artifact,
+digest, and live readback checks. Publishing is not advertised for metadata-only
+connections or when the publisher cannot read live project and sequence state.
+
 ## Safety boundaries
 
 The job flow never silently replaces the active project. If the live provider

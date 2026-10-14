@@ -198,7 +198,7 @@ export class FinalCutConnectionManager {
       this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
       if (existing.result && !this.installBeforeProbe) return this.ready(existing.result);
 
-      if (this.canonicalProviderRequired) {
+      if (this.canonicalProviderRequired && !existing.result) {
         return this.fail(
           "FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE",
           `Canonical live provider is unavailable at ${this.socketPath}; metadata-only fallback is disabled`,
@@ -206,7 +206,7 @@ export class FinalCutConnectionManager {
         );
       }
 
-      if (this.headless) {
+      if (this.headless && !existing.result) {
         this.update({ state: "waiting-for-socket" });
         const waiting = await this.waitForHeadlessBridge(existing.error);
         if (waiting.result) return this.ready(waiting.result);

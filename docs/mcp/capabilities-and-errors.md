@@ -270,15 +270,18 @@ canonical timeline evidence, canonical snapshot support, project selection, or
 native UI access. A missing provider returns an unavailable descriptor rather
 than an empty or invented catalog.
 
-`artifactPublish` is true only when the MCP server has a configured project
-publisher with native writes enabled. `artifactPublishMode` reports
-`background-capable` when the Workflow Extension document-open bridge is
-configured, `headed-only` for the explicit Accessibility fallback, and
-`unavailable` when publishing is not enabled. Background-capable means only
-that Framekit can attempt `NSWorkspace` document delivery with
-`activates=false`; it does not claim import completion or target-bound
-readback. The job tools remain available when a managed artifact is configured
-so callers can prepare and inspect a bounded handoff. `artifactPublish` is separate from both
+`artifactPublish` is true when a configured publisher has a supported route.
+`artifactPublishMode` reports `background-capable` when the Workflow Extension
+document-open bridge is configured, `headed-only` for the explicit
+Accessibility path when the process has a live non-metadata Final Cut route,
+and `unavailable` otherwise. A publisher also needs a native target-binding
+provider that returns the exact created project and sequence IDs; live-state
+readback and an FCPXML destination UID alone do not make project creation
+available. Background-capable means only that Framekit can
+attempt `NSWorkspace` document delivery with `activates=false`; it does not
+claim import completion or target-bound readback. The job tools remain
+available when a managed artifact is configured so callers can prepare and
+inspect a bounded handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
 new project is neither an artifact edit nor an edit of the open timeline.
 
@@ -506,9 +509,11 @@ mutate timeline content, and it never clicks the Framekit close button.
 
 `artifact.publish` is reported separately from `timelineWrite`. It accepts a
 verified artifact transaction, matching `artifactPath`, and `confirm: true` to
-import a new Final Cut project. Its result identifies the source artifact,
-created project/sequence, and active project before/after; it does not mean the
-currently open timeline is directly writable. Missing confirmation fails with
+import a new Final Cut project. A native target-binding provider must reserve
+the created project and sequence IDs; an FCPXML destination UID is not native
+readback. Its result identifies the source artifact, created project/sequence,
+and active project before/after; it does not mean the currently open timeline
+is directly writable. Missing confirmation fails with
 `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
 `PUBLISH_TARGET_MISMATCH`.
 
