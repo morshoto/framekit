@@ -1,10 +1,10 @@
 const requiredTools = [
-  ["project.inspect", "passed"],
+  ["headless.project.create", "passed"],
+  ["headless.project.inspect", "passed"],
   ["speech.analyze", "passed"],
-  ["editor.timeline.edit", "VERIFIED"],
-  ["edit.diff", "passed"],
-  ["edit.verify", "passed"],
-  ["edit.undo", "passed"],
+  ["headless.edit.preview", "passed"],
+  ["headless.edit.execute", "passed"],
+  ["editing.route", "headless-selected"],
 ];
 
 const editorCapabilityKeys = [
@@ -40,17 +40,27 @@ const prohibitedPublicTextPatterns = [
 
 export function sanitizeCleanMcpEvidence(run, options = {}) {
   assert(run?.schemaVersion === 1, "schema version must be 1");
+  assert(run.passed === true, "clean MCP workflow did not pass");
   const clients = requireClients(run.clients, options.expectedClientNames);
+  const environment = sanitizeEnvironment(run.environment);
+  const releaseCandidate = run.releaseCandidate ? sanitizeReleaseCandidate(run.releaseCandidate) : undefined;
+  if (releaseCandidate) {
+    assert(
+      releaseCandidate.target.sourceClean === environment.sourceClean,
+      "release candidate and workflow source cleanliness do not match",
+    );
+  }
 
   return {
     schemaVersion: 1,
     evidenceType: "clean-mcp-client-workflow",
     passed: true,
     recordedAt: requireString(run.recordedAt, "recordedAt"),
-    environment: sanitizeEnvironment(run.environment),
+    environment,
     framekit: { version: sanitizePublicText(run.framekit?.version, "Framekit version") },
     runtime: { version: sanitizePublicText(run.runtime?.version, "runtime version") },
     clients: clients.map((client) => sanitizeClient(client)),
+    ...(releaseCandidate ? { releaseCandidate } : {}),
     sanitization: {
       strategy: "allowlisted-summary",
       omitted: [
@@ -86,14 +96,23 @@ function sanitizeClient(client) {
   const workflowTools = sanitizeWorkflow(client.workflow?.tools, name);
   const limitations = client.workflow?.limitations;
   assert(Array.isArray(limitations), `${name} workflow limitations are missing`);
+  const serverVersion = sanitizePublicText(client.server?.version, `${name} server version`);
+  const buildFingerprint = client.server?.buildFingerprint
+    ? sanitizeBuildFingerprint(client.server.buildFingerprint, `${name} server`)
+    : undefined;
+  if (buildFingerprint) assert(buildFingerprint.version === serverVersion, `${name} server build version does not match its MCP version`);
 
   return {
     name,
     clientVersion: sanitizePublicText(client.clientVersion, `${name} version`),
     registration: sanitizeRegistration(client.registration, name),
     server: {
-      version: sanitizePublicText(client.server?.version, `${name} server version`),
+      version: serverVersion,
       protocolVersion: sanitizePublicText(client.server?.protocolVersion, `${name} protocol version`),
+      ...(buildFingerprint ? { buildFingerprint } : {}),
+      ...(client.server?.buildFingerprintIssue
+        ? { buildFingerprintIssue: sanitizePublicText(client.server.buildFingerprintIssue, `${name} server build issue`) }
+        : {}),
     },
     editor: sanitizeIdentity(client.editor, name),
     capabilities: sanitizeCapabilities(client.capabilities, name),
@@ -101,6 +120,7 @@ function sanitizeClient(client) {
       status: "passed",
       tools: workflowTools,
       limitations: limitations.map((limitation) => sanitizePublicText(limitation, `${name} limitation`)),
+      ...(client.workflow?.delivery ? { delivery: sanitizeDelivery(client.workflow.delivery, name) } : {}),
     },
   };
 }
@@ -113,15 +133,116 @@ function sanitizeRegistration(registration, clientName) {
   };
   if (registration.publicPackage) {
     const status = registration.publicPackage.status;
-    assert(status === "passed" || status === "blocked", `${clientName} public package status is invalid`);
+    assert(["passed", "blocked", "mismatched"].includes(status), `${clientName} public package status is invalid`);
     result.publicPackage = {
       status,
-      ...(status === "blocked"
+      ...(registration.publicPackage.version
+        ? { version: sanitizePublicText(registration.publicPackage.version, `${clientName} public package version`) }
+        : {}),
+      ...(registration.publicPackage.commit
+        ? { commit: sanitizeCommit(registration.publicPackage.commit, `${clientName} public package commit`) }
+        : {}),
+      ...(status !== "passed"
         ? { reason: sanitizePublicText(registration.publicPackage.reason, `${clientName} public package reason`) }
         : {}),
     };
   }
+  if (registration.plugin) {
+    result.plugin = {
+      version: sanitizePublicText(registration.plugin.version, `${clientName} plugin version`),
+      ...(registration.plugin.commit
+        ? { commit: sanitizeCommit(registration.plugin.commit, `${clientName} plugin commit`) }
+        : {}),
+    };
+  }
+  if (registration.packageSource) {
+    assert(["published-package", "packed-source"].includes(registration.packageSource), `${clientName} package source is invalid`);
+    result.packageSource = registration.packageSource;
+  }
   return result;
+}
+
+function sanitizeReleaseCandidate(candidate) {
+  assert(candidate?.schemaVersion === 1, "release candidate schema version must be 1");
+  assert(candidate?.evidenceType === "framekit-release-candidate", "release candidate evidence type is invalid");
+  const target = {
+    version: sanitizePublicText(candidate.target?.version, "release candidate version"),
+    commit: sanitizeCommit(candidate.target?.commit, "release candidate commit"),
+    sourceClean: requireBoolean(candidate.target?.sourceClean, "release candidate source cleanliness"),
+  };
+  assert(candidate.status === "GO" || candidate.status === "NO_GO", "release candidate status is invalid");
+  const names = ["npmPackage", "codexPlugin", "mcpServer", "nativeExtension"];
+  const artifacts = Object.fromEntries(names.map((name) => [name, sanitizeCandidateArtifact(candidate.artifacts?.[name], name)]));
+  const complete = Object.values(artifacts).every((artifact) => artifact.status === "GO");
+  for (const artifact of Object.values(artifacts)) {
+    if (artifact.status === "GO") {
+      assert(artifact.version === target.version, "GO release artifact version does not match the candidate");
+      assert(artifact.commit === target.commit, "GO release artifact commit does not match the candidate");
+    }
+  }
+  assert(target.sourceClean || candidate.status === "NO_GO", "dirty release source cannot be a GO candidate");
+  if (!target.sourceClean) {
+    assert(Object.values(artifacts).every((artifact) => artifact.status === "NO_GO"), "dirty release source cannot have GO artifacts");
+  }
+  assert(candidate.status === (complete ? "GO" : "NO_GO"), "release candidate status does not match artifact statuses");
+  return {
+    schemaVersion: 1,
+    evidenceType: "framekit-release-candidate",
+    target,
+    status: candidate.status,
+    artifacts,
+  };
+}
+
+function sanitizeCandidateArtifact(artifact, name) {
+  assert(artifact?.status === "GO" || artifact?.status === "NO_GO", `${name} release status is invalid`);
+  return {
+    status: artifact.status,
+    ...(artifact.version ? { version: sanitizePublicText(artifact.version, `${name} version`) } : {}),
+    ...(artifact.commit ? { commit: sanitizeCommit(artifact.commit, `${name} commit`) } : {}),
+    ...(artifact.status === "NO_GO"
+      ? { reason: sanitizePublicText(artifact.reason, `${name} release blocker`) }
+      : {}),
+  };
+}
+
+function sanitizeBuildFingerprint(fingerprint, clientName) {
+  const result = {
+    version: sanitizePublicText(fingerprint.version, `${clientName} build version`),
+    commit: sanitizeCommit(fingerprint.commit, `${clientName} build commit`),
+  };
+  return result;
+}
+
+function sanitizeCommit(value, label) {
+  const commit = sanitizePublicText(value, label);
+  assert(/^[0-9a-f]{40}$/i.test(commit), `${label} must be a full SHA-1`);
+  return commit.toLowerCase();
+}
+
+function sanitizeDelivery(delivery, clientName) {
+  assert(["headed", "headless", "unknown"].includes(delivery.processMode), `${clientName} process mode is invalid`);
+  assert(delivery.processMode === "headless", `${clientName} delivery workflow did not run headless`);
+  assert(delivery.headless?.status === "passed", `${clientName} headless capability was not verified`);
+  assert(["passed", "blocked"].includes(delivery.nativeFinalCut?.status), `${clientName} native-delivery status is invalid`);
+  return {
+    processMode: delivery.processMode,
+    headless: {
+      status: "passed",
+      backend: sanitizePublicText(delivery.headless.backend, `${clientName} headless backend`),
+      requiredCapabilities: requireArray(delivery.headless.requiredCapabilities, `${clientName} headless capabilities`)
+        .map((capability) => sanitizePublicText(capability, `${clientName} headless capability`)),
+    },
+    nativeFinalCut: {
+      status: delivery.nativeFinalCut.status,
+      reason: sanitizePublicText(delivery.nativeFinalCut.reason, `${clientName} native-delivery status`),
+    },
+  };
+}
+
+function requireArray(value, label) {
+  assert(Array.isArray(value), `${label} are missing`);
+  return value;
 }
 
 function sanitizeWorkflow(tools, clientName) {
@@ -140,6 +261,7 @@ function sanitizeEnvironment(environment) {
   assert(/^[0-9a-f]{40}$/i.test(gitCommit), "Git commit must be a full SHA-1");
   return {
     gitCommit,
+    sourceClean: requireBoolean(environment?.sourceClean, "source checkout cleanliness"),
     nodeVersion: sanitizePublicText(environment.nodeVersion, "Node version"),
     platform: sanitizePublicText(environment.platform, "platform"),
     architecture: sanitizePublicText(environment.architecture, "architecture"),
@@ -183,6 +305,11 @@ function pickKnown(value, keys) {
 
 function requireString(value, label) {
   assert(isNonEmptyString(value), `${label} is missing`);
+  return value;
+}
+
+function requireBoolean(value, label) {
+  assert(typeof value === "boolean", `${label} is missing`);
   return value;
 }
 

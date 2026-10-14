@@ -141,6 +141,31 @@ test('release preflight rejects a package that is not publicly publishable', () 
 	);
 });
 
+test('release preflight rejects a package build fingerprint from another commit', () => {
+	assert.throws(
+		() => validateReleaseContract({
+			packageManifest: canonicalManifest,
+			releaseTag: 'v0.1.1',
+			githubRepository: 'morshoto/framekit',
+			packageBuildIdentity: { schemaVersion: 1, version: '0.1.1', commit: 'a'.repeat(40) },
+			candidateCommit: 'b'.repeat(40),
+		}),
+		/package build identity commit does not match the release tag commit/i,
+	);
+});
+
+test('release preflight rejects a dirty source checkout', () => {
+	assert.throws(
+		() => validateReleaseContract({
+			packageManifest: canonicalManifest,
+			releaseTag: 'v0.1.1',
+			githubRepository: 'morshoto/framekit',
+			sourceClean: false,
+		}),
+		/release checkout contains uncommitted changes/i,
+	);
+});
+
 test('release workflow validates the package before publishing', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
@@ -156,8 +181,10 @@ test('release workflow validates the package before publishing', async () => {
 		'pnpm run release-gate --output-dir',
 	);
 	const publication = workflow.indexOf('npm publish');
+	const packageBuild = workflow.indexOf('pnpm run build:package');
 
 	assert.notEqual(validation, -1);
+	assert.notEqual(packageBuild, -1);
 	assert.notEqual(ffmpegFixtureToolchain, -1);
 	assert.ok(
 		ffmpegFixtureToolchain < releaseGate,
@@ -171,6 +198,7 @@ test('release workflow validates the package before publishing', async () => {
 		validation < publication,
 		'release validation must run before npm publish',
 	);
+	assert.ok(packageBuild < validation, 'the tagged package identity must be generated before release validation');
 	assert.match(workflow, /GITHUB_REPOSITORY: \$\{\{ github\.repository \}\}/);
 	assert.match(
 		workflow,
@@ -206,15 +234,25 @@ test('automatic release keeps native packaging off the publication critical path
 		resolve(repository, '.github/workflows/native-release.yml'),
 		'utf8',
 	);
+	const verifier = await readFile(
+		resolve(repository, 'scripts/verify-release-provenance.ts'),
+		'utf8',
+	);
 	const gate = workflow.indexOf('pnpm run release-gate --output-dir');
 	const npmPublish = workflow.indexOf('npm publish --access public');
 	const githubRelease = workflow.indexOf('name: Publish GitHub release');
+	const cleanMcp = workflow.indexOf('name: Verify clean published Codex MCP installation');
+	const cleanEvidenceUpload = workflow.indexOf('name: Upload clean MCP release candidate evidence');
 
 	assert.notEqual(gate, -1);
 	assert.notEqual(npmPublish, -1);
 	assert.notEqual(githubRelease, -1);
+	assert.notEqual(cleanMcp, -1);
+	assert.notEqual(cleanEvidenceUpload, -1);
 	assert.ok(gate < npmPublish, 'release gate must run before npm publication');
-	assert.ok(npmPublish < githubRelease, 'npm publication must precede GitHub release');
+	assert.ok(npmPublish < cleanMcp && cleanMcp < githubRelease, 'clean published MCP validation must precede GitHub release');
+	assert.ok(githubRelease < cleanEvidenceUpload, 'clean MCP evidence must upload after the clean test has run');
+	assert.match(workflow, /FRAMEKIT_CLEAN_MCP_EVIDENCE_OUTPUT: artifacts\/release-candidate\/clean-mcp-clients\.json/);
 
 	assert.doesNotMatch(workflow, /release-runner-preflight:/);
 	assert.doesNotMatch(workflow, /native-release-assets:/);
@@ -223,6 +261,10 @@ test('automatic release keeps native packaging off the publication critical path
 	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
 	assert.doesNotMatch(workflow, /node scripts\/check-release-runner\.mjs/);
 	assert.match(workflow, /pnpm run test:codex-plugin/);
+	assert.match(
+		await readFile(resolve(repository, 'scripts/validate-release-contract.mjs'), 'utf8'),
+		/git", \["status", "--porcelain", "--untracked-files=all"\]/,
+	);
 	assert.match(
 		workflow,
 		/publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin\n\s+- milestone-report/,
@@ -240,7 +282,19 @@ test('automatic release keeps native packaging off the publication critical path
 	assert.match(nativeWorkflow, /gh release upload "\$\{RELEASE_TAG\}"/);
 	assert.match(nativeWorkflow, /--clobber/);
 	assert.match(nativeWorkflow, /name: Verify complete release provenance/);
+	assert.match(nativeWorkflow, /name: Package signed native assets/);
 	assert.match(nativeWorkflow, /pnpm run verify-release-provenance/);
+	assert.match(nativeWorkflow, /actions:\s*read/);
+	assert.match(nativeWorkflow, /if: always\(\) && needs\.validate-release\.result == 'success'/);
+	assert.doesNotMatch(nativeWorkflow, /NATIVE_RELEASE_PACKAGING_RESULT/);
+	assert.match(verifier, /"run", "list"/);
+	assert.match(verifier, /GITHUB_RUN_ID/);
+	assert.match(verifier, /Package signed native assets/);
+	assert.match(verifier, /clean-mcp-clients-\$\{releaseTag\}/);
+	assert.match(verifier, /checkedOutTagSha/);
+	assert.match(verifier, /FramekitBuildCommit/);
+	assert.match(verifier, /releaseCandidate: candidate/);
+	assert.match(verifier, /goNoGo: releaseReady \? "GO" : "NO_GO"/);
 });
 
 test('native release is an explicit retry without runner preflight', async () => {

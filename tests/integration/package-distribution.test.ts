@@ -22,6 +22,7 @@ test("development checkout launcher prefers source over a stale dist package", a
 test("published package contains the runnable Framekit CLI and MCP sources", async () => {
   const manifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     name?: string;
+    version?: string;
     private?: boolean;
     bin?: Record<string, string>;
     dependencies?: Record<string, string>;
@@ -34,7 +35,8 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.equal(manifest.bin?.framekit, "./bin/framekit.mjs");
   assert.equal(manifest.dependencies?.tsx, undefined, "published CLI must not depend on the development loader");
   assert.deepEqual(manifest.files, ["bin", "dist-package"]);
-  assert.equal(manifest.scripts?.prepack, "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json");
+  assert.equal(manifest.scripts?.prepack, "pnpm run build:package");
+  assert.match(manifest.scripts?.["build:package"] ?? "", /write-package-build-identity\.ts/);
 
   const { stdout } = await exec("npm", ["pack", "--dry-run", "--json"], { cwd: repository });
   const [packed] = JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>;
@@ -43,6 +45,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
     "bin/framekit.mjs",
     "dist-package/apps/cli/src/main.js",
     "dist-package/apps/mcp-server/src/main.js",
+    "dist-package/apps/mcp-server/src/build-identity.json",
     "dist-package/packages/runtime/src/index.js",
     "dist-package/adapters/final-cut/typescript/src/index.js",
   ]) {
@@ -50,6 +53,13 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   }
   assert.equal(paths.some((path) => path.startsWith("tests/")), false);
   assert.equal(paths.some((path) => path.startsWith("adapters/final-cut/swift-bridge/")), false);
+
+  const identity = JSON.parse(await readFile(
+    resolve(repository, "dist-package/apps/mcp-server/src/build-identity.json"),
+    "utf8",
+  )) as { version?: string; commit?: string };
+  assert.equal(identity.version, manifest.version);
+  assert.match(identity.commit ?? "", /^[0-9a-f]{40}$/);
 });
 
 test("clean install of the packed package starts the headless Final Cut MCP server", { timeout: 120_000 }, async () => {
