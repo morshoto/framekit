@@ -287,6 +287,10 @@ export class AgentVideoRuntime {
     return this.media.understandMedia(mediaId);
   }
 
+  public async understandMediaInProject(mediaId: string, project: ProjectSnapshot): Promise<MediaUnderstanding> {
+    return this.media.understandMediaInProject(mediaId, project);
+  }
+
   public planDuration(request: DurationPolicyRequest): DurationPolicyPlan {
     return this.durationPolicy.plan(request);
   }
@@ -305,6 +309,13 @@ export class AgentVideoRuntime {
 
   public async planRoughCut(request: SemanticRoughCutPlanRequest): Promise<SemanticRoughCutPlan> {
     return this.media.planRoughCut(request);
+  }
+
+  public async planRoughCutInProject(
+    request: SemanticRoughCutPlanRequest,
+    project: ProjectSnapshot,
+  ): Promise<SemanticRoughCutPlan> {
+    return this.media.planRoughCutInProject(request, project);
   }
 
   public async inspectTimelineSemanticContext(
