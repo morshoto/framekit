@@ -248,6 +248,12 @@ const projectPublisher = liveMode && fcpxmlPath
       targetLibraryUid: process.env.FRAMEKIT_FINAL_CUT_LIBRARY_UID,
       allowHeadedFallback: process.env.FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT === "1",
       liveState: () => liveAdapter!.readLiveState(),
+      headlessSourceVerifier: async (request) => {
+        const proof = await headlessProjects.verifyPublishableRoughCutTransaction(request);
+        return {
+          targetLibraryUid: proof.targetLibraryUid,
+        };
+      },
     })
   : undefined;
 const backgroundMaterializationCommand = liveMode

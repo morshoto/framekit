@@ -1837,27 +1837,44 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.preview", {
-    description: "Prepare a verified FCPXML publish handoff without opening Final Cut; the configured native route may use non-activating document delivery or an explicit headed fallback.",
+    description: "Prepare a verified managed-artifact or approved headless-rough-cut publish handoff without opening Final Cut.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
-      transactionId: z.string().min(1),
+      transactionId: z.string().min(1).optional(),
+      headlessExecutionId: z.string().min(1).optional(),
     },
-  }, async ({ artifactPath, transactionId }) => {
+  }, async ({ artifactPath, transactionId, headlessExecutionId }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    const transaction = runtime.getTransaction(transactionId);
-    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
-      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    if (Boolean(transactionId) === Boolean(headlessExecutionId)) {
+      throw new Error("PUBLISH_SOURCE_REQUIRED: provide exactly one of transactionId or headlessExecutionId");
     }
-    if (!transaction.artifactDigest) {
-      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    let sourceTransactionId: string;
+    let artifactDigest: string;
+    let sourceProof: Awaited<ReturnType<HeadlessProjectService["verifyPublishableRoughCut"]>> | undefined;
+    if (headlessExecutionId) {
+      sourceProof = await requireHeadlessProjects().verifyPublishableRoughCut(headlessExecutionId, artifactPath);
+      sourceTransactionId = sourceProof.sourceTransactionId;
+      artifactDigest = sourceProof.artifactDigest;
+    } else {
+      const transaction = runtime.getTransaction(transactionId!);
+      if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+        throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+      }
+      if (!transaction.artifactDigest) {
+        throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+      }
+      const verification = await runtime.verifyTransaction(transactionId!);
+      if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+      sourceTransactionId = transactionId!;
+      artifactDigest = transaction.artifactDigest;
     }
-    const verification = await runtime.verifyTransaction(transactionId);
-    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
-    return jsonResult(await options.projectPublisher.preparePublish({
-      sourceTransactionId: transactionId,
+
+    const job = await options.projectPublisher.preparePublish({
+      sourceTransactionId,
       artifactPath,
-      artifactDigest: transaction.artifactDigest,
-    }));
+      artifactDigest,
+    });
+    return jsonResult({ ...job, ...(sourceProof ? { sourceProof } : {}) });
   });
 
   server.registerTool("artifact.publish.execute", {

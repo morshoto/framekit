@@ -32,12 +32,25 @@ and [Interacting with the Final Cut Pro Timeline](https://developer.apple.com/do
 
 Every publish job is bound to:
 
-- the exact managed FCPXML `artifactPath`;
-- the verified source `transactionId`; and
+- the exact FCPXML `artifactPath`;
+- either a verified artifact `transactionId` or an approved headless rough-cut
+  `headlessExecutionId`; and
 - the source `artifactDigest`, which is checked again immediately before any
   import attempt; and
-- an exact project/sequence target-binding proof from a native publisher; and
+- an exact versioned project/sequence target binding, which must match native
+  live readback before success; and
 - an explicit Final Cut library UID when the document-open bridge is used.
+
+Headless rough-cut previews persist an approval record binding the plan and
+operations to the source revision, predicted committed revision, output path,
+versioned FCPXML target, and compiled artifact digest. Execution reloads that
+record, replays the preview at the approved revision timestamp, and verifies
+the render, FCPXML, and committed project revision agree. The resulting
+`executionId` is the source for `artifact.publish.preview`. That tool rechecks
+the execution record, current project revision, render evidence, artifact
+digest, and versioned destination before preparing a publish job. An expected
+FCPXML target is not treated as native readback: the job reports success only
+after the live Final Cut provider observes the same project and sequence IDs.
 
 Preparation is non-mutating and never opens Final Cut. Execution requires
 explicit `confirm: true`. A job enters `verified` only when that stable
@@ -66,9 +79,10 @@ created target until verification succeeds.
 
 ## MCP tools
 
-- `artifact.publish.preview` validates the verified artifact transaction and
-  returns a non-mutating job without opening Final Cut. The job records whether
-  the native document-open route is available.
+- `artifact.publish.preview` accepts exactly one verified artifact
+  `transactionId` or approved `headlessExecutionId`, and returns a
+  non-mutating job without opening Final Cut. The job records whether the
+  native document-open route is available.
 - `artifact.publish.execute` accepts a job ID and literal `confirm: true`.
   It returns `verified`, `awaiting-final-cut`, `verification-pending`, or a
   fail-closed `failed` state when target-binding proof is unavailable.
