@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-14
+
+### New Features
+- chore: add local checkout validation workflow by @morshoto in https://github.com/morshoto/framekit/pull/522
+### Documentation
+- chore: align GitHub release notes by @morshoto in https://github.com/morshoto/framekit/pull/530
+### Chores
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/524
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/534
+### Other changes
+- chore: sync linked issue milestones by @morshoto in https://github.com/morshoto/framekit/pull/529
+
 ## [v0.1.17](https://github.com/morshoto/framekit/compare/v0.1.16...v0.1.17) - 2026-10-11
 
 ### Feature changes
