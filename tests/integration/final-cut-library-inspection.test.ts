@@ -25,6 +25,7 @@ const validResponse = JSON.stringify({
   libraries: [{
     id: "library-1",
     name: "Library",
+    path: "/tmp/Library.fcpbundle",
     events: [{
       id: "event-1",
       name: "Event",
@@ -52,6 +53,7 @@ test("parses library, event, project, and sequence metadata", () => {
   assert.deepEqual(result.catalog.libraries[0], {
     id: "library-1",
     name: "Library",
+    path: "/tmp/Library.fcpbundle",
     events: [{
       id: "event-1",
       name: "Event",
@@ -187,10 +189,39 @@ test("builds a direct read-only Final Cut Apple Event script", () => {
   assert.match(script, /var value = target\[property\]\(\)/);
   assert.match(script, /collectionCall\(finalCut, "libraries"\)/);
   assert.match(script, /collectionCall\(library, "events"\)/);
+  assert.match(script, /textValue\(library, "file"\)/);
   assert.match(script, /collectionCall\(event, "projects"\)/);
   assert.match(script, /sequence/);
   assert.doesNotMatch(script, /System Events/);
   assert.doesNotMatch(script, /frontmost|activate|keystroke|click|AXPress/);
+});
+
+test("binds an imported project to the exact Final Cut library path", async () => {
+  const provider = new FinalCutLibraryInspectionProvider({ executor: async () => validResponse });
+
+  const binding = await provider.resolveProjectBinding("/tmp/Library.fcpbundle", {
+    projectName: "Project",
+    sequenceName: "Main",
+  });
+
+  assert.deepEqual(binding, {
+    projectId: "project-1",
+    sequenceId: "sequence-1",
+    libraryId: "library-1",
+    eventId: "event-1",
+    libraryPath: "/tmp/Library.fcpbundle",
+  });
+});
+
+test("does not bind a project when the native library path is unavailable", async () => {
+  const response = JSON.parse(validResponse) as { libraries: Array<Record<string, unknown>> };
+  delete response.libraries[0]!.path;
+  const provider = new FinalCutLibraryInspectionProvider({ executor: async () => JSON.stringify(response) });
+
+  await assert.rejects(
+    provider.resolveProjectBinding("/tmp/Library.fcpbundle", { projectName: "Project", sequenceName: "Main" }),
+    /FINAL_CUT_PUBLISH_TARGET_PENDING/,
+  );
 });
 
 test("maps the rich inspection result to a project catalog", async () => {

@@ -75,7 +75,7 @@ private struct BridgeRequest: Codable {
     let afterSequence: Int?
     let waitMs: Int?
     let artifactPath: String?
-    let targetLibraryUid: String?
+    let targetLibraryLocation: String?
     let activates: Bool?
 }
 
@@ -221,7 +221,7 @@ private struct FCPXMLDelivery: Codable {
 }
 
 private struct FCPXMLDeliveryTarget: Codable {
-    let requestedLibraryUid: String?
+    let requestedLibraryLocation: String?
     let guarantee: String
 }
 
@@ -554,8 +554,8 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     private func deliverFCPXML(_ request: BridgeRequest, identity: Identity, capabilities: RuntimeCapabilities) -> BridgeResponse {
         let requestedActivates = request.activates ?? false
         let target = FCPXMLDeliveryTarget(
-            requestedLibraryUid: request.targetLibraryUid,
-            guarantee: request.targetLibraryUid?.isEmpty == false ? "requested-unverified" : "unavailable"
+            requestedLibraryLocation: request.targetLibraryLocation,
+            guarantee: request.targetLibraryLocation?.isEmpty == false ? "requested-unverified" : "unavailable"
         )
         guard let path = request.artifactPath, !path.isEmpty else {
             return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
@@ -571,11 +571,11 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
                 error: BridgeError(code: "FINAL_CUT_DELIVERY_ARTIFACT_UNAVAILABLE", message: "FCPXML artifact does not exist at the requested path")
             ))
         }
-        guard request.targetLibraryUid?.isEmpty == false else {
+        guard request.targetLibraryLocation?.isEmpty == false else {
             return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
                 status: "user-interaction-required", route: "background-document-open", attempted: false, imported: false,
                 requestedActivates: requestedActivates, activation: "unknown", ui: "prompted", target: target,
-                error: BridgeError(code: "FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE", message: "The document-open path cannot guarantee an intended Final Cut library without an explicit library identity")
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE", message: "The document-open path requires an explicit new library location embedded in the FCPXML import options")
             ))
         }
 
