@@ -2649,7 +2649,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     : "unavailable";
   const publishingAvailable = configuredPublisher && (
     publisherExecutionMode === "background-capable"
-    || (processMode === "headed" && inspected.capabilities.editor.canonicalTimelineMode !== "metadata-only")
+    || processMode === "headed"
   );
   const publishingMode = publishingAvailable ? publisherExecutionMode : "unavailable";
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());

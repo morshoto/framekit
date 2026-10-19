@@ -54,7 +54,7 @@ changed.
 | Surface | Target | Revision | Read-after-write | Undo | Resulting project state |
 | --- | --- | --- | --- | --- | --- |
 | `artifact.edit` | Managed FCPXML artifact ID and path | Artifact snapshot revision | Reads the same artifact after the write | Restores the artifact transaction | Updates the FCPXML artifact; it does not claim to change the open Final Cut project |
-| `artifact.publish` | Verified managed artifact or approved headless rough-cut artifact, source proof, and new `.fcpbundle` path | Verified source plus `confirm: true` | Reads created project/sequence from the requested library and reports active project before/after | Does not undo the imported project through artifact undo | Creates/imports into the requested new library; reports any activation side effect |
+| `artifact.publish` | Verified managed artifact or approved headless rough-cut artifact, source proof, and new `.fcpbundle` path | Verified source plus `confirm: true` | Binds native project/sequence IDs, exports the active project through Final Cut, compares supported timeline semantics, and confirms source-media hashes are unchanged | Does not undo the imported project through artifact undo | Creates/imports into the requested new library; reports activation and semantic readback evidence |
 | `editor.timeline.edit` | Explicit active project ID and sequence ID | Required live base revision | Reads the identified live timeline after the write | Restores the identified live timeline transaction | Changes the selected live project only when canonical live-write capability is available |
 
 An artifact edit and a live timeline edit are not interchangeable, even when
@@ -131,9 +131,13 @@ including any activation Final Cut performs while opening the document.
 The publisher uses the Workflow Extension's FCPXML document-open route with the
 requested library path embedded in the staged import options. That route
 reports dispatch and foreground/UI side effects separately; it does not prove
-import by itself. The Final Cut library catalog must then report the exact path
-and unique created project and sequence before the publisher reports success.
-If the route is unavailable, `artifact.publish.preview`,
+import by itself. The Final Cut library catalog must report the exact path and
+unique created project and sequence, and that same native target must be
+active before headed `File > Export XML` readback compares its timeline with
+the approved FCPXML. The publisher hashes every referenced local source media
+file before dispatch and again after readback; missing or changed media blocks
+success. If the route or active-target readback is unavailable,
+`artifact.publish.preview`,
 `artifact.publish.execute`, and `artifact.publish.status` expose a bounded
 headed or interaction-required job state so a missing Final Cut provider can be
 retried without claiming that a project was created. See

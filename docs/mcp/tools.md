@@ -318,9 +318,11 @@ The three editing surfaces have separate targets and guarantees:
   operation. The staged FCPXML binds the import to that path; the approved
   source artifact is unchanged. The bridge reports dispatch only. Publishing
   succeeds only after catalog readback binds the exact library, project, and
-  sequence IDs. Without that readback, no successful result is reported. The
-  result identifies `sourceTarget`, `createdTarget`, and active project before
-  and after delivery. Missing confirmation returns
+  sequence IDs, the same native target is active around headed `File > Export
+  XML` readback, the supported timeline semantics match, and source-media
+  digests remain unchanged. Without those checks, no successful result is
+  reported. The result identifies `sourceTarget`, `createdTarget`, semantic
+  readback evidence, and active project before and after delivery. Missing confirmation returns
   `PUBLISH_CONFIRMATION_REQUIRED`; a different artifact returns
   `PUBLISH_TARGET_MISMATCH`.
 - `artifact.publish.preview` records the explicit destination path along with

@@ -22,7 +22,9 @@ import {
   timelineIrDigest,
 } from "@framekit/runtime";
 import {
+  FcpxmlDocumentAdapter,
   compileTimelineIrToFcpxml,
+  resolveMediaSource,
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut";
@@ -151,6 +153,7 @@ export interface HeadlessRoughCutPublishProof {
   coverage: TimelineIrToFcpxmlResult["coverage"];
   provenance: HeadlessRoughCutShotProvenance[];
   targetLibraryUid: string;
+  sourceMediaDigests: Array<{ source: string; sha256: string }>;
 }
 
 interface HeadlessRoughCutExecutionRecord {
@@ -451,6 +454,26 @@ export class HeadlessProjectService {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
+    const approvedSnapshot = await new FcpxmlDocumentAdapter(record.artifactPath, undefined, {
+      allowMissingImmutableIdsForReadback: true,
+    }).readProject();
+    const referencedMediaIds = new Set([
+      ...approvedSnapshot.timeline.clips.map(({ mediaId }) => mediaId),
+      ...approvedSnapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
+    ].filter((mediaId): mediaId is string => mediaId !== undefined));
+    const approvedSources = approvedSnapshot.media
+      .filter(({ mediaId }) => referencedMediaIds.has(mediaId))
+      .map(({ source }) => resolve(source));
+    const digestBySource = new Map(project.timeline.resources
+      .filter((resource) => resource.source && resource.sourceDigest)
+      .map((resource) => [resolveMediaSource(resource.source!, record.artifactPath), resource.sourceDigest!]));
+    const sourceMediaDigests = [...new Set(approvedSources)].sort().map((source) => {
+      const sha256 = digestBySource.get(source);
+      if (!sha256) {
+        throw new Error(`HEADLESS_ROUGH_CUT_SOURCE_MEDIA_DIGEST_UNAVAILABLE: no approved source digest is bound to ${source}`);
+      }
+      return { source, sha256 };
+    });
     const render = await this.inspectRender(record.renderId);
     if (render.status !== "passed" || render.projectId !== record.projectId || render.sequenceId !== record.sequenceId
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
@@ -483,6 +506,7 @@ export class HeadlessProjectService {
       coverage: structuredClone(record.fcpxml.coverage),
       provenance: structuredClone(record.provenance),
       targetLibraryUid: record.fcpxml.target.libraryUid,
+      sourceMediaDigests,
     };
   }
 

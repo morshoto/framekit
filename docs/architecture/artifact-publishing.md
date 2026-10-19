@@ -42,23 +42,30 @@ Every publish job is bound to:
 - an explicit absolute `targetLibraryPath` ending in `.fcpbundle`, whose parent
   already exists and is writable and whose destination does not yet exist; and
 - exact library, event, project, and sequence identities read back from that
-  library after Final Cut processes the import.
+  library after Final Cut processes the import; and
+- an active-project identity match before and after headed `File > Export XML`
+  readback, with supported timeline semantics matching the approved FCPXML; and
+- SHA-256 digests of all referenced local source media captured before import
+  and rechecked after native readback; for approved headless rough cuts, these
+  digests must also match the source hashes stored with the approved project.
 
 The staged import copy adds the FCPXML `import-options` value `library
 location`. The approved artifact and its digest remain unchanged; the job
 reports a separate digest for the staged copy. The bridge's `dispatched` result
 records only that macOS accepted the document-open request. It is not import
 proof. A job becomes `verified` only after the Final Cut Apple Events catalog
-reports the exact library path and its unique project and sequence, and live
-state is read again to record the active project before and after delivery.
+reports the exact library path and its unique project and sequence, that same
+native target is active during canonical export, the exported timeline matches
+the approved artifact, and source-media digests remain unchanged.
 
 Preparation is non-mutating and never opens Final Cut. Execution requires
 explicit `confirm: true`. A job enters `verified` only when catalog readback
-returns the exact project and sequence IDs in the requested library and live
-state has been read after delivery. The active project may remain unchanged or
-may reflect Final Cut's resulting active state; both values are reported.
-A missing or mismatched target library fails closed; the job never silently
-falls back to Accessibility.
+returns the exact project and sequence IDs in the requested library, live state
+confirms that exact target is active around the headed XML export, semantic
+comparison passes, and source-media hashes match their pre-import values. The
+active project before and after delivery is reported. Missing media, an
+inactive or mismatched target, or different timeline semantics fail closed;
+the job never silently falls back to Accessibility.
 `sourceTarget`, `createdTarget`, and the structured `delivery` side-effect
 record remain separate objects in the result.
 
@@ -67,9 +74,9 @@ record remain separate objects in the result.
 | State | Meaning | Next action |
 | --- | --- | --- |
 | `awaiting-confirmation` | The artifact and digest are valid; no editor action occurred. | Confirm the job. |
-| `awaiting-final-cut` | Headed publishing or live verification is unavailable before import. | Retry when Final Cut and its provider are ready. |
-| `verification-pending` | Import may have started, but created-target readback is not complete. | Retry verification only; never import again. |
-| `verified` | Created project and sequence identity were observed in the native library catalog. | None. |
+| `awaiting-final-cut` | Headed publishing, source media, or live verification is unavailable before import. | Retry when Final Cut and its provider are ready. |
+| `verification-pending` | Import may have started, but native semantic readback or source-media integrity is not complete. | Retry verification only; never import again. |
+| `verified` | Native target identity and timeline semantics match the approved FCPXML, and source-media hashes are unchanged. | None. |
 | `failed` | Source validation, target binding, or another non-retryable safety condition failed. | None. |
 
 `awaiting-final-cut` and `verification-pending` are bounded, process-local
@@ -90,10 +97,11 @@ created target until verification succeeds.
   Cut.
 
 The existing `artifact.publish` tool remains an explicit compatibility path for
-managed artifacts. Its confirmation, artifact target, digest, and live readback
-guards remain in force with the same new library path. The headed publisher E2E
-is still the opt-in proof for actual Final Cut project creation; deterministic
-job tests prove only the state-machine and safety contract.
+managed artifacts. Its confirmation, artifact target, digest, native semantic
+readback, and source-media integrity guards remain in force with the same new
+library path. The headed publisher E2E is still the opt-in proof for actual
+Final Cut project creation; deterministic job tests prove only the state-machine
+and safety contract.
 
 The `timeline.publish.new-project` compatibility alias also requires literal
 `confirm: true`, an explicit new library path, and passes through the same
@@ -104,8 +112,9 @@ read the native library catalog and live project state.
 ## Safety boundaries
 
 The job flow never chooses or overwrites an existing library path. If the live
-provider or target-binding reader is not configured before import, the executor
-is not called. If readback is unavailable after import begins, the job remains
+provider, target-binding reader, canonical snapshot reader, or any referenced
+local source media is unavailable before import, the executor is not called. If
+native semantic readback is unavailable after import begins, the job remains
 unverified and a retry performs verification only against the same requested
-library path. A source digest change, target mismatch, invalid artifact, or
-missing confirmation fails closed.
+library path. A source digest change, target mismatch, timeline mismatch,
+invalid artifact, or missing confirmation fails closed.
