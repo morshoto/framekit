@@ -507,14 +507,16 @@ focus tool changes application focus only; it does not select a project or
 mutate timeline content, and it never clicks the Framekit close button.
 
 `artifact.publish` is reported separately from `timelineWrite`. The job-based
-`artifact.publish.preview` accepts either a verified artifact transaction or
-an approved headless rough-cut execution, bound to the matching `artifactPath`,
-and a new absolute `.fcpbundle` `targetLibraryPath`. `artifact.publish.execute`
-requires `confirm: true`. The staged FCPXML names that library location; the
+`artifact.publish.preview` accepts either a verified artifact transaction or a
+durable, approved headless rough-cut execution, bound to the matching
+`artifactPath` and a new absolute `.fcpbundle` `targetLibraryPath`.
+`artifact.publish.execute` requires `confirm: true` before a new Final Cut
+project is imported. The staged FCPXML names that library location; the
 approved artifact is unchanged. A native library catalog provider must read the
-created project and sequence IDs from that exact path. The result identifies
-the source artifact, created target, and active project before/after; it does
-not mean the currently open timeline is directly writable. Missing
+created library, project, and sequence from that exact path. An FCPXML
+destination UID is not native readback. The result identifies the source
+artifact, created target, and active project before/after; it does not mean the
+currently open timeline is directly writable. Missing
 confirmation fails with `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched
 artifact fails with `PUBLISH_TARGET_MISMATCH`.
 
