@@ -68,6 +68,33 @@ function metadataOnlyRuntime(fingerprint = extensionFingerprint): AgentVideoRunt
   return new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
 }
 
+function fcpxmlWithLiveRuntime(): AgentVideoRuntime {
+  const snapshot = new InMemoryEditorAdapter({
+    projectId: "fcpxml-project",
+    projectName: "FCPXML Project",
+    timelineId: "fcpxml-sequence",
+    timelineName: "Main",
+    clips: [],
+  });
+  const live = new FinalCutLiveAdapter({
+    request: async (request) => ({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity: {
+          name: "Final Cut Pro",
+          version: "10.7.1",
+          backend: "workflow-extension-ipc",
+          buildFingerprint: extensionFingerprint,
+        },
+        capabilities: bridgeCapabilities,
+      },
+    }),
+  });
+  return new AgentVideoRuntime(new FinalCutSessionAdapter({ snapshot, mutation: snapshot, live }));
+}
+
 class FailingInspectionAdapter extends InMemoryEditorAdapter {
   public override async getIdentity(): Promise<never> {
     throw new Error("CAPABILITY_UNAVAILABLE: runtime inspection unavailable");
@@ -141,6 +168,18 @@ test("connection status and editor inspection share effective preflight", async 
     assert.deepEqual(status.identity.buildFingerprint, extensionFingerprint);
     assert.deepEqual(editor.identity.buildFingerprint, extensionFingerprint);
     assert.equal(status.preflight.buildAlignment?.status, "matched");
+  });
+});
+
+test("FCPXML and live sessions retain the Workflow Extension build fingerprint", async () => {
+  await withClient(fcpxmlWithLiveRuntime(), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+
+    assert.deepEqual(status.identity.buildFingerprint, extensionFingerprint);
+    assert.deepEqual(editor.identity.buildFingerprint, extensionFingerprint);
+    assert.equal(status.preflight.buildAlignment?.status, "matched");
+    assert.equal(editor.preflight.buildAlignment?.status, "matched");
   });
 });
 
