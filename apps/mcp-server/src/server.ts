@@ -1868,6 +1868,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ jobId, confirm }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
+      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    }
     return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm));
   });
 
@@ -1883,7 +1886,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project; requires explicit confirmation.",
     inputSchema: artifactPublishInputSchema,
   }, async ({ artifactPath, transactionId, confirm }) => {
-    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
+      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
       throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
@@ -1902,10 +1908,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("timeline.publish.new-project", {
-    description: "Legacy alias for publishing a verified artifact transaction as a new Final Cut project.",
-    inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    description: "Publish a verified artifact transaction as a new Final Cut project after explicit confirmation.",
+    inputSchema: { transactionId: z.string().min(1), confirm: z.literal(true) },
+  }, async ({ transactionId, confirm }) => {
+    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
+      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact") {
       throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for a managed artifact`);
@@ -1919,7 +1928,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sourceTransactionId: transactionId,
       artifactPath: transaction.target.artifactPath,
       artifactDigest: transaction.artifactDigest,
-      confirm: true,
+      confirm,
     }));
   });
 
@@ -2603,14 +2612,20 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${buildAlignment.message}`);
   }
   const native = options.nativeEditor?.capabilities();
-  const publishingAvailable = Boolean(options.projectPublisher && (
+  const processMode = options.processMode ?? (native ? "headed" : "headless");
+  const configuredPublisher = Boolean(options.projectPublisher && (
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
-  const publishingMode = publishingAvailable
+  const publisherExecutionMode = configuredPublisher
     ? (typeof options.projectPublisher?.executionMode === "function"
       ? options.projectPublisher.executionMode()
       : "headed-only")
     : "unavailable";
+  const publishingAvailable = configuredPublisher && (
+    publisherExecutionMode === "background-capable"
+    || (processMode === "headed" && inspected.capabilities.editor.canonicalTimelineMode !== "metadata-only")
+  );
+  const publishingMode = publishingAvailable ? publisherExecutionMode : "unavailable";
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
   const backgroundExportAvailable = Boolean(options.backgroundRenderer?.isAvailable());
   const capabilities = withCapabilityFamilies({
@@ -2683,7 +2698,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     },
     preflight: {
       ...createCapabilityPreflight(inspected.identity, capabilities, {
-        processMode: options.processMode ?? (native ? "headed" : "headless"),
+        processMode,
         nativeWrite: Boolean(native?.selectionEdit),
       }),
       fingerprint,
@@ -2755,6 +2770,10 @@ async function requireEditingRoute(
   if (route.status !== "editor-selected") {
     throw new Error(`${route.reason.code}: ${route.reason.message}`);
   }
+}
+
+function requiresHeadedPublishingRoute(publisher: FinalCutProjectPublisher): boolean {
+  return publisher.executionMode() !== "background-capable";
 }
 
 async function editingRouteContext(

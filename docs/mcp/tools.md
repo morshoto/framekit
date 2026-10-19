@@ -311,8 +311,10 @@ The three editing surfaces have separate targets and guarantees:
   verification, diff, and undo refer to that live timeline only. It fails closed
   when canonical live-write capability is unavailable or the target changes.
 - `artifact.publish` requires the verified artifact `transactionId`, matching
-  `artifactPath`, and `confirm: true`. It is a create/import operation, not an
-  edit of the active project. The result identifies `sourceTarget`,
+  `artifactPath`, `confirm: true`, and a native target-binding provider that
+  reserves the exact new project/sequence IDs. It is a create/import operation,
+  not an edit of the active project. Without target-binding proof, publishing
+  is unavailable and import does not run. The result identifies `sourceTarget`,
   `createdTarget`, and `activeProject` before/after; it reports
   `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
   guessing.
@@ -324,7 +326,10 @@ The three editing surfaces have separate targets and guarantees:
 
 The target-specific tools are preferred. The older `timeline.edit` and
 `timeline.publish.new-project` names remain registered as compatibility aliases;
-new callers should select the target-specific surface.
+new callers should select the target-specific surface. The publishing alias
+requires both `transactionId` and literal `confirm: true`; it applies the same
+route, artifact-target, digest, and transaction-verification checks as
+`artifact.publish`.
 
 `project.list` and `project.select` use stable IDs supplied by the selected
 backend. The current Workflow Extension exposes only the active project and
@@ -500,7 +505,10 @@ advertise atomic preview, execution, read-after-write, and rollback support.
 
 Rough-cut construction does not create or replace the active Final Cut
 project. After a verified artifact exists, `timeline.publish.new-project` is
-the explicit publishing path for importing it as a new project.
+the explicit publishing path for importing it as a new project and requires
+`confirm: true`. Publishing is unavailable for metadata-only connections or
+publishers without live project/sequence verification and a native
+target-binding provider.
 
 ## Composite editing transactions
 
