@@ -150,6 +150,9 @@ interface PublishJobRuntime {
   importedPath?: string;
   importedDigest?: string;
   delivery?: FinalCutProjectPublishDelivery;
+  reservationPath?: string;
+  reservationId?: string;
+  importAttempted?: boolean;
 }
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
@@ -305,10 +308,16 @@ export class FinalCutProjectPublisher {
       );
       return this.markVerified(job, result);
     } catch (error) {
+      const normalized = publishError(error);
+      if (normalized.code === "PUBLISH_TARGET_LIBRARY_RESERVED") return this.markFailed(job, error);
+      if (!runtime.importAttempted) {
+        await releaseTargetLibraryReservation(runtime);
+        return this.markAwaitingFinalCut(job, normalized.code, normalized.message);
+      }
       job.state = "verification-pending";
       job.nextAction = "retry";
       job.retryable = true;
-      job.error = publishError(error);
+      job.error = normalized;
       return clonePublishJob(job);
     }
   }
@@ -393,12 +402,22 @@ export class FinalCutProjectPublisher {
     try {
       await writeFile(importedPath, importedSource, "utf8");
       await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
+      const reservation = targetLibraryPath ? await reserveTargetLibraryPath(targetLibraryPath) : undefined;
+      if (runtime && reservation) {
+        runtime.reservationPath = reservation.path;
+        runtime.reservationId = reservation.id;
+      }
+      await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
       if (this.documentDelivery) {
+        if (runtime) runtime.importAttempted = true;
         const dispatched = await this.documentDelivery.deliverFcpxml({
           artifactPath: importedPath,
           ...(targetLibraryPath ? { targetLibraryLocation: targetLibraryPath } : {}),
           activates: false,
         });
+        if (runtime && dispatched.status !== "dispatched" && !dispatched.attempted) {
+          runtime.importAttempted = false;
+        }
         if (dispatched.status !== "dispatched" && !this.allowHeadedFallback) {
           const error = dispatched.error ?? {
             code: "FINAL_CUT_DELIVERY_USER_INTERACTION_REQUIRED",
@@ -416,6 +435,7 @@ export class FinalCutProjectPublisher {
             target: dispatched.target,
           };
         } else {
+          if (runtime) runtime.importAttempted = true;
           await this.executor(importXmlScript(importedPath));
           delivery = {
             status: "dispatched",
@@ -427,6 +447,7 @@ export class FinalCutProjectPublisher {
           };
         }
       } else {
+        if (runtime) runtime.importAttempted = true;
         await this.executor(importXmlScript(importedPath));
         delivery = {
           status: "dispatched",
@@ -453,7 +474,7 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
-      return publishResult(
+      const result = publishResult(
         request,
         importedPath,
         importedDigest,
@@ -463,6 +484,13 @@ export class FinalCutProjectPublisher {
         verifiedTarget.targetBinding,
         delivery,
       );
+      if (runtime) await releaseTargetLibraryReservation(runtime);
+      return result;
+    } catch (error) {
+      if (!runtime?.importAttempted) {
+        if (runtime) await releaseTargetLibraryReservation(runtime);
+      }
+      throw error;
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -512,6 +540,7 @@ export class FinalCutProjectPublisher {
         verifiedTarget.targetBinding,
         runtime.delivery,
       );
+      await releaseTargetLibraryReservation(runtime);
       return this.markVerified(job, result);
     } catch (error) {
       job.state = "verification-pending";
@@ -826,6 +855,47 @@ function delay(milliseconds: number): Promise<void> {
 
 function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ path: string; id: string }> {
+  const requestedTarget = resolve(targetLibraryPath);
+  const parent = await realpath(dirname(requestedTarget));
+  const targetName = basename(requestedTarget).normalize("NFC");
+  const reservationKey = join(parent, targetName);
+  const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
+  const reservationPath = join(parent, `.framekit-publish-${hash(normalizedKey)}.lock`);
+  const reservationId = randomUUID();
+  try {
+    await writeFile(reservationPath, JSON.stringify({
+      reservationId,
+      targetLibraryPath: join(parent, basename(requestedTarget)),
+      pid: process.pid,
+      createdAt: new Date().toISOString(),
+    }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+      throw new Error(`PUBLISH_TARGET_LIBRARY_RESERVED: another publisher is creating ${requestedTarget}`);
+    }
+    throw error;
+  }
+  return { path: reservationPath, id: reservationId };
+}
+
+async function releaseTargetLibraryReservation(runtime: PublishJobRuntime): Promise<void> {
+  if (!runtime.reservationPath || !runtime.reservationId) return;
+  const reservationPath = runtime.reservationPath;
+  try {
+    const contents = JSON.parse(await readFile(reservationPath, "utf8")) as { reservationId?: unknown };
+    if (contents.reservationId === runtime.reservationId) {
+      await rm(reservationPath, { force: true });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      throw new Error(`PUBLISH_TARGET_RESERVATION_RELEASE_FAILED: could not release ${reservationPath}`);
+    }
+  }
+  delete runtime.reservationPath;
+  delete runtime.reservationId;
 }
 
 async function validateTargetLibraryPath(path: string | undefined, required: boolean): Promise<string | undefined> {

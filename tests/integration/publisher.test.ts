@@ -304,7 +304,6 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
 test("FCPXML publisher requires exact live identity for a library-bound target", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-identity-"));
   const sourcePath = join(directory, "project.fcpxml");
-  const targetLibraryPath = join(directory, "Bound Library.fcpbundle");
   const source = '<fcpxml version="1.11"><library><event><project name="Bound Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
 
@@ -323,7 +322,8 @@ test("FCPXML publisher requires exact live identity for a library-bound target",
     },
   ];
 
-  for (const invalidState of incompleteOrMismatchedStates) {
+  for (const [index, invalidState] of incompleteOrMismatchedStates.entries()) {
+    const targetLibraryPath = join(directory, `Bound Library ${index}.fcpbundle`);
     await assert.rejects(new FinalCutProjectPublisher({
       enabled: true,
       sourcePath,
@@ -344,6 +344,85 @@ test("FCPXML publisher requires exact live identity for a library-bound target",
       confirm: true,
     }), /FINAL_CUT_PUBLISH_(?:TARGET_MISMATCH|VERIFICATION_FAILED)/);
   }
+});
+
+test("FCPXML publisher reserves a library path across independent publisher instances", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-reservation-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Reserved Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Reserved Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let dispatchStarted!: () => void;
+  let releaseDispatch!: () => void;
+  const dispatchStartedPromise = new Promise<void>((resolve) => { dispatchStarted = resolve; });
+  const dispatchBarrier = new Promise<void>((resolve) => { releaseDispatch = resolve; });
+  let dispatchCount = 0;
+  const beforeState: EditorLiveState = {
+    project: { id: "project-before", name: "Existing" },
+    sequence: { id: "sequence-before", name: "Existing", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+  };
+  const importedState: EditorLiveState = {
+    project: { id: "project-reserved", name: "Reserved Project" },
+    sequence: { id: "sequence-reserved", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    revision: { id: "revision-imported", sequence: 2, timestamp: new Date(1).toISOString() },
+  };
+
+  const makePublisher = (observesImport: boolean) => {
+    let liveStateCalls = 0;
+    return new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath,
+      verificationTimeoutMs: 0,
+      pollIntervalMs: 0,
+      documentDelivery: {
+        deliverFcpxml: async (request) => {
+          dispatchCount += 1;
+          if (dispatchCount === 1) {
+            dispatchStarted();
+            await dispatchBarrier;
+            await mkdir(targetLibraryPath);
+          }
+          return {
+            status: "dispatched",
+            route: "background-document-open",
+            attempted: true,
+            imported: false,
+            requestedActivates: request.activates,
+            activation: "preserved",
+            ui: "none",
+            target: { requestedLibraryLocation: request.targetLibraryLocation, guarantee: "requested-unverified" },
+          };
+        },
+      },
+      targetBinding: async () => ({ projectId: "project-reserved", sequenceId: "sequence-reserved", libraryPath: targetLibraryPath }),
+      liveState: async () => {
+        liveStateCalls += 1;
+        return liveStateCalls === 1 || !observesImport ? beforeState : importedState;
+      },
+    });
+  };
+
+  const firstPublisher = makePublisher(true);
+  const secondPublisher = makePublisher(false);
+  const firstJob = await firstPublisher.preparePublish({ sourceTransactionId: "txn-reservation-first", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath });
+  const secondJob = await secondPublisher.preparePublish({ sourceTransactionId: "txn-reservation-second", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath });
+
+  const firstExecution = firstPublisher.executePublishJob(firstJob.jobId, true);
+  await dispatchStartedPromise;
+  let secondResult;
+  try {
+    secondResult = await secondPublisher.executePublishJob(secondJob.jobId, true);
+  } finally {
+    releaseDispatch();
+  }
+  const firstResult = await firstExecution;
+
+  assert.equal(secondResult.state, "failed");
+  assert.equal(secondResult.retryable, false);
+  assert.equal(secondResult.error?.code, "PUBLISH_TARGET_LIBRARY_RESERVED");
+  assert.equal(firstResult.state, "verified");
+  assert.equal(dispatchCount, 1);
 });
 
 test("FCPXML publisher exposes target selection as an interaction-required boundary", async () => {
