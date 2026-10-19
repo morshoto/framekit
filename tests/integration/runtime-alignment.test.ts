@@ -49,7 +49,7 @@ function textFrom(result: unknown): string {
 }
 
 function metadataOnlyRuntime(
-  fingerprint: { version: string; commit: string } | undefined = extensionFingerprint,
+  fingerprint: { version: string; commit: string } | null = extensionFingerprint,
 ): AgentVideoRuntime {
   const live = new FinalCutLiveAdapter({
     request: async (request) => ({
@@ -212,6 +212,8 @@ test("native handoff readiness requires target binding and a matching extension"
     assert.deepEqual(readiness.targetBinding, { available: true, guarantee: "native-readback" });
     assert.equal(readiness.buildAlignment.status, "matched");
     assert.equal("createdTarget" in readiness, false);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.preflight.nativeHandoffReadiness.status, "ready");
   }, { projectPublisher: handoffPublisher() });
 });
 
@@ -240,10 +242,40 @@ test("native handoff readiness reports a missing target-binding provider", async
   }, { projectPublisher });
 });
 
+test("native handoff readiness reports an unconfigured publisher", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+
+    assert.equal(readiness.status, "blocked");
+    assert.deepEqual(readiness.targetBinding, { available: false, guarantee: "none" });
+    assert.ok(readiness.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_PROVIDER_UNAVAILABLE"));
+  });
+});
+
+test("native handoff readiness does not call native UI providers", async () => {
+  let nativeCalls = 0;
+  const nativeEditor = {
+    capabilities: () => { nativeCalls += 1; return {}; },
+    inspect: async () => { nativeCalls += 1; return { readiness: {} }; },
+  } as unknown as NativeFinalCutEditor;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+    assert.equal(readiness.status, "ready");
+    assert.equal(nativeCalls, 0);
+  }, { nativeEditor, projectPublisher: handoffPublisher() });
+});
+
 test("native handoff readiness reports missing and mismatched extension fingerprints", async () => {
   for (const scenario of [
     {
-      runtime: metadataOnlyRuntime(undefined),
+      runtime: metadataOnlyRuntime(null),
       status: "missing",
       reason: "FRAMEKIT_BUILD_ALIGNMENT_MISSING",
     },
