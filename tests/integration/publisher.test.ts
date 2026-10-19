@@ -159,6 +159,18 @@ test("native FCPXML handoff targets a new library and preserves the approved sou
   assert.equal(result.importedDigest, digest(deliveredXml ?? ""));
   assert.notEqual(result.importedDigest, digest(source));
   assert.equal(result.targetLibraryPath, targetLibraryPath);
+  assert.deepEqual(result.createdTarget, {
+    kind: "editor.project",
+    projectId: "native-project",
+    sequenceId: "native-sequence",
+    libraryId: "native-library",
+    eventId: "native-event",
+    libraryPath: targetLibraryPath,
+    projectName: "Target Project",
+    sequenceName: "Main",
+  });
+  assert.notEqual(result.createdTarget.projectId, "project-target");
+  assert.notEqual(result.createdTarget.sequenceId, "sequence-target");
 });
 
 test("native FCPXML preview rejects an existing library before dispatch", async () => {
