@@ -5,7 +5,7 @@
 ## Validation target
 
 - Milestone: #21, Release for v0.1.18.
-- Current dependency head: PR #528 (issue #521), `c7f2f6bc`.
+- Current dependency head: PR #528 (issue #521), `a292a51f`.
 - The exact v0.1.18 release candidate is not available while the stacked dependency PRs remain open.
 - Candidate headless acceptance ran against PR #526 code head `1b22d097`; it is implementation evidence, not a release-candidate verdict.
 
