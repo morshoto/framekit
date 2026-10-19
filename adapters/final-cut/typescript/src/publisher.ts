@@ -836,12 +836,13 @@ function withLibraryLocationImportOption(source: string, targetLibraryPath: stri
   if (existingMatch) {
     const options = existingMatch[2] ?? "";
     const locationOption = /<option\b(?=[^>]*\bkey=(["'])library location\1)[^>]*(?:\/>|>[\s\S]*?<\/option\s*>)/i;
+    const innerOption = option.slice("<import-options>".length, -"</import-options>".length);
     const updatedOptions = locationOption.test(options)
-      ? options.replace(locationOption, option.slice("<import-options>".length, -"</import-options>".length))
-      : `${option.slice("<import-options>".length, -"</import-options>".length)}${options}`;
-    updatedBody = body.replace(existing, `<import-options${existingMatch[1] ?? ""}>${updatedOptions}</import-options>`);
+      ? options.replace(locationOption, () => innerOption)
+      : `${innerOption}${options}`;
+    updatedBody = body.replace(existing, () => `<import-options${existingMatch[1] ?? ""}>${updatedOptions}</import-options>`);
   } else if (selfClosingMatch) {
-    updatedBody = body.replace(selfClosing, `<import-options${selfClosingMatch[1] ?? ""}>${option.slice("<import-options>".length, -"</import-options>".length)}</import-options>`);
+    updatedBody = body.replace(selfClosing, () => `<import-options${selfClosingMatch[1] ?? ""}>${option.slice("<import-options>".length, -"</import-options>".length)}</import-options>`);
   } else {
     updatedBody = `${option}${body}`;
   }

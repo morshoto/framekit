@@ -95,7 +95,7 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
 test("native FCPXML handoff targets a new library and preserves the approved source", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-target-"));
   const sourcePath = join(directory, "approved.fcpxml");
-  const targetLibraryPath = join(directory, "Native Handoff.fcpbundle");
+  const targetLibraryPath = join(directory, "Native $1 Handoff.fcpbundle");
   const source = '<?xml version="1.0"?><fcpxml version="1.11"><resources/><import-options><option key="library location" value="file:///old.fcpbundle"/><option key="use-source-media" value="1"/></import-options><library><event><project uid="project-target" name="Target Project"><sequence uid="sequence-target" name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
   let deliveredPath: string | undefined;
@@ -151,7 +151,7 @@ test("native FCPXML handoff targets a new library and preserves the approved sou
   assert.ok(deliveredPath);
   assert.notEqual(deliveredPath, sourcePath);
   assert.match(deliveredXml ?? "", /<option key="library location" value="file:\/\//);
-  assert.match(deliveredXml ?? "", /Native%20Handoff\.fcpbundle/);
+  assert.match(deliveredXml ?? "", /Native%20\$1%20Handoff\.fcpbundle/);
   assert.match(deliveredXml ?? "", /<option key="use-source-media" value="1"\/>/);
   assert.equal((deliveredXml?.match(/key="library location"/g) ?? []).length, 1);
   assert.equal(await readFile(sourcePath, "utf8"), source);
