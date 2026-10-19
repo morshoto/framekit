@@ -7,7 +7,7 @@
 - Milestone: #21, Release for v0.1.18.
 - Current dependency head: PR #528 (issue #521), `305acc4bbe2fc6b3161f7a177066d35991a26e6d`.
 - Current source validation head: PR #528, `305acc4bbe2fc6b3161f7a177066d35991a26e6d`; PR #531 adds QA evidence documentation on top of this code.
-- Native publisher support is present in PR #537, commit `026e12a03d852eaf3d6e65d04935348808732918`; it stages the requested new library path and uses the read-only Final Cut library catalog for post-import target binding. This is implementation and deterministic-test evidence, not a real import result.
+- Native publisher support is present in PR #537, current commit `bb015588`; it stages the requested new library path and uses the read-only Final Cut library catalog for post-import target binding. The current head also requires live project/sequence IDs and names to match that binding before reporting success. This is implementation and deterministic-test evidence, not a real import result.
 - The exact v0.1.18 release candidate is not available while the stacked dependency PRs remain open.
 - Candidate headless acceptance ran against PR #526 code head `1b22d097`; it is implementation evidence, not a release-candidate verdict.
 
@@ -21,6 +21,7 @@
 - Native Xcode validation at `851f1fc8`: Xcode 16.4 / macOS SDK 15.5 checks and `xcodebuild -list` passed. The later source change only updates JavaScript digest ordering and its test; native validation was not rerun.
 - The #379 development workflow installed an extension from source head `a3731103`. A local production MCP stdio session at that same head reported `ready`, ran in headless mode, exposed matching runtime and extension fingerprints (`0.1.17`, commit `a3731103`), and reported `buildAlignment.status: matched`. MCP discovery returned 127 tools; read-only `project.list` returned 9 projects. Since then, the integrated source head has advanced through publisher regression coverage and the locale-independent Codex plugin digest implementation and test, alongside QA and release evidence updates. The installed extension has not been rebuilt for `305acc4b`, so exact current-commit alignment remains unverified. No native edit or import tool was called.
 - Final Cut Pro 10.7.1's installed scripting definition exposes read-only library, event, project, and sequence identities. PR #537 uses that catalog for post-import binding; this confirms the supported identity source, not that the approved edit has been imported or read back.
+- At PR #537 commit `bb015588`, the new library-bound publisher regression test passed for missing project/sequence state and mismatched live IDs or names. The publisher no longer reports success from a merely nonempty live-state response. Frozen install, build, all 1,292 tests (1 skipped), package boundaries, Xcode availability, and `xcodebuild -list` passed locally on this source content. This closes the code-level target identity gap; it does not establish native delivery or semantic timeline readback.
 
 ## Not tested
 
