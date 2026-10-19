@@ -239,7 +239,11 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
 
     const publishPreview = payload(await client.callTool({
       name: "artifact.publish.preview",
-      arguments: { artifactPath: fcpxmlPath, headlessExecutionId: executed.executionId },
+      arguments: {
+        artifactPath: fcpxmlPath,
+        headlessExecutionId: executed.executionId,
+        targetLibraryPath: join(directory, "Approved Headless Publish.fcpbundle"),
+      },
     }));
     assert.equal(publishPreview.sourceTransactionId, `headless-rough-cut:${executed.executionId}`);
     assert.equal(publishPreview.sourceProof.planDigest, preview.planDigest);

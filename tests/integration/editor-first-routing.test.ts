@@ -906,7 +906,7 @@ test("MCP keeps publishing unavailable for a metadata-only connection", async ()
 
     const publish = await client.callTool({
       name: "timeline.publish.new-project",
-      arguments: { transactionId: "missing-transaction", confirm: true },
+      arguments: { transactionId: "missing-transaction", targetLibraryPath: "/tmp/Target.fcpbundle", confirm: true },
     });
     assert.equal(publish.isError, true);
     assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
