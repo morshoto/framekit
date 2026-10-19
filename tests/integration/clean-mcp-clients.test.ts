@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { sanitizeCleanMcpEvidence } from "../../scripts/clean-mcp-client-evidence.mjs";
 import {
+  digestCodexPluginDirectory,
   inspectInstalledCodexPlugin,
   isInstalledCodexPluginBoundToCandidate,
 } from "../../scripts/codex-plugin-identity.mjs";
@@ -160,6 +161,29 @@ test("installed Codex plugin identity binds bytes to a clean source commit", asy
     assert.equal(isInstalledCodexPluginBoundToCandidate(identity, "d".repeat(64), commit), false);
     assert.equal(isInstalledCodexPluginBoundToCandidate(identity, identity.sourceContentDigest, "e".repeat(40)), false);
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Codex plugin digest ordering does not depend on locale", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-plugin-digest-order-"));
+  const pluginPath = join(directory, "plugin");
+  const originalLocaleCompare = String.prototype.localeCompare;
+  try {
+    await mkdir(join(pluginPath, "z"), { recursive: true });
+    await mkdir(join(pluginPath, "a"), { recursive: true });
+    await mkdir(join(pluginPath, "é"), { recursive: true });
+    await writeFile(join(pluginPath, "z", "last.txt"), "last");
+    await writeFile(join(pluginPath, "a", "first.txt"), "first");
+    await writeFile(join(pluginPath, "é", "accented.txt"), "accented");
+
+    String.prototype.localeCompare = function localeCompareDisabled() {
+      throw new Error("locale-dependent comparison must not be used");
+    };
+
+    await assert.doesNotReject(() => digestCodexPluginDirectory(pluginPath));
+  } finally {
+    String.prototype.localeCompare = originalLocaleCompare;
     await rm(directory, { recursive: true, force: true });
   }
 });

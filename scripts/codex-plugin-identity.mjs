@@ -66,7 +66,7 @@ export async function digestCodexPluginDirectory(directory) {
   if (entries.length === 0) {
     throw new Error("CODEX_PLUGIN_CONTENT_EMPTY: plugin directory contains no regular files");
   }
-  entries.sort((left, right) => left.path.localeCompare(right.path));
+  entries.sort((left, right) => compareCodeUnits(left.path, right.path));
   return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
 }
 
@@ -91,7 +91,7 @@ export function isCodexPluginIdentitySource(value) {
 
 async function collectPluginFiles(root, directory, entries) {
   const children = await readdir(directory, { withFileTypes: true });
-  children.sort((left, right) => left.name.localeCompare(right.name));
+  children.sort((left, right) => compareCodeUnits(left.name, right.name));
   for (const child of children) {
     const path = join(directory, child.name);
     if (child.isDirectory()) {
@@ -108,6 +108,10 @@ async function collectPluginFiles(root, directory, entries) {
       sha256: createHash("sha256").update(content).digest("hex"),
     });
   }
+}
+
+function compareCodeUnits(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 async function readPluginManifest(directory) {
