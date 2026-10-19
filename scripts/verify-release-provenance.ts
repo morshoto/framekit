@@ -9,6 +9,10 @@ import {
   sanitizeCleanMcpEvidence,
   type CleanMcpEvidence,
 } from "./clean-mcp-client-evidence.mjs";
+import {
+  digestCodexPluginDirectory,
+  isInstalledCodexPluginBoundToCandidate,
+} from "./codex-plugin-identity.mjs";
 import { assessReleaseCandidate } from "./release-candidate-evidence.mjs";
 import {
   assessReleaseProvenance,
@@ -46,6 +50,7 @@ try {
   const npmIdentity = await readNpmIdentity(packageManifest.name ?? "@morshoto/framekit", version);
   const workflowEvidence = await readReleaseWorkflowEvidence(temporaryDirectory);
   const cleanEvidence = sanitizeEvidence(workflowEvidence.evidence);
+  const pluginSourceDigest = await digestCodexPluginDirectory(join(repositoryRoot, "plugins", "framekit"));
   const nativeEvidence = await downloadNativeAssets(temporaryDirectory, version);
   const nativeInfo = await readExtensionIdentity(nativeEvidence.archivePath, temporaryDirectory);
 
@@ -64,8 +69,15 @@ try {
   );
   const plugin = cleanEvidenceMatchesTag ? codex?.registration.plugin : undefined;
   const codexDelivery = cleanEvidenceMatchesTag ? codex?.workflow.delivery : undefined;
+  const pluginContentMatchesCandidate = Boolean(
+    plugin
+    && cleanEvidence?.environment.sourceClean === true
+    && plugin.version === version
+    && isInstalledCodexPluginBoundToCandidate(plugin, pluginSourceDigest, tagSha),
+  );
   const pluginInstalled = Boolean(
     plugin
+    && pluginContentMatchesCandidate
     && codex?.registration.status === "passed"
     && codexDelivery?.processMode === "headless"
     && codexDelivery.headless.status === "passed"
@@ -125,8 +137,17 @@ try {
       },
       codexPlugin: {
         installed: pluginInstalled,
-        ...(plugin ? { version: plugin.version, commit: plugin.commit } : {}),
-        ...(!pluginInstalled ? { reason: cleanEvidenceIssue(cleanEvidenceMatchesTag, workflowEvidence.issue, "Codex plugin install or headless workflow did not pass") } : {}),
+        ...(plugin ? {
+          version: plugin.version,
+          ...(plugin.commit ? { commit: plugin.commit } : {}),
+          ...(plugin.identitySource ? { identitySource: plugin.identitySource } : {}),
+          ...(plugin.contentDigest ? { contentDigest: plugin.contentDigest } : {}),
+          ...(plugin.sourceContentDigest ? { sourceContentDigest: plugin.sourceContentDigest } : {}),
+          ...(plugin.sourceCommit ? { sourceCommit: plugin.sourceCommit } : {}),
+        } : {}),
+        ...(!pluginInstalled ? { reason: cleanEvidenceIssue(cleanEvidenceMatchesTag, workflowEvidence.issue, plugin
+          ? "installed Codex plugin content does not match the exact clean release source"
+          : "Codex plugin install or headless workflow did not pass") } : {}),
       },
       mcpServer: {
         connected: mcpConnected,

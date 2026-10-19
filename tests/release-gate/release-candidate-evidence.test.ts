@@ -11,11 +11,20 @@ const target = {
 };
 
 function evidence(overrides: Partial<ReleaseCandidateInput["artifacts"]> = {}): ReleaseCandidateInput {
+	const pluginDigest = "a".repeat(64);
 	return {
 		target,
 		artifacts: {
 			npmPackage: { available: true, version: target.version, commit: target.commit },
-			codexPlugin: { installed: true, version: target.version, commit: target.commit },
+			codexPlugin: {
+				installed: true,
+				version: target.version,
+				commit: target.commit,
+				sourceCommit: target.commit,
+				identitySource: "installed-content-equals-clean-source",
+				contentDigest: pluginDigest,
+				sourceContentDigest: pluginDigest,
+			},
 			mcpServer: { connected: true, version: target.version, commit: target.commit },
 			nativeExtension: {
 				verified: true,
@@ -37,6 +46,26 @@ test("release candidate is GO only when all installable artifacts match the tagg
 		Object.values(report.artifacts).map((artifact) => artifact.status),
 		["GO", "GO", "GO", "GO"],
 	);
+	assert.equal(report.artifacts.codexPlugin.contentDigest, "a".repeat(64));
+	assert.equal(report.artifacts.codexPlugin.sourceContentDigest, "a".repeat(64));
+});
+
+test("matching plugin commit cannot pass when installed content differs from the source", () => {
+	const report = assessReleaseCandidate(evidence({
+		codexPlugin: {
+			installed: true,
+			version: target.version,
+			commit: target.commit,
+			sourceCommit: target.commit,
+			identitySource: "installed-content-equals-clean-source",
+			contentDigest: "b".repeat(64),
+			sourceContentDigest: "a".repeat(64),
+		},
+	}));
+
+	assert.equal(report.status, "NO_GO");
+	assert.equal(report.artifacts.codexPlugin.status, "NO_GO");
+	assert.match(report.artifacts.codexPlugin.reason ?? "", /not available/);
 });
 
 test("unpublished native assets produce a machine-readable NO_GO blocker", () => {

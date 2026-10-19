@@ -11,8 +11,11 @@ is a historical sample, not evidence for the current release candidate.
 ## What this proves
 
 The validation uses fresh client configuration homes and a temporary package
-installation. It checks Codex plugin installation and then invokes the
-installed stdio MCP server through the MCP client protocol. The workflow checks
+installation. It hashes every regular file in Codex's isolated installed
+plugin directory and compares that digest with the Framekit plugin in the clean
+checkout. It records the checkout commit for the plugin only when those bytes
+match. It then invokes the installed stdio MCP server through the MCP client
+protocol. The workflow checks
 connection and editor capability reports, then covers:
 
 1. `headless.project.create` and `headless.project.inspect`;
@@ -104,7 +107,8 @@ sanitized JSON before sharing it.
 
 The runner records selected client versions, Framekit and runtime versions,
 MCP server/protocol versions, the package source, npm version and source commit,
-Codex plugin version and checkout commit, MCP build fingerprint, editor
+Codex plugin version, installed-content digest, source digest, and source-bound
+commit, MCP build fingerprint, editor
 identity, allowlisted capabilities, each required tool result, and sanitized
 limitation messages. Release evidence also carries a machine-readable
 `releaseCandidate` result. It is `GO` only when the npm package, Codex plugin,

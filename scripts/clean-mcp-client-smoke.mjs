@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { inspectInstalledCodexPlugin } from "./codex-plugin-identity.mjs";
 import { sanitizeCleanMcpEvidence } from "./clean-mcp-client-evidence.mjs";
 import { assertMcpServerVersion } from "./mcp-version.mjs";
 import { assessReleaseCandidate } from "./release-candidate-evidence.mjs";
@@ -76,6 +77,8 @@ export async function main() {
         packageStatus,
         installedPackage.source,
         stateDirectory,
+        environment.gitCommit,
+        environment.sourceClean,
       ));
     }
     if (clientSelection === "all" || clientSelection === "claude") {
@@ -146,7 +149,7 @@ function expectedClientNamesForSelection(selection) {
   throw new Error("FRAMEKIT_CLEAN_CLIENT must be all, codex, or claude");
 }
 
-async function runCodexWorkflow(executable, framekitVersion, packageStatus, packageSource, stateDirectory) {
+async function runCodexWorkflow(executable, framekitVersion, packageStatus, packageSource, stateDirectory, sourceCommit, sourceClean) {
   const codexHome = await mkdtemp(join(os.tmpdir(), "framekit-clean-codex-"));
   try {
     const marketplace = await runJson("codex", ["plugin", "marketplace", "add", root, "--json"], {
@@ -158,6 +161,14 @@ async function runCodexWorkflow(executable, framekitVersion, packageStatus, pack
     });
     if (installed.pluginId !== "framekit@framekit") throw new Error("Codex did not install the Framekit plugin");
     if (installed.version !== framekitVersion) throw new Error("Codex plugin version does not match the installed MCP package");
+    const pluginIdentity = await inspectInstalledCodexPlugin({
+      installedPath: installed.installedPath,
+      sourcePath: join(root, "plugins", "framekit"),
+      codexHome,
+      version: installed.version,
+      sourceCommit,
+      sourceClean,
+    });
     const servers = await runJson("codex", ["mcp", "list", "--json"], { CODEX_HOME: codexHome });
     const server = servers.find((candidate) => candidate.name === "framekit");
     if (!server?.enabled) throw new Error("Codex did not expose an enabled Framekit MCP server");
@@ -178,7 +189,7 @@ async function runCodexWorkflow(executable, framekitVersion, packageStatus, pack
         status: "passed",
         command: "codex plugin marketplace add <release-checkout>; codex plugin add framekit@framekit",
         publicPackage: packageStatus,
-        plugin: { version: installed.version },
+        plugin: pluginIdentity,
         packageSource,
       },
     };

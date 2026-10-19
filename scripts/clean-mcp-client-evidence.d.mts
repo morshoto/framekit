@@ -18,7 +18,17 @@ export interface CleanMcpEvidence {
         commit?: string;
         reason?: string;
       };
-      plugin?: { version: string; commit?: string };
+      plugin?: {
+        version: string;
+        commit?: string;
+        identitySource?:
+          | "installed-content-equals-clean-source"
+          | "installed-content-equals-dirty-source"
+          | "installed-content-differs-from-source";
+        contentDigest?: string;
+        sourceContentDigest?: string;
+        sourceCommit?: string;
+      };
       packageSource?: "published-package" | "packed-source";
     };
     server: {
@@ -45,7 +55,19 @@ export interface CleanMcpEvidence {
     evidenceType: "framekit-release-candidate";
     target: { version: string; commit: string; sourceClean: boolean };
     status: "GO" | "NO_GO";
-    artifacts: Record<string, { status: "GO" | "NO_GO"; version?: string; commit?: string; reason?: string }>;
+    artifacts: Record<string, {
+      status: "GO" | "NO_GO";
+      version?: string;
+      commit?: string;
+      reason?: string;
+      identitySource?:
+        | "installed-content-equals-clean-source"
+        | "installed-content-equals-dirty-source"
+        | "installed-content-differs-from-source";
+      contentDigest?: string;
+      sourceContentDigest?: string;
+      sourceCommit?: string;
+    }>;
   };
   sanitization: { strategy: string; omitted: string[] };
 }

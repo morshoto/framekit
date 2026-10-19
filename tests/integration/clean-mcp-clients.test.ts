@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { sanitizeCleanMcpEvidence } from "../../scripts/clean-mcp-client-evidence.mjs";
+import {
+  inspectInstalledCodexPlugin,
+  isInstalledCodexPluginBoundToCandidate,
+} from "../../scripts/codex-plugin-identity.mjs";
 import { assertMcpServerVersion } from "../../scripts/mcp-version.mjs";
 import { assessReleaseCandidate } from "../../scripts/release-candidate-evidence.mjs";
 
@@ -34,6 +39,7 @@ test("clean MCP client runner covers the required setup and workflow", async () 
     "@modelcontextprotocol/sdk",
     "initialize",
     "assertMcpServerVersion",
+    "inspectInstalledCodexPlugin",
     "gitHead",
     "buildFingerprint",
     "releaseCandidate",
@@ -100,11 +106,153 @@ test("clean MCP evidence leaves an unverified plugin commit unknown", () => {
   assert.equal(candidate.artifacts.codexPlugin.status, "NO_GO");
 });
 
+test("clean MCP evidence rejects a plugin commit detached from installed content", () => {
+  const raw = rawEvidence();
+  const commit = raw.environment.gitCommit;
+  Object.assign(raw.clients[0]!.registration, {
+    plugin: {
+      version: "0.1.0",
+      commit,
+      sourceCommit: commit,
+      identitySource: "installed-content-equals-clean-source",
+      contentDigest: "a".repeat(64),
+      sourceContentDigest: "b".repeat(64),
+    },
+  });
+
+  assert.throws(
+    () => sanitizeCleanMcpEvidence(raw),
+    /plugin commit is not bound to matching installed content/,
+  );
+});
+
+test("installed Codex plugin identity binds bytes to a clean source commit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-installed-plugin-"));
+  try {
+    const codexHome = join(directory, "codex-home");
+    const sourcePath = join(directory, "source", "plugins", "framekit");
+    const installedPath = join(codexHome, "plugins", "cache", "framekit", "framekit", "0.1.0");
+    const pluginManifest = JSON.stringify({ name: "framekit", version: "0.1.0" });
+    for (const pluginPath of [sourcePath, installedPath]) {
+      await mkdir(join(pluginPath, ".codex-plugin"), { recursive: true });
+      await mkdir(join(pluginPath, "skills", "framekit"), { recursive: true });
+      await writeFile(join(pluginPath, ".codex-plugin", "plugin.json"), pluginManifest);
+      await writeFile(join(pluginPath, "skills", "framekit", "SKILL.md"), "Installed plugin contract");
+      await writeFile(join(pluginPath, ".mcp.json"), '{"mcpServers":{}}');
+    }
+
+    const commit = "a".repeat(40);
+    const identity = await inspectInstalledCodexPlugin({
+      installedPath,
+      sourcePath,
+      codexHome,
+      version: "0.1.0",
+      sourceCommit: commit,
+      sourceClean: true,
+    });
+
+    assert.equal(identity.commit, commit);
+    assert.equal(identity.sourceCommit, commit);
+    assert.equal(identity.identitySource, "installed-content-equals-clean-source");
+    assert.match(identity.contentDigest, /^[0-9a-f]{64}$/);
+    assert.equal(identity.contentDigest, identity.sourceContentDigest);
+    assert.equal(isInstalledCodexPluginBoundToCandidate(identity, identity.sourceContentDigest, commit), true);
+    assert.equal(isInstalledCodexPluginBoundToCandidate(identity, "d".repeat(64), commit), false);
+    assert.equal(isInstalledCodexPluginBoundToCandidate(identity, identity.sourceContentDigest, "e".repeat(40)), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("installed Codex plugin does not inherit a source commit when bytes or cleanliness differ", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-plugin-mismatch-"));
+  try {
+    const codexHome = join(directory, "codex-home");
+    const sourcePath = join(directory, "source", "plugins", "framekit");
+    const installedPath = join(codexHome, "plugins", "cache", "framekit", "framekit", "0.1.0");
+    for (const pluginPath of [sourcePath, installedPath]) {
+      await mkdir(join(pluginPath, ".codex-plugin"), { recursive: true });
+      await writeFile(join(pluginPath, ".codex-plugin", "plugin.json"), '{"name":"framekit","version":"0.1.0"}');
+    }
+    await writeFile(join(sourcePath, "SKILL.md"), "source skill");
+    await writeFile(join(installedPath, "SKILL.md"), "different installed skill");
+
+    const mismatched = await inspectInstalledCodexPlugin({
+      installedPath,
+      sourcePath,
+      codexHome,
+      version: "0.1.0",
+      sourceCommit: "b".repeat(40),
+      sourceClean: true,
+    });
+    assert.equal(mismatched.commit, undefined);
+    assert.equal(mismatched.identitySource, "installed-content-differs-from-source");
+    assert.notEqual(mismatched.contentDigest, mismatched.sourceContentDigest);
+
+    await writeFile(join(installedPath, "SKILL.md"), "source skill");
+    const dirty = await inspectInstalledCodexPlugin({
+      installedPath,
+      sourcePath,
+      codexHome,
+      version: "0.1.0",
+      sourceCommit: "b".repeat(40),
+      sourceClean: false,
+    });
+    assert.equal(dirty.contentDigest, dirty.sourceContentDigest);
+    assert.equal(dirty.commit, undefined);
+
+    await assert.rejects(inspectInstalledCodexPlugin({
+      installedPath: sourcePath,
+      sourcePath,
+      codexHome,
+      version: "0.1.0",
+      sourceCommit: "b".repeat(40),
+      sourceClean: true,
+    }), /installed plugin path is outside the isolated Codex home/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("clean MCP evidence preserves installed Codex plugin content provenance", () => {
+  const raw = rawEvidence();
+  const commit = raw.environment.gitCommit;
+  const digest = "c".repeat(64);
+  Object.assign(raw.clients[0]!.registration, {
+    plugin: {
+      version: "0.1.0",
+      commit,
+      sourceCommit: commit,
+      identitySource: "installed-content-equals-clean-source",
+      contentDigest: digest,
+      sourceContentDigest: digest,
+    },
+  });
+
+  const evidence = sanitizeCleanMcpEvidence(raw);
+  assert.deepEqual(evidence.clients[0]?.registration.plugin, {
+    version: "0.1.0",
+    commit,
+    sourceCommit: commit,
+    identitySource: "installed-content-equals-clean-source",
+    contentDigest: digest,
+    sourceContentDigest: digest,
+  });
+});
+
 test("clean MCP evidence reports package fingerprints and release artifact GO or NO_GO states", () => {
 	const raw = rawEvidence() as ReturnType<typeof rawEvidence> & { releaseCandidate?: unknown };
 	const candidateCommit = raw.environment.gitCommit;
+	const pluginDigest = "d".repeat(64);
 	Object.assign(raw.clients[0]!.registration, {
-		plugin: { version: "0.1.0", commit: candidateCommit },
+		plugin: {
+			version: "0.1.0",
+			commit: candidateCommit,
+			sourceCommit: candidateCommit,
+			identitySource: "installed-content-equals-clean-source",
+			contentDigest: pluginDigest,
+			sourceContentDigest: pluginDigest,
+		},
 		packageSource: "packed-source",
 		publicPackage: { status: "mismatched", version: "0.1.0", commit: "f".repeat(40), reason: "published npm commit does not match the release candidate" },
 	});
@@ -122,7 +270,15 @@ test("clean MCP evidence reports package fingerprints and release artifact GO or
 		target: { version: "0.1.0", commit: candidateCommit },
 		artifacts: {
 			npmPackage: { available: true, version: "0.1.0", commit: "f".repeat(40) },
-			codexPlugin: { installed: true, version: "0.1.0", commit: candidateCommit },
+			codexPlugin: {
+				installed: true,
+				version: "0.1.0",
+				commit: candidateCommit,
+				sourceCommit: candidateCommit,
+				identitySource: "installed-content-equals-clean-source",
+				contentDigest: pluginDigest,
+				sourceContentDigest: pluginDigest,
+			},
 			mcpServer: { connected: true, version: "0.1.0", commit: candidateCommit },
 			nativeExtension: { verified: false, reason: "signed native assets are not available" },
 		},
@@ -131,6 +287,7 @@ test("clean MCP evidence reports package fingerprints and release artifact GO or
 	const evidence = sanitizeCleanMcpEvidence(raw);
 	assert.equal(evidence.clients[0]?.server.buildFingerprint?.commit, candidateCommit);
 	assert.equal(evidence.clients[0]?.registration.plugin?.commit, candidateCommit);
+	assert.equal(evidence.releaseCandidate?.artifacts.codexPlugin.contentDigest, pluginDigest);
 	assert.equal(evidence.clients[0]?.registration.publicPackage?.status, "mismatched");
 	assert.equal(evidence.clients[0]?.registration.packageSource, "packed-source");
 	assert.equal(evidence.clients[0]?.workflow.delivery?.processMode, "headless");

@@ -103,7 +103,9 @@ and checks npm, plugin, MCP server, and extension fingerprints against the
 exact tag commit from clean source checkouts. It verifies the uploaded archive checksum and embedded
 Workflow Extension version and commit. The machine-readable
 `artifacts/release-provenance/<run-id>/provenance.json` includes per-artifact
-reasons and an overall `GO` or `NO_GO`. The verifier job still records a
+reasons and the installed/source Codex plugin digests, plus an overall `GO` or
+`NO_GO`. The verifier recomputes the source digest from the exact tag checkout
+before accepting the installed plugin binding. The verifier job still records a
 `NO_GO` report when tag validation passed but native packaging failed. A
 locally modified release checkout cannot pass the package preflight or candidate gate.
 

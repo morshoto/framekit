@@ -10,11 +10,21 @@ interface ArtifactIdentity {
 	reason?: string;
 }
 
+interface CodexPluginIdentity extends ArtifactIdentity {
+	identitySource?:
+		| "installed-content-equals-clean-source"
+		| "installed-content-equals-dirty-source"
+		| "installed-content-differs-from-source";
+	contentDigest?: string;
+	sourceContentDigest?: string;
+	sourceCommit?: string;
+}
+
 export interface ReleaseCandidateInput {
 	target: ReleaseCandidateTarget;
 	artifacts: {
 		npmPackage: ArtifactIdentity & { available: boolean };
-		codexPlugin: ArtifactIdentity & { installed: boolean };
+		codexPlugin: CodexPluginIdentity & { installed: boolean };
 		mcpServer: ArtifactIdentity & { connected: boolean };
 		nativeExtension: ArtifactIdentity & {
 			verified: boolean;
@@ -29,6 +39,10 @@ export interface ReleaseCandidateArtifactStatus {
 	version?: string;
 	commit?: string;
 	reason?: string;
+	identitySource?: CodexPluginIdentity["identitySource"];
+	contentDigest?: string;
+	sourceContentDigest?: string;
+	sourceCommit?: string;
 }
 
 export interface ReleaseCandidateReport {

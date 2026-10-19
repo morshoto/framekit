@@ -7,6 +7,12 @@ const requiredTools = [
   ["editing.route", "headless-selected"],
 ];
 
+const pluginIdentitySources = [
+  "installed-content-equals-clean-source",
+  "installed-content-equals-dirty-source",
+  "installed-content-differs-from-source",
+];
+
 const editorCapabilityKeys = [
   "canonicalTimelineMode",
   "projectRead",
@@ -148,12 +154,48 @@ function sanitizeRegistration(registration, clientName) {
     };
   }
   if (registration.plugin) {
-    result.plugin = {
+    const plugin = {
       version: sanitizePublicText(registration.plugin.version, `${clientName} plugin version`),
       ...(registration.plugin.commit
         ? { commit: sanitizeCommit(registration.plugin.commit, `${clientName} plugin commit`) }
         : {}),
     };
+    const identitySource = registration.plugin.identitySource;
+    const contentDigest = registration.plugin.contentDigest
+      ? sanitizeDigest(registration.plugin.contentDigest, `${clientName} installed plugin digest`)
+      : undefined;
+    const sourceContentDigest = registration.plugin.sourceContentDigest
+      ? sanitizeDigest(registration.plugin.sourceContentDigest, `${clientName} source plugin digest`)
+      : undefined;
+    const sourceCommit = registration.plugin.sourceCommit
+      ? sanitizeCommit(registration.plugin.sourceCommit, `${clientName} source plugin commit`)
+      : undefined;
+    if (identitySource !== undefined) {
+      assert(pluginIdentitySources.includes(identitySource), `${clientName} plugin identity source is invalid`);
+      plugin.identitySource = identitySource;
+    }
+    if (contentDigest) plugin.contentDigest = contentDigest;
+    if (sourceContentDigest) plugin.sourceContentDigest = sourceContentDigest;
+    if (sourceCommit) plugin.sourceCommit = sourceCommit;
+    const hasContentIdentity = contentDigest !== undefined
+      || sourceContentDigest !== undefined
+      || sourceCommit !== undefined
+      || identitySource !== undefined;
+    if (hasContentIdentity) {
+      assert(contentDigest && sourceContentDigest && identitySource, `${clientName} plugin content identity is incomplete`);
+      if (identitySource === "installed-content-equals-clean-source") {
+        assert(
+          plugin.commit !== undefined
+          && sourceCommit !== undefined
+          && plugin.commit === sourceCommit
+          && contentDigest === sourceContentDigest,
+          `${clientName} plugin commit is not bound to matching installed content`,
+        );
+      } else {
+        assert(plugin.commit === undefined && sourceCommit === undefined, `${clientName} unverified plugin content cannot claim a commit`);
+      }
+    }
+    result.plugin = plugin;
   }
   if (registration.packageSource) {
     assert(["published-package", "packed-source"].includes(registration.packageSource), `${clientName} package source is invalid`);
@@ -196,7 +238,7 @@ function sanitizeReleaseCandidate(candidate) {
 
 function sanitizeCandidateArtifact(artifact, name) {
   assert(artifact?.status === "GO" || artifact?.status === "NO_GO", `${name} release status is invalid`);
-  return {
+  const result = {
     status: artifact.status,
     ...(artifact.version ? { version: sanitizePublicText(artifact.version, `${name} version`) } : {}),
     ...(artifact.commit ? { commit: sanitizeCommit(artifact.commit, `${name} commit`) } : {}),
@@ -204,6 +246,32 @@ function sanitizeCandidateArtifact(artifact, name) {
       ? { reason: sanitizePublicText(artifact.reason, `${name} release blocker`) }
       : {}),
   };
+  if (name === "codexPlugin") {
+    if (artifact.identitySource !== undefined) {
+      assert(pluginIdentitySources.includes(artifact.identitySource), "Codex plugin identity source is invalid");
+      result.identitySource = artifact.identitySource;
+    }
+    if (artifact.contentDigest !== undefined) {
+      result.contentDigest = sanitizeDigest(artifact.contentDigest, "Codex plugin installed digest");
+    }
+    if (artifact.sourceContentDigest !== undefined) {
+      result.sourceContentDigest = sanitizeDigest(artifact.sourceContentDigest, "Codex plugin source digest");
+    }
+    if (artifact.sourceCommit !== undefined) {
+      result.sourceCommit = sanitizeCommit(artifact.sourceCommit, "Codex plugin source commit");
+    }
+    if (artifact.status === "GO") {
+      assert(
+        result.identitySource === "installed-content-equals-clean-source"
+        && result.contentDigest !== undefined
+        && result.contentDigest === result.sourceContentDigest
+        && result.sourceCommit !== undefined
+        && result.sourceCommit === result.commit,
+        "GO Codex plugin is missing installed-content source binding",
+      );
+    }
+  }
+  return result;
 }
 
 function sanitizeBuildFingerprint(fingerprint, clientName) {
@@ -218,6 +286,12 @@ function sanitizeCommit(value, label) {
   const commit = sanitizePublicText(value, label);
   assert(/^[0-9a-f]{40}$/i.test(commit), `${label} must be a full SHA-1`);
   return commit.toLowerCase();
+}
+
+function sanitizeDigest(value, label) {
+  const digest = sanitizePublicText(value, label);
+  assert(/^[0-9a-f]{64}$/i.test(digest), `${label} must be a SHA-256 digest`);
+  return digest.toLowerCase();
 }
 
 function sanitizeDelivery(delivery, clientName) {
