@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "clean-mcp-client-workflow",
+  "passed": true,
+  "recordedAt": "2026-10-19T14:47:39.272Z",
+  "environment": {
+    "gitCommit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7",
+    "sourceClean": true,
+    "nodeVersion": "v20.11.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "osVersion": "Darwin Kernel Version 25.5.0: Mon Apr 27 20:41:15 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T6041"
+  },
+  "framekit": {
+    "version": "0.1.17"
+  },
+  "runtime": {
+    "version": "0.1.0"
+  },
+  "clients": [
+    {
+      "name": "Codex",
+      "clientVersion": "0.162.1",
+      "registration": {
+        "status": "passed",
+        "command": "codex plugin marketplace add <release-checkout>; codex plugin add framekit@framekit",
+        "publicPackage": {
+          "status": "blocked",
+          "reason": "@morshoto/framekit@0.1.18 is not published"
+        },
+        "plugin": {
+          "version": "0.1.17",
+          "commit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7",
+          "identitySource": "installed-content-equals-clean-source",
+          "contentDigest": "a10eccfdebdb4a7ccbaff685ce3080858df22959cd0234d2963f2e13505fa0c0",
+          "sourceContentDigest": "a10eccfdebdb4a7ccbaff685ce3080858df22959cd0234d2963f2e13505fa0c0",
+          "sourceCommit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7"
+        },
+        "packageSource": "packed-source"
+      },
+      "server": {
+        "version": "0.1.17",
+        "protocolVersion": "2025-11-25",
+        "buildFingerprint": {
+          "version": "0.1.17",
+          "commit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7"
+        }
+      },
+      "editor": {
+        "name": "In-memory Editor",
+        "version": "phase-2-fixture",
+        "backend": "fixture"
+      },
+      "capabilities": {
+        "editor": {
+          "canonicalTimelineMode": "canonical-write",
+          "projectRead": true,
+          "timelineSnapshotRead": true,
+          "timelineWrite": true,
+          "timelineArtifactWrite": false,
+          "readAfterWrite": true,
+          "incrementalChanges": true,
+          "rollback": true,
+          "assetDiscovery": true,
+          "liveStateRead": false,
+          "playheadWrite": false,
+          "frameCapture": true,
+          "projectCatalogRead": true,
+          "projectSelection": true,
+          "compositeTransactions": true,
+          "mediaImport": true,
+          "mediaPlacement": true,
+          "titlePlacement": true
+        },
+        "analyzers": {
+          "speechTranscribe": true,
+          "speechVad": true,
+          "audioLoudness": true,
+          "visualTrack": true
+        }
+      },
+      "workflow": {
+        "status": "passed",
+        "tools": [
+          {
+            "name": "headless.project.create",
+            "status": "passed"
+          },
+          {
+            "name": "headless.project.inspect",
+            "status": "passed"
+          },
+          {
+            "name": "speech.analyze",
+            "status": "passed"
+          },
+          {
+            "name": "headless.edit.preview",
+            "status": "passed"
+          },
+          {
+            "name": "headless.edit.execute",
+            "status": "passed"
+          },
+          {
+            "name": "editing.route",
+            "status": "headless-selected"
+          }
+        ],
+        "limitations": [
+          "CAPABILITY_UNAVAILABLE: native Final Cut import and readback are not exercised by the fixture workflow",
+          "CAPABILITY_UNAVAILABLE: the exact published npm package is unavailable"
+        ],
+        "delivery": {
+          "processMode": "headless",
+          "headless": {
+            "status": "passed",
+            "backend": "fixture",
+            "requiredCapabilities": [
+              "headless.timeline.edit.add-title"
+            ]
+          },
+          "nativeFinalCut": {
+            "status": "blocked",
+            "reason": "the clean MCP workflow uses a fixture editor and does not inspect the installed Workflow Extension"
+          }
+        }
+      }
+    }
+  ],
+  "releaseCandidate": {
+    "schemaVersion": 1,
+    "evidenceType": "framekit-release-candidate",
+    "target": {
+      "version": "0.1.18",
+      "commit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7",
+      "sourceClean": true
+    },
+    "status": "NO_GO",
+    "artifacts": {
+      "npmPackage": {
+        "status": "NO_GO",
+        "reason": "@morshoto/framekit@0.1.18 is not published"
+      },
+      "codexPlugin": {
+        "status": "NO_GO",
+        "version": "0.1.17",
+        "commit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7",
+        "reason": "Codex plugin version does not match target 0.1.18",
+        "identitySource": "installed-content-equals-clean-source",
+        "contentDigest": "a10eccfdebdb4a7ccbaff685ce3080858df22959cd0234d2963f2e13505fa0c0",
+        "sourceContentDigest": "a10eccfdebdb4a7ccbaff685ce3080858df22959cd0234d2963f2e13505fa0c0",
+        "sourceCommit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7"
+      },
+      "mcpServer": {
+        "status": "NO_GO",
+        "version": "0.1.17",
+        "commit": "83d565c63190431ae9d8dd31e50f4ae91283b2d7",
+        "reason": "MCP server version does not match target 0.1.18"
+      },
+      "nativeExtension": {
+        "status": "NO_GO",
+        "reason": "signed native release provenance was not supplied"
+      }
+    }
+  },
+  "sanitization": {
+    "strategy": "allowlisted-summary",
+    "omitted": [
+      "private filesystem paths",
+      "raw tool responses",
+      "transaction identifiers",
+      "credentials",
+      "diagnostics"
+    ]
+  }
+}
