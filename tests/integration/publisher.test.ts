@@ -11,6 +11,38 @@ function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+test("publisher readiness requires live verification and a native target-binding provider", () => {
+  const liveState = async (): Promise<EditorLiveState> => {
+    throw new Error("readiness inspection must not query Final Cut");
+  };
+  const targetBinding = async () => ({ projectId: "project-1", sequenceId: "sequence-1" });
+  const ready = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath: "/tmp/source.fcpxml",
+    liveState,
+    targetBinding,
+  });
+  assert.deepEqual(ready.inspectReadiness(), {
+    available: true,
+    targetBindingAvailable: true,
+    reasons: [],
+  });
+
+  const missingBinding = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath: "/tmp/source.fcpxml",
+    liveState,
+  });
+  assert.deepEqual(missingBinding.inspectReadiness(), {
+    available: false,
+    targetBindingAvailable: false,
+    reasons: [{
+      code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+      message: "No native provider can bind the imported artifact to a created target",
+    }],
+  });
+});
+
 test("FCPXML publisher imports a validated artifact as a new project", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-"));
   const artifactDirectory = join(directory, "artifact with spaces");
