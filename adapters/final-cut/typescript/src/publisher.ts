@@ -734,7 +734,9 @@ async function waitForImportedProject(
         if (!latestBinding.libraryPath || normalizeLibraryPath(latestBinding.libraryPath) !== normalizeLibraryPath(targetLibraryPath)) {
           throw new Error(`FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected library ${targetLibraryPath}, observed ${latestBinding.libraryPath ?? "unavailable"}`);
         }
-        if (latest) return { live: latest, targetBinding: latestBinding };
+        if (latest && isImportedProject(latest, identity, before, latestBinding)) {
+          return { live: latest, targetBinding: latestBinding };
+        }
       } else if (latest && isImportedProject(latest, identity, before, latestBinding)) {
         return { live: latest, targetBinding: latestBinding };
       }
@@ -754,7 +756,6 @@ async function waitForImportedProject(
       `FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected bound target ${latestBinding.projectId}/${latestBinding.sequenceId}, observed ${latest.project.id}/${latest.sequence.id}`,
     );
   }
-  if (latestBinding && targetLibraryPath && latest) return { live: latest, targetBinding: latestBinding };
   throw new Error(
     `FINAL_CUT_PUBLISH_VERIFICATION_FAILED: expected new project ${identity.projectName} / sequence ${identity.sequenceName}, observed ${observedProject} / ${observedSequence}`,
   );

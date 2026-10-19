@@ -5,6 +5,7 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FinalCutProjectPublisher } from "@framekit/final-cut";
+import type { EditorLiveState } from "@framekit/runtime";
 
 function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -298,6 +299,51 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
   assert.equal(result.delivery?.status, "dispatched");
   assert.equal(result.delivery?.requestedActivates, false);
   assert.equal(result.delivery?.activation, "preserved");
+});
+
+test("FCPXML publisher requires exact live identity for a library-bound target", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-identity-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Bound Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Bound Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+
+  const incompleteOrMismatchedStates: EditorLiveState[] = [
+    { revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() } },
+    { project: { id: "project-bound", name: "Bound Project" }, revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() } },
+    {
+      project: { id: "wrong-project", name: "Bound Project" },
+      sequence: { id: "wrong-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() },
+    },
+    {
+      project: { id: "project-bound", name: "Other Project" },
+      sequence: { id: "sequence-bound", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() },
+    },
+  ];
+
+  for (const invalidState of incompleteOrMismatchedStates) {
+    await assert.rejects(new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath,
+      verificationTimeoutMs: 0,
+      pollIntervalMs: 0,
+      executor: async () => "imported",
+      targetBinding: async () => ({
+        projectId: "project-bound",
+        sequenceId: "sequence-bound",
+        libraryPath: targetLibraryPath,
+      }),
+      liveState: async () => invalidState,
+    }).publishNewProject({
+      sourceTransactionId: "txn-library-identity",
+      artifactPath: sourcePath,
+      artifactDigest: digest(source),
+      targetLibraryPath,
+      confirm: true,
+    }), /FINAL_CUT_PUBLISH_(?:TARGET_MISMATCH|VERIFICATION_FAILED)/);
+  }
 });
 
 test("FCPXML publisher exposes target selection as an interaction-required boundary", async () => {
