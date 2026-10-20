@@ -255,6 +255,20 @@ test("native handoff readiness reports an unconfigured publisher", async () => {
   });
 });
 
+test("native handoff readiness blocks an injected publisher without readiness methods", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+
+    assert.equal(readiness.status, "blocked");
+    assert.deepEqual(readiness.targetBinding, { available: false, guarantee: "none" });
+    assert.ok(readiness.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE"));
+    assert.equal("createdTarget" in readiness, false);
+  }, { projectPublisher: {} as FinalCutProjectPublisher });
+});
+
 test("native handoff readiness does not call native UI providers", async () => {
   let nativeCalls = 0;
   const nativeEditor = {
