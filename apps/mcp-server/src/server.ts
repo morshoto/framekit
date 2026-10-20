@@ -2850,7 +2850,7 @@ function inspectProjectPublisherReadiness(
   if (typeof publisher.inspectReadiness === "function") return publisher.inspectReadiness();
 
   // Keep older injected publisher implementations fail-closed but inspectable.
-  const available = typeof publisher.isAvailable !== "function" || publisher.isAvailable();
+  const available = typeof publisher.isAvailable === "function" && publisher.isAvailable();
   return {
     available,
     targetBindingAvailable: available,
