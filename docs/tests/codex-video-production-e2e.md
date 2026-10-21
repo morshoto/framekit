@@ -71,10 +71,15 @@ analysis to satisfy the edit. The plugin should:
    Call `headless.rough-cut.preview`; check the exact B-A-C sequence, `FrameKit
    MVP Test` title, independent music, output paths, and same canonical
    revision in its final timeline, operations, provenance, and plan digest.
+   Supply the reviewed `fcpxml.target.libraryUid` as FCPXML destination
+   metadata; it is not a native library identity or imported-target proof.
 6. Show the plan, output paths, source-audio policy, and preview. Do not execute
    until the user approves this exact edit and its output settings. Then call
    `headless.rough-cut.execute` with the unchanged plan and operations, returned
    digest, and `approved: true`.
+7. Confirm the result reports a verified MP4 and editable FCPXML, an
+   `executionId`, source and canonical revisions, artifact path, and artifact
+   digest. Confirm the MP4 exists and can be probed with `ffprobe`.
 
 The ordered operations should use the registered music `mediaId`, track 1, and
 exact rational coordinates, for example:
@@ -108,15 +113,6 @@ exact rational coordinates, for example:
 ]
 ```
 
-Supply the reviewed `fcpxml.target.libraryUid` in the headless preview as
-FCPXML destination metadata. It is not a native library identity or proof of
-an imported target. For native delivery, choose a separate new absolute
-`.fcpbundle` `targetLibraryPath` whose parent exists and whose destination does
-not. Ask the user for missing destination details.
-   Confirm the result reports a verified MP4 and editable FCPXML, an
-   `executionId`, source and canonical revisions, artifact path, and artifact
-   digest. Confirm the MP4 exists and can be probed with `ffprobe`.
-
 The headless leg must not invoke `artifact.publish.execute`, native Final Cut
 tools, or UI automation. The result is a verified local video and an editable
 FCPXML artifact; it is not a Final Cut import.
@@ -129,6 +125,9 @@ server with `FRAMEKIT_EDITOR=final-cut-live`,
 `FRAMEKIT_FINAL_CUT_HEADLESS=0`, `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, the exact
 `FRAMEKIT_FCPXML_PATH`, and the intended new `targetLibraryPath` for the
 publish preview. The library path is a tool argument, not a server setting.
+Choose a separate new absolute `.fcpbundle` path whose parent exists and whose
+destination does not; ask the user for missing destination details.
+
 Keep the headless server and its verified output available. Do not switch
 servers or initiate an import unless the user asks for native delivery.
 
