@@ -57,9 +57,10 @@ Framekit server, a ready Final Cut session, and `artifactPublish` capability.
 Follow the native setup in the runbook. If readiness or capability is missing,
 report the specific blocker and keep the verified local artifacts available.
 
-Call `artifact.publish.preview` with the exact FCPXML path and headless
-`executionId`. Show the user its source proof, artifact digest, target
-project/sequence, and library. Require explicit user authorization for that
+Call `artifact.publish.preview` with the exact FCPXML `artifactPath`,
+`headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`
+whose parent directory exists. Show the user its source proof, artifact digest,
+target project/sequence, and new library path. Require explicit user authorization for that
 import before calling `artifact.publish.execute` with the returned `jobId` and
 `confirm: true`. Verify the same job with `artifact.publish.status`.
 
