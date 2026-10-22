@@ -2,6 +2,21 @@
 
 **Result: headless production acceptance passed; native Final Cut handoff remains blocked.**
 
+## Fresh follow-up run (2026-10-22)
+
+After a separate approval for the exact preview digest below, Codex executed a new synthetic-fixture workflow through the production MCP. This is a fresh headless run; it does not restore or reuse the October 12 inputs recorded later in this report.
+
+- Tested production MCP/plugin candidate: PR #528 at `aa997d015e9e27da5da7971326b8a9d7a6356e8c`. The plugin runbook needed a temporary local link for this candidate; the subsequent #526 change packages that runbook, but this execution did not validate that packaging fix.
+- Synthetic input SHA-256: A `1d4d7001506d1972db2ca52dbdb30a1a98d9f11806cc07e1e4206774c54b0731`; B `3c6d84797a2a54f836f6abe379dbb4db05d8743a2f27e26470f8d0ae5980926`; C `d64e27801ec631596ef746030e439240bb3e339ff6154a7addac510c0999931d`; music WAV `b46293d3cfa362b9820cbd43bf4d92bbe8ac4fcb4c93026798ae363e8e6a9e33`.
+- Production speech analysis used local MLX Whisper and WebRTC VAD and returned source-bound evidence. VAD intervals were A 9.84–24.00s, B 4.89–14.91s, and C 1.92–13.98s. The transcript contained recognition errors; no transcript-accuracy claim is made.
+- Approved plan digest: `d080981353b8c0606cfdb717b5c60259787dfd5f8f8a19664e38c4a03dad5328`. The approved cuts were B 5–13s at timeline 0–8s, A 10–22s at 8–20s, and C 2–12s at 20–30s; editable title `FrameKit MVP Test` at 0–6s; music at 0–30s at −12 dB with source audio preserved and mixed.
+- Execution `rough-cut-017f9bd1-e27a-420e-9c4c-46cd040501d2` committed revision `ir:d3fa1903e949f3930f02802dfc052d0d7a8e7c78fe6c78609320fdef4633218b`.
+- MP4 `highlight.mp4`: SHA-256 `52ec1e9e2e4f240e65eb5743f76e3f6216ebdc0ab9b558bad9bbe9322b124dc3`; 30 seconds, 1280×720, 24 fps, H.264, AAC 48 kHz mono.
+- FCPXML `highlight.fcpxml`: SHA-256 `702033016c975869c452c71a11cdea568a3e83703064a0022092ff4073929766`. The XML parsed successfully and retained the B→A→C order, source ranges, editable title, and music gain. A contact sheet showed the three synthetic source colors in order and the title in the opening shot.
+- Both outputs were written outside the repository. No Final Cut import or artifact-publish execute call was made.
+
+This follow-up verifies the production headless path with new synthetic fixtures. It does not establish original-media provenance, subjective audio/video quality, native project creation, or native readback. The October 12 preview approval remains bound to its original digest and does not apply to these new inputs.
+
 ## Candidate and fixture
 
 - Run date: 2026-10-12.
