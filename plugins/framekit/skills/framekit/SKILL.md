@@ -7,7 +7,7 @@ description: Produce reviewable videos from local media through Framekit, or ins
 
 Use this skill for a video or rough-cut request using local media, or when the
 user asks to inspect or work with Final Cut Pro through Framekit MCP. For the
-repeatable production run, follow the [Codex video production runbook](../../../../docs/tests/codex-video-production-e2e.md).
+repeatable production run, follow the [Codex video production runbook](../../references/tests/codex-video-production-e2e.md).
 
 ## Headless video production
 
