@@ -2,6 +2,9 @@
   "schemaVersion": 1,
   "evidenceType": "native-read-only-preflight",
   "observedOn": "2026-10-19",
+  "observedOnTimeZone": "UTC",
+  "observationTimePrecision": "calendar-day",
+  "observationTimeNote": "The exact snapshot check time was not retained. The snapshot identifier records its creation date, not the time it was checked.",
   "validationCheckout": {
     "branch": "chore/517-qa-readiness",
     "commit": "6c66de0f92f5c259edc3d7d32fe400f236a84ce8"
