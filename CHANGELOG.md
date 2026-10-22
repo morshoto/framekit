@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-22
+
+### New Features
+- chore: add local checkout validation workflow by @morshoto in https://github.com/morshoto/framekit/pull/522
+- feat: guard new-project publishing by @morshoto in https://github.com/morshoto/framekit/pull/523
+### Documentation
+- chore: align GitHub release notes by @morshoto in https://github.com/morshoto/framekit/pull/530
+### Chores
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/524
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/534
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/536
+- chore(deps): update pnpm to v12.14.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/535
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/540
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/533
+### Other changes
+- chore: sync linked issue milestones by @morshoto in https://github.com/morshoto/framekit/pull/529
+
 ## [v0.1.17](https://github.com/morshoto/framekit/compare/v0.1.16...v0.1.17) - 2026-10-11
 
 ### Feature changes
