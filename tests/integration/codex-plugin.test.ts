@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +69,31 @@ test("Framekit plugin guidance preserves live capability and safety boundaries",
   }
   assert.match(skill, /headed native-write setup/i);
   assert.match(skill, /not prerequisites?\s+for headless read-only access/i);
+});
+
+test("Framekit Skill links to an installable production runbook", async () => {
+  const pluginRoot = resolve(repository, "plugins/framekit");
+  const skillPath = resolve(pluginRoot, "skills/framekit/SKILL.md");
+  const skill = await readFile(skillPath, "utf8");
+  const runbookLink = skill.match(/\[Codex video production runbook\]\(([^)]+)\)/);
+  assert.ok(runbookLink, "the Skill must link to its production runbook");
+
+  const runbookPath = resolve(dirname(skillPath), runbookLink[1]!);
+  const runbookFromPlugin = relative(pluginRoot, runbookPath);
+  assert.ok(
+    runbookFromPlugin && runbookFromPlugin !== ".." && !runbookFromPlugin.startsWith(`..${sep}`),
+    "the production runbook must ship inside the installed plugin",
+  );
+
+  const packagedRunbook = await readFile(runbookPath, "utf8");
+  const repositoryRunbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
+  assert.equal(
+    packagedRunbook,
+    repositoryRunbook
+      .replaceAll("../speech-analysis.md", "https://github.com/morshoto/framekit/blob/main/docs/speech-analysis.md")
+      .replaceAll("../final-cut/installation.md", "https://github.com/morshoto/framekit/blob/main/docs/final-cut/installation.md"),
+    "the installed runbook must stay aligned with its repository source",
+  );
 });
 
 test("Framekit plugin exposes a headless video workflow and separately authorized native delivery", async () => {
