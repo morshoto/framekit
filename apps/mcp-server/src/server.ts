@@ -30,6 +30,8 @@ import {
   serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
   type DisposableNativeEditWorkflow,
+  type FinalCutProjectPublishJobState,
+  type FinalCutProjectPublishReadiness,
   type FinalCutProjectPublisher,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
@@ -943,6 +945,25 @@ export interface McpConnectionStatus {
 export interface McpCapabilityPreflight extends CapabilityPreflight {
   fingerprint: FramekitBuildFingerprint;
   buildAlignment: BuildAlignmentReport;
+  nativeHandoffReadiness: NativeHandoffReadiness;
+}
+
+export interface NativeHandoffReadiness {
+  status: "ready" | "blocked" | "verified";
+  reasons: Array<{ code: string; message: string }>;
+  targetBinding: { available: boolean; guarantee: "native-readback" | "none" };
+  buildAlignment: BuildAlignmentReport;
+  publish?: { jobId: string; state: FinalCutProjectPublishJobState };
+  createdTarget?: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+    libraryPath?: string;
+    projectName: string;
+    sequenceName?: string;
+  };
 }
 
 export interface McpServerOptions {
@@ -1160,6 +1181,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
   }, async () => jsonResult(await effectiveConnectionStatus(runtime, options)));
+
+  server.registerTool("editor.native.handoff.readiness", {
+    description: "Read native Final Cut handoff readiness without launching, activating, importing, or mutating Final Cut.",
+    inputSchema: { publishJobId: z.string().trim().min(1).optional() },
+  }, async ({ publishJobId }) => jsonResult(
+    await inspectNativeHandoffReadiness(runtime, options, publishJobId),
+  ));
 
   server.registerTool("skill.list", {
     description: "List registered versioned Framekit Skills with current capability availability.",
@@ -2744,8 +2772,124 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       }),
       fingerprint,
       buildAlignment,
+      nativeHandoffReadiness: createNativeHandoffReadiness(options.projectPublisher, buildAlignment),
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
+  };
+}
+
+async function inspectNativeHandoffReadiness(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+  publishJobId?: string,
+): Promise<NativeHandoffReadiness> {
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  let extensionFingerprint: FramekitBuildFingerprint | undefined;
+  try {
+    extensionFingerprint = (await runtime.inspectEditor()).identity.buildFingerprint;
+  } catch {
+    const status = await connectionStatus(options).catch(() => undefined);
+    extensionFingerprint = status?.identity?.buildFingerprint;
+  }
+  const buildAlignment = assessBuildAlignment(
+    fingerprint,
+    extensionFingerprint,
+    options.validationCommit,
+  );
+  return createNativeHandoffReadiness(options.projectPublisher, buildAlignment, publishJobId);
+}
+
+function createNativeHandoffReadiness(
+  publisher: FinalCutProjectPublisher | undefined,
+  buildAlignment: BuildAlignmentReport,
+  publishJobId?: string,
+): NativeHandoffReadiness {
+  const publisherReadiness = inspectProjectPublisherReadiness(publisher);
+  const reasons = [...publisherReadiness.reasons];
+  if (buildAlignment.status !== "matched") {
+    reasons.push({
+      code: buildAlignment.status === "mismatched"
+        ? "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH"
+        : "FRAMEKIT_BUILD_ALIGNMENT_MISSING",
+      message: `Workflow Extension build alignment is ${buildAlignment.status}: ${buildAlignment.message}`,
+    });
+  }
+
+  let publish: NativeHandoffReadiness["publish"];
+  let verifiedTarget: NativeHandoffReadiness["createdTarget"];
+  if (publishJobId) {
+    if (!publisher || typeof publisher.getPublishJob !== "function") {
+      reasons.push({
+        code: "FINAL_CUT_PUBLISH_JOB_UNAVAILABLE",
+        message: `Publish job ${publishJobId} cannot be inspected because the publisher is unavailable`,
+      });
+    } else {
+      try {
+        const job = publisher.getPublishJob(publishJobId);
+        publish = { jobId: job.jobId, state: job.state };
+        const resultTarget = job.result?.createdTarget;
+        const targetMatches = job.createdTarget
+          && resultTarget
+          && job.createdTarget.projectId === resultTarget.projectId
+          && job.createdTarget.sequenceId === resultTarget.sequenceId;
+        if (job.state === "verified" && job.result?.verified === true && targetMatches) {
+          verifiedTarget = resultTarget;
+        } else {
+          reasons.push({
+            code: "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED",
+            message: job.error?.message
+              ? `Publish job ${job.jobId} is ${job.state}; native project and sequence IDs remain withheld: ${job.error.message}`
+              : `Publish job ${job.jobId} is ${job.state}; native project and sequence IDs are reported only after native readback verifies them`,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reasons.push({
+          code: "FINAL_CUT_PUBLISH_JOB_UNAVAILABLE",
+          message: `Publish job ${publishJobId} could not be inspected: ${message}`,
+        });
+      }
+    }
+  }
+
+  const ready = reasons.length === 0;
+  return {
+    status: ready ? (publishJobId ? "verified" : "ready") : "blocked",
+    reasons,
+    targetBinding: {
+      available: publisherReadiness.targetBindingAvailable,
+      guarantee: publisherReadiness.targetBindingAvailable ? "native-readback" : "none",
+    },
+    buildAlignment,
+    ...(publish ? { publish } : {}),
+    ...(ready && verifiedTarget ? { createdTarget: verifiedTarget } : {}),
+  };
+}
+
+function inspectProjectPublisherReadiness(
+  publisher: FinalCutProjectPublisher | undefined,
+): FinalCutProjectPublishReadiness {
+  if (!publisher) {
+    return {
+      available: false,
+      targetBindingAvailable: false,
+      reasons: [{
+        code: "FINAL_CUT_PUBLISH_PROVIDER_UNAVAILABLE",
+        message: "No Final Cut project publisher is configured",
+      }],
+    };
+  }
+  if (typeof publisher.inspectReadiness === "function") return publisher.inspectReadiness();
+
+  // Keep older injected publisher implementations fail-closed but inspectable.
+  const available = typeof publisher.isAvailable === "function" && publisher.isAvailable();
+  return {
+    available,
+    targetBindingAvailable: available,
+    reasons: available ? [] : [{
+      code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+      message: "Native publisher readiness or target-binding provider is unavailable",
+    }],
   };
 }
 
