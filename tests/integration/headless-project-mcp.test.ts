@@ -355,6 +355,13 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
+    const nativeReadiness = payload(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    }));
+    assert.equal(nativeReadiness.status, "blocked", "Phase B stays blocked without native handoff readiness");
+    assert.ok(nativeReadiness.reasons.length > 0, "the readiness blocker is retained in the #517 acceptance evidence");
+    assert.equal(nativeReadiness.createdTarget, undefined, "FCPXML UIDs are not native target identities");
     assert.equal(executed.render.outcome.render.projectRevision.id, executed.after.timeline.revision.id);
     assert.equal(executed.fcpxml.provenance.revision.id, executed.after.timeline.revision.id);
     assert.equal((await stat(outputPath)).isFile(), true);
