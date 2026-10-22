@@ -5,8 +5,8 @@
 ## Validation target
 
 - Milestone: #21, Release for v0.1.18.
-- Current dependency head: PR #528 (issue #521), `8fc3a6a0f4c9e29251e2e888cba2e3b50714fbe2`; PR #531 remains the evidence-only layer stacked on that candidate.
-- Current parent PR heads: #525 `234b151cdefe21dfdf22588a4362f6de1c5db891`; #526 `d76ea5966d8ccf8e97fecea4fcc1bfa3701beb4a`; #528 `8fc3a6a0f4c9e29251e2e888cba2e3b50714fbe2`; #537 `963fd201fec9892d148e31181fb406d91ab38a6b`; and #539 `76644353690fb767af588dd582c501b3c1f7e8ee`. PR #531 remains draft on #528.
+- Current dependency head: PR #528 (issue #521), `b6550d2c399fa92c7a73669ea3294a56a76e0067`; PR #531 is the evidence-only layer stacked on that candidate.
+- Current parent PR heads: #525 `234b151cdefe21dfdf22588a4362f6de1c5db891`; #526 `2c871dfa72b605fdc7a7ae47e021599e75fc1a22`; #528 `b6550d2c399fa92c7a73669ea3294a56a76e0067`; #537 `963fd201fec9892d148e31181fb406d91ab38a6b`; and #539 `76644353690fb767af588dd582c501b3c1f7e8ee`. PR #531 is ready for review on #528.
 - PR #525's native handoff publisher requires exact live project/sequence identity and preserves the live Workflow Extension fingerprint when an FCPXML snapshot and live session are composed. Stacked PR #526 packages the production Codex video workflow and runbook.
 - Native publisher support is present in PR #537. It stages the requested new library path, binds the imported project through the read-only Final Cut library catalog, and requires live project/sequence IDs and names to match before reporting success. The current head also recovers only abandoned reservations whose process is gone and target library absent, and transfers ambiguous direct publishes into resumable verification jobs. This is implementation and deterministic-test evidence, not a real import result.
 - The v0.1.18 tag, GitHub release, successful tag workflow, npm package, and signed native assets are not available. The current #528 code candidate can be validated pre-tag, but is not a published release candidate.
@@ -47,6 +47,6 @@
 
 - Restore the exact approved FCPXML/media at their recorded paths if they become available. The user does not know a backup location and believes there probably is no backup; local snapshot checks found no copy. Do not regenerate or reuse the approval for different paths or digests. Source validation and native import cannot proceed while those exact files are missing. The latest native preflight is also blocked by the locked console.
 - Obtain separate authorization for the native import into a disposable library, then verify the actual created library/event/project/sequence and edit semantics through readback. The publisher/provider implementation is not native acceptance evidence.
-- Pre-tag code validation passes on current #528 head `b6c435ef`; the exact v0.1.18 tag/package/signed native artifacts remain absent, so the post-tag release checks are still pending.
+- PR #531 was marked ready for review by the repository owner on 2026-10-22 at 12:51:37Z. PR #528 code head `8fc3a6a0` passed local full validation and hosted unit/integration checks. Its later documentation-only refresh to `b6550d2c` passed local build, plugin smoke, and boundaries; hosted checks on that refreshed head are running. The exact v0.1.18 tag/package/signed native artifacts remain absent, so post-tag release checks are pending.
 
-Keep issue #517 open and this PR in draft. The headless production run passed, but this report does not claim QA PASS, native Phase B completion, release readiness, or issue closure.
+Keep issue #517 open. The headless production run passed, but the ready-for-review state does not claim QA PASS, native Phase B completion, release readiness, or issue closure.
