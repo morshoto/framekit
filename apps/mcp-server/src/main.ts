@@ -247,7 +247,9 @@ const projectPublisher = liveMode && fcpxmlPath
       documentDelivery: liveAdapter!,
       allowHeadedFallback: process.env.FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT === "1",
       liveState: () => liveAdapter!.readLiveState(),
-      readCanonicalSnapshot: () => new FinalCutCanonicalSnapshotSource().readSnapshot(),
+      readCanonicalSnapshot: (targetBinding, identity) => new FinalCutCanonicalSnapshotSource({
+        readbackTarget: { ...targetBinding, ...identity },
+      }).readSnapshot(),
       targetBinding: (targetLibraryPath, identity) => {
         if (!targetLibraryPath || !backgroundLibraryProvider) {
           throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: a target library path and Final Cut library catalog are required");

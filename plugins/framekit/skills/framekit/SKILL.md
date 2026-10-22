@@ -7,7 +7,7 @@ description: Produce reviewable videos from local media through Framekit, or ins
 
 Use this skill for a video or rough-cut request using local media, or when the
 user asks to inspect or work with Final Cut Pro through Framekit MCP. For the
-repeatable production run, follow the [Codex video production runbook](../../../../docs/tests/codex-video-production-e2e.md).
+repeatable production run, follow the [Codex video production runbook](../../references/tests/codex-video-production-e2e.md).
 
 ## Headless video production
 
@@ -57,9 +57,10 @@ Framekit server, a ready Final Cut session, and `artifactPublish` capability.
 Follow the native setup in the runbook. If readiness or capability is missing,
 report the specific blocker and keep the verified local artifacts available.
 
-Call `artifact.publish.preview` with the exact FCPXML path and headless
-`executionId`. Show the user its source proof, artifact digest, target
-project/sequence, and library. Require explicit user authorization for that
+Call `artifact.publish.preview` with the exact FCPXML `artifactPath`,
+`headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`
+whose parent directory exists. Show the user its source proof, artifact digest,
+target project/sequence, and new library path. Require explicit user authorization for that
 import before calling `artifact.publish.execute` with the returned `jobId` and
 `confirm: true`. Verify the same job with `artifact.publish.status`.
 
