@@ -329,7 +329,37 @@ export class FinalCutProjectPublisher {
       identity,
       ...(targetLibraryPath ? { targetLibraryPath } : {}),
     };
-    return this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+    try {
+      return await this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+    } catch (error) {
+      if (!runtime.importAttempted) throw error;
+
+      const normalized = publishError(error);
+      const job: FinalCutProjectPublishJob = {
+        jobId: `publish-job-${randomUUID()}`,
+        state: "verification-pending",
+        nextAction: "retry",
+        retryable: true,
+        executionMode: this.documentDelivery ? "background-capable" : "headed-only",
+        sourceTransactionId: request.sourceTransactionId,
+        sourcePath: this.sourcePath,
+        sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
+        artifactDigest: request.artifactDigest,
+        ...(targetLibraryPath ? { targetLibraryPath } : {}),
+        projectName: identity.projectName,
+        sequenceName: identity.sequenceName,
+        confirmationRequired: false,
+        handoff: {
+          mode: this.documentDelivery ? "background-document-open" : "headed-only",
+          backgroundSupported: Boolean(this.documentDelivery),
+          reason: "A direct publish may have reached Final Cut; verify this job before another import so its target reservation remains protected.",
+        },
+        error: normalized,
+      };
+      this.publishJobs.set(job.jobId, job);
+      this.publishJobRuntime.set(job.jobId, runtime);
+      throw new Error(`FINAL_CUT_PUBLISH_VERIFICATION_PENDING: publish job ${job.jobId} retained the target reservation; inspect with artifact.publish.status and resume with artifact.publish.execute (${normalized.message})`);
+    }
   }
 
   private async readValidatedSource(
@@ -830,11 +860,75 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
     }), { encoding: "utf8", flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, requestedTarget);
+      if (recovered) {
+        try {
+          await writeFile(reservationPath, JSON.stringify({
+            reservationId,
+            targetLibraryPath: join(parent, basename(requestedTarget)),
+            pid: process.pid,
+            createdAt: new Date().toISOString(),
+          }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+          return { path: reservationPath, id: reservationId };
+        } catch (retryError) {
+          if ((retryError as NodeJS.ErrnoException)?.code !== "EEXIST") throw retryError;
+        }
+      }
       throw new Error(`PUBLISH_TARGET_LIBRARY_RESERVED: another publisher is creating ${requestedTarget}`);
     }
     throw error;
   }
   return { path: reservationPath, id: reservationId };
+}
+
+async function recoverAbandonedTargetLibraryReservation(reservationPath: string, requestedTarget: string): Promise<boolean> {
+  let reservationStat;
+  let reservationContents: string;
+  try {
+    reservationStat = await lstat(reservationPath);
+    if (!reservationStat.isFile()) return false;
+    reservationContents = await readFile(reservationPath, "utf8");
+  } catch {
+    return false;
+  }
+
+  let reservation: { reservationId?: unknown; targetLibraryPath?: unknown; pid?: unknown };
+  try {
+    reservation = JSON.parse(reservationContents) as typeof reservation;
+  } catch {
+    return false;
+  }
+  if (typeof reservation.reservationId !== "string" || !reservation.reservationId
+    || typeof reservation.targetLibraryPath !== "string"
+    || resolve(reservation.targetLibraryPath) !== requestedTarget
+    || !Number.isSafeInteger(reservation.pid) || (reservation.pid as number) <= 0
+    || processIsRunning(reservation.pid as number)) return false;
+
+  try {
+    await lstat(requestedTarget);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") return false;
+  }
+
+  try {
+    const currentStat = await lstat(reservationPath);
+    const currentContents = await readFile(reservationPath, "utf8");
+    if (currentStat.dev !== reservationStat.dev || currentStat.ino !== reservationStat.ino || currentContents !== reservationContents) return false;
+    await rm(reservationPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code !== "ESRCH";
+  }
 }
 
 async function releaseTargetLibraryReservation(runtime: PublishJobRuntime): Promise<void> {
