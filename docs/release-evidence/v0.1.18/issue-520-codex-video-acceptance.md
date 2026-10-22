@@ -52,7 +52,7 @@ The accepted run is bound to the source hashes above. Re-generating the fixture 
 
 No Final Cut import or artifact-publish execute call was made. Read-only headed preflight reported `artifactPublish=false` and `timelinePublishNewProject=false`: the production publisher has no target-binding provider. The FCPXML destination UIDs are proposed identifiers, not native reservations or verified Final Cut identities. The extension fingerprint was also unavailable, so build alignment and native readback remain unproven.
 
-Keep #520 open and this PR in draft until a real target-binding provider and the separately authorized native acceptance/readback are available. This headless pass is not a native Phase B pass or a release-candidate verdict.
+PR #526 was marked ready for review by the repository owner on 2026-10-22 at 12:51:23Z. Keep #520 open: this review-ready state and the fresh headless pass do not satisfy the separately authorized native acceptance/readback or constitute a release-candidate verdict.
 
 ## Validation
 
