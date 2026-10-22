@@ -607,6 +607,43 @@ test("FCPXML direct publish transfers an ambiguous reservation to a resumable jo
   await assert.rejects(readFile(await reservationPathFor(targetLibraryPath)), { code: "ENOENT" });
 });
 
+test("retained direct publish reports headed verification when document delivery is configured", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-direct-mode-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Pending Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Pending Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  const publisher = createPublisherForTest({
+    enabled: true,
+    sourcePath,
+    documentDelivery: {
+      deliverFcpxml: async () => { throw new Error("native import outcome is uncertain"); },
+    },
+    targetBinding: async () => ({ projectId: "project-pending", sequenceId: "sequence-pending" }),
+    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+  });
+
+  let publishError: Error | undefined;
+  try {
+    await publisher.publishNewProject({
+      sourceTransactionId: "txn-direct-mode",
+      artifactPath: sourcePath,
+      artifactDigest: digest(source),
+      targetLibraryPath,
+      confirm: true,
+    });
+  } catch (error) {
+    publishError = error as Error;
+  }
+  const jobId = publishError?.message.match(/publish job ([\w-]+)/)?.[1];
+  assert.ok(jobId, "direct publish failure should expose its verification job id");
+  const job = publisher.getPublishJob(jobId);
+  assert.equal(job.state, "verification-pending");
+  assert.equal(job.executionMode, "headed-only");
+  assert.equal(job.handoff.mode, "headed-only");
+  assert.equal(job.handoff.backgroundSupported, false);
+});
+
 async function reservationPathFor(targetLibraryPath: string): Promise<string> {
   const requestedTarget = resolve(targetLibraryPath);
   const parent = await realpath(dirname(requestedTarget));
