@@ -128,8 +128,12 @@ publish preview. The library path is a tool argument, not a server setting.
 Choose a separate new absolute `.fcpbundle` path whose parent exists and whose
 destination does not; ask the user for missing destination details.
 
-Keep the headless server and its verified output available. Do not switch
-servers or initiate an import unless the user asks for native delivery.
+Keep the headless server and its verified output available. Set the headed
+server's `FRAMEKIT_STATE_DIR` to the same absolute directory used for the
+headless run. `artifact.publish.preview` loads the approved
+`headlessExecutionId` from that directory; a different directory returns
+`HEADLESS_ROUGH_CUT_EXECUTION_NOT_FOUND`. Do not start the headed handoff or
+initiate an import unless the user asks for native delivery.
 
 In the headed session:
 
