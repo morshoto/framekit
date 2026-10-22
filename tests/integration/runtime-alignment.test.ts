@@ -217,6 +217,29 @@ test("native handoff readiness requires target binding and a matching extension"
   }, { projectPublisher: handoffPublisher() });
 });
 
+test("native handoff readiness remains inspectable with the alignment guard enabled", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const editorResult = await client.callTool({ name: "editor.inspect", arguments: {} });
+    assert.notEqual(editorResult.isError, true);
+    const editor = JSON.parse(textFrom(editorResult));
+    assert.equal(editor.preflight.nativeHandoffReadiness.status, "ready");
+    assert.deepEqual(editor.preflight.nativeHandoffReadiness.reasons, []);
+
+    const readinessResult = await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    });
+    assert.notEqual(readinessResult.isError, true);
+    const readiness = JSON.parse(textFrom(readinessResult));
+    assert.equal(readiness.status, "ready");
+    assert.equal(readiness.buildAlignment.status, "matched");
+  }, {
+    projectPublisher: handoffPublisher(),
+    requireBuildAlignment: true,
+    validationCommit: "test-commit",
+  });
+});
+
 test("native handoff readiness reports a missing target-binding provider", async () => {
   const projectPublisher = {
     inspectReadiness: () => ({
