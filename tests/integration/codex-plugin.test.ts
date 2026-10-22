@@ -89,6 +89,8 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     "headless.rough-cut.execute",
     "artifact.publish.preview",
     "artifact.publish.execute",
+    "headlessExecutionId",
+    "targetLibraryPath",
     "explicit user authorization",
     "CAPABILITY_UNAVAILABLE",
     "codex-video-production-e2e.md",
@@ -101,6 +103,8 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     "FRAMEKIT_SPEECH_ANALYZER",
     "Codex",
     "artifact.publish.status",
+    "headlessExecutionId",
+    "targetLibraryPath",
     "pending",
     "Final Cut",
     "B-A-C",
@@ -115,6 +119,7 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
   ]) {
     assert.ok(runbook.toLowerCase().includes(expected.toLowerCase()), `runbook includes ${expected}`);
   }
+  assert.doesNotMatch(runbook, /FRAMEKIT_FINAL_CUT_LIBRARY_UID/);
 });
 
 test("CI runs the clean Codex plugin installation smoke test", async () => {
