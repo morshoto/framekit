@@ -102,6 +102,7 @@ is a separate, confirmed `artifact.publish` step.
 | --- | --- | --- |
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
+| `editor.native.handoff.readiness` | Read target-binding availability and Workflow Extension build alignment | Read-only; does not launch, activate, import, or mutate Final Cut; reports created IDs only after native readback verifies a publish job |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
 | `editing.route` | Select the default headless SSoT path or an explicitly headed operation path after capability checks | Read-only; fails closed when the selected path is unavailable; external rendering requires explicit `fallback: "external-renderer"` |
 | `headless.project.create` / `headless.project.open` / `headless.project.inspect` | Create or reopen the Framekit-owned canonical project and exact revision | No Final Cut dependency; registered local media is revalidated on reopen |

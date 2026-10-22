@@ -199,6 +199,15 @@ MCP fingerprint with the Workflow Extension's `identity.buildFingerprint` and
 reports `matched`, `missing`, or `mismatched`. Required local validation fails
 with `FRAMEKIT_BUILD_ALIGNMENT_MISMATCH` when the current checkout and
 installed development extension do not agree.
+`preflight.nativeHandoffReadiness` and the read-only
+`editor.native.handoff.readiness` tool combine this report with native
+target-binding provider availability. Their `status` is `ready` only when both
+signals match; `reasons` preserves a specific blocked code and message for each
+missing or mismatched signal. Pass `publishJobId` to inspect a publish job:
+project and sequence IDs are included only when the job is `verified` and its
+native readback result matches the job's created target. The readiness call
+does not launch, activate, import, or mutate Final Cut. It does not authorize a
+native import; Phase B still requires the separate explicit authorization.
 The report repeats the effective `capabilities` families so agents can see the
 backend, guarantee, and unavailable reason for connection, canonical reads and
 writes, composite editing, speech, audio, visual analysis, title placement, PIP,
@@ -527,6 +536,10 @@ user-interaction-required and
 temporarily unavailable. A retry of the latter verifies the existing import
 and does not import the artifact again. Only `verified` includes a
 `createdTarget`.
+Before the native Phase B step, use `editor.native.handoff.readiness` without a
+job ID and retain its result and any blocked reasons. After a publish job, query
+it again with `publishJobId`; only `status: "verified"` with a `createdTarget`
+is evidence that native readback confirmed the created project and sequence.
 
 `videoExport` is reported separately from canonical timeline capabilities. It is
 true only when the live server has enabled the guarded native Final Cut export
