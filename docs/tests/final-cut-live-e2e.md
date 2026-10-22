@@ -239,8 +239,9 @@ transaction, and calls `artifact.publish` with the explicit new library path and
 confirmation. The staged FCPXML uses Final Cut's `library location` import
 option. The bridge reports dispatch; a read-only library catalog must then
 confirm the exact library, project, and sequence identities. The runner also
-records active project state before and after delivery. Paths containing spaces
-are supported.
+requires the bound target to be active for headed `File > Export XML` semantic
+readback and records source-media SHA-256 digests before and after delivery.
+Paths containing spaces are supported.
 
 This runner does not call `editor.native.*`, create a native fixture project, or
 claim that a native timeline edit succeeded. Use the prepared disposable fixture

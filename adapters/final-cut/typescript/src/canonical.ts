@@ -81,6 +81,8 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
   target?: FcpxmlTargetBinding;
+  /** Catalog-bound publish readback. Catalog IDs are not FCPXML UIDs. */
+  readbackTarget?: { projectId: string; sequenceId: string; projectName: string; sequenceName: string };
 }
 
 export type FinalCutCanonicalExportCleanup = "complete" | "incomplete";
@@ -186,6 +188,7 @@ export class FinalCutCanonicalSnapshotSource {
   private readonly exportTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly target?: FcpxmlTargetBinding;
+  private readonly readbackTarget?: FinalCutCanonicalSnapshotSourceOptions["readbackTarget"];
   private readonly stageOnDesktop: boolean;
 
   public constructor(options: FinalCutCanonicalSnapshotSourceOptions = {}) {
@@ -193,6 +196,10 @@ export class FinalCutCanonicalSnapshotSource {
     this.exportTimeoutMs = Math.max(1_000, options.exportTimeoutMs ?? 30_000);
     this.pollIntervalMs = Math.max(10, options.pollIntervalMs ?? 100);
     this.target = options.target;
+    this.readbackTarget = options.readbackTarget;
+    if (this.target && this.readbackTarget) {
+      throw new Error("FINAL_CUT_CANONICAL_TARGET_INVALID: FCPXML UID and catalog readback bindings cannot be combined");
+    }
     this.stageOnDesktop = !options.executor;
   }
 
@@ -211,7 +218,7 @@ export class FinalCutCanonicalSnapshotSource {
           await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
         );
         if (result.status === "export-requested") {
-          return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
+          return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target, this.readbackTarget);
         }
         const error = new FinalCutCanonicalExportError(result);
         if (!error.retryable || error.cleanup !== "complete" || attempt === 2) throw error;
@@ -1729,6 +1736,7 @@ async function readCanonicalExport(
   timeoutMs: number,
   pollIntervalMs: number,
   target?: FcpxmlTargetBinding,
+  readbackTarget?: FinalCutCanonicalSnapshotSourceOptions["readbackTarget"],
 ): Promise<ProjectSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let previousSignature: string | undefined;
@@ -1752,7 +1760,17 @@ async function readCanonicalExport(
 
     if (readablePath && signature && signature === previousSignature) {
       try {
-        return await new FcpxmlDocumentAdapter(readablePath, target).readProject();
+        const snapshot = await new FcpxmlDocumentAdapter(readablePath, target, {
+          allowMissingImmutableIdsForReadback: Boolean(readbackTarget),
+        }).readProject();
+        if (readbackTarget) {
+          if (snapshot.projectName !== readbackTarget.projectName || snapshot.timeline.name !== readbackTarget.sequenceName) {
+            throw new Error("TARGET_MISMATCH: canonical export project and sequence names differ from the catalog-bound created target");
+          }
+          snapshot.projectId = readbackTarget.projectId;
+          snapshot.timeline.id = readbackTarget.sequenceId;
+        }
+        return snapshot;
       } catch (error) {
         lastReadError = error;
         if (error instanceof Error && error.message.includes("TARGET_MISMATCH")) throw error;

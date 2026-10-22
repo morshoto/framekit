@@ -105,6 +105,8 @@ try {
     sourceTarget: { kind: result.sourceTarget.kind, artifactPath: basename(result.sourceTarget.artifactPath) },
     createdTarget: result.createdTarget,
     activeProject: result.activeProject,
+    semanticReadback: result.semanticReadback,
+    sourceMediaIntegrity: result.sourceMediaIntegrity,
     beforeLive: { projectId: beforeLive.project.id, sequenceId: beforeLive.sequence.id },
     afterLive: { projectId: afterLive.project.id, sequenceId: afterLive.sequence.id },
   }, null, 2)}\n`);

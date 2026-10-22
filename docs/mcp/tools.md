@@ -27,12 +27,14 @@ include titles, audio occurrences, and other supported edits in the same
 revision as the planned shots. Set `sourceAudioPolicy: "preserve-and-mix"` to
 make the source-audio behavior explicit: embedded video audio is retained and
 registered audio/music occurrences are mixed with their configured gain. The
-returned `planDigest` binds the plan, operations, audio policy, and render and
-FCPXML output intent. Review the preview's `diff.operations`, final timeline,
-FCPXML coverage, and output intent
-before passing the unchanged plan, operations, and output settings with the
-returned digest and `approved: true` to execute. The transaction renders MP4
-and writes matching editable FCPXML from one proposed revision.
+returned `planDigest` binds the plan, operations, output intent, source and
+predicted committed revisions, resolved FCPXML output path, and compiled
+artifact digest. Review the preview's `diff.operations`, final timeline,
+FCPXML coverage, and output intent before passing the unchanged plan,
+operations, and output settings with the returned digest and `approved: true`
+to execute. The transaction renders MP4 and writes matching editable FCPXML
+from one approved revision. The resulting `executionId` can be passed to
+`artifact.publish.preview` for a separately confirmed native handoff.
 
 ## Explicit headed/editor-first routing
 
@@ -159,7 +161,7 @@ is a separate, confirmed `artifact.publish` step.
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
-| `artifact.publish.preview` | Prepare a verified artifact handoff without opening Final Cut | Requires the verified `artifactPath`, `transactionId`, and new absolute `.fcpbundle` `targetLibraryPath`; returns the exact source and destination |
+| `artifact.publish.preview` | Prepare a verified managed-artifact or approved headless-rough-cut handoff without opening Final Cut | Requires `artifactPath`, exactly one of `transactionId` or `headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`; returns the exact source and destination |
 | `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
 | `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, a new absolute `.fcpbundle` `targetLibraryPath`, `confirm: true`, and native publishing capability; reports the created target and active project before/after |
@@ -317,9 +319,11 @@ The three editing surfaces have separate targets and guarantees:
   operation. The staged FCPXML binds the import to that path; the approved
   source artifact is unchanged. The bridge reports dispatch only. Publishing
   succeeds only after catalog readback binds the exact library, project, and
-  sequence IDs. Without that readback, no successful result is reported. The
-  result identifies `sourceTarget`, `createdTarget`, and active project before
-  and after delivery. Missing confirmation returns
+  sequence IDs, the same native target is active around headed `File > Export
+  XML` readback, the supported timeline semantics match, and source-media
+  digests remain unchanged. Without those checks, no successful result is
+  reported. The result identifies `sourceTarget`, `createdTarget`, semantic
+  readback evidence, and active project before and after delivery. Missing confirmation returns
   `PUBLISH_CONFIRMATION_REQUIRED`; a different artifact returns
   `PUBLISH_TARGET_MISMATCH`.
 - `artifact.publish.preview` records the explicit destination path along with
