@@ -30,6 +30,13 @@ normalizes equivalent fractions only when writing FCPXML, never through a
 floating-point conversion. A local absolute path or `file://` URL is required
 for each referenced resource.
 
+When probed media metadata is available, video formats include dimensions and
+frame duration, and assets include their source duration, stream counts,
+channels, and sample rate. These attributes let Final Cut interpret the media
+before it resolves the referenced local files. The sequence format uses the
+sequence frame duration and the first video resource's dimensions; a native
+import and readback are still required to establish compatibility.
+
 Media resources use `asset` with an `original-media` representation. The spine
 contains media occurrences (`asset-clip`) and `gap` story elements. Basic text
 titles, music, markers, and captions are attached to a containing primary

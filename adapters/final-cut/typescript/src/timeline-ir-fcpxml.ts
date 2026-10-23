@@ -118,11 +118,16 @@ export function compileTimelineIrToFcpxml(
     elementIds.add(element.id);
   }
   const formatId = "format-framekit";
+  const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) => stream.kind === "video") ?? [])[0];
+  const projectDimensions = projectVideo?.width && projectVideo.height
+    ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
+    : "";
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
-    `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}" />`,
+    `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
+    ...resources.flatMap((resource) => renderResourceFormat(resource, resourceIds.get(resource.id)!)),
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
       : []),
@@ -303,12 +308,31 @@ function renderResource(
     throw new Error(`FCPXML_RESOURCE_SOURCE_UNSUPPORTED: resource ${resource.id} has an invalid file URL: ${error instanceof Error ? error.message : String(error)}`);
   }
   const videoAttribute = resource.mediaKind === "video" ? ' hasVideo="1"' : ' hasVideo="0"';
+  const metadata = resource.metadata;
+  const video = metadata?.streams.find((stream) => stream.kind === "video");
+  const audio = metadata?.streams.find((stream) => stream.kind === "audio");
+  const timingAttributes = metadata
+    ? ` start="0s" duration="${formatRational(metadata.durationTime, `resource ${resource.id}.durationTime`)}"`
+    : "";
+  const formatAttribute = video?.width && video.height && video.frameRate
+    ? ` format="format-${id}"`
+    : "";
   const audioAttribute = resource.mediaKind === "audio"
     ? ' hasAudio="1"'
-    : resource.metadata?.streams
-      ? ` hasAudio="${resource.metadata.streams.some((stream) => stream.kind === "audio") ? "1" : "0"}"`
+    : metadata?.streams
+      ? ` hasAudio="${audio ? "1" : "0"}"`
       : "";
-  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}"${videoAttribute}${audioAttribute}><media-rep kind="original-media" src="${xmlEscape(src)}" /></asset>`;
+  const sourceAttributes = `${video ? ' videoSources="1"' : ""}${audio ? ' audioSources="1"' : ""}`;
+  const audioDetails = audio?.channels && audio.sampleRate
+    ? ` audioChannels="${audio.channels}" audioRate="${audio.sampleRate}"`
+    : "";
+  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}"${timingAttributes}${videoAttribute}${formatAttribute}${audioAttribute}${sourceAttributes}${audioDetails}><media-rep kind="original-media" src="${xmlEscape(src)}" /></asset>`;
+}
+
+function renderResourceFormat(resource: TimelineIr["resources"][number], id: string): string[] {
+  const video = resource.metadata?.streams.find((stream) => stream.kind === "video");
+  if (!video?.width || !video.height || !video.frameRate) return [];
+  return [`    <format id="format-${id}" frameDuration="${formatRational({ value: video.frameRate.timescale, timescale: video.frameRate.value }, `resource ${resource.id}.frameRate`)}" width="${video.width}" height="${video.height}" />`];
 }
 
 function renderableElements(timeline: TimelineIr, resourceIds: Map<string, string>): RenderableElement[] {
