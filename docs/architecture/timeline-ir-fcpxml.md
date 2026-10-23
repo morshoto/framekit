@@ -8,31 +8,36 @@ representation.
 ## Contract
 
 The compiler accepts a validated `TimelineIr` and a mandatory
-`TimelineIrToFcpxmlTarget`. The target contains stable Final Cut library,
-event, project, and sequence UIDs. Names are descriptive only and are never
-used as target identity. The current output version is FCPXML `1.11`.
+`TimelineIrToFcpxmlTarget`. The target carries logical library, event, project,
+and sequence identities. FCPXML 1.11 represents the event and project UIDs;
+Final Cut assigns the created library and sequence IDs, which require native
+catalog readback. Names are descriptive only and are never used as target
+identity.
 
 Compilation is deterministic: resources are ordered by logical ID, generated
 resource IDs are stable, duplicate resource names receive deterministic
 suffixes, and the returned artifact includes a SHA-256 digest plus the logical
 resource-to-FCPXML ID map. The result also reports exact/degraded/unsupported
 coverage and a target-bound provenance record containing the canonical revision
-and Timeline IR digest. Versioned project and sequence names include the
-revision identity; stable destination UIDs include both revision identity and
-content digest so repeated content at different canonical revisions remains
-distinct.
+and Timeline IR digest. The versioned project name and UID include the revision
+identity. FCPXML 1.11 has no separate sequence name or UID attributes, so the
+reported sequence display name matches the project name. The logical sequence
+UID remains in the result and provenance for target matching after native
+readback.
 
 Timeline and source coordinates remain exact rational values. The compiler
 normalizes equivalent fractions only when writing FCPXML, never through a
 floating-point conversion. A local absolute path or `file://` URL is required
 for each referenced resource.
 
-The supported generated spine elements are media occurrences (`asset-clip`)
-and `gap` story elements, plus IR markers and captions. Nested occurrences and
-gaps are emitted as connected children using exact parent-relative offsets.
-Unsupported roles, effects, transitions, titles, fades, resource kinds, missing
-media bindings, and invalid target bindings fail closed with a structured
-`FCPXML_*` error instead of being silently dropped.
+Media resources use `asset` with an `original-media` representation. The spine
+contains media occurrences (`asset-clip`) and `gap` story elements. Basic text
+titles, music, markers, and captions are attached to a containing primary
+element using exact offsets; unsupported spans without an anchor fail closed.
+Framekit occurrence IDs are stored in FCPXML metadata where the format permits
+them. Styled titles, effects, transitions, fades, unsupported resource kinds,
+missing media bindings, and invalid target bindings fail closed with a
+structured `FCPXML_*` error instead of being silently dropped.
 
 The output is a new artifact string. It does not overwrite a managed file and
 does not claim that the open Final Cut timeline changed. Session materialization
@@ -47,4 +52,6 @@ background evidence.
 The integration contract checks byte-for-byte determinism, XML escaping, exact
 rational timing, explicit target identity, fail-closed unsupported input,
 provenance/coverage propagation through the materialization job, and read-back
-through `FcpxmlDocumentAdapter`.
+through `FcpxmlDocumentAdapter`. On a Mac with Final Cut installed, it also
+validates representative generated documents against Final Cut's FCPXML 1.11
+DTD. A passing DTD check does not prove a headed import or native readback.
