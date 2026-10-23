@@ -512,6 +512,7 @@ function renderElements(elements: RenderableElement[]): string[] {
               `start="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
               `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
               `value="${xmlEscape(element.name!)}"`,
+              `note="com.framekit.id:${xmlEscape(element.id)}"`,
             ]
             : [
               `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
@@ -529,7 +530,9 @@ function renderElements(elements: RenderableElement[]): string[] {
         lines.push(`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`);
       }
       render(element.id, `${indent}  `);
-      if (element.kind !== "caption") {
+      if (element.kind === "caption") {
+        lines.push(`${indent}  <note>com.framekit.id:${xmlEscape(element.id)}</note>`);
+      } else {
         lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
       }
       lines.push(`${indent}</${element.kind}>`);
