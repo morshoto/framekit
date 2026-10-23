@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chmod, mkdir, readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
@@ -405,8 +406,13 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assertAudioMix(await readAudioWindow(outputPath, 22), 660);
 
     const xml = await readFile(fcpxmlPath, "utf8");
+    const finalCutDtd = "/Applications/Final Cut Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_11.dtd";
+    if (existsSync(finalCutDtd)) {
+      await execFileAsync("xmllint", ["--noout", "--dtdvalid", pathToFileURL(finalCutDtd).href, fcpxmlPath]);
+    }
     assert.match(xml, /<text>FrameKit MVP Test<\/text>/);
-    assert.match(xml, /<asset-clip id="issue-517-music"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
+    assert.match(xml, /<asset-clip [^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
+    assert.match(xml, /<md key="com\.framekit\.id" value="issue-517-music" \/>/);
     assert.match(xml, /<adjust-volume amount="-12dB" \/>/);
     assert.equal((xml.match(/hasAudio="1"/g) ?? []).length, 4);
     assert.match(xml, /issue-517-b|source-b\.mp4/);

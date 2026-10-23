@@ -167,7 +167,7 @@ test("integrates three edits, versioned artifact handoff, manual change, and con
     assert.equal(sequence.spine["asset-clip"]["@_name"], "Reviewed opening");
     assert.equal(sequence.spine["asset-clip"]["@_duration"], "2s");
     assert.equal(sequence.spine["asset-clip"]["@_start"], "2s");
-    assert.equal(sequence.spine.marker["@_value"], "Checkpoint");
+    assert.equal(sequence.spine["asset-clip"].marker["@_value"], "Checkpoint");
 
     const manual = canonicalByProject.get(completed.destination.projectUid) as TimelineIr;
     manual.sequence.occurrences[0].name = "Manual Final Cut edit";

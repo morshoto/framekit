@@ -356,7 +356,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       throw new Error(`TARGET_MISMATCH: exported project UID ${projectUid} does not match live project UID ${this.target.projectUid}`);
     }
     const exportedSequenceUid = sequence ? optionalImmutableUid(sequence) : undefined;
-    if (!exportedSequenceUid && !this.target?.sequenceId && !this.allowMissingImmutableIdsForReadback) {
+    if (!exportedSequenceUid && !projectUid && !this.target?.sequenceId && !this.allowMissingImmutableIdsForReadback) {
       immutableUid(sequence, "SEQUENCE");
     }
     if (this.target && exportedSequenceUid !== undefined && String(exportedSequenceUid) !== this.target.sequenceId) {
@@ -368,6 +368,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         : `fcpxml:readback-project:${hash(`${this.filePath}\0${attribute(project, "name") ?? "Final Cut Project"}`)}`),
       sequenceId: this.target?.sequenceId ?? (exportedSequenceUid
         ? `fcpxml:sequence:${exportedSequenceUid}`
+        : projectUid ? `fcpxml:sequence:${projectUid}`
         : `fcpxml:readback-sequence:${hash(`${this.filePath}\0${attribute(sequence ?? {}, "name") ?? "Final Cut Sequence"}`)}`),
     };
   }
@@ -972,7 +973,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   }
 
   private instanceId(node: XmlNode, kind: string, path: string, timelineId: string): string {
-    const explicit = attribute(node, "id") ?? attribute(node, "uid");
+    const metadata = firstChild(node, "metadata");
+    const framekitId = metadata === undefined ? undefined : storyEntries(metadata)
+      .find(({ kind: childKind, node: child }) => childKind === "md" && attribute(child, "key") === "com.framekit.id")?.node;
+    const explicit = attribute(node, "id") ?? attribute(node, "uid") ?? (framekitId && attribute(framekitId, "value"));
     return String(explicit ?? `${timelineId}:spine:${path}:${kind}`);
   }
 
@@ -1020,7 +1024,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
           duration: rationalSeconds(durationTime),
           startTime,
           durationTime,
-          text: String(attribute(node, "text") ?? attribute(node, "name") ?? ""),
+          text: String(textChildValue(node, "text") ?? attribute(node, "text") ?? attribute(node, "name") ?? ""),
         };
       });
   }
@@ -1183,7 +1187,7 @@ function timelineEntries(spine: XmlNode): TimelineEntry[] {
           ?? "0s",
       );
       const localStart = parentKind === "asset-clip"
-        && (kind === "title" || kind === "asset-clip" && attribute(child, "audioRole") === "music")
+        && (kind === "title" || kind === "caption" || kind === "marker" || kind === "asset-clip" && attribute(child, "audioRole") === "music")
         ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
         : localOffset;
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
