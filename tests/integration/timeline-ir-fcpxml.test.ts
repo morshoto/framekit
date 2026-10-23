@@ -57,6 +57,13 @@ function timeline(): TimelineIr {
       name: "opening.mov",
       mediaKind: "video",
       source: "/media/opening.mov",
+      metadata: {
+        durationTime: { value: "24", timescale: "1" },
+        streams: [
+          { kind: "video", width: 1280, height: 720, frameRate: { value: "24", timescale: "1" } },
+          { kind: "audio", channels: 2, sampleRate: 48000 },
+        ],
+      },
     }],
     revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-14T00:00:00.000Z" },
   };
@@ -99,6 +106,8 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.equal(first.digest, second.digest);
   assert.match(first.xml, /<fcpxml version="1\.11">/);
   assert.match(first.xml, /frameDuration="1001\/24000s"/);
+  assert.match(first.xml, /<format id="format-framekit" frameDuration="1001\/24000s" width="1280" height="720"/);
+  assert.match(first.xml, /<asset[^>]*start="0s" duration="24s"[^>]*hasAudio="1"[^>]*audioSources="1" audioChannels="2" audioRate="48000"/);
   assert.match(first.xml, /offset="1001\/24000s"/);
   assert.match(first.xml, /start="1001\/48000s"/);
   assert.match(first.xml, /value="Review &amp; approve"/);
@@ -254,8 +263,8 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
 
   const artifact = compileTimelineIrToFcpxml(value, { target });
 
-  assert.match(artifact.xml, /<asset[^>]*name="opening\.mov"[^>]*hasVideo="1" hasAudio="1"><media-rep kind="original-media" src="file:\/\/\/media\/opening\.mov" \/><\/asset>/);
-  assert.match(artifact.xml, /<asset[^>]*name="licensed-music\.wav"[^>]*hasVideo="0" hasAudio="1"><media-rep kind="original-media" src="file:\/\/\/media\/licensed-music\.wav" \/><\/asset>/);
+  assert.match(artifact.xml, /<asset[^>]*name="opening\.mov"[^>]*hasVideo="1"[^>]*hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/opening\.mov" \/><\/asset>/);
+  assert.match(artifact.xml, /<asset[^>]*name="licensed-music\.wav"[^>]*hasVideo="0" hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/licensed-music\.wav" \/><\/asset>/);
   assert.match(artifact.xml, /<asset-clip [^>]+audioRole="music">/);
   assert.match(artifact.xml, /<asset-clip [^>]*name="Opening"[^>]*>[\s\S]*?<asset-clip [^>]*offset="5s"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music">/);
   assert.doesNotMatch(artifact.xml, /<spine>\s*<asset-clip [^>]*audioRole="music"/);
