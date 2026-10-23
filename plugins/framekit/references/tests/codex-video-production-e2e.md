@@ -1,7 +1,7 @@
 # Codex video production runbook
 
 This runbook exercises the installed Framekit Codex plugin against the
-production stdio MCP server and a local source file. It keeps headless analysis,
+production stdio MCP server and local media. It keeps headless analysis,
 rendering, and FCPXML creation separate from importing that FCPXML into Final
 Cut Pro.
 
@@ -56,12 +56,13 @@ analysis to satisfy the edit. The plugin should:
 
 1. Call `connection.status`. A non-ready Final Cut connection is reported, but
    does not block the headless project workflow.
-2. Create or open a named Framekit project, register the local source, and
-   retain the returned `projectId`, `mediaId`, `sourceDigest`, and revision.
-3. Call `media.understand` with `projectId` and `mediaId`. Confirm that speech
-   output includes the configured provider version, VAD capability, exact
-   source identity, and project revision. Each other modality is reported as
-   analyzed or unavailable.
+2. Create or open a named Framekit project. Register video sources A, B, and C
+   plus the separate music file, retaining the `projectId`, each returned
+   `mediaId` and `sourceDigest`, and the project revision.
+3. Call `media.understand` with `projectId` and each video source's `mediaId`.
+   Confirm that speech output includes the configured provider version, VAD
+   capability, exact source identity, and project revision for A, B, and C.
+   Report each other modality as analyzed or unavailable.
 4. Call `rough-cut.plan` with the same `projectId` and a transcript query. Check
    that the plan supplies evidence for the requested B, A, and C ranges. Keep
    the returned source identities, digests, VAD evidence, and revision; apply
