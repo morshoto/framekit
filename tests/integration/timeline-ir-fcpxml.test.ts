@@ -40,13 +40,13 @@ function timeline(): TimelineIr {
         durationTime: { value: "1001", timescale: "24000" },
       }],
       markers: [{
-        id: "marker-1",
+        id: "review-42",
         name: "Review & approve",
         startTime: { value: "1001", timescale: "24000" },
         durationTime: { value: "0", timescale: "1" },
       }],
       captions: [{
-        id: "caption-1",
+        id: "subtitle-abc",
         text: "Hello <world>",
         startTime: { value: "2002", timescale: "24000" },
         durationTime: { value: "1001", timescale: "24000" },
@@ -102,7 +102,8 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.match(first.xml, /offset="1001\/24000s"/);
   assert.match(first.xml, /start="1001\/48000s"/);
   assert.match(first.xml, /value="Review &amp; approve"/);
-  assert.match(first.xml, /<caption[^>]*>\s*<text>Hello &lt;world&gt;<\/text>\s*<\/caption>/);
+  assert.match(first.xml, /<marker[^>]*note="com\.framekit\.id:review-42"/);
+  assert.match(first.xml, /<caption[^>]*>\s*<text>Hello &lt;world&gt;<\/text>\s*<note>com\.framekit\.id:subtitle-abc<\/note>\s*<\/caption>/);
   assert.match(first.xml, /<project uid="project-1-framekit-[a-f0-9]{10}" name="Project \(Framekit revision-1-4-[a-f0-9]{10}\)">/);
   assert.match(first.xml, /<sequence format="format-framekit" duration="10s">/);
   assert.equal(first.destination.sequenceName, first.destination.projectName);
@@ -432,7 +433,9 @@ test("round-trips compiled FCPXML through the existing document adapter", async 
     assert.equal(snapshot.timeline.clips[0]?.mediaId, "resource-media-1");
     assert.equal(snapshot.timeline.clips[0]?.gainDb, -3);
     assert.equal(snapshot.timeline.markers[0]?.name, "Review & approve");
+    assert.equal(snapshot.timeline.markers[0]?.id, "review-42");
     assert.equal(snapshot.timeline.captions[0]?.text, "Hello <world>");
+    assert.equal(snapshot.timeline.captions[0]?.id, "subtitle-abc");
     assert.equal(snapshot.timeline.storyElements.some(({ id }) => id === "gap-1"), true);
     assert.equal((await readFile(path, "utf8")).includes("<fcpxml version=\"1.11\">"), true);
   } finally {
