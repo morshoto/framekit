@@ -611,8 +611,13 @@ function validateMediaMetadata(metadata: TimelineIrMediaMetadata, field: string)
     }
     if (stream.codec !== undefined) requireText(stream.codec, `${streamField}.codec`);
     if (stream.kind === "video") {
-      requirePositiveInteger(stream.width, `${streamField}.width`);
-      requirePositiveInteger(stream.height, `${streamField}.height`);
+      if ((stream.width === undefined) !== (stream.height === undefined)) {
+        throw new Error(`TIMELINE_IR_INVALID: ${streamField}.width and height must be provided together`);
+      }
+      if (stream.width !== undefined && stream.height !== undefined) {
+        requirePositiveInteger(stream.width, `${streamField}.width`);
+        requirePositiveInteger(stream.height, `${streamField}.height`);
+      }
       if (!stream.frameRate) throw new Error(`TIMELINE_IR_INVALID: ${streamField}.frameRate is required`);
       validateRational(stream.frameRate, `${streamField}.frameRate`, true);
     } else {

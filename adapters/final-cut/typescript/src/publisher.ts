@@ -97,7 +97,6 @@ export interface FinalCutHeadlessPublishSourceProof {
   targetLibraryUid: string;
   sourceMediaDigests: FinalCutPublishSourceMediaDigest[];
 }
-
 export type FinalCutProjectPublishJobState =
   | "awaiting-confirmation"
   | "awaiting-final-cut"
@@ -1020,6 +1019,7 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   const requestedTarget = resolve(targetLibraryPath);
   const parent = await realpath(dirname(requestedTarget));
   const targetName = basename(requestedTarget).normalize("NFC");
+  const canonicalTarget = join(parent, basename(requestedTarget));
   const reservationKey = join(parent, targetName);
   const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
   const reservationPath = join(parent, `.framekit-publish-${hash(normalizedKey)}.lock`);
@@ -1027,18 +1027,18 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   try {
     await writeFile(reservationPath, JSON.stringify({
       reservationId,
-      targetLibraryPath: join(parent, basename(requestedTarget)),
+      targetLibraryPath: canonicalTarget,
       pid: process.pid,
       createdAt: new Date().toISOString(),
     }), { encoding: "utf8", flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
-      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, requestedTarget);
+      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, canonicalTarget);
       if (recovered) {
         try {
           await writeFile(reservationPath, JSON.stringify({
             reservationId,
-            targetLibraryPath: join(parent, basename(requestedTarget)),
+            targetLibraryPath: canonicalTarget,
             pid: process.pid,
             createdAt: new Date().toISOString(),
           }), { encoding: "utf8", flag: "wx", mode: 0o600 });

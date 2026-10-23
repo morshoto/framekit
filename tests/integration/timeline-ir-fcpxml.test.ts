@@ -147,6 +147,19 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.deepEqual(first.provenance, second.provenance);
 });
 
+test("uses the first video stream with dimensions for the FCPXML sequence format", () => {
+  const value = timeline();
+  value.resources[0]!.metadata!.streams = [
+    { kind: "video", frameRate: { value: "24", timescale: "1" } },
+    { kind: "video", width: 1920, height: 1080, frameRate: { value: "24", timescale: "1" } },
+    { kind: "audio", channels: 2, sampleRate: 48000 },
+  ];
+
+  const artifact = compileTimelineIrToFcpxml(value, { target });
+
+  assert.match(artifact.xml, /<format id="format-framekit" frameDuration="1001\/24000s" width="1920" height="1080"/);
+});
+
 test("compiles an opening Timeline IR title as editable Final Cut text", async () => {
   const value = timeline();
   value.sequence.occurrences = [{
