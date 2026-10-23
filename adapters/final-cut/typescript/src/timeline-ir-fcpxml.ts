@@ -119,7 +119,8 @@ export function compileTimelineIrToFcpxml(
     elementIds.add(element.id);
   }
   const formatId = "format-framekit";
-  const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) => stream.kind === "video") ?? [])[0];
+  const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) =>
+    stream.kind === "video" && stream.width !== undefined && stream.height !== undefined) ?? [])[0];
   const projectDimensions = projectVideo?.width && projectVideo.height
     ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
     : "";

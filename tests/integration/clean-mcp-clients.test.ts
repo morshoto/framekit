@@ -443,6 +443,47 @@ test("checked-in clean MCP evidence keeps a complete historical workflow snapsho
   for (const client of evidence.clients ?? []) assert.equal(client.workflow?.tools?.length, 6);
 });
 
+test("issue 521 pretag evidence records a passing clean workflow and release blockers", async () => {
+  const evidencePath = "docs/release-evidence/v0.1.18/issue-521-clean-mcp-codex-pretag-2026-10-24.json";
+  const evidence = JSON.parse(await readFile(resolve(repository, evidencePath), "utf8")) as {
+    passed?: boolean;
+    environment?: { gitCommit?: string; sourceClean?: boolean };
+    clients?: Array<{
+      name?: string;
+      workflow?: {
+        status?: string;
+        delivery?: { nativeFinalCut?: { status?: string; reason?: string } };
+      };
+    }>;
+    releaseCandidate?: {
+      target?: { version?: string; commit?: string; sourceClean?: boolean };
+      status?: string;
+      artifacts?: Record<string, { status?: string; reason?: string }>;
+    };
+  };
+  const artifacts = evidence.releaseCandidate?.artifacts ?? {};
+
+  assert.equal(evidence.passed, true);
+  assert.equal(evidence.environment?.sourceClean, true);
+  assert.equal(evidence.releaseCandidate?.target?.version, "0.1.18");
+  assert.equal(evidence.releaseCandidate?.target?.commit, evidence.environment?.gitCommit);
+  assert.equal(evidence.releaseCandidate?.target?.sourceClean, true);
+  assert.equal(evidence.releaseCandidate?.status, "NO_GO");
+  assert.deepEqual(evidence.clients?.map((client) => [client.name, client.workflow?.status]), [["Codex", "passed"]]);
+  assert.equal(evidence.clients?.[0]?.workflow?.delivery?.nativeFinalCut?.status, "blocked");
+  assert.deepEqual(
+    Object.values(artifacts).map((artifact) => artifact.status),
+    ["NO_GO", "NO_GO", "NO_GO", "NO_GO"],
+  );
+  assert.match(artifacts.npmPackage?.reason ?? "", /0\.1\.18 is not published/);
+  assert.match(artifacts.codexPlugin?.reason ?? "", /does not match target 0\.1\.18/);
+  assert.match(artifacts.mcpServer?.reason ?? "", /does not match target 0\.1\.18/);
+  assert.match(artifacts.nativeExtension?.reason ?? "", /signed native release provenance was not supplied/);
+
+  const documentation = await readFile(resolve(repository, "docs/tests/clean-mcp-clients.md"), "utf8");
+  assert.match(documentation, new RegExp(escapeRegExp(evidencePath.split("/").at(-1) ?? "")));
+});
+
 test("clean MCP client instructions document both supported registration paths", async () => {
   const documentation = await readFile(resolve(repository, "docs/tests/clean-mcp-clients.md"), "utf8");
   const readme = await readFile(resolve(repository, "docs/tests/README.md"), "utf8");

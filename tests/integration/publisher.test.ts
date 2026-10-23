@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,9 +12,12 @@ function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-test("publisher readiness requires verification, target binding, and canonical readback", () => {
+test("publisher readiness requires live verification, target binding, and canonical readback", () => {
   const liveState = async (): Promise<EditorLiveState> => {
     throw new Error("readiness inspection must not query Final Cut");
+  };
+  const readCanonicalSnapshot = async () => {
+    throw new Error("readiness inspection must not read Final Cut");
   };
   const targetBinding = async () => ({ projectId: "project-1", sequenceId: "sequence-1" });
   const ready = new FinalCutProjectPublisher({
@@ -22,7 +25,7 @@ test("publisher readiness requires verification, target binding, and canonical r
     sourcePath: "/tmp/source.fcpxml",
     liveState,
     targetBinding,
-    readCanonicalSnapshot: async () => { throw new Error("readiness inspection must not read Final Cut"); },
+    readCanonicalSnapshot,
   });
   assert.deepEqual(ready.inspectReadiness(), {
     available: true,
@@ -34,7 +37,7 @@ test("publisher readiness requires verification, target binding, and canonical r
     enabled: true,
     sourcePath: "/tmp/source.fcpxml",
     liveState,
-    readCanonicalSnapshot: async () => { throw new Error("readiness inspection must not read Final Cut"); },
+    readCanonicalSnapshot,
   });
   assert.deepEqual(missingBinding.inspectReadiness(), {
     available: false,
@@ -44,7 +47,6 @@ test("publisher readiness requires verification, target binding, and canonical r
       message: "No native provider can bind the imported artifact to a created target",
     }],
   });
-
   const missingReadback = new FinalCutProjectPublisher({
     enabled: true,
     sourcePath: "/tmp/source.fcpxml",
@@ -57,6 +59,21 @@ test("publisher readiness requires verification, target binding, and canonical r
     reasons: [{
       code: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE",
       message: "Headed canonical timeline readback is unavailable",
+    }],
+  });
+
+  const missingLiveState = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath: "/tmp/source.fcpxml",
+    targetBinding,
+    readCanonicalSnapshot,
+  });
+  assert.deepEqual(missingLiveState.inspectReadiness(), {
+    available: false,
+    targetBindingAvailable: true,
+    reasons: [{
+      code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+      message: "Live Final Cut project and sequence verification is unavailable",
     }],
   });
 });
@@ -491,14 +508,19 @@ test("FCPXML publisher reserves a library path across independent publisher inst
 test("FCPXML publisher recovers a dead reservation only when its target is absent", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-stale-reservation-"));
   const sourcePath = join(directory, "project.fcpxml");
-  const targetLibraryPath = join(directory, "Stale Library.fcpbundle");
+  const canonicalTargetParent = join(directory, "canonical-target-parent");
+  const aliasedTargetParent = join(directory, "aliased-target-parent");
+  await mkdir(canonicalTargetParent);
+  await symlink(canonicalTargetParent, aliasedTargetParent, "dir");
+  const targetLibraryPath = join(aliasedTargetParent, "Stale Library.fcpbundle");
   const source = '<fcpxml version="1.11"><library><event><project name="Stale Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
   const reservationPath = await reservationPathFor(targetLibraryPath);
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-reservation",
-    targetLibraryPath,
-    pid: findUnusedPid(),
+    targetLibraryPath: join(await realpath(aliasedTargetParent), basename(targetLibraryPath)),
+    // This is outside the PID range used by supported macOS and Linux runners.
+    pid: 2_147_483_647,
     createdAt: new Date(0).toISOString(),
   }));
   let liveStateCalls = 0;
@@ -651,17 +673,6 @@ async function reservationPathFor(targetLibraryPath: string): Promise<string> {
   const reservationKey = join(parent, targetName);
   const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
   return join(parent, `.framekit-publish-${digest(normalizedKey)}.lock`);
-}
-
-function findUnusedPid(): number {
-  for (let pid = process.pid + 1; pid <= process.pid + 10_000; pid += 1) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code === "ESRCH") return pid;
-    }
-  }
-  throw new Error("could not find an unused process id for the stale reservation fixture");
 }
 
 test("FCPXML publisher exposes target selection as an interaction-required boundary", async () => {
