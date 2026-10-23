@@ -10,6 +10,7 @@ import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
 const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
+const AUDIO_FORMAT_ID = "format-audio";
 const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
 
 /** Stable Final Cut identities required for target-bound publication. */
@@ -127,6 +128,9 @@ export function compileTimelineIrToFcpxml(
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
     `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
+    ...(resources.some((resource) => resource.mediaKind === "audio")
+      ? [`    <format id="${AUDIO_FORMAT_ID}" name="FFFrameRateUndefined" />`]
+      : []),
     ...resources.flatMap((resource) => renderResourceFormat(resource, resourceIds.get(resource.id)!)),
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
@@ -316,7 +320,9 @@ function renderResource(
     : "";
   const formatAttribute = video?.width && video.height && video.frameRate
     ? ` format="format-${id}"`
-    : "";
+    : resource.mediaKind === "audio"
+      ? ` format="${AUDIO_FORMAT_ID}"`
+      : "";
   const audioAttribute = resource.mediaKind === "audio"
     ? ' hasAudio="1"'
     : metadata?.streams

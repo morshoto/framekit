@@ -32,7 +32,8 @@ for each referenced resource.
 
 When probed media metadata is available, video formats include dimensions and
 frame duration, and assets include their source duration, stream counts,
-channels, and sample rate. These attributes let Final Cut interpret the media
+channels, and sample rate. Audio-only assets use Final Cut's
+`FFFrameRateUndefined` format. These attributes let Final Cut interpret the media
 before it resolves the referenced local files. The sequence format uses the
 sequence frame duration and the first video resource's dimensions; a native
 import and readback are still required to establish compatibility.
