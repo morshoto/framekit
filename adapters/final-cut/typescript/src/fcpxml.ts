@@ -1004,7 +1004,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .filter(({ kind }) => kind === "marker")
       .map(({ node, startTime, durationTime }, index) => {
         return {
-          id: String(attribute(node, "id") ?? `marker-${index + 1}`),
+          id: String(attribute(node, "id") ?? framekitNoteId(attribute(node, "note")) ?? `marker-${index + 1}`),
           start: rationalSeconds(startTime),
           duration: rationalSeconds(durationTime),
           startTime,
@@ -1019,7 +1019,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .filter(({ kind }) => kind === "caption")
       .map(({ node, startTime, durationTime }, index) => {
         return {
-          id: String(attribute(node, "id") ?? `caption-${index + 1}`),
+          id: String(attribute(node, "id") ?? framekitNoteId(textChildValue(node, "note")) ?? `caption-${index + 1}`),
           start: rationalSeconds(startTime),
           duration: rationalSeconds(durationTime),
           startTime,
@@ -1168,6 +1168,13 @@ function textChildValue(node: XmlNode, kind: string): string | undefined {
   if (Array.isArray(value) && value.length > 0) return String(value[0]);
   if (typeof value === "string" || typeof value === "number") return String(value);
   return undefined;
+}
+
+function framekitNoteId(value: unknown): string | undefined {
+  const prefix = "com.framekit.id:";
+  return typeof value === "string" && value.startsWith(prefix) && value.length > prefix.length
+    ? value.slice(prefix.length)
+    : undefined;
 }
 
 function mediaKindCompatible(role: "video" | "music" | "audio", mediaKind?: "video" | "audio"): boolean {

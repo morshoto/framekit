@@ -35,7 +35,10 @@ contains media occurrences (`asset-clip`) and `gap` story elements. Basic text
 titles, music, markers, and captions are attached to a containing primary
 element using exact offsets; unsupported spans without an anchor fail closed.
 Framekit occurrence IDs are stored in FCPXML metadata where the format permits
-them. Styled titles, effects, transitions, fades, unsupported resource kinds,
+them. Marker IDs use the `note` attribute and caption IDs use a `<note>` child,
+both prefixed `com.framekit.id:`, because FCPXML 1.11 does not permit metadata
+on those elements. The document adapter reads those IDs back. Styled titles,
+effects, transitions, fades, unsupported resource kinds,
 missing media bindings, and invalid target bindings fail closed with a
 structured `FCPXML_*` error instead of being silently dropped.
 
