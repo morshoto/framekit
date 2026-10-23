@@ -263,8 +263,9 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
 
   const artifact = compileTimelineIrToFcpxml(value, { target });
 
+  assert.match(artifact.xml, /<format id="format-audio" name="FFFrameRateUndefined"/);
   assert.match(artifact.xml, /<asset[^>]*name="opening\.mov"[^>]*hasVideo="1"[^>]*hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/opening\.mov" \/><\/asset>/);
-  assert.match(artifact.xml, /<asset[^>]*name="licensed-music\.wav"[^>]*hasVideo="0" hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/licensed-music\.wav" \/><\/asset>/);
+  assert.match(artifact.xml, /<asset[^>]*name="licensed-music\.wav"[^>]*hasVideo="0" format="format-audio" hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/licensed-music\.wav" \/><\/asset>/);
   assert.match(artifact.xml, /<asset-clip [^>]+audioRole="music">/);
   assert.match(artifact.xml, /<asset-clip [^>]*name="Opening"[^>]*>[\s\S]*?<asset-clip [^>]*offset="5s"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music">/);
   assert.doesNotMatch(artifact.xml, /<spine>\s*<asset-clip [^>]*audioRole="music"/);
