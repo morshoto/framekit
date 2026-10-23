@@ -130,6 +130,8 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     "artifact.publish.status",
     "headlessExecutionId",
     "targetLibraryPath",
+    "expectedRevision",
+    "replace it with the revision returned",
     "pending",
     "Final Cut",
     "B-A-C",

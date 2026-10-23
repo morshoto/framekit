@@ -56,9 +56,14 @@ analysis to satisfy the edit. The plugin should:
 
 1. Call `connection.status`. A non-ready Final Cut connection is reported, but
    does not block the headless project workflow.
-2. Create or open a named Framekit project. Register video sources A, B, and C
-   plus the separate music file, retaining the `projectId`, each returned
-   `mediaId` and `sourceDigest`, and the project revision.
+2. Create or open a named Framekit project. Use the revision returned by
+   `headless.project.create`, or the current revision from
+   `headless.project.inspect` after opening it. Register video sources A, B,
+   and C plus the separate music file by passing that current revision as
+   `expectedRevision` to every `headless.media.register` call. After each
+   registration, replace it with the revision returned in the updated project.
+   Retain the `projectId`, each returned `mediaId` and `sourceDigest`, and the
+   latest project revision.
 3. Call `media.understand` with `projectId` and each video source's `mediaId`.
    Confirm that speech output includes the configured provider version, VAD
    capability, exact source identity, and project revision for A, B, and C.
