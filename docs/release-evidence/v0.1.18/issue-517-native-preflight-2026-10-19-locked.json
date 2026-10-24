@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "native-read-only-preflight",
+  "observedOn": "2026-10-19",
+  "observedOnTimeZone": "UTC",
+  "observationTimePrecision": "calendar-day",
+  "observationTimeNote": "The exact snapshot check time was not retained. The snapshot identifier records its creation date, not the time it was checked.",
+  "validationCheckout": {
+    "branch": "chore/517-qa-readiness",
+    "commit": "6c66de0f92f5c259edc3d7d32fe400f236a84ce8"
+  },
+  "candidate": {
+    "release": "v0.1.18",
+    "codeHead": "b6c435ef8b2236a72147fe434e77f25186c85c91"
+  },
+  "command": "FRAMEKIT_FINAL_CUT_E2E_PROJECT='' .agents/skills/verify-final-cut-native/scripts/run-headed-check.sh canonical-read",
+  "nativePreflight": {
+    "exitCode": 1,
+    "code": "FINAL_CUT_NATIVE_CONSOLE_LOCKED",
+    "state": "locked",
+    "source": "IOConsoleLocked",
+    "retryable": false,
+    "guidance": "Unlock the console before native verification."
+  },
+  "artifactChecks": [
+    {
+      "path": "/tmp/framekit-acceptance-20261012/output-v2/highlight.fcpxml",
+      "exists": false,
+      "expectedSha256": "4b11a5b5f8349becd8bc07eaa6f16e74a59b2e2cbe812a38286b829ed24b7b5e"
+    },
+    {
+      "path": "/tmp/framekit-acceptance-20261012/output-v2/highlight.mp4",
+      "exists": false,
+      "expectedSha256": "0b0692c4bf07c73c5b94deac7a797af1f4ec6aa37d07526556d05179607e0f54"
+    },
+    {
+      "path": "/tmp/framekit-codex-speech-fixture/clip-a.mp4",
+      "exists": false,
+      "expectedSha256": "e4702e13da203ff79e2de9ab9eb82145e531fbed334b3bfc7de2b8b6b68ee365"
+    },
+    {
+      "path": "/tmp/framekit-codex-speech-fixture/clip-b.mp4",
+      "exists": false,
+      "expectedSha256": "6c197c9874ee44ed8a6cca1cefb1ec959e2f2f7211ec9d274503ea79c08b1d0d"
+    },
+    {
+      "path": "/tmp/framekit-codex-speech-fixture/clip-c.mp4",
+      "exists": false,
+      "expectedSha256": "1f955e1e5ef2201013bc3b7e1691c7b9a4c67e87670bcbc9bd707ae1971c1fef"
+    },
+    {
+      "path": "/tmp/framekit-codex-speech-fixture/generated-music.wav",
+      "exists": false,
+      "expectedSha256": null,
+      "digestSource": "missing original fixture-manifest.json"
+    }
+  ],
+  "backupChecks": {
+    "currentHostTimeMachineSet": "no machine directory reported for this host",
+    "latestMountedArchiveSnapshot": "2026-03-28-210116.backup",
+    "checkedLocalDataSnapshot": "com.apple.TimeMachine.2026-10-20-013853.local",
+    "recordedPathsInLocalDataSnapshot": false,
+    "snapshotInspection": "read-only and unmounted after inspection"
+  },
+  "actions": {
+    "originalsRestored": false,
+    "previewRegenerated": false,
+    "nativeMutationAttempted": false
+  }
+}
