@@ -199,6 +199,15 @@ MCP fingerprint with the Workflow Extension's `identity.buildFingerprint` and
 reports `matched`, `missing`, or `mismatched`. Required local validation fails
 with `FRAMEKIT_BUILD_ALIGNMENT_MISMATCH` when the current checkout and
 installed development extension do not agree.
+`preflight.nativeHandoffReadiness` and the read-only
+`editor.native.handoff.readiness` tool combine this report with native
+target-binding provider availability. Their `status` is `ready` only when both
+signals match; `reasons` preserves a specific blocked code and message for each
+missing or mismatched signal. Pass `publishJobId` to inspect a publish job:
+project and sequence IDs are included only when the job is `verified` and its
+native readback result matches the job's created target. The readiness call
+does not launch, activate, import, or mutate Final Cut. It does not authorize a
+native import; Phase B still requires the separate explicit authorization.
 The report repeats the effective `capabilities` families so agents can see the
 backend, guarantee, and unavailable reason for connection, canonical reads and
 writes, composite editing, speech, audio, visual analysis, title placement, PIP,
@@ -271,17 +280,15 @@ native UI access. A missing provider returns an unavailable descriptor rather
 than an empty or invented catalog.
 
 `artifactPublish` is true when a configured publisher has a supported route.
-`artifactPublishMode` reports `background-capable` when the Workflow Extension
-document-open bridge is configured, `headed-only` for the explicit
-Accessibility path when the process has a live non-metadata Final Cut route,
-and `unavailable` otherwise. A publisher also needs a native target-binding
-provider that returns the exact created project and sequence IDs; live-state
-readback and an FCPXML destination UID alone do not make project creation
-available. Background-capable means only that Framekit can
-attempt `NSWorkspace` document delivery with `activates=false`; it does not
-claim import completion or target-bound readback. The job tools remain
-available when a managed artifact is configured so callers can prepare and
-inspect a bounded handoff. `artifactPublish` is separate from both
+`artifactPublishMode` reports `headed-only` when publishing requires Final
+Cut's headed `File > Export XML` semantic readback, and `unavailable`
+otherwise. The Workflow Extension may dispatch the FCPXML document in the
+background, but that does not make the full handoff background-capable. A
+publisher also needs a native library-catalog provider that reads the exact
+created project and sequence IDs from the requested `.fcpbundle` path, active
+target identity around canonical export, and matching source-media hashes.
+The job tools remain available when a managed artifact is configured so callers
+can prepare and inspect a bounded handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
 new project is neither an artifact edit nor an edit of the open timeline.
 
@@ -507,15 +514,19 @@ missing. Both tools include `timelineWindowAvailable`, `timelineFocused`,
 focus tool changes application focus only; it does not select a project or
 mutate timeline content, and it never clicks the Framekit close button.
 
-`artifact.publish` is reported separately from `timelineWrite`. It accepts a
-verified artifact transaction, matching `artifactPath`, and `confirm: true` to
-import a new Final Cut project. A native target-binding provider must reserve
-the created project and sequence IDs; an FCPXML destination UID is not native
-readback. Its result identifies the source artifact, created project/sequence,
-and active project before/after; it does not mean the currently open timeline
-is directly writable. Missing confirmation fails with
-`PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
-`PUBLISH_TARGET_MISMATCH`.
+`artifact.publish` is reported separately from `timelineWrite`. The job-based
+`artifact.publish.preview` accepts either a verified artifact transaction or a
+durable, approved headless rough-cut execution, bound to the matching
+`artifactPath` and a new absolute `.fcpbundle` `targetLibraryPath`.
+`artifact.publish.execute` requires `confirm: true` before a new Final Cut
+project is imported. The staged FCPXML names that library location; the
+approved artifact is unchanged. A native library catalog provider must read the
+created library, project, and sequence from that exact path. An FCPXML
+destination UID is not native readback. The result identifies the source
+artifact, created target, and active project before/after; it does not mean the
+currently open timeline is directly writable. Missing
+confirmation fails with `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched
+artifact fails with `PUBLISH_TARGET_MISMATCH`.
 
 The job-based `artifact.publish.preview`, `artifact.publish.execute`, and
 `artifact.publish.status` tools make the delivery boundary explicit. They
@@ -525,6 +536,10 @@ user-interaction-required and
 temporarily unavailable. A retry of the latter verifies the existing import
 and does not import the artifact again. Only `verified` includes a
 `createdTarget`.
+Before the native Phase B step, use `editor.native.handoff.readiness` without a
+job ID and retain its result and any blocked reasons. After a publish job, query
+it again with `publishJobId`; only `status: "verified"` with a `createdTarget`
+is evidence that native readback confirmed the created project and sequence.
 
 `videoExport` is reported separately from canonical timeline capabilities. It is
 true only when the live server has enabled the guarded native Final Cut export

@@ -43,6 +43,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "skill.list",
         "skill.preview",
         "connection.status",
+        "editor.native.handoff.readiness",
         "context.changes",
         "context.inspect",
         "edit.diff",
@@ -177,11 +178,13 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     );
     assert.deepEqual(artifactEditRename?.required?.slice().sort(), ["artifactPath", "baseRevision", "clipId", "name", "type"]);
     const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
-    assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
+    assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "targetLibraryPath", "transactionId"]);
     const timelinePublishTool = tools.tools.find((tool) => tool.name === "timeline.publish.new-project");
-    assert.deepEqual(timelinePublishTool?.inputSchema.required?.slice().sort(), ["confirm", "transactionId"]);
+    assert.deepEqual(timelinePublishTool?.inputSchema.required?.slice().sort(), ["confirm", "targetLibraryPath", "transactionId"]);
     const artifactPublishPreviewTool = tools.tools.find((tool) => tool.name === "artifact.publish.preview");
-    assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "transactionId"]);
+    assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "targetLibraryPath"]);
+    assert.ok(artifactPublishPreviewTool?.inputSchema.properties?.transactionId);
+    assert.ok(artifactPublishPreviewTool?.inputSchema.properties?.headlessExecutionId);
     const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
     assert.deepEqual(artifactPublishExecuteTool?.inputSchema.required?.slice().sort(), ["confirm", "jobId"]);
     const artifactPublishStatusTool = tools.tools.find((tool) => tool.name === "artifact.publish.status");

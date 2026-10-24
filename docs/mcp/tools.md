@@ -27,12 +27,14 @@ include titles, audio occurrences, and other supported edits in the same
 revision as the planned shots. Set `sourceAudioPolicy: "preserve-and-mix"` to
 make the source-audio behavior explicit: embedded video audio is retained and
 registered audio/music occurrences are mixed with their configured gain. The
-returned `planDigest` binds the plan, operations, audio policy, and render and
-FCPXML output intent. Review the preview's `diff.operations`, final timeline,
-FCPXML coverage, and output intent
-before passing the unchanged plan, operations, and output settings with the
-returned digest and `approved: true` to execute. The transaction renders MP4
-and writes matching editable FCPXML from one proposed revision.
+returned `planDigest` binds the plan, operations, output intent, source and
+predicted committed revisions, resolved FCPXML output path, and compiled
+artifact digest. Review the preview's `diff.operations`, final timeline,
+FCPXML coverage, and output intent before passing the unchanged plan,
+operations, and output settings with the returned digest and `approved: true`
+to execute. The transaction renders MP4 and writes matching editable FCPXML
+from one approved revision. The resulting `executionId` can be passed to
+`artifact.publish.preview` for a separately confirmed native handoff.
 
 ## Explicit headed/editor-first routing
 
@@ -98,6 +100,7 @@ is a separate, confirmed `artifact.publish` step.
 | --- | --- | --- |
 | `connection.status` | Framekit Final Cut setup and connection state | Available during live setup and reconnect |
 | `editor.inspect` | Editor identity and capabilities | Available when a backend is selected |
+| `editor.native.handoff.readiness` | Read target-binding availability and Workflow Extension build alignment | Read-only; does not launch, activate, import, or mutate Final Cut; reports created IDs only after native readback verifies a publish job |
 | `editing.intent.resolve` | Map one supported natural-language request to an explicit editing or native media workflow | Read-only; ambiguous requests return clarification and no operation; native media requests expose required capabilities and guarded tool sequences |
 | `editing.route` | Select the default headless SSoT path or an explicitly headed operation path after capability checks | Read-only; fails closed when the selected path is unavailable; external rendering requires explicit `fallback: "external-renderer"` |
 | `headless.project.create` / `headless.project.open` / `headless.project.inspect` | Create or reopen the Framekit-owned canonical project and exact revision | No Final Cut dependency; registered local media is revalidated on reopen |
@@ -158,10 +161,10 @@ is a separate, confirmed `artifact.publish` step.
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
-| `artifact.publish.preview` | Prepare a verified artifact handoff without opening Final Cut | Requires the verified `artifactPath` and `transactionId`; returns an explicit background-document-open or headed job |
+| `artifact.publish.preview` | Prepare a verified managed-artifact or approved headless-rough-cut handoff without opening Final Cut | Requires `artifactPath`, exactly one of `transactionId` or `headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`; returns the exact source and destination |
 | `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
 | `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
-| `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, `confirm: true`, and native publishing capability; reports the created target and never replaces the active project |
+| `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, a new absolute `.fcpbundle` `targetLibraryPath`, `confirm: true`, and native publishing capability; reports the created target and active project before/after |
 | `editor.timeline.edit` | Edit the explicitly identified live Final Cut project and sequence | Requires `projectId`, `sequenceId`, `baseRevision`, and canonical live-write capability |
 | `editor.timeline.edit.preview` | Preview an ordered edit against the identified live project and sequence | Non-mutating; requires explicit live target and preview capability |
 | `editor.timeline.edit.execute` | Execute one live timeline preview token and verify the timeline transaction | Requires an unexpired, single-use live timeline preview token |
@@ -311,15 +314,23 @@ The three editing surfaces have separate targets and guarantees:
   verification, diff, and undo refer to that live timeline only. It fails closed
   when canonical live-write capability is unavailable or the target changes.
 - `artifact.publish` requires the verified artifact `transactionId`, matching
-  `artifactPath`, `confirm: true`, and a native target-binding provider that
-  reserves the exact new project/sequence IDs. It is a create/import operation,
-  not an edit of the active project. Without target-binding proof, publishing
-  is unavailable and import does not run. The result identifies `sourceTarget`,
-  `createdTarget`, and `activeProject` before/after; it reports
-  `PUBLISH_CONFIRMATION_REQUIRED` or `PUBLISH_TARGET_MISMATCH` rather than
-  guessing.
-- `artifact.publish.preview`, `artifact.publish.execute`, and
-  `artifact.publish.status` expose a bounded headed-only handoff state machine.
+  `artifactPath`, a new absolute `.fcpbundle` `targetLibraryPath`, `confirm:
+  true`, and a native library catalog provider. It is a create/import
+  operation. The staged FCPXML binds the import to that path; the approved
+  source artifact is unchanged. The bridge reports dispatch only. Publishing
+  succeeds only after catalog readback binds the exact library, project, and
+  sequence IDs, the same native target is active around headed `File > Export
+  XML` readback, the supported timeline semantics match, and source-media
+  digests remain unchanged. Without those checks, no successful result is
+  reported. The result identifies `sourceTarget`, `createdTarget`, semantic
+  readback evidence, and active project before and after delivery. Missing confirmation returns
+  `PUBLISH_CONFIRMATION_REQUIRED`; a different artifact returns
+  `PUBLISH_TARGET_MISMATCH`.
+- `artifact.publish.preview` records the explicit destination path along with
+  the verified source transaction. `artifact.publish.execute` requires
+  confirmation; `artifact.publish.status` is read-only.
+- `artifact.publish.execute` and
+  `artifact.publish.status` expose a bounded publish handoff state machine.
   `awaiting-final-cut` is retryable before import; `verification-pending` is
   retryable verification only and never repeats the import. Neither state has
   a `createdTarget`, and only `verified` has a successful publish result.
@@ -327,9 +338,9 @@ The three editing surfaces have separate targets and guarantees:
 The target-specific tools are preferred. The older `timeline.edit` and
 `timeline.publish.new-project` names remain registered as compatibility aliases;
 new callers should select the target-specific surface. The publishing alias
-requires both `transactionId` and literal `confirm: true`; it applies the same
-route, artifact-target, digest, and transaction-verification checks as
-`artifact.publish`.
+requires `transactionId`, a new `.fcpbundle` `targetLibraryPath`, and literal
+`confirm: true`; it applies the same route, artifact-target, digest, and
+transaction-verification checks as `artifact.publish`.
 
 `project.list` and `project.select` use stable IDs supplied by the selected
 backend. The current Workflow Extension exposes only the active project and
@@ -505,10 +516,10 @@ advertise atomic preview, execution, read-after-write, and rollback support.
 
 Rough-cut construction does not create or replace the active Final Cut
 project. After a verified artifact exists, `timeline.publish.new-project` is
-the explicit publishing path for importing it as a new project and requires
-`confirm: true`. Publishing is unavailable for metadata-only connections or
-publishers without live project/sequence verification and a native
-target-binding provider.
+the explicit publishing path for importing it into a new library and requires
+`targetLibraryPath` and `confirm: true`. Publishing is unavailable for
+metadata-only connections or publishers without library-catalog and live-state
+readback.
 
 ## Composite editing transactions
 

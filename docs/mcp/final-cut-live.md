@@ -551,6 +551,6 @@ capability.
 When `FRAMEKIT_FCPXML_PATH` is configured, `artifact.edit` modifies and verifies
 the managed FCPXML artifact. With native writes also enabled, call
 `artifact.publish` with the verified edit `transactionId`, matching
-`artifactPath`, and `confirm: true` to import that artifact as a new Final Cut
-project. The result identifies the created project and active project before
-and after; it does not replace the active project automatically.
+`artifactPath`, a new absolute `.fcpbundle` `targetLibraryPath`, and
+`confirm: true` to import that artifact into a new Final Cut library. The
+result identifies the created project and active project before and after.

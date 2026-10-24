@@ -52,7 +52,12 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     if (this.options.snapshot && this.options.live) {
       try {
         const live = await this.options.live.getIdentity();
-        return { name: "Final Cut Pro", version: live.version, backend: "final-cut-session" };
+        return {
+          name: "Final Cut Pro",
+          version: live.version,
+          backend: "final-cut-session",
+          ...(live.buildFingerprint ? { buildFingerprint: live.buildFingerprint } : {}),
+        };
       } catch {
         return { name: "Final Cut Pro", version: "FCPXML + live", backend: "final-cut-session" };
       }

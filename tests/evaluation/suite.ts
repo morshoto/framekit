@@ -343,7 +343,12 @@ const scenarios: EvaluationScenario[] = [
     expectedTool: "artifact.publish",
     steps: [{
       tool: "artifact.publish",
-      arguments: { artifactPath: "/not-managed.fcpxml", transactionId: "txn-not-created", confirm: true },
+      arguments: {
+        artifactPath: "/not-managed.fcpxml",
+        targetLibraryPath: "/tmp/Framekit Evaluation.fcpbundle",
+        transactionId: "txn-not-created",
+        confirm: true,
+      },
       expect: { isError: true, errorIncludes: "CAPABILITY_UNAVAILABLE" },
     }],
   },

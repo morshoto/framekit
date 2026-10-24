@@ -657,7 +657,7 @@ test("Final Cut live adapter requests non-activating FCPXML document delivery", 
           requestedActivates: false,
           activation: "preserved",
           ui: "none",
-          target: { requestedLibraryUid: "library-1", guarantee: "requested-unverified" },
+          target: { requestedLibraryLocation: "/tmp/framekit-library.fcpbundle", guarantee: "requested-unverified" },
         },
       },
     };
@@ -665,7 +665,7 @@ test("Final Cut live adapter requests non-activating FCPXML document delivery", 
 
   const result = await adapter.deliverFcpxml({
     artifactPath: "/tmp/framekit-project.fcpxml",
-    targetLibraryUid: "library-1",
+    targetLibraryLocation: "/tmp/framekit-library.fcpbundle",
     activates: false,
   });
 
@@ -677,7 +677,7 @@ test("Final Cut live adapter requests non-activating FCPXML document delivery", 
     id: transport.requests.at(-1)?.id,
     method: "deliver-fcpxml",
     artifactPath: "/tmp/framekit-project.fcpxml",
-    targetLibraryUid: "library-1",
+    targetLibraryLocation: "/tmp/framekit-library.fcpbundle",
     activates: false,
   });
 });
