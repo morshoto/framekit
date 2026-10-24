@@ -7,6 +7,10 @@ is blocked. A passing local workflow does not turn a missing or mismatched
 published package into a release pass. The checked-in
 [`2026-08-28-clean-mcp-clients.json`](./evidence/2026-08-28-clean-mcp-clients.json)
 is a historical sample, not evidence for the current release candidate.
+The [2026-10-24 issue 521 pretag run](../release-evidence/v0.1.18/issue-521-clean-mcp-codex-pretag-2026-10-24.json)
+passed the clean Codex MCP and headless workflow at its recorded commit. Its
+release-candidate result remains `NO_GO`: v0.1.18 is unpublished, the tested
+package and plugin are v0.1.17, and signed native provenance is unavailable.
 
 ## What this proves
 
