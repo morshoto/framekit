@@ -157,10 +157,18 @@ export class MediaAnalysisService {
 
   public async understandMedia(mediaId: string): Promise<MediaUnderstanding> {
     const project = await this.project.inspectProject();
+    return this.understandMediaInProject(mediaId, project, true);
+  }
+
+  public async understandMediaInProject(
+    mediaId: string,
+    project: ProjectSnapshot,
+    attachToLiveContext = false,
+  ): Promise<MediaUnderstanding> {
     const media = findMedia(project, mediaId);
     const cached = await this.loadCachedUnderstanding(project, media);
     if (cached) {
-      this.context.attachMediaUnderstanding(cached);
+      if (attachToLiveContext) this.context.attachMediaUnderstanding(cached);
       return structuredClone(cached);
     }
     const input = { project, media };
@@ -196,7 +204,7 @@ export class MediaAnalysisService {
       ],
       analysisRevision: project.revision,
     };
-    this.context.attachMediaUnderstanding(understanding);
+    if (attachToLiveContext) this.context.attachMediaUnderstanding(understanding);
     await this.options.semanticMediaIndexStore?.save(understanding);
     return structuredClone(understanding);
   }
@@ -219,10 +227,17 @@ export class MediaAnalysisService {
 
   public async planRoughCut(request: RoughCutPlanRequest): Promise<RoughCutPlan> {
     const project = await this.project.inspectProject();
+    return this.planRoughCutInProject(request, project);
+  }
+
+  public async planRoughCutInProject(request: RoughCutPlanRequest, project: ProjectSnapshot): Promise<RoughCutPlan> {
     const { maxShots: _maxShots, ...query } = request;
     const current = this.indexFromProject(project, query);
     const persisted = await this.persistedIndexEntries(query);
-    return planRoughCut(mergeIndexEntries(persisted, current), project.revision, request);
+    const projectMedia = project.media.map(sourceIdentityOf);
+    const matchingPersisted = persisted.filter((entry) => projectMedia.some((source) =>
+      sameMediaSourceIdentity(source, entry.sourceIdentity)));
+    return planRoughCut(mergeIndexEntries(matchingPersisted, current), project.revision, request);
   }
 
   public async inspectTimelineSemanticContext(

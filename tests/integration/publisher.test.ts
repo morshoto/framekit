@@ -519,7 +519,8 @@ test("FCPXML publisher recovers a dead reservation only when its target is absen
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-reservation",
     targetLibraryPath: join(await realpath(aliasedTargetParent), basename(targetLibraryPath)),
-    pid: findUnusedPid(),
+    // This is outside the PID range used by supported macOS and Linux runners.
+    pid: 2_147_483_647,
     createdAt: new Date(0).toISOString(),
   }));
   let liveStateCalls = 0;
@@ -672,17 +673,6 @@ async function reservationPathFor(targetLibraryPath: string): Promise<string> {
   const reservationKey = join(parent, targetName);
   const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
   return join(parent, `.framekit-publish-${digest(normalizedKey)}.lock`);
-}
-
-function findUnusedPid(): number {
-  for (let pid = process.pid + 1; pid <= process.pid + 10_000; pid += 1) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code === "ESRCH") return pid;
-    }
-  }
-  throw new Error("could not find an unused process id for the stale reservation fixture");
 }
 
 test("FCPXML publisher exposes target selection as an interaction-required boundary", async () => {
