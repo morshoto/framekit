@@ -48,7 +48,9 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
-function metadataOnlyRuntime(fingerprint = extensionFingerprint): AgentVideoRuntime {
+function metadataOnlyRuntime(
+  fingerprint: { version: string; commit: string } | null = extensionFingerprint,
+): AgentVideoRuntime {
   const live = new FinalCutLiveAdapter({
     request: async (request) => ({
       version: 1,
@@ -59,13 +61,28 @@ function metadataOnlyRuntime(fingerprint = extensionFingerprint): AgentVideoRunt
           name: "Final Cut Pro",
           version: "10.7.1",
           backend: "workflow-extension-ipc",
-          buildFingerprint: fingerprint,
+          ...(fingerprint ? { buildFingerprint: fingerprint } : {}),
         },
         capabilities: bridgeCapabilities,
       },
     }),
   });
   return new AgentVideoRuntime(new FinalCutSessionAdapter({ live }));
+}
+
+function handoffPublisher(jobs: Record<string, unknown> = {}) {
+  return {
+    inspectReadiness: () => ({
+      available: true,
+      targetBindingAvailable: true,
+      reasons: [],
+    }),
+    getPublishJob: (jobId: string) => {
+      const job = jobs[jobId];
+      if (!job) throw new Error(`FINAL_CUT_PUBLISH_JOB_NOT_FOUND: ${jobId}`);
+      return job;
+    },
+  } as unknown as FinalCutProjectPublisher;
 }
 
 function fcpxmlWithLiveRuntime(): AgentVideoRuntime {
@@ -181,6 +198,190 @@ test("FCPXML and live sessions retain the Workflow Extension build fingerprint",
     assert.equal(status.preflight.buildAlignment?.status, "matched");
     assert.equal(editor.preflight.buildAlignment?.status, "matched");
   });
+});
+
+test("native handoff readiness requires target binding and a matching extension", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+
+    assert.equal(readiness.status, "ready");
+    assert.deepEqual(readiness.reasons, []);
+    assert.deepEqual(readiness.targetBinding, { available: true, guarantee: "native-readback" });
+    assert.equal(readiness.buildAlignment.status, "matched");
+    assert.equal("createdTarget" in readiness, false);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.preflight.nativeHandoffReadiness.status, "ready");
+  }, { projectPublisher: handoffPublisher() });
+});
+
+test("native handoff readiness remains inspectable with the alignment guard enabled", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const editorResult = await client.callTool({ name: "editor.inspect", arguments: {} });
+    assert.notEqual(editorResult.isError, true);
+    const editor = JSON.parse(textFrom(editorResult));
+    assert.equal(editor.preflight.nativeHandoffReadiness.status, "ready");
+    assert.deepEqual(editor.preflight.nativeHandoffReadiness.reasons, []);
+
+    const readinessResult = await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    });
+    assert.notEqual(readinessResult.isError, true);
+    const readiness = JSON.parse(textFrom(readinessResult));
+    assert.equal(readiness.status, "ready");
+    assert.equal(readiness.buildAlignment.status, "matched");
+  }, {
+    projectPublisher: handoffPublisher(),
+    requireBuildAlignment: true,
+    validationCommit: "test-commit",
+  });
+});
+
+test("native handoff readiness reports a missing target-binding provider", async () => {
+  const projectPublisher = {
+    inspectReadiness: () => ({
+      available: false,
+      targetBindingAvailable: false,
+      reasons: [{
+        code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+        message: "The native library catalog cannot bind a published artifact to a created target",
+      }],
+    }),
+  } as unknown as FinalCutProjectPublisher;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+
+    assert.equal(readiness.status, "blocked");
+    assert.equal(readiness.targetBinding.available, false);
+    assert.ok(readiness.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE"));
+    assert.equal("createdTarget" in readiness, false);
+  }, { projectPublisher });
+});
+
+test("native handoff readiness reports an unconfigured publisher", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+
+    assert.equal(readiness.status, "blocked");
+    assert.deepEqual(readiness.targetBinding, { available: false, guarantee: "none" });
+    assert.ok(readiness.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_PROVIDER_UNAVAILABLE"));
+  });
+});
+
+test("native handoff readiness blocks an injected publisher without readiness methods", async () => {
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+
+    assert.equal(readiness.status, "blocked");
+    assert.deepEqual(readiness.targetBinding, { available: false, guarantee: "none" });
+    assert.ok(readiness.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE"));
+    assert.equal("createdTarget" in readiness, false);
+  }, { projectPublisher: {} as FinalCutProjectPublisher });
+});
+
+test("native handoff readiness does not call native UI providers", async () => {
+  let nativeCalls = 0;
+  const nativeEditor = {
+    capabilities: () => { nativeCalls += 1; return {}; },
+    inspect: async () => { nativeCalls += 1; return { readiness: {} }; },
+  } as unknown as NativeFinalCutEditor;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: {},
+    })));
+    assert.equal(readiness.status, "ready");
+    assert.equal(nativeCalls, 0);
+  }, { nativeEditor, projectPublisher: handoffPublisher() });
+});
+
+test("native handoff readiness reports missing and mismatched extension fingerprints", async () => {
+  for (const scenario of [
+    {
+      runtime: metadataOnlyRuntime(null),
+      status: "missing",
+      reason: "FRAMEKIT_BUILD_ALIGNMENT_MISSING",
+    },
+    {
+      runtime: metadataOnlyRuntime({ version: "0.1.6", commit: "test-commit" }),
+      status: "mismatched",
+      reason: "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH",
+    },
+  ]) {
+    await withClient(scenario.runtime, async (client) => {
+      const readiness = JSON.parse(textFrom(await client.callTool({
+        name: "editor.native.handoff.readiness",
+        arguments: {},
+      })));
+
+      assert.equal(readiness.status, "blocked");
+      assert.equal(readiness.buildAlignment.status, scenario.status);
+      assert.ok(readiness.reasons.some((reason: { code: string }) => reason.code === scenario.reason));
+    }, { projectPublisher: handoffPublisher() });
+  }
+});
+
+test("native handoff readiness withholds targets until a publish job is verified", async () => {
+  const createdTarget = {
+    kind: "editor.project",
+    projectId: "native-project",
+    sequenceId: "native-sequence",
+    projectName: "Published Project",
+    sequenceName: "Main",
+  };
+  const projectPublisher = handoffPublisher({
+    pending: {
+      jobId: "pending",
+      state: "verification-pending",
+      nextAction: "retry",
+      retryable: true,
+      createdTarget: undefined,
+      result: undefined,
+      error: { code: "FINAL_CUT_PUBLISH_TARGET_PENDING", message: "Native readback is pending" },
+    },
+    verified: {
+      jobId: "verified",
+      state: "verified",
+      nextAction: "none",
+      retryable: false,
+      createdTarget,
+      result: { verified: true, createdTarget },
+    },
+  });
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const pending = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: { publishJobId: "pending" },
+    })));
+    assert.equal(pending.status, "blocked");
+    assert.equal(pending.publish.state, "verification-pending");
+    assert.equal("createdTarget" in pending, false);
+    assert.ok(pending.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED"));
+
+    const verified = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: { publishJobId: "verified" },
+    })));
+    assert.equal(verified.status, "verified");
+    assert.equal(verified.publish.state, "verified");
+    assert.deepEqual(verified.createdTarget, createdTarget);
+    assert.deepEqual(verified.reasons, []);
+  }, { projectPublisher });
 });
 
 test("required local alignment fails clearly for a stale extension", async () => {

@@ -110,19 +110,23 @@ ALLOW_MUTATION=yes の場合は、現在の snapshot から既存 clip と proje
 3. artifact edit の成功を、現在開いている Final Cut project の変更成功として報告しない。
 4. `artifact.publish` は artifact transaction、同じ `artifactPath`、`confirm: true` が揃う場合だけ試す。確認なしは `PUBLISH_CONFIRMATION_REQUIRED`、target 不一致は `PUBLISH_TARGET_MISMATCH` として拒否する。
 5. publish は active project の編集ではなく、新しい project の create/import として `sourceTarget`、`createdTarget`、active project before/after を検証する。
+6. Phase B の前に `editor.native.handoff.readiness` を mutation なしで呼び、response 全体と `reasons` を #517 acceptance evidence に記録する。`status: "blocked"` なら native import を開始せず、各 reason をブロッカーとして残す。
+7. `status: "ready"`、`targetBinding.guarantee: "native-readback"`、`buildAlignment.status: "matched"` を確認してから、別途許可された native handoff を実行する。
+8. job-based publish 後は `editor.native.handoff.readiness` に `publishJobId` を渡す。`status: "verified"` のときだけ返される `createdTarget.projectId` と `createdTarget.sequenceId` を #517 evidence に記録する。FCPXML UID、dispatch success、headless build identity を native target identity として扱わない。
 
 ### G. Live Final Cut 境界
 
 TEST_MODE=live-read では書き込みを行わない。
 
-1. `connection.status`、`editor.inspect`、`editor.live.inspect` を確認する。
-2. metadata-only の場合、`ready` でも native/canonical editability を PASS にしない。
-3. headless の場合、native UI write、focus、publish、export が disabled/unavailable であることを確認する。
-4. canonical-read は読み取り証拠に限定する。canonical-write がなければ `editor.timeline.edit` の execute や filler removal の execute を呼ばない。
-5. TEST_MODE=live-write では、TARGET_PROJECT が使い捨てで、ユーザーが許可した場合だけ次を行う。
+1. `connection.status`、`editor.inspect`、`editor.live.inspect`、`editor.native.handoff.readiness` を確認する。
+2. handoff readiness の blocked reason と build alignment を記録する。readiness tool は Final Cut を起動・activate・import せず、native mutation を行わない。
+3. metadata-only の場合、`ready` でも native/canonical editability を PASS にしない。
+4. headless の場合、native UI write、focus、publish、export が disabled/unavailable であることを確認する。
+5. canonical-read は読み取り証拠に限定する。canonical-write がなければ `editor.timeline.edit` の execute や filler removal の execute を呼ばない。
+6. TEST_MODE=live-write では、TARGET_PROJECT が使い捨てで、ユーザーが許可した場合だけ次を行う。
    `editor.native.inspect` → `editor.native.focus` → operation preview → execute → live/canonical read-after-write → diff/verify → native undo → restoration verify
-6. Final Cut が frontmost でない、timeline focus がない、Accessibility permission がない、overlay が妨げる、sequence revision が変わった場合は fail-closed する。リトライで安全境界を無視しない。
-7. live native の成功証拠には、実 target、capability、revision/diff、read-after-write、undo/restoration を含める。fixture/FCPXML/metadata-only の出力を native 成功証拠に昇格しない。
+7. Final Cut が frontmost でない、timeline focus がない、Accessibility permission がない、overlay が妨げる、sequence revision が変わった場合は fail-closed する。リトライで安全境界を無視しない。
+8. live native の成功証拠には、実 target、capability、revision/diff、read-after-write、undo/restoration を含める。fixture/FCPXML/metadata-only の出力を native 成功証拠に昇格しない。
 
 ## 判定基準
 
