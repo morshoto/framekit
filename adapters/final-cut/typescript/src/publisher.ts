@@ -847,8 +847,8 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   const requestedTarget = resolve(targetLibraryPath);
   const parent = await realpath(dirname(requestedTarget));
   const targetName = basename(requestedTarget).normalize("NFC");
-  const canonicalTarget = join(parent, targetName);
-  const reservationKey = canonicalTarget;
+  const canonicalTarget = join(parent, basename(requestedTarget));
+  const reservationKey = join(parent, targetName);
   const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
   const reservationPath = join(parent, `.framekit-publish-${hash(normalizedKey)}.lock`);
   const reservationId = randomUUID();
@@ -901,7 +901,7 @@ async function recoverAbandonedTargetLibraryReservation(reservationPath: string,
   }
   if (typeof reservation.reservationId !== "string" || !reservation.reservationId
     || typeof reservation.targetLibraryPath !== "string"
-    || resolve(reservation.targetLibraryPath).normalize("NFC") !== requestedTarget.normalize("NFC")
+    || resolve(reservation.targetLibraryPath) !== requestedTarget
     || !Number.isSafeInteger(reservation.pid) || (reservation.pid as number) <= 0
     || processIsRunning(reservation.pid as number)) return false;
 
