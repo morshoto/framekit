@@ -847,25 +847,26 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   const requestedTarget = resolve(targetLibraryPath);
   const parent = await realpath(dirname(requestedTarget));
   const targetName = basename(requestedTarget).normalize("NFC");
-  const reservationKey = join(parent, targetName);
+  const canonicalTarget = join(parent, targetName);
+  const reservationKey = canonicalTarget;
   const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
   const reservationPath = join(parent, `.framekit-publish-${hash(normalizedKey)}.lock`);
   const reservationId = randomUUID();
   try {
     await writeFile(reservationPath, JSON.stringify({
       reservationId,
-      targetLibraryPath: join(parent, basename(requestedTarget)),
+      targetLibraryPath: canonicalTarget,
       pid: process.pid,
       createdAt: new Date().toISOString(),
     }), { encoding: "utf8", flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
-      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, requestedTarget);
+      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, canonicalTarget);
       if (recovered) {
         try {
           await writeFile(reservationPath, JSON.stringify({
             reservationId,
-            targetLibraryPath: join(parent, basename(requestedTarget)),
+            targetLibraryPath: canonicalTarget,
             pid: process.pid,
             createdAt: new Date().toISOString(),
           }), { encoding: "utf8", flag: "wx", mode: 0o600 });
@@ -900,7 +901,7 @@ async function recoverAbandonedTargetLibraryReservation(reservationPath: string,
   }
   if (typeof reservation.reservationId !== "string" || !reservation.reservationId
     || typeof reservation.targetLibraryPath !== "string"
-    || resolve(reservation.targetLibraryPath) !== requestedTarget
+    || resolve(reservation.targetLibraryPath).normalize("NFC") !== requestedTarget.normalize("NFC")
     || !Number.isSafeInteger(reservation.pid) || (reservation.pid as number) <= 0
     || processIsRunning(reservation.pid as number)) return false;
 

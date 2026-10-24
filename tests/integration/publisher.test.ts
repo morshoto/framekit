@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -428,13 +428,17 @@ test("FCPXML publisher reserves a library path across independent publisher inst
 test("FCPXML publisher recovers a dead reservation only when its target is absent", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-stale-reservation-"));
   const sourcePath = join(directory, "project.fcpxml");
-  const targetLibraryPath = join(directory, "Stale Library.fcpbundle");
+  const canonicalTargetParent = join(directory, "canonical-target-parent");
+  const aliasedTargetParent = join(directory, "aliased-target-parent");
+  await mkdir(canonicalTargetParent);
+  await symlink(canonicalTargetParent, aliasedTargetParent, "dir");
+  const targetLibraryPath = join(aliasedTargetParent, "Stale Library.fcpbundle");
   const source = '<fcpxml version="1.11"><library><event><project name="Stale Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
   const reservationPath = await reservationPathFor(targetLibraryPath);
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-reservation",
-    targetLibraryPath,
+    targetLibraryPath: join(await realpath(aliasedTargetParent), basename(targetLibraryPath)),
     pid: findUnusedPid(),
     createdAt: new Date(0).toISOString(),
   }));
