@@ -54,7 +54,7 @@ changed.
 | Surface | Target | Revision | Read-after-write | Undo | Resulting project state |
 | --- | --- | --- | --- | --- | --- |
 | `artifact.edit` | Managed FCPXML artifact ID and path | Artifact snapshot revision | Reads the same artifact after the write | Restores the artifact transaction | Updates the FCPXML artifact; it does not claim to change the open Final Cut project |
-| `artifact.publish` | Verified artifact path and source transaction | Verified source transaction plus `confirm: true` | Reports the created project/sequence and active project before/after | Does not undo the imported project through artifact undo | Creates/imports a new Final Cut project and never silently replaces the active project |
+| `artifact.publish` | Verified artifact, source transaction, and new `.fcpbundle` path | Verified source transaction plus `confirm: true` | Reads created project/sequence from the requested library and reports active project before/after | Does not undo the imported project through artifact undo | Creates/imports into the requested new library; reports any activation side effect |
 | `editor.timeline.edit` | Explicit active project ID and sequence ID | Required live base revision | Reads the identified live timeline after the write | Restores the identified live timeline transaction | Changes the selected live project only when canonical live-write capability is available |
 
 An artifact edit and a live timeline edit are not interchangeable, even when
@@ -121,14 +121,18 @@ person cutout remains unavailable.
 
 When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `artifact.publish` accepts a verified artifact transaction, its managed
-`artifactPath`, and explicit `confirm: true` before importing a new Final Cut
-project. It reports the created project target and active project before/after;
-the active project is never replaced automatically.
+`artifactPath`, a new absolute `.fcpbundle` `targetLibraryPath`, and explicit
+`confirm: true` before importing a new Final Cut project. The staged XML binds
+the import to that library; the approved artifact remains unchanged. The
+publisher reports the created project target and active project before/after,
+including any activation Final Cut performs while opening the document.
 
-The publisher uses the Workflow Extension's non-activating FCPXML document-open
-route when a target library UID is configured. That route reports dispatch and
-foreground/UI side effects separately; it does not provide target-bound
-readback by itself. If it is unavailable, `artifact.publish.preview`,
+The publisher uses the Workflow Extension's FCPXML document-open route with the
+requested library path embedded in the staged import options. That route
+reports dispatch and foreground/UI side effects separately; it does not prove
+import by itself. The Final Cut library catalog must then report the exact path
+and unique created project and sequence before the publisher reports success.
+If the route is unavailable, `artifact.publish.preview`,
 `artifact.publish.execute`, and `artifact.publish.status` expose a bounded
 headed or interaction-required job state so a missing Final Cut provider can be
 retried without claiming that a project was created. See

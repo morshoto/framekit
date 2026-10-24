@@ -274,10 +274,9 @@ than an empty or invented catalog.
 `artifactPublishMode` reports `background-capable` when the Workflow Extension
 document-open bridge is configured, `headed-only` for the explicit
 Accessibility path when the process has a live non-metadata Final Cut route,
-and `unavailable` otherwise. A publisher also needs a native target-binding
-provider that returns the exact created project and sequence IDs; live-state
-readback and an FCPXML destination UID alone do not make project creation
-available. Background-capable means only that Framekit can
+and `unavailable` otherwise. A publisher also needs a native library-catalog
+provider that reads the exact created project and sequence IDs from the
+requested `.fcpbundle` path. Background-capable means only that Framekit can
 attempt `NSWorkspace` document delivery with `activates=false`; it does not
 claim import completion or target-bound readback. The job tools remain
 available when a managed artifact is configured so callers can prepare and
@@ -508,12 +507,13 @@ focus tool changes application focus only; it does not select a project or
 mutate timeline content, and it never clicks the Framekit close button.
 
 `artifact.publish` is reported separately from `timelineWrite`. It accepts a
-verified artifact transaction, matching `artifactPath`, and `confirm: true` to
-import a new Final Cut project. A native target-binding provider must reserve
-the created project and sequence IDs; an FCPXML destination UID is not native
-readback. Its result identifies the source artifact, created project/sequence,
-and active project before/after; it does not mean the currently open timeline
-is directly writable. Missing confirmation fails with
+verified artifact transaction, matching `artifactPath`, a new absolute
+`.fcpbundle` `targetLibraryPath`, and `confirm: true`. The staged FCPXML names
+that library location; the approved artifact is unchanged. A native library
+catalog provider must read the created project and sequence IDs from that
+exact path. The result identifies the source artifact, created target, and
+active project before/after; it does not mean the currently open timeline is
+directly writable. Missing confirmation fails with
 `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
 `PUBLISH_TARGET_MISMATCH`.
 

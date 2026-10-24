@@ -1,5 +1,8 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import type { ProjectCatalog, ProjectDescriptor, ProjectSequence, RationalTime } from "@framekit/runtime";
 import { validateProjectCatalog } from "@framekit/runtime";
 
@@ -46,6 +49,7 @@ export interface FinalCutLibraryInspectionEvent {
 export interface FinalCutLibraryInspectionLibrary {
   id: string;
   name: string;
+  path?: string;
   events: FinalCutLibraryInspectionEvent[];
 }
 
@@ -140,6 +144,46 @@ export class FinalCutLibraryInspectionProvider {
     }
     return catalog;
   }
+
+  /** Bind a newly imported project to the exact library location requested by its FCPXML. */
+  public async resolveProjectBinding(
+    libraryPath: string,
+    identity: { projectName: string; sequenceName: string },
+  ): Promise<{ projectId: string; sequenceId: string; libraryId: string; eventId: string; libraryPath: string }> {
+    const result = await this.inspect();
+    if (result.status === "unavailable" || result.status === "error") {
+      throw new Error(`${result.error.code}: ${result.error.message}`);
+    }
+    const expectedPath = normalizeLibraryPath(libraryPath);
+    const libraries = result.catalog.libraries.filter((library) => library.path
+      && normalizeLibraryPath(library.path) === expectedPath);
+    if (libraries.length === 0) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_PENDING: library has not appeared at ${expectedPath}`);
+    }
+    if (libraries.length !== 1) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_MISMATCH: multiple Final Cut libraries report path ${expectedPath}`);
+    }
+    const library = libraries[0]!;
+    const matches = library.events.flatMap((event) => event.projects.flatMap((project) => {
+      if (project.name !== identity.projectName) return [];
+      const sequences = project.sequences.filter((sequence) => sequence.name === identity.sequenceName);
+      return sequences.map((sequence) => ({ event, project, sequence }));
+    }));
+    if (matches.length === 0) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_PENDING: project ${identity.projectName} / sequence ${identity.sequenceName} has not appeared in ${expectedPath}`);
+    }
+    if (matches.length !== 1) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected one project and sequence in ${expectedPath}, found ${matches.length}`);
+    }
+    const match = matches[0]!;
+    return {
+      projectId: match.project.id,
+      sequenceId: match.sequence.id,
+      libraryId: library.id,
+      eventId: match.event.id,
+      libraryPath: expectedPath,
+    };
+  }
 }
 
 /** Build the JXA program used for direct, read-only Final Cut Apple Events. */
@@ -215,6 +259,7 @@ function libraryValue(library) {
   return {
     id: textValue(library, "id"),
     name: textValue(library, "name"),
+    path: textValue(library, "file"),
     events: events === null ? null : events.map(eventValue)
   };
 }
@@ -334,7 +379,8 @@ function parseLibrary(value: unknown, path: string, issues: FinalCutLibraryInspe
   const name = requiredText(record.name, `${path}.name`, "library name", issues);
   const events = parseChildren(record.events, `${path}.events`, "event", parseEvent, issues);
   if (!id || !name) return undefined;
-  return { id, name, events };
+  const libraryPath = optionalText(record.path);
+  return { id, name, ...(libraryPath ? { path: libraryPath } : {}), events };
 }
 
 function parseEvent(value: unknown, path: string, issues: FinalCutLibraryInspectionIssue[]): FinalCutLibraryInspectionEvent | undefined {
@@ -452,6 +498,23 @@ function normalizeInteger(value: unknown): string | undefined {
   if (typeof value === "string" && /^-?\d+$/.test(value)) return value;
   if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
   return undefined;
+}
+
+function optionalText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeLibraryPath(path: string): string {
+  try {
+    const resolved = resolve(path.startsWith("file:") ? fileURLToPath(path) : path);
+    try {
+      return realpathSync(resolved);
+    } catch {
+      return resolved;
+    }
+  } catch {
+    return resolve(path);
+  }
 }
 
 function parseTopLevelError(value: unknown, fallback: string): FinalCutLibraryInspectionError {

@@ -25,7 +25,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
     assert.match(backendSelection, new RegExp("\\b" + escapedSurface + "\\b"));
     assert.match(mcpTools, new RegExp("\\| `" + escapedSurface + "`"));
   }
-  assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*confirm/);
+  assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*targetLibraryPath[\s\S]*confirm/);
   assert.match(mcpTools, /PUBLISH_CONFIRMATION_REQUIRED/);
   assert.match(mcpTools, /## Background FCPXML artifact workflow/);
   assert.match(mcpTools, /FRAMEKIT_FCPXML_PATH/);
@@ -48,17 +48,18 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.doesNotMatch(mcpTools, /\| `timeline\.publish\.new-project` \|/);
   assert.match(liveE2e, /FCPXML publisher headed E2E/);
   assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH/);
+  assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH/);
   assert.match(liveE2e, /test:final-cut-publisher-headed/);
   assert.match(liveE2e, /prepared disposable fixture[\s\S]*project/);
   assert.match(roughCutConstruction, /Final Cut makes the imported\s+project active/);
   assert.match(roughCutConstruction, /It never modifies the previously\s+open project/);
-  assert.match(artifactPublishing, /Final Cut Pro 10\.7\.1/);
-  assert.match(artifactPublishing, /no supported non-UI\s+project-publishing/);
+  assert.match(artifactPublishing, /FCPXML `import-options`/);
+  assert.match(artifactPublishing, /targetLibraryPath/);
   assert.match(artifactPublishing, /awaiting-confirmation/);
   assert.match(artifactPublishing, /verification-pending/);
   assert.match(artifactPublishing, /artifact\.publish\.(preview|execute|status)/);
   assert.match(artifactPublishing, /createdTarget/);
   assert.match(artifactPublishing, /artifactDigest/);
   assert.match(artifactPublishing, /target-binding proof/);
-  assert.match(artifactPublishing, /no import was attempted/);
+  assert.match(artifactPublishing, /`dispatched` result/);
 });
