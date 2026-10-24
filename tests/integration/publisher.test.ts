@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { FinalCutProjectPublisher } from "@framekit/final-cut";
+import type { EditorLiveState } from "@framekit/runtime";
 
 function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -92,12 +93,158 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
 });
 
+test("native FCPXML handoff targets a new library and preserves the approved source", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-target-"));
+  const sourcePath = join(directory, "approved.fcpxml");
+  const targetLibraryPath = join(directory, "Native $1 Handoff.fcpbundle");
+  const source = '<?xml version="1.0"?><fcpxml version="1.11"><resources/><import-options><option key="library location" value="file:///old.fcpbundle"/><option key="use-source-media" value="1"/></import-options><library><event><project uid="project-target" name="Target Project"><sequence uid="sequence-target" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveredPath: string | undefined;
+  let deliveredXml: string | undefined;
+  let liveStateCalls = 0;
+  const result = await new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    documentDelivery: {
+      deliverFcpxml: async ({ artifactPath, targetLibraryLocation, activates }) => {
+        deliveredPath = artifactPath;
+        deliveredXml = await readFile(artifactPath, "utf8");
+        assert.equal(targetLibraryLocation, targetLibraryPath);
+        assert.equal(activates, false);
+        return {
+          status: "dispatched",
+          route: "background-document-open",
+          attempted: true,
+          imported: false,
+          requestedActivates: false,
+          activation: "preserved",
+          ui: "unknown",
+          target: { requestedLibraryLocation: targetLibraryPath, guarantee: "requested-unverified" },
+        };
+      },
+    },
+    targetBinding: async () => ({
+      projectId: "native-project",
+      sequenceId: "native-sequence",
+      libraryId: "native-library",
+      eventId: "native-event",
+      libraryPath: targetLibraryPath,
+    }),
+    liveState: async () => ({
+      project: liveStateCalls++ === 0
+        ? { id: "old-project", name: "Existing" }
+        : { id: "native-project", name: "Target Project" },
+      sequence: liveStateCalls <= 1
+        ? { id: "old-sequence", name: "Old Sequence", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } }
+        : { id: "native-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+    }),
+  }).publishNewProject({
+    sourceTransactionId: "txn-native-target",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+    confirm: true,
+  });
+
+  assert.ok(deliveredPath);
+  assert.notEqual(deliveredPath, sourcePath);
+  assert.match(deliveredXml ?? "", /<option key="library location" value="file:\/\//);
+  assert.match(deliveredXml ?? "", /Native%20\$1%20Handoff\.fcpbundle/);
+  assert.match(deliveredXml ?? "", /<option key="use-source-media" value="1"\/>/);
+  assert.equal((deliveredXml?.match(/key="library location"/g) ?? []).length, 1);
+  assert.equal(await readFile(sourcePath, "utf8"), source);
+  assert.equal(result.delivery?.status, "dispatched");
+  assert.equal(result.importedDigest, digest(deliveredXml ?? ""));
+  assert.notEqual(result.importedDigest, digest(source));
+  assert.equal(result.targetLibraryPath, targetLibraryPath);
+  assert.deepEqual(result.createdTarget, {
+    kind: "editor.project",
+    projectId: "native-project",
+    sequenceId: "native-sequence",
+    libraryId: "native-library",
+    eventId: "native-event",
+    libraryPath: targetLibraryPath,
+    projectName: "Target Project",
+    sequenceName: "Main",
+  });
+  assert.notEqual(result.createdTarget.projectId, "project-target");
+  assert.notEqual(result.createdTarget.sequenceId, "sequence-target");
+});
+
+test("native FCPXML preview rejects an existing library before dispatch", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-existing-library-"));
+  const sourcePath = join(directory, "approved.fcpxml");
+  const targetLibraryPath = join(directory, "Existing.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Existing Target"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  await mkdir(targetLibraryPath);
+  let dispatchCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    documentDelivery: {
+      deliverFcpxml: async () => {
+        dispatchCalled = true;
+        throw new Error("dispatch must not run for an existing library path");
+      },
+    },
+    targetBinding: async () => ({ projectId: "native-project", sequenceId: "native-sequence" }),
+    liveState: async () => ({ revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() } }),
+  });
+
+  await assert.rejects(publisher.preparePublish({
+    sourceTransactionId: "txn-existing-library",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+  }), /PUBLISH_TARGET_LIBRARY_EXISTS/);
+  assert.equal(dispatchCalled, false);
+});
+
+test("native FCPXML execution rechecks the new library path after preview", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-race-"));
+  const sourcePath = join(directory, "approved.fcpxml");
+  const targetLibraryPath = join(directory, "Reserved.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Reserved Target"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let dispatchCalled = false;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    documentDelivery: {
+      deliverFcpxml: async () => {
+        dispatchCalled = true;
+        throw new Error("dispatch must not run after the destination appears");
+      },
+    },
+    targetBinding: async () => ({ projectId: "native-project", sequenceId: "native-sequence" }),
+    liveState: async () => ({ revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() } }),
+  });
+  const prepared = await publisher.preparePublish({
+    sourceTransactionId: "txn-library-race",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+  });
+  await mkdir(targetLibraryPath);
+
+  const result = await publisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(result.state, "failed");
+  assert.equal(result.error?.code, "PUBLISH_TARGET_LIBRARY_EXISTS");
+  assert.equal(dispatchCalled, false);
+});
+
 test("FCPXML publisher uses the native document-open delivery boundary", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-document-open-"));
   const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Background Library.fcpbundle");
   const source = '<fcpxml version="1.11"><library><event><project name="Background Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
-  const deliveries: Array<{ artifactPath: string; targetLibraryUid?: string; activates: boolean }> = [];
+  const deliveries: Array<{ artifactPath: string; targetLibraryLocation?: string; activates: boolean }> = [];
   let liveStateCalls = 0;
 
   const result = await new FinalCutProjectPublisher({
@@ -114,12 +261,11 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
           requestedActivates: request.activates,
           activation: "preserved",
           ui: "none",
-          target: { requestedLibraryUid: request.targetLibraryUid, guarantee: "requested-unverified" },
+          target: { requestedLibraryLocation: request.targetLibraryLocation, guarantee: "requested-unverified" },
         };
       },
     },
-    targetLibraryUid: "library-1",
-    targetBinding: async () => ({ projectId: "project-imported", sequenceId: "sequence-imported" }),
+    targetBinding: async () => ({ projectId: "project-imported", sequenceId: "sequence-imported", libraryPath: targetLibraryPath }),
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
     executor: async () => {
@@ -143,20 +289,289 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
     sourceTransactionId: "txn-document-open",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
+    targetLibraryPath,
     confirm: true,
   });
 
   assert.equal(result.verified, true);
-  assert.deepEqual(deliveries, [{ artifactPath: result.importedPath, targetLibraryUid: "library-1", activates: false }]);
+  assert.deepEqual(deliveries, [{ artifactPath: result.importedPath, targetLibraryLocation: targetLibraryPath, activates: false }]);
   assert.equal(result.delivery?.route, "background-document-open");
-  assert.equal(result.delivery?.status, "verified");
+  assert.equal(result.delivery?.status, "dispatched");
   assert.equal(result.delivery?.requestedActivates, false);
   assert.equal(result.delivery?.activation, "preserved");
 });
 
+test("FCPXML publisher requires exact live identity for a library-bound target", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-identity-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Bound Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+
+  const incompleteOrMismatchedStates: EditorLiveState[] = [
+    { revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() } },
+    { project: { id: "project-bound", name: "Bound Project" }, revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() } },
+    {
+      project: { id: "wrong-project", name: "Bound Project" },
+      sequence: { id: "wrong-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() },
+    },
+    {
+      project: { id: "project-bound", name: "Other Project" },
+      sequence: { id: "sequence-bound", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "revision", sequence: 2, timestamp: new Date(0).toISOString() },
+    },
+  ];
+
+  for (const [index, invalidState] of incompleteOrMismatchedStates.entries()) {
+    const targetLibraryPath = join(directory, `Bound Library ${index}.fcpbundle`);
+    await assert.rejects(new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath,
+      verificationTimeoutMs: 0,
+      pollIntervalMs: 0,
+      executor: async () => "imported",
+      targetBinding: async () => ({
+        projectId: "project-bound",
+        sequenceId: "sequence-bound",
+        libraryPath: targetLibraryPath,
+      }),
+      liveState: async () => invalidState,
+    }).publishNewProject({
+      sourceTransactionId: "txn-library-identity",
+      artifactPath: sourcePath,
+      artifactDigest: digest(source),
+      targetLibraryPath,
+      confirm: true,
+    }), /FINAL_CUT_PUBLISH_(?:TARGET_MISMATCH|VERIFICATION_FAILED)/);
+  }
+});
+
+test("FCPXML publisher reserves a library path across independent publisher instances", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-library-reservation-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Reserved Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Reserved Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let dispatchStarted!: () => void;
+  let releaseDispatch!: () => void;
+  const dispatchStartedPromise = new Promise<void>((resolve) => { dispatchStarted = resolve; });
+  const dispatchBarrier = new Promise<void>((resolve) => { releaseDispatch = resolve; });
+  let dispatchCount = 0;
+  const beforeState: EditorLiveState = {
+    project: { id: "project-before", name: "Existing" },
+    sequence: { id: "sequence-before", name: "Existing", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+  };
+  const importedState: EditorLiveState = {
+    project: { id: "project-reserved", name: "Reserved Project" },
+    sequence: { id: "sequence-reserved", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    revision: { id: "revision-imported", sequence: 2, timestamp: new Date(1).toISOString() },
+  };
+
+  const makePublisher = (observesImport: boolean) => {
+    let liveStateCalls = 0;
+    return new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath,
+      verificationTimeoutMs: 0,
+      pollIntervalMs: 0,
+      documentDelivery: {
+        deliverFcpxml: async (request) => {
+          dispatchCount += 1;
+          if (dispatchCount === 1) {
+            dispatchStarted();
+            await dispatchBarrier;
+            await mkdir(targetLibraryPath);
+          }
+          return {
+            status: "dispatched",
+            route: "background-document-open",
+            attempted: true,
+            imported: false,
+            requestedActivates: request.activates,
+            activation: "preserved",
+            ui: "none",
+            target: { requestedLibraryLocation: request.targetLibraryLocation, guarantee: "requested-unverified" },
+          };
+        },
+      },
+      targetBinding: async () => ({ projectId: "project-reserved", sequenceId: "sequence-reserved", libraryPath: targetLibraryPath }),
+      liveState: async () => {
+        liveStateCalls += 1;
+        return liveStateCalls === 1 || !observesImport ? beforeState : importedState;
+      },
+    });
+  };
+
+  const firstPublisher = makePublisher(true);
+  const secondPublisher = makePublisher(false);
+  const firstJob = await firstPublisher.preparePublish({ sourceTransactionId: "txn-reservation-first", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath });
+  const secondJob = await secondPublisher.preparePublish({ sourceTransactionId: "txn-reservation-second", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath });
+
+  const firstExecution = firstPublisher.executePublishJob(firstJob.jobId, true);
+  await dispatchStartedPromise;
+  let secondResult;
+  try {
+    secondResult = await secondPublisher.executePublishJob(secondJob.jobId, true);
+  } finally {
+    releaseDispatch();
+  }
+  const firstResult = await firstExecution;
+
+  assert.equal(secondResult.state, "failed");
+  assert.equal(secondResult.retryable, false);
+  assert.equal(secondResult.error?.code, "PUBLISH_TARGET_LIBRARY_RESERVED");
+  assert.equal(firstResult.state, "verified");
+  assert.equal(dispatchCount, 1);
+});
+
+test("FCPXML publisher recovers a dead reservation only when its target is absent", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-stale-reservation-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const canonicalTargetParent = join(directory, "canonical-target-parent");
+  const aliasedTargetParent = join(directory, "aliased-target-parent");
+  await mkdir(canonicalTargetParent);
+  await symlink(canonicalTargetParent, aliasedTargetParent, "dir");
+  const targetLibraryPath = join(aliasedTargetParent, "Stale Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Stale Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  const reservationPath = await reservationPathFor(targetLibraryPath);
+  await writeFile(reservationPath, JSON.stringify({
+    reservationId: "abandoned-reservation",
+    targetLibraryPath: join(await realpath(aliasedTargetParent), basename(targetLibraryPath)),
+    pid: findUnusedPid(),
+    createdAt: new Date(0).toISOString(),
+  }));
+  let liveStateCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => "imported",
+    targetBinding: async () => ({ projectId: "project-stale", sequenceId: "sequence-stale", libraryPath: targetLibraryPath }),
+    liveState: async () => liveStateCalls++ === 0
+      ? { revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }
+      : {
+        project: { id: "project-stale", name: "Stale Project" },
+        sequence: { id: "sequence-stale", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        revision: { id: "after", sequence: 2, timestamp: new Date(1).toISOString() },
+      },
+  });
+
+  const result = await publisher.publishNewProject({
+    sourceTransactionId: "txn-stale-reservation",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+    confirm: true,
+  });
+
+  assert.equal(result.verified, true);
+  await assert.rejects(readFile(reservationPath), { code: "ENOENT" });
+});
+
+test("FCPXML publisher keeps malformed and live-process reservations", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-protected-reservation-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project name="Protected Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+
+  for (const index of [0, 1]) {
+    const targetLibraryPath = join(directory, `Protected Library ${index}.fcpbundle`);
+    const reservationPath = await reservationPathFor(targetLibraryPath);
+    const contents = index === 0
+      ? "not-json"
+      : JSON.stringify({ reservationId: "live-reservation", targetLibraryPath, pid: process.pid });
+    await writeFile(reservationPath, contents);
+    const publisher = new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath,
+      executor: async () => "must not import",
+      targetBinding: async () => ({ projectId: "project-protected", sequenceId: "sequence-protected" }),
+      liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+    });
+
+    await assert.rejects(publisher.publishNewProject({
+      sourceTransactionId: `txn-protected-reservation-${index}`,
+      artifactPath: sourcePath,
+      artifactDigest: digest(source),
+      targetLibraryPath,
+      confirm: true,
+    }), /PUBLISH_TARGET_LIBRARY_RESERVED/);
+    assert.equal(await readFile(reservationPath, "utf8"), contents);
+  }
+});
+
+test("FCPXML direct publish transfers an ambiguous reservation to a resumable job", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-direct-recovery-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Pending Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Pending Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let liveStateCalls = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => { throw new Error("native import outcome is uncertain"); },
+    targetBinding: async () => ({ projectId: "project-pending", sequenceId: "sequence-pending", libraryPath: targetLibraryPath }),
+    liveState: async () => liveStateCalls++ === 0
+      ? { revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }
+      : {
+        project: { id: "project-pending", name: "Pending Project" },
+        sequence: { id: "sequence-pending", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        revision: { id: "after", sequence: 2, timestamp: new Date(1).toISOString() },
+      },
+  });
+
+  let publishError: Error | undefined;
+  try {
+    await publisher.publishNewProject({
+      sourceTransactionId: "txn-direct-pending",
+      artifactPath: sourcePath,
+      artifactDigest: digest(source),
+      targetLibraryPath,
+      confirm: true,
+    });
+  } catch (error) {
+    publishError = error as Error;
+  }
+  const jobId = publishError?.message.match(/publish job ([\w-]+)/)?.[1];
+
+  assert.ok(jobId, "direct publish failure should expose its verification job id");
+  assert.equal(publisher.getPublishJob(jobId).state, "verification-pending");
+  assert.match(await readFile(await reservationPathFor(targetLibraryPath), "utf8"), /reservationId/);
+  const resumed = await publisher.executePublishJob(jobId, true);
+  assert.equal(resumed.state, "verified");
+  await assert.rejects(readFile(await reservationPathFor(targetLibraryPath)), { code: "ENOENT" });
+});
+
+async function reservationPathFor(targetLibraryPath: string): Promise<string> {
+  const requestedTarget = resolve(targetLibraryPath);
+  const parent = await realpath(dirname(requestedTarget));
+  const targetName = basename(requestedTarget).normalize("NFC");
+  const reservationKey = join(parent, targetName);
+  const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
+  return join(parent, `.framekit-publish-${digest(normalizedKey)}.lock`);
+}
+
+function findUnusedPid(): number {
+  for (let pid = process.pid + 1; pid <= process.pid + 10_000; pid += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ESRCH") return pid;
+    }
+  }
+  throw new Error("could not find an unused process id for the stale reservation fixture");
+}
+
 test("FCPXML publisher exposes target selection as an interaction-required boundary", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-document-target-"));
   const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Target Library.fcpbundle");
   const source = '<fcpxml version="1.11"><library><event><project name="Needs Target"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
   let liveStateCalls = 0;
@@ -194,6 +609,7 @@ test("FCPXML publisher exposes target selection as an interaction-required bound
     sourceTransactionId: "txn-document-target",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
+    targetLibraryPath,
     confirm: true,
   }), /FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE/);
 
@@ -269,7 +685,6 @@ test("FCPXML publisher is unavailable when the production setup cannot bind a cr
       ui: "none",
       target: { guarantee: "unavailable" },
     }) },
-    targetLibraryUid: "configured-library",
     liveState: async () => ({
       revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() },
     }),

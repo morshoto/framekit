@@ -1,16 +1,18 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { constants, realpathSync } from "node:fs";
+import { access, lstat, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { EditorLiveState } from "@framekit/runtime";
 import type { FinalCutFcpxmlDelivery } from "./live.js";
 
 const execFile = promisify(execFileCallback);
 
 export interface FinalCutProjectPublishDelivery {
-  status: "verified";
+  status: "dispatched";
   route: "background-document-open" | "headed-accessibility";
   requestedActivates: boolean;
   activation: FinalCutFcpxmlDelivery["activation"];
@@ -29,8 +31,11 @@ export interface FinalCutProjectPublishResult {
   projectName: string;
   createdTarget: {
     kind: "editor.project";
-    projectId?: string;
-    sequenceId?: string;
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+    libraryPath?: string;
     projectName: string;
     sequenceName?: string;
   };
@@ -40,6 +45,8 @@ export interface FinalCutProjectPublishResult {
     changed?: boolean;
   };
   verified: boolean;
+  importedDigest: string;
+  targetLibraryPath?: string;
   liveProject?: string;
   liveSequence?: string;
   delivery?: FinalCutProjectPublishDelivery;
@@ -49,6 +56,7 @@ export interface FinalCutProjectPublishRequest {
   sourceTransactionId: string;
   artifactPath: string;
   artifactDigest: string;
+  targetLibraryPath?: string;
   confirm: boolean;
 }
 
@@ -56,11 +64,15 @@ export interface FinalCutProjectPublishPreparationRequest {
   sourceTransactionId: string;
   artifactPath: string;
   artifactDigest: string;
+  targetLibraryPath?: string;
 }
 
 export interface FinalCutProjectPublishTargetBinding {
   projectId: string;
   sequenceId: string;
+  libraryId?: string;
+  eventId?: string;
+  libraryPath?: string;
 }
 
 export type FinalCutProjectPublishJobState =
@@ -85,6 +97,7 @@ export interface FinalCutProjectPublishJob {
     artifactPath: string;
   };
   artifactDigest: string;
+  targetLibraryPath?: string;
   projectName: string;
   sequenceName: string;
   confirmationRequired: boolean;
@@ -106,14 +119,15 @@ export interface FinalCutProjectPublisherOptions {
   sourcePath: string;
   executor?: (script: string) => Promise<string>;
   liveState?: () => Promise<EditorLiveState>;
-  /** Supplies the exact target identity reserved by a native publish path. */
-  targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
+  /** Reads the exact created target from the requested native library after import. */
+  targetBinding?: (
+    targetLibraryPath: string | undefined,
+    identity: { projectName: string; sequenceName: string },
+  ) => Promise<FinalCutProjectPublishTargetBinding>;
   /** Opens the staged FCPXML through the native Workflow Extension bridge. */
   documentDelivery?: {
-    deliverFcpxml(request: { artifactPath: string; targetLibraryUid?: string; activates: boolean }): Promise<FinalCutFcpxmlDelivery>;
+    deliverFcpxml(request: { artifactPath: string; targetLibraryLocation?: string; activates: boolean }): Promise<FinalCutFcpxmlDelivery>;
   };
-  /** Target library identity required before the native document-open route is attempted. */
-  targetLibraryUid?: string;
   /** Explicitly permits the legacy Accessibility import after a native delivery blocker. */
   allowHeadedFallback?: boolean;
   verificationTimeoutMs?: number;
@@ -125,9 +139,13 @@ export interface FinalCutProjectPublisherOptions {
 interface PublishJobRuntime {
   beforeLive: EditorLiveState;
   identity: { projectName: string; sequenceName: string };
-  targetBinding: FinalCutProjectPublishTargetBinding;
+  targetLibraryPath?: string;
   importedPath?: string;
+  importedDigest?: string;
   delivery?: FinalCutProjectPublishDelivery;
+  reservationPath?: string;
+  reservationId?: string;
+  importAttempted?: boolean;
 }
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
@@ -136,9 +154,8 @@ export class FinalCutProjectPublisher {
   private readonly sourcePath: string;
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
-  private readonly targetBinding?: () => Promise<FinalCutProjectPublishTargetBinding>;
+  private readonly targetBinding?: FinalCutProjectPublisherOptions["targetBinding"];
   private readonly documentDelivery?: FinalCutProjectPublisherOptions["documentDelivery"];
-  private readonly targetLibraryUid?: string;
   private readonly allowHeadedFallback: boolean;
   private readonly verificationTimeoutMs: number;
   private readonly pollIntervalMs: number;
@@ -152,7 +169,6 @@ export class FinalCutProjectPublisher {
     this.liveState = options.liveState;
     this.targetBinding = options.targetBinding;
     this.documentDelivery = options.documentDelivery;
-    this.targetLibraryUid = options.targetLibraryUid;
     this.allowHeadedFallback = options.allowHeadedFallback ?? false;
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
@@ -170,6 +186,7 @@ export class FinalCutProjectPublisher {
     request: FinalCutProjectPublishPreparationRequest,
   ): Promise<FinalCutProjectPublishJob> {
     const { identity } = await this.readValidatedSource(request);
+    const targetLibraryPath = await validateTargetLibraryPath(request.targetLibraryPath, Boolean(this.documentDelivery));
     const job: FinalCutProjectPublishJob = {
       jobId: `publish-job-${randomUUID()}`,
       state: "awaiting-confirmation",
@@ -180,6 +197,7 @@ export class FinalCutProjectPublisher {
       sourcePath: this.sourcePath,
       sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
       artifactDigest: request.artifactDigest,
+      ...(targetLibraryPath ? { targetLibraryPath } : {}),
       projectName: identity.projectName,
       sequenceName: identity.sequenceName,
       confirmationRequired: true,
@@ -187,7 +205,7 @@ export class FinalCutProjectPublisher {
         mode: this.documentDelivery ? "background-document-open" : "headed-only",
         backgroundSupported: Boolean(this.documentDelivery),
         reason: this.documentDelivery
-          ? "Uses the native FCPXML document-open bridge with activates=false; Final Cut may still return an explicit user-interaction-required boundary when target selection cannot be guaranteed."
+          ? "Opens the approved FCPXML through the native document-open bridge with an explicit new library location; a separate catalog readback must bind the created project before success."
           : "Final Cut has no supported non-UI project publishing contract; use the explicit headed handoff and verify the created target.",
       },
     };
@@ -236,16 +254,15 @@ export class FinalCutProjectPublisher {
         sourceTransactionId: job.sourceTransactionId,
         artifactPath: job.sourcePath,
         artifactDigest: job.artifactDigest,
+        ...(job.targetLibraryPath ? { targetLibraryPath: job.targetLibraryPath } : {}),
       });
+      await validateTargetLibraryPath(job.targetLibraryPath, Boolean(this.documentDelivery));
     } catch (error) {
       return this.markFailed(job, error);
     }
 
-    let targetBinding: FinalCutProjectPublishTargetBinding;
-    try {
-      targetBinding = await this.resolveTargetBinding();
-    } catch (error) {
-      return this.markFailed(job, error);
+    if (!this.targetBinding) {
+      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted"));
     }
 
     let beforeLive: EditorLiveState;
@@ -256,7 +273,11 @@ export class FinalCutProjectPublisher {
       return this.markAwaitingFinalCut(job, normalized.code, normalized.message);
     }
 
-    const runtime: PublishJobRuntime = { beforeLive, identity: validated.identity, targetBinding };
+    const runtime: PublishJobRuntime = {
+      beforeLive,
+      identity: validated.identity,
+      ...(job.targetLibraryPath ? { targetLibraryPath: job.targetLibraryPath } : {}),
+    };
     this.publishJobRuntime.set(job.jobId, runtime);
     job.state = "verification-pending";
     job.nextAction = "status";
@@ -267,6 +288,7 @@ export class FinalCutProjectPublisher {
           sourceTransactionId: job.sourceTransactionId,
           artifactPath: job.sourcePath,
           artifactDigest: job.artifactDigest,
+          ...(job.targetLibraryPath ? { targetLibraryPath: job.targetLibraryPath } : {}),
           confirm: true,
         },
         validated.source,
@@ -276,10 +298,16 @@ export class FinalCutProjectPublisher {
       );
       return this.markVerified(job, result);
     } catch (error) {
+      const normalized = publishError(error);
+      if (normalized.code === "PUBLISH_TARGET_LIBRARY_RESERVED") return this.markFailed(job, error);
+      if (!runtime.importAttempted) {
+        await releaseTargetLibraryReservation(runtime);
+        return this.markAwaitingFinalCut(job, normalized.code, normalized.message);
+      }
       job.state = "verification-pending";
       job.nextAction = "retry";
       job.retryable = true;
-      job.error = publishError(error);
+      job.error = normalized;
       return clonePublishJob(job);
     }
   }
@@ -291,21 +319,47 @@ export class FinalCutProjectPublisher {
     if (!this.liveState) {
       throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
     }
-    const targetBinding = await this.resolveTargetBinding();
-    const beforeLive = await readLiveState(this.liveState, "before import");
-    const runtime: PublishJobRuntime = { beforeLive, identity, targetBinding };
-    return this.importAndVerify(request, source, identity, beforeLive, runtime);
-  }
-
-  private async resolveTargetBinding(): Promise<FinalCutProjectPublishTargetBinding> {
     if (!this.targetBinding) {
       throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
     }
-    const targetBinding = await this.targetBinding();
-    if (!targetBinding.projectId.trim() || !targetBinding.sequenceId.trim()) {
-      throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: native target binding did not return project and sequence identities; no import was attempted");
+    const targetLibraryPath = await validateTargetLibraryPath(request.targetLibraryPath, Boolean(this.documentDelivery));
+    const beforeLive = await readLiveState(this.liveState, "before import");
+    const runtime: PublishJobRuntime = {
+      beforeLive,
+      identity,
+      ...(targetLibraryPath ? { targetLibraryPath } : {}),
+    };
+    try {
+      return await this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+    } catch (error) {
+      if (!runtime.importAttempted) throw error;
+
+      const normalized = publishError(error);
+      const job: FinalCutProjectPublishJob = {
+        jobId: `publish-job-${randomUUID()}`,
+        state: "verification-pending",
+        nextAction: "retry",
+        retryable: true,
+        executionMode: this.documentDelivery ? "background-capable" : "headed-only",
+        sourceTransactionId: request.sourceTransactionId,
+        sourcePath: this.sourcePath,
+        sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
+        artifactDigest: request.artifactDigest,
+        ...(targetLibraryPath ? { targetLibraryPath } : {}),
+        projectName: identity.projectName,
+        sequenceName: identity.sequenceName,
+        confirmationRequired: false,
+        handoff: {
+          mode: this.documentDelivery ? "background-document-open" : "headed-only",
+          backgroundSupported: Boolean(this.documentDelivery),
+          reason: "A direct publish may have reached Final Cut; verify this job before another import so its target reservation remains protected.",
+        },
+        error: normalized,
+      };
+      this.publishJobs.set(job.jobId, job);
+      this.publishJobRuntime.set(job.jobId, runtime);
+      throw new Error(`FINAL_CUT_PUBLISH_VERIFICATION_PENDING: publish job ${job.jobId} retained the target reservation; inspect with artifact.publish.status and resume with artifact.publish.execute (${normalized.message})`);
     }
-    return targetBinding;
   }
 
   private async readValidatedSource(
@@ -334,21 +388,34 @@ export class FinalCutProjectPublisher {
     runtime?: PublishJobRuntime,
   ): Promise<FinalCutProjectPublishResult> {
     if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
-    if (runtime && !runtime.targetBinding) {
-      throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no stable created-target identity was retained across verification; no publish success was reported");
-    }
+    if (!this.targetBinding) throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
+    const targetLibraryPath = await validateTargetLibraryPath(request.targetLibraryPath, Boolean(this.documentDelivery));
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-publish-"));
     const importedPath = join(directory, basename(this.sourcePath));
     if (runtime) runtime.importedPath = importedPath;
-    await writeFile(importedPath, source, "utf8");
+    const importedSource = targetLibraryPath ? withLibraryLocationImportOption(source, targetLibraryPath) : source;
+    const importedDigest = hash(importedSource);
+    if (runtime) runtime.importedDigest = importedDigest;
     let delivery: FinalCutProjectPublishDelivery | undefined;
     try {
+      await writeFile(importedPath, importedSource, "utf8");
+      await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
+      const reservation = targetLibraryPath ? await reserveTargetLibraryPath(targetLibraryPath) : undefined;
+      if (runtime && reservation) {
+        runtime.reservationPath = reservation.path;
+        runtime.reservationId = reservation.id;
+      }
+      await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
       if (this.documentDelivery) {
+        if (runtime) runtime.importAttempted = true;
         const dispatched = await this.documentDelivery.deliverFcpxml({
           artifactPath: importedPath,
-          ...(this.targetLibraryUid ? { targetLibraryUid: this.targetLibraryUid } : {}),
+          ...(targetLibraryPath ? { targetLibraryLocation: targetLibraryPath } : {}),
           activates: false,
         });
+        if (runtime && dispatched.status !== "dispatched" && !dispatched.attempted) {
+          runtime.importAttempted = false;
+        }
         if (dispatched.status !== "dispatched" && !this.allowHeadedFallback) {
           const error = dispatched.error ?? {
             code: "FINAL_CUT_DELIVERY_USER_INTERACTION_REQUIRED",
@@ -358,7 +425,7 @@ export class FinalCutProjectPublisher {
         }
         if (dispatched.status === "dispatched") {
           delivery = {
-            status: "verified",
+            status: "dispatched",
             route: dispatched.route,
             requestedActivates: dispatched.requestedActivates,
             activation: dispatched.activation,
@@ -366,9 +433,10 @@ export class FinalCutProjectPublisher {
             target: dispatched.target,
           };
         } else {
+          if (runtime) runtime.importAttempted = true;
           await this.executor(importXmlScript(importedPath));
           delivery = {
-            status: "verified",
+            status: "dispatched",
             route: "headed-accessibility",
             requestedActivates: true,
             activation: "activated",
@@ -377,9 +445,10 @@ export class FinalCutProjectPublisher {
           };
         }
       } else {
+        if (runtime) runtime.importAttempted = true;
         await this.executor(importXmlScript(importedPath));
         delivery = {
-          status: "verified",
+          status: "dispatched",
           route: "headed-accessibility",
           requestedActivates: true,
           activation: "activated",
@@ -388,15 +457,32 @@ export class FinalCutProjectPublisher {
         };
       }
       if (runtime) runtime.delivery = delivery;
-      const live = await waitForImportedProject(
+      const verifiedTarget = await waitForImportedProject(
         this.liveState,
+        (targetPath, targetIdentity) => this.targetBinding!(targetPath, targetIdentity),
+        targetLibraryPath,
         identity,
         beforeLive,
-        runtime?.targetBinding,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
-      return publishResult(request, importedPath, identity, beforeLive, live, delivery);
+      const result = publishResult(
+        request,
+        importedPath,
+        importedDigest,
+        identity,
+        beforeLive,
+        verifiedTarget.live,
+        verifiedTarget.targetBinding,
+        delivery,
+      );
+      if (runtime) await releaseTargetLibraryReservation(runtime);
+      return result;
+    } catch (error) {
+      if (!runtime?.importAttempted) {
+        if (runtime) await releaseTargetLibraryReservation(runtime);
+      }
+      throw error;
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -411,15 +497,16 @@ export class FinalCutProjectPublisher {
         "Final Cut project state verification is unavailable; retry this job when the live provider is ready",
       );
     }
-    if (!runtime.targetBinding) {
-      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no stable created-target identity was retained across verification; no publish success was reported"));
+    if (!this.targetBinding) {
+      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no publish success was reported"));
     }
     try {
-      const live = await waitForImportedProject(
+      const verifiedTarget = await waitForImportedProject(
         this.liveState,
+        (targetPath, identity) => this.targetBinding!(targetPath, identity),
+        runtime.targetLibraryPath,
         runtime.identity,
         runtime.beforeLive,
-        runtime.targetBinding,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
@@ -428,14 +515,18 @@ export class FinalCutProjectPublisher {
           sourceTransactionId: job.sourceTransactionId,
           artifactPath: job.sourcePath,
           artifactDigest: job.artifactDigest,
+          ...(runtime.targetLibraryPath ? { targetLibraryPath: runtime.targetLibraryPath } : {}),
           confirm: true,
         },
         runtime.importedPath ?? job.sourcePath,
+        runtime.importedDigest ?? job.artifactDigest,
         runtime.identity,
         runtime.beforeLive,
-        live,
+        verifiedTarget.live,
+        verifiedTarget.targetBinding,
         runtime.delivery,
       );
+      await releaseTargetLibraryReservation(runtime);
       return this.markVerified(job, result);
     } catch (error) {
       job.state = "verification-pending";
@@ -672,20 +763,42 @@ async function readLiveState(
 
 async function waitForImportedProject(
   liveState: () => Promise<EditorLiveState>,
+  resolveTargetBinding: (
+    targetLibraryPath: string | undefined,
+    identity: { projectName: string; sequenceName: string },
+  ) => Promise<FinalCutProjectPublishTargetBinding>,
+  targetLibraryPath: string | undefined,
   identity: { projectName: string; sequenceName: string },
   before: EditorLiveState,
-  targetBinding: FinalCutProjectPublishTargetBinding | undefined,
   timeoutMs: number,
   pollIntervalMs: number,
-): Promise<EditorLiveState> {
+): Promise<{ live: EditorLiveState; targetBinding: FinalCutProjectPublishTargetBinding }> {
   const deadline = Date.now() + timeoutMs;
   let latest: EditorLiveState | undefined;
   let lastError: unknown;
+  let latestBinding: FinalCutProjectPublishTargetBinding | undefined;
   do {
     try {
       latest = await readLiveState(liveState, "after import");
       lastError = undefined;
-      if (isImportedProject(latest, identity, before, targetBinding)) return latest;
+    } catch (error) {
+      lastError = error;
+    }
+    try {
+      latestBinding = await resolveTargetBinding(targetLibraryPath, identity);
+      if (!latestBinding.projectId.trim() || !latestBinding.sequenceId.trim()) {
+        throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: native target binding did not return project and sequence identities");
+      }
+      if (targetLibraryPath) {
+        if (!latestBinding.libraryPath || normalizeLibraryPath(latestBinding.libraryPath) !== normalizeLibraryPath(targetLibraryPath)) {
+          throw new Error(`FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected library ${targetLibraryPath}, observed ${latestBinding.libraryPath ?? "unavailable"}`);
+        }
+        if (latest && isImportedProject(latest, identity, before, latestBinding)) {
+          return { live: latest, targetBinding: latestBinding };
+        }
+      } else if (latest && isImportedProject(latest, identity, before, latestBinding)) {
+        return { live: latest, targetBinding: latestBinding };
+      }
     } catch (error) {
       lastError = error;
     }
@@ -696,10 +809,10 @@ async function waitForImportedProject(
   if (lastError) throw lastError;
   const observedProject = latest?.project?.name ?? "none";
   const observedSequence = latest?.sequence?.name ?? "none";
-  if (targetBinding && latest?.project && latest.sequence
-    && (latest.project.id !== targetBinding.projectId || latest.sequence.id !== targetBinding.sequenceId)) {
+  if (latestBinding && latest?.project && latest.sequence
+    && (latest.project.id !== latestBinding.projectId || latest.sequence.id !== latestBinding.sequenceId)) {
     throw new Error(
-      `FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected bound target ${targetBinding.projectId}/${targetBinding.sequenceId}, observed ${latest.project.id}/${latest.sequence.id}`,
+      `FINAL_CUT_PUBLISH_TARGET_MISMATCH: expected bound target ${latestBinding.projectId}/${latestBinding.sequenceId}, observed ${latest.project.id}/${latest.sequence.id}`,
     );
   }
   throw new Error(
@@ -730,6 +843,195 @@ function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ path: string; id: string }> {
+  const requestedTarget = resolve(targetLibraryPath);
+  const parent = await realpath(dirname(requestedTarget));
+  const targetName = basename(requestedTarget).normalize("NFC");
+  const canonicalTarget = join(parent, basename(requestedTarget));
+  const reservationKey = join(parent, targetName);
+  const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
+  const reservationPath = join(parent, `.framekit-publish-${hash(normalizedKey)}.lock`);
+  const reservationId = randomUUID();
+  try {
+    await writeFile(reservationPath, JSON.stringify({
+      reservationId,
+      targetLibraryPath: canonicalTarget,
+      pid: process.pid,
+      createdAt: new Date().toISOString(),
+    }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, canonicalTarget);
+      if (recovered) {
+        try {
+          await writeFile(reservationPath, JSON.stringify({
+            reservationId,
+            targetLibraryPath: canonicalTarget,
+            pid: process.pid,
+            createdAt: new Date().toISOString(),
+          }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+          return { path: reservationPath, id: reservationId };
+        } catch (retryError) {
+          if ((retryError as NodeJS.ErrnoException)?.code !== "EEXIST") throw retryError;
+        }
+      }
+      throw new Error(`PUBLISH_TARGET_LIBRARY_RESERVED: another publisher is creating ${requestedTarget}`);
+    }
+    throw error;
+  }
+  return { path: reservationPath, id: reservationId };
+}
+
+async function recoverAbandonedTargetLibraryReservation(reservationPath: string, requestedTarget: string): Promise<boolean> {
+  let reservationStat;
+  let reservationContents: string;
+  try {
+    reservationStat = await lstat(reservationPath);
+    if (!reservationStat.isFile()) return false;
+    reservationContents = await readFile(reservationPath, "utf8");
+  } catch {
+    return false;
+  }
+
+  let reservation: { reservationId?: unknown; targetLibraryPath?: unknown; pid?: unknown };
+  try {
+    reservation = JSON.parse(reservationContents) as typeof reservation;
+  } catch {
+    return false;
+  }
+  if (typeof reservation.reservationId !== "string" || !reservation.reservationId
+    || typeof reservation.targetLibraryPath !== "string"
+    || resolve(reservation.targetLibraryPath) !== requestedTarget
+    || !Number.isSafeInteger(reservation.pid) || (reservation.pid as number) <= 0
+    || processIsRunning(reservation.pid as number)) return false;
+
+  try {
+    await lstat(requestedTarget);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") return false;
+  }
+
+  try {
+    const currentStat = await lstat(reservationPath);
+    const currentContents = await readFile(reservationPath, "utf8");
+    if (currentStat.dev !== reservationStat.dev || currentStat.ino !== reservationStat.ino || currentContents !== reservationContents) return false;
+    await rm(reservationPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code !== "ESRCH";
+  }
+}
+
+async function releaseTargetLibraryReservation(runtime: PublishJobRuntime): Promise<void> {
+  if (!runtime.reservationPath || !runtime.reservationId) return;
+  const reservationPath = runtime.reservationPath;
+  try {
+    const contents = JSON.parse(await readFile(reservationPath, "utf8")) as { reservationId?: unknown };
+    if (contents.reservationId === runtime.reservationId) {
+      await rm(reservationPath, { force: true });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      throw new Error(`PUBLISH_TARGET_RESERVATION_RELEASE_FAILED: could not release ${reservationPath}`);
+    }
+  }
+  delete runtime.reservationPath;
+  delete runtime.reservationId;
+}
+
+async function validateTargetLibraryPath(path: string | undefined, required: boolean): Promise<string | undefined> {
+  if (!path?.trim()) {
+    if (required) throw new Error("PUBLISH_TARGET_LIBRARY_REQUIRED: provide a new absolute .fcpbundle path for the imported project");
+    return undefined;
+  }
+  if (!isAbsolute(path) || extname(path).toLowerCase() !== ".fcpbundle") {
+    throw new Error("PUBLISH_TARGET_LIBRARY_INVALID: targetLibraryPath must be an absolute path ending in .fcpbundle");
+  }
+  const requestedTarget = resolve(path);
+  try {
+    await lstat(requestedTarget);
+    throw new Error(`PUBLISH_TARGET_LIBRARY_EXISTS: target library already exists at ${requestedTarget}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("PUBLISH_TARGET_LIBRARY_EXISTS:")) throw error;
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+  }
+  let parent: string;
+  try {
+    parent = await realpath(dirname(requestedTarget));
+    await access(parent, constants.W_OK);
+  } catch {
+    throw new Error(`PUBLISH_TARGET_LIBRARY_PARENT_UNAVAILABLE: target library parent must exist and be writable: ${dirname(requestedTarget)}`);
+  }
+  const canonicalTarget = join(parent, basename(requestedTarget));
+  try {
+    await lstat(canonicalTarget);
+    throw new Error(`PUBLISH_TARGET_LIBRARY_EXISTS: target library already exists at ${requestedTarget}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("PUBLISH_TARGET_LIBRARY_EXISTS:")) throw error;
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+  }
+  return requestedTarget;
+}
+
+function withLibraryLocationImportOption(source: string, targetLibraryPath: string): string {
+  const opening = /<fcpxml\b[^>]*>/i.exec(source);
+  const closing = /<\/fcpxml\s*>/ig;
+  const closings = [...source.matchAll(closing)];
+  if (!opening || closings.length !== 1 || (closings[0]?.index ?? -1) < opening.index + opening[0].length) {
+    throw new Error("FINAL_CUT_PUBLISH_VALIDATION_FAILED: source FCPXML must have one complete fcpxml root");
+  }
+  const bodyStart = opening.index + opening[0].length;
+  const bodyEnd = closings[0]!.index!;
+  const option = `<import-options><option key="library location" value="${escapeXmlAttribute(pathToFileURL(targetLibraryPath).href)}"/></import-options>`;
+  const body = source.slice(bodyStart, bodyEnd);
+  const existing = /<import-options\b([^>]*)>([\s\S]*?)<\/import-options\s*>/i;
+  const selfClosing = /<import-options\b([^>]*)\/>/i;
+  const existingMatch = existing.exec(body);
+  const selfClosingMatch = existingMatch ? undefined : selfClosing.exec(body);
+  let updatedBody: string;
+  if (existingMatch) {
+    const options = existingMatch[2] ?? "";
+    const locationOption = /<option\b(?=[^>]*\bkey=(["'])library location\1)[^>]*(?:\/>|>[\s\S]*?<\/option\s*>)/i;
+    const innerOption = option.slice("<import-options>".length, -"</import-options>".length);
+    const updatedOptions = locationOption.test(options)
+      ? options.replace(locationOption, () => innerOption)
+      : `${innerOption}${options}`;
+    updatedBody = body.replace(existing, () => `<import-options${existingMatch[1] ?? ""}>${updatedOptions}</import-options>`);
+  } else if (selfClosingMatch) {
+    updatedBody = body.replace(selfClosing, () => `<import-options${selfClosingMatch[1] ?? ""}>${option.slice("<import-options>".length, -"</import-options>".length)}</import-options>`);
+  } else {
+    updatedBody = `${option}${body}`;
+  }
+  return `${source.slice(0, bodyStart)}${updatedBody}${source.slice(bodyEnd)}`;
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function normalizeLibraryPath(path: string): string {
+  try {
+    const resolved = resolve(path.startsWith("file:") ? fileURLToPath(path) : path);
+    try {
+      return realpathSync(resolved);
+    } catch {
+      return resolved;
+    }
+  } catch {
+    return resolve(path);
+  }
+}
+
 function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {
   return structuredClone(job);
 }
@@ -737,9 +1039,11 @@ function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublish
 function publishResult(
   request: FinalCutProjectPublishRequest,
   importedPath: string,
+  importedDigest: string,
   identity: { projectName: string; sequenceName: string },
   beforeLive: EditorLiveState,
   live: EditorLiveState,
+  targetBinding: FinalCutProjectPublishTargetBinding,
   delivery?: FinalCutProjectPublishDelivery,
 ): FinalCutProjectPublishResult {
   return {
@@ -747,13 +1051,18 @@ function publishResult(
     sourcePath: request.artifactPath,
     sourceTarget: { kind: "artifact", artifactPath: request.artifactPath },
     importedPath,
+    importedDigest,
+    ...(request.targetLibraryPath ? { targetLibraryPath: request.targetLibraryPath } : {}),
     projectName: identity.projectName,
     createdTarget: {
       kind: "editor.project",
-      ...(live.project?.id ? { projectId: live.project.id } : {}),
-      ...(live.sequence?.id ? { sequenceId: live.sequence.id } : {}),
+      projectId: targetBinding.projectId,
+      sequenceId: targetBinding.sequenceId,
+      ...(targetBinding.libraryId ? { libraryId: targetBinding.libraryId } : {}),
+      ...(targetBinding.eventId ? { eventId: targetBinding.eventId } : {}),
+      ...(targetBinding.libraryPath ? { libraryPath: targetBinding.libraryPath } : {}),
       projectName: identity.projectName,
-      ...(live.sequence?.name ? { sequenceName: live.sequence.name } : {}),
+      sequenceName: identity.sequenceName,
     },
     activeProject: {
       ...(beforeLive.project ? { before: beforeLive.project } : {}),

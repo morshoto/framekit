@@ -651,14 +651,14 @@ test("MCP does not advertise or invoke disabled project publishing", async () =>
 
     const publish = await client.callTool({
       name: "timeline.publish.new-project",
-      arguments: { transactionId: "missing-transaction", confirm: true },
+      arguments: { transactionId: "missing-transaction", targetLibraryPath: "/tmp/Target.fcpbundle", confirm: true },
     });
     assert.equal(publish.isError, true);
     assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
 
     const artifactPublish = await client.callTool({
       name: "artifact.publish",
-      arguments: { artifactPath: "/tmp/disabled-project.fcpxml", transactionId: "missing-transaction", confirm: true },
+      arguments: { artifactPath: "/tmp/disabled-project.fcpxml", targetLibraryPath: "/tmp/Target.fcpbundle", transactionId: "missing-transaction", confirm: true },
     });
     assert.equal(artifactPublish.isError, true);
     assert.match(textFrom(artifactPublish), /CAPABILITY_UNAVAILABLE/);
@@ -693,7 +693,6 @@ test("production-shaped publisher is unavailable without target-bound creation",
           target: { guarantee: "unavailable" },
         }),
       },
-      targetLibraryUid: "configured-library",
       liveState: async () => ({
         project: { id: "existing-project", name: "Existing" },
         sequence: {
@@ -724,7 +723,7 @@ test("production-shaped publisher is unavailable without target-bound creation",
 
     const publish = await client.callTool({
       name: "artifact.publish",
-      arguments: { artifactPath: "/tmp/managed.fcpxml", transactionId: "missing-transaction", confirm: true },
+      arguments: { artifactPath: "/tmp/managed.fcpxml", targetLibraryPath: "/tmp/Target.fcpbundle", transactionId: "missing-transaction", confirm: true },
     });
     assert.equal(publish.isError, true);
     assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE.*target-binding provider/);
@@ -795,7 +794,7 @@ test("MCP keeps publishing unavailable for a metadata-only connection", async ()
 
     const publish = await client.callTool({
       name: "timeline.publish.new-project",
-      arguments: { transactionId: "missing-transaction", confirm: true },
+      arguments: { transactionId: "missing-transaction", targetLibraryPath: "/tmp/Target.fcpbundle", confirm: true },
     });
     assert.equal(publish.isError, true);
     assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);

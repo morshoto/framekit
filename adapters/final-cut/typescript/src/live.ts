@@ -30,7 +30,7 @@ export type FinalCutLiveMethod = "capabilities" | "state" | "changes" | "project
 
 export interface FinalCutFcpxmlDeliveryRequest {
   artifactPath: string;
-  targetLibraryUid?: string;
+  targetLibraryLocation?: string;
   activates: boolean;
 }
 
@@ -43,7 +43,7 @@ export interface FinalCutFcpxmlDelivery {
   activation: "preserved" | "activated" | "unknown";
   ui: "none" | "prompted" | "displayed" | "unknown";
   target: {
-    requestedLibraryUid?: string;
+    requestedLibraryLocation?: string;
     guarantee: "requested-unverified" | "unavailable";
   };
   error?: { code: string; message: string };
@@ -58,7 +58,7 @@ export interface FinalCutLiveRequest {
   projectId?: string;
   sequenceId?: string;
   artifactPath?: string;
-  targetLibraryUid?: string;
+  targetLibraryLocation?: string;
   activates?: boolean;
   operation?: EditOperation;
   expectedRevision?: ContextRevision;
@@ -267,7 +267,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     const response = await this.request({
       method: "deliver-fcpxml",
       artifactPath: request.artifactPath,
-      ...(request.targetLibraryUid ? { targetLibraryUid: request.targetLibraryUid } : {}),
+      ...(request.targetLibraryLocation ? { targetLibraryLocation: request.targetLibraryLocation } : {}),
       activates: request.activates,
     });
     if (!response.delivery) throw new Error("FINAL_CUT_LIVE_PROTOCOL: FCPXML delivery response was empty");
@@ -300,7 +300,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     return createProjectSelectionResult(response.catalog, selection, response.revision);
   }
 
-  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "artifactPath" | "targetLibraryUid" | "activates" | "operation" | "expectedRevision" | "snapshot">) {
+  private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "artifactPath" | "targetLibraryLocation" | "activates" | "operation" | "expectedRevision" | "snapshot">) {
     const response = await this.transport.request({
       version: FINAL_CUT_LIVE_PROTOCOL_VERSION,
       id: randomUUID(),
@@ -337,7 +337,7 @@ function validateFcpxmlDelivery(delivery: FinalCutFcpxmlDelivery, request: Final
   if (delivery.status !== "dispatched" && (!delivery.error?.code?.trim() || !delivery.error.message.trim())) {
     throw new Error("FINAL_CUT_LIVE_PROTOCOL: blocked FCPXML delivery response is missing an error");
   }
-  if (request.targetLibraryUid && delivery.target.requestedLibraryUid !== request.targetLibraryUid) {
+  if (request.targetLibraryLocation && delivery.target.requestedLibraryLocation !== request.targetLibraryLocation) {
     throw new Error("FINAL_CUT_LIVE_PROTOCOL: FCPXML delivery target does not match the request");
   }
 }
