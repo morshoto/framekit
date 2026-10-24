@@ -1,6 +1,11 @@
-# Issue #520 Codex video workflow acceptance
+# Issue #520 headless Codex video workflow acceptance
 
-**Result: headless production acceptance passed; native Final Cut handoff remains blocked.**
+**Result: headless production acceptance passed on recorded candidates.
+Current-package and native acceptance are tracked in #541.**
+
+The 2026-10-24 scope split makes #520 the headless workflow issue. The runs
+below retain their exact candidate identities; neither proves #526's current
+packaged head or native Final Cut delivery.
 
 ## Fresh follow-up run (2026-10-22)
 
@@ -48,11 +53,14 @@ The MP4 was written only to the isolated temporary output directory and verified
 
 The accepted run is bound to the source hashes above. Re-generating the fixture may produce different file digests across macOS speech and FFmpeg versions; re-run `media.understand` and confirm VAD coverage before planning. A different file path or digest creates new path-bound provenance and requires a new preview approval; this recorded approval must not be reused for changed inputs. The MP4 and FCPXML outputs remain outside the repository.
 
-## Native handoff boundary
+## Native handoff boundary (#541)
 
 No Final Cut import or artifact-publish execute call was made. Read-only headed preflight reported `artifactPublish=false` and `timelinePublishNewProject=false`: the production publisher has no target-binding provider. The FCPXML destination UIDs are proposed identifiers, not native reservations or verified Final Cut identities. The extension fingerprint was also unavailable, so build alignment and native readback remain unproven.
 
-PR #526 was marked ready for review by the repository owner on 2026-10-22 at 12:51:23Z. Keep #520 open: this review-ready state and the fresh headless pass do not satisfy the separately authorized native acceptance/readback or constitute a release-candidate verdict.
+PR #526 was marked ready for review by the repository owner on 2026-10-22 at
+12:51:23Z. The separately authorized native handoff, created-target readback,
+and exact current-package Codex acceptance are tracked in #541, with overall QA
+in #517. This report makes no native or release-candidate success claim.
 
 ## Validation
 

@@ -125,6 +125,11 @@ FCPXML artifact; it is not a Final Cut import.
 
 ## Native delivery after separate authorization
 
+Completing this handoff with the current packaged Codex workflow and headed
+Final Cut readback is tracked in #541. The steps below document the guarded
+contract; the headless acceptance for #520 does not claim that this native leg
+ran.
+
 Native delivery uses a separate headed MCP server. Follow
 [Final Cut installation](../final-cut/installation.md) to configure a headed
 server with `FRAMEKIT_EDITOR=final-cut-live`,
