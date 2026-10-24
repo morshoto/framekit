@@ -16,9 +16,9 @@ real Final Cut Pro process.
   failure-path, capability-coverage, and scenario-consistency metrics.
 - [Clean MCP clients](./clean-mcp-clients.md): isolated Codex and Claude Code
   registration probes, stdio workflow coverage, and sanitized evidence.
-- [Codex video production E2E](./codex-video-production-e2e.md): the
-  B-A-C rough cut, title/music operations, approval checkpoint, and separate
-  native-delivery resume path.
+- [Codex video production runbook](./codex-video-production-e2e.md): the
+  approved headless B-A-C rough cut with title/music and verified outputs. Its
+  separate native-delivery resume path is tracked for acceptance in #541.
 - [Controlled filler-removal benchmark](./filler-removal-benchmark.md):
   reproducible verification rate, rollback categories, and retained evidence.
 - [v0.1.12 acceptance corpus](./v0112-acceptance.md): sanitized disposable
