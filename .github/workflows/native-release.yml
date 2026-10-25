@@ -61,6 +61,7 @@ jobs:
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
               with:
                   ref: ${{ needs.validate-release.outputs.release-tag }}
+                  fetch-depth: 0
                   persist-credentials: false
 
             - name: Package signed native release assets
@@ -94,6 +95,41 @@ jobs:
                     "${FRAMEKIT_RELEASE_DIR}/${checksum_name}" \
                     --repo "${GITHUB_REPOSITORY}" \
                     --clobber
+
+            - name: Verify downloaded native release installation
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ needs.validate-release.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  expected_version="${RELEASE_TAG#v}"
+                  expected_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+                  archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
+                  checksum_name="${archive_name}.sha256"
+                  verification_dir="$(mktemp -d "${RUNNER_TEMP}/framekit-release-install.XXXXXX")"
+                  trap 'rm -rf "$verification_dir"' EXIT
+                  gh release download "${RELEASE_TAG}" \
+                    --repo "${GITHUB_REPOSITORY}" \
+                    --pattern "$archive_name" \
+                    --pattern "$checksum_name" \
+                    --dir "$verification_dir"
+                  cd "$verification_dir"
+                  shasum -a 256 --check "$checksum_name"
+                  mkdir -p staged Applications
+                  ditto -x -k "$archive_name" staged
+                  staged_app="${verification_dir}/staged/FramekitFinalCutWorkflow.app"
+                  installed_app="${verification_dir}/Applications/FramekitFinalCutWorkflow.app"
+                  test -d "$staged_app"
+                  ditto "$staged_app" "$installed_app"
+                  codesign --verify --deep --strict "$installed_app"
+                  extension_plist="${installed_app}/Contents/PlugIns/FramekitFinalCutWorkflowExtension.appex/Contents/Info.plist"
+                  test -f "$extension_plist"
+                  actual_version="$(/usr/libexec/PlistBuddy -c 'Print :FramekitBuildVersion' "$extension_plist")"
+                  actual_commit="$(/usr/libexec/PlistBuddy -c 'Print :FramekitBuildCommit' "$extension_plist")"
+                  test "$actual_version" = "$expected_version"
+                  test "$actual_commit" = "$expected_commit"
 
     verify-release-provenance:
         if: always() && needs.validate-release.result == 'success'
