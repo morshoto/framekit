@@ -64,10 +64,12 @@ the disposable target. Headless approval does not grant that authorization.
    before exporting FCPXML, validate the complete snapshot, and compare it to
    the approved revision. Never promote catalog, SQLite/WAL, or display-name
    evidence to canonical truth.
-6. After separate authorization, make one controlled manual change in the
-   disposable project. Re-observe and verify that the old session is stale and
-   preview, execution, and materialization stay blocked until validated
-   reconciliation or canonical resync establishes a fresh baseline.
+6. After separate authorization, the user or an authorized operator—not the
+   agent—makes one controlled manual change in the disposable project. Native
+   timeline mutation by the agent is out of scope. Re-observe and verify that
+   the old session is stale and preview, execution, and materialization stay
+   blocked until validated reconciliation or canonical resync establishes a
+   fresh baseline.
 7. Confirm unrelated projects, source media, and editor selection/focus were
    not unexpectedly changed. Record unavoidable foreground or export effects.
 
