@@ -384,6 +384,54 @@ test("native handoff readiness withholds targets until a publish job is verified
   }, { projectPublisher });
 });
 
+test("native handoff readiness blocks contradictory library or event identity", async () => {
+  const createdTarget = {
+    kind: "editor.project",
+    projectId: "native-project",
+    sequenceId: "native-sequence",
+    libraryId: "native-library",
+    eventId: "native-event",
+    projectName: "Published Project",
+    sequenceName: "Main",
+  };
+  const projectPublisher = handoffPublisher({
+    "wrong-library": {
+      jobId: "wrong-library",
+      state: "verified",
+      createdTarget,
+      result: {
+        verified: true,
+        createdTarget: { ...createdTarget, libraryId: "other-library" },
+      },
+    },
+    "wrong-event": {
+      jobId: "wrong-event",
+      state: "verified",
+      createdTarget,
+      result: {
+        verified: true,
+        createdTarget: { ...createdTarget, eventId: "other-event" },
+      },
+    },
+  });
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    for (const jobId of ["wrong-library", "wrong-event"]) {
+      const readiness = JSON.parse(textFrom(await client.callTool({
+        name: "editor.native.handoff.readiness",
+        arguments: { publishJobId: jobId },
+      })));
+
+      assert.equal(readiness.status, "blocked", `${jobId} must fail closed`);
+      assert.equal("createdTarget" in readiness, false);
+      assert.ok(
+        readiness.reasons.some((reason: { code: string }) => reason.code === "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED"),
+        JSON.stringify(readiness),
+      );
+    }
+  }, { projectPublisher });
+});
+
 test("required local alignment fails clearly for a stale extension", async () => {
   await withClient(metadataOnlyRuntime(), async (client) => {
     const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));
