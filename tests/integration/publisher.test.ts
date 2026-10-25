@@ -463,6 +463,7 @@ test("FCPXML publisher uses headed import only when explicitly enabled", async (
   assert.equal(enabledResult.delivery?.route, "headed-accessibility");
   assert.equal(enabledResult.delivery?.status, "dispatched");
   assert.match(fallbackScripts[0] ?? "", /Import XML/);
+  assert.match(fallbackScripts[0] ?? "", /candidateIdentifier contains "path"/);
 });
 
 test("FCPXML publisher requires exact live identity for a library-bound target", async () => {

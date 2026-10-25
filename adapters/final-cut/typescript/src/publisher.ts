@@ -816,6 +816,7 @@ on matchesImportPathField(candidate)
     set candidateDescription to description of candidate as text
   end try
   if candidateIdentifier is "path" or candidateIdentifier is "location" then return true
+  if candidateIdentifier contains "path" or candidateIdentifier contains "location" then return true
   if candidateDescription contains "Go to the folder" then return true
   if candidateDescription contains "path" or candidateDescription contains "location" then return true
   return false
