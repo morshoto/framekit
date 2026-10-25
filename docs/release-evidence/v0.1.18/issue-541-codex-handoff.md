@@ -44,7 +44,15 @@ The headed MCP session found Final Cut and the installed Workflow Extension. The
 
 The non-mutating `artifact.publish.preview` call carried the exact headless execution ID, FCPXML digest, all four source-media digests, and a new absolute target represented here as `$RUN_ROOT/native/Issue 541 Synthetic Handoff.fcpbundle`. It returned publish job `publish-job-9ff084ad-0e32-4e8d-9ff4-8a8b0ecaca38`, `state: awaiting-confirmation`, `confirmationRequired: true`, and `executionMode: headed-only`. Its source proof reported the expected plan digest, source revision, canonical revision, and FCPXML digest; coverage was exact for artifact, project, sequence, resources, roles, primary storyline order, source ranges, editable titles, gain, provenance, and versioned destination.
 
-No `.fcpbundle` was created. `artifact.publish.execute`, publish status, native editing tools, and UI automation were not called. The preview job was not executed or reported as delivered. A matching extension build and separate approval of the exact native import are still required before headed readback can be collected.
+No `.fcpbundle` was created. `artifact.publish.execute`, publish status, native editing tools, and UI automation were not called. The preview job was not executed or reported as delivered.
+
+After the blocked preview, an isolated development candidate matching the exact PR head was built for a future readiness rerun:
+
+- MCP package: `0.1.17@ee8882fde777e0576699914f1416b0d7ca0f2bd4`, SHA-256 `27f2779a0a119e7725f40b9666e05f467c278afeb3ac833e730fa174fb839aa6`.
+- Workflow Extension app: build identity `0.1.17@ee8882fde777e0576699914f1416b0d7ca0f2bd4`, candidate archive SHA-256 `3ec01ad09a647a26218c6f66bb799f7ad455ee04c2d147b841b7c15a0c89af0f`.
+- `pnpm run xcode:check`, `xcodebuild -list`, the Debug app build, and `codesign --verify --deep --strict` passed. The local app uses ad-hoc signing; it is a development candidate, not signed release evidence.
+
+The candidate has not been installed. Installing it through Framekit's development connector can gracefully close and reopen Final Cut. Once installed, readiness and the immutable publish preview must be repeated against the matched runtime. A separate approval of that exact native import is still required before headed readback can be collected.
 
 ## Validation and implementation
 

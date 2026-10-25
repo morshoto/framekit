@@ -163,5 +163,5 @@ The headed native run is a separate evidence tier and requires separate authoriz
 
 - The installed Codex plugin produced an approved, verified headless MP4 and FCPXML from fresh synthetic media. The first execution exposed B7; the same approved plan passed after the verifier fix.
 - Native `artifact.publish.preview` bound the verified execution, FCPXML digest, source digests, and a new `.fcpbundle` target. Headed readiness is blocked because the installed Workflow Extension commit differs from the tested MCP package commit.
-- No native import was attempted. It still requires a matching extension build and separate user approval of the exact publish preview.
+- No native import was attempted. A matching extension candidate was built at the exact PR head but not installed; installation/reload, a fresh matched preview, and separate user approval are still required.
 - Sanitized transcript and artifact evidence are in `issue-541-codex-transcript.json` and `issue-541-codex-handoff.md`; this PR references #517 for QA follow-up.

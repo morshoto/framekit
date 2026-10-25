@@ -10,6 +10,7 @@
   "approval": {
     "headlessExecutionApproved": true,
     "approvedPlanDigest": "919d18320ad1c82fccddefe67681b28487e49e8f4e8731de5bdb3295d6e9ed10",
+    "extensionInstallAuthorized": false,
     "nativeImportApproved": false
   },
   "identities": {
@@ -126,7 +127,15 @@
     "extensionCommit": "1ebd32f262633cb719b0354ffd5e597397820944",
     "status": "blocked",
     "reason": "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH",
-    "targetBindingAvailable": true
+    "targetBindingAvailable": true,
+    "matchingCandidate": {
+      "runtimeCommit": "ee8882fde777e0576699914f1416b0d7ca0f2bd4",
+      "packageSha256": "27f2779a0a119e7725f40b9666e05f467c278afeb3ac833e730fa174fb839aa6",
+      "extensionVersion": "0.1.17",
+      "extensionCommit": "ee8882fde777e0576699914f1416b0d7ca0f2bd4",
+      "extensionArchiveSha256": "3ec01ad09a647a26218c6f66bb799f7ad455ee04c2d147b841b7c15a0c89af0f",
+      "build": "xcodebuild Debug succeeded; ad-hoc signed; not installed"
+    }
   },
   "nativePublishPreview": {
     "tool": "artifact.publish.preview",
