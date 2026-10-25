@@ -219,6 +219,35 @@ test("FCPXML markers inside auditions attach to an audition story element", asyn
   }
 });
 
+test("FCPXML gap markers round-trip from nonzero source time", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-gap-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><library><event name="Event"><project uid="project-gap-marker" name="Gap Marker Project">
+  <sequence duration="2s"><spine><gap name="Black" offset="0s" start="5s" duration="2s" /></spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "gap-marker", start: 1, duration: 0, name: "Gap Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    assert.equal(transaction.after.timeline.markers[0]?.start, 1);
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<gap[^>]*start="5s"[^>]*>\s*<marker[^>]*start="6\/1s"[^>]*value="Gap Marker"/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FCPXML titles, transitions, and audio parameters round-trip through one transaction", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);

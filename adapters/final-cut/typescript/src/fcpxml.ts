@@ -473,7 +473,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     if (!host) {
       throw new Error("FCPXML_MARKER_TARGET_UNAVAILABLE: marker must fit inside an existing story element");
     }
-    const sourceStart = host.kind === "asset-clip"
+    const sourceStart = host.kind === "asset-clip" || host.kind === "gap"
       ? parseRational(attribute(host.node, "start") ?? "0s")
       : { value: "0", timescale: "1" };
     const localStart = addRational(sourceStart, subtractRational(markerStart, host.startTime));
@@ -1217,8 +1217,10 @@ function timelineEntries(spine: XmlNode): TimelineEntry[] {
           ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
           ?? "0s",
       );
-      const localStart = parentKind === "asset-clip"
+      const sourceRelativeChild = parentKind === "asset-clip"
         && (kind === "title" || kind === "caption" || kind === "marker" || kind === "asset-clip" && attribute(child, "audioRole") === "music")
+        || parentKind === "gap" && kind === "marker";
+      const localStart = sourceRelativeChild
         ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
         : localOffset;
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
