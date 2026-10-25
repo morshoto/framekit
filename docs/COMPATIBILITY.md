@@ -36,7 +36,8 @@ payload.
 | In-memory fixture | deterministic test fixture | yes | yes | yes | yes | fixture providers | fixture provider | fixture provider | fixture assets |
 | Final Cut document | FCPXML file interchange | yes, with project and sequence UIDs | artifact only | yes | yes | external provider required | no | no | no |
 | Final Cut session | document + Workflow Extension | document provider | artifact only | document provider | document provider | configured local provider | configured local provider | unavailable until configured | Motion-template registry |
-| Final Cut live (bundled Workflow Extension + background library) | Workflow Extension live IPC plus direct read-only Apple Events | active project/sequence metadata plus observed library/event/project/sequence catalog; selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (bundled Workflow Extension + background library) | Workflow Extension live IPC plus direct read-only Apple Events | active project/sequence metadata plus observed library/event/project/sequence catalog; bundled bridge selection unavailable | no | no | no | no | no | no | no |
+| Final Cut live (native canonical provider + background library) | headed Export XML plus direct read-only Apple Events | complete active-project snapshot with active-target-only stable-ID rebind | no | no | no | no | no | no | no |
 | Final Cut live (canonical-capable bridge) | guarded live IPC provider contract | complete snapshot with explicit targets | yes, when canonical-write is advertised | yes | yes | provider-specific | provider-specific | provider-specific | provider-specific |
 
 The canonical-capable live row describes an optional provider contract, not a
@@ -95,11 +96,14 @@ not guarantee complete clip/media enumeration. The composed session enables
 canonical operations only when `FRAMEKIT_FCPXML_PATH` is supplied.
 
 The editor capability payload explicitly reports
-`projectSelectionMode` as `background-capable`, `headed-only`, or
-`unavailable`. A successful selection returns the requested target, the
-observed active target, and the observed revision separately. These fields keep
-target transitions distinct from canonical timeline mutation and prevent
-request acknowledgements from being treated as active-target proof.
+`projectSelectionMode` as `background-capable`, `active-target-only`,
+`headed-only`, or `unavailable`. Active-target-only rebind does not activate or
+switch projects: it succeeds only when stable requested IDs match the current
+active catalog target and canonical snapshot. A successful selection returns
+the requested target, the observed active target, and the observed revision
+separately. These fields keep target transitions distinct from canonical
+timeline mutation and prevent request acknowledgements from being treated as
+active-target proof.
 
 Native selection and media-library operations are separate MCP capabilities.
 They use Accessibility automation, require `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`,

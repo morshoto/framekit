@@ -90,6 +90,12 @@ function handoffPublisher(jobs: Record<string, unknown> = {}) {
       if (!job) throw new Error(`FINAL_CUT_PUBLISH_JOB_NOT_FOUND: ${jobId}`);
       return job;
     },
+    verifyCreatedTarget: async (jobId: string) => {
+      const job = jobs[jobId] as { result?: { createdTarget?: unknown } } | undefined;
+      const target = job?.result?.createdTarget;
+      if (!target) throw new Error(`FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE: ${jobId}`);
+      return target;
+    },
   } as unknown as FinalCutProjectPublisher;
 }
 
@@ -430,6 +436,38 @@ test("native handoff readiness withholds targets until a publish job is verified
   }, { projectPublisher });
 });
 
+test("native handoff readiness fails closed without live target revalidation", async () => {
+  const createdTarget = {
+    kind: "editor.project" as const,
+    projectId: "native-project",
+    sequenceId: "native-sequence",
+    libraryId: "native-library",
+    eventId: "native-event",
+    projectName: "Published Project",
+    sequenceName: "Main",
+  };
+  const projectPublisher = {
+    inspectReadiness: () => ({ available: true, targetBindingAvailable: true, reasons: [] }),
+    getPublishJob: () => ({
+      jobId: "verified",
+      state: "verified",
+      createdTarget,
+      result: { verified: true, createdTarget },
+    }),
+  } as unknown as FinalCutProjectPublisher;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: { publishJobId: "verified" },
+    })));
+    assert.equal(readiness.status, "blocked");
+    assert.equal("createdTarget" in readiness, false);
+    assert.ok(readiness.reasons.some((reason: { code: string }) =>
+      reason.code === "FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE"));
+  }, { projectPublisher });
+});
+
 test("native handoff readiness blocks contradictory library or event identity", async () => {
   const createdTarget = {
     kind: "editor.project",
@@ -485,6 +523,8 @@ test("serves a verified native target after the publisher restarts", async () =>
   await writeFile(sourcePath, source);
 
   let liveStateReads = 0;
+  let targetBindingMismatch = false;
+  let activeTargetMismatch = false;
   const publisherOptions = {
     enabled: true,
     sourcePath,
@@ -496,7 +536,9 @@ test("serves a verified native target after the publisher restarts", async () =>
       const imported = liveStateReads++ > 0;
       return {
         project: {
-          id: imported ? "created-project-stable" : "existing-project",
+          id: imported
+            ? activeTargetMismatch ? "changed-active-project" : "created-project-stable"
+            : "existing-project",
           name: imported ? "Published Project" : "Existing Project",
         },
         sequence: {
@@ -510,10 +552,11 @@ test("serves a verified native target after the publisher restarts", async () =>
       };
     },
     targetBinding: async () => ({
-      projectId: "created-project-stable",
+      projectId: targetBindingMismatch ? "changed-project-stable" : "created-project-stable",
       sequenceId: "created-sequence-stable",
       libraryId: "created-library-stable",
       eventId: "created-event-stable",
+      libraryPath: join(directory, "created-library.fcpbundle"),
     }),
     readCanonicalSnapshot: async () => new FcpxmlDocumentAdapter(sourcePath, undefined, {
       allowMissingImmutableIdsForReadback: true,
@@ -553,9 +596,32 @@ test("serves a verified native target after the publisher restarts", async () =>
         sequenceId: "created-sequence-stable",
         libraryId: "created-library-stable",
         eventId: "created-event-stable",
+        libraryPath: join(directory, "created-library.fcpbundle"),
         projectName: "Published Project",
         sequenceName: "Main",
       });
+
+      targetBindingMismatch = true;
+      const mismatchedReadiness = JSON.parse(textFrom(await client.callTool({
+        name: "editor.native.handoff.readiness",
+        arguments: { publishJobId: verified.jobId },
+      })));
+      assert.equal(mismatchedReadiness.status, "blocked");
+      assert.equal("createdTarget" in mismatchedReadiness, false);
+      assert.ok(mismatchedReadiness.reasons.some((reason: { code: string }) =>
+        reason.code === "FINAL_CUT_PUBLISH_TARGET_REBIND_FAILED"));
+      targetBindingMismatch = false;
+
+      activeTargetMismatch = true;
+      const inactiveReadiness = JSON.parse(textFrom(await client.callTool({
+        name: "editor.native.handoff.readiness",
+        arguments: { publishJobId: verified.jobId },
+      })));
+      assert.equal(inactiveReadiness.status, "blocked");
+      assert.equal("createdTarget" in inactiveReadiness, false);
+      assert.ok(inactiveReadiness.reasons.some((reason: { code: string }) =>
+        reason.code === "FINAL_CUT_PUBLISH_TARGET_REBIND_FAILED"));
+      activeTargetMismatch = false;
 
       const selection = JSON.parse(textFrom(await client.callTool({
         name: "project.select",

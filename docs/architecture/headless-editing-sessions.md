@@ -74,12 +74,14 @@ records fail closed.
 
 After an MCP restart, `artifact.publish.status` and
 `editor.native.handoff.readiness` load the persisted record. Readiness exposes
-the created target only when project and sequence IDs, plus any recorded
-library and event IDs, agree between the job and its verified result and the
-runtime/Workflow Extension fingerprints match. Display names do not establish
-target identity. Rebinding then uses `project.select` with the verified IDs and
-requires a complete provider canonical snapshot before editing; partial or
-unsupported observations remain blocked pending explicit canonical resync.
+the created target only when project, sequence, library, and event IDs agree
+between the job and its verified result, the live library catalog still returns
+the same IDs, the target remains active, and runtime/Workflow Extension
+fingerprints match. Display names do not establish target identity. The native
+canonical provider then offers `active-target-only` `project.select` rebind
+when the verified IDs match the current canonical snapshot. It never activates
+or switches projects. Partial or unsupported observations remain blocked
+pending explicit canonical resync.
 
 ## Background Final Cut publication
 

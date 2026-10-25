@@ -152,7 +152,8 @@ export function parseFinalCutProjectPublishRoute(
 
 export interface FinalCutProjectPublisherOptions {
   enabled?: boolean;
-  sourcePath: string;
+  /** Managed FCPXML path for legacy publishing; headless artifacts use request paths. */
+  sourcePath?: string;
   /** Persists verified publish jobs so native target identity survives MCP restarts. */
   publishJobDirectory?: string;
   executor?: (script: string) => Promise<string>;
@@ -209,7 +210,7 @@ interface PersistedPublishJob {
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
 export class FinalCutProjectPublisher {
   private readonly enabled: boolean;
-  private readonly sourcePath: string;
+  private readonly sourcePath?: string;
   private readonly publishJobDirectory?: string;
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
@@ -348,6 +349,46 @@ export class FinalCutProjectPublisher {
     const job = clonePublishJob(persisted);
     this.publishJobs.set(jobId, job);
     return clonePublishJob(job);
+  }
+
+  /** Revalidate a persisted native target against the live catalog and active project. */
+  public async verifyCreatedTarget(jobId: string): Promise<FinalCutProjectPublishResult["createdTarget"]> {
+    const job = await this.loadPublishJob(jobId);
+    const createdTarget = job.result?.createdTarget;
+    if (job.state !== "verified" || !job.result?.verified || !createdTarget) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_UNVERIFIED: publish job ${jobId} has no verified native target`);
+    }
+    const libraryPath = job.targetLibraryPath ?? createdTarget.libraryPath;
+    if (!libraryPath || !createdTarget.libraryId || !createdTarget.eventId || !this.targetBinding) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE: publish job ${jobId} has no live library binding provider`);
+    }
+    if (!this.liveState) {
+      throw new Error(`FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE: publish job ${jobId} has no live active-target provider`);
+    }
+    const observed = await this.targetBinding(libraryPath, {
+      projectName: createdTarget.projectName,
+      sequenceName: createdTarget.sequenceName ?? job.sequenceName,
+    });
+    if (observed.projectId !== createdTarget.projectId
+      || observed.sequenceId !== createdTarget.sequenceId
+      || observed.libraryId !== createdTarget.libraryId
+      || observed.eventId !== createdTarget.eventId
+      || !observed.libraryPath
+      || normalizeLibraryPath(libraryPath) !== normalizeLibraryPath(observed.libraryPath)) {
+      throw new Error(
+        `FINAL_CUT_PUBLISH_TARGET_REBIND_MISMATCH: catalog target ${observed.libraryId}/${observed.eventId}/${observed.projectId}/${observed.sequenceId} does not match persisted ${createdTarget.libraryId}/${createdTarget.eventId}/${createdTarget.projectId}/${createdTarget.sequenceId}`,
+      );
+    }
+    const live = await readLiveState(this.liveState, "after publisher restart");
+    if (live.project?.id !== createdTarget.projectId
+      || live.project?.name !== createdTarget.projectName
+      || live.sequence?.id !== createdTarget.sequenceId
+      || live.sequence?.name !== createdTarget.sequenceName) {
+      throw new Error(
+        `FINAL_CUT_PUBLISH_TARGET_REBIND_MISMATCH: active target ${live.project?.id ?? "<unavailable>"}/${live.sequence?.id ?? "<unavailable>"} does not match persisted ${createdTarget.projectId}/${createdTarget.sequenceId}`,
+      );
+    }
+    return structuredClone(createdTarget);
   }
 
   public async executePublishJob(
@@ -502,8 +543,8 @@ export class FinalCutProjectPublisher {
         retryable: true,
         executionMode: "headed-only",
         sourceTransactionId: request.sourceTransactionId,
-        sourcePath: this.sourcePath,
-        sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
+        sourcePath: this.sourcePath ?? request.artifactPath,
+        sourceTarget: { kind: "artifact", artifactPath: this.sourcePath ?? request.artifactPath },
         artifactDigest: request.artifactDigest,
         ...(targetLibraryPath ? { targetLibraryPath } : {}),
         projectName: identity.projectName,
@@ -542,6 +583,8 @@ export class FinalCutProjectPublisher {
         throw new Error("HEADLESS_ROUGH_CUT_TARGET_INVALID: approved FCPXML has no explicit target library identity");
       }
       validateApprovedSourceMediaDigests(sourceProof.sourceMediaDigests);
+    } else if (!this.sourcePath) {
+      throw new Error("PUBLISH_SOURCE_UNAVAILABLE: a managed FCPXML path is required for non-headless publishing");
     } else if (request.artifactPath !== this.sourcePath) {
       throw new Error(`PUBLISH_TARGET_MISMATCH: requested artifact ${request.artifactPath} is not managed by this publisher`);
     }

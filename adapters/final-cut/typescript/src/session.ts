@@ -113,6 +113,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         ? live
         : snapshot;
     const operationCapabilities = operationRuntimeCapabilities?.editor;
+    const projectSelectionCapabilities = snapshot?.editor.projectSelection ? snapshot.editor : live?.editor;
     const operationAdapter = hasExplicitDocumentPair
       ? this.options.mutation
       : liveMutation
@@ -182,6 +183,9 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
           || this.options.backgroundCatalog,
         ),
         projectSelection: Boolean(snapshot?.editor.projectSelection || (!this.options.snapshot && live?.editor.projectSelection)),
+        projectSelectionMode: projectSelectionCapabilities
+          ? projectSelectionMode(projectSelectionCapabilities)
+          : "unavailable",
         compositeTransactions,
       },
       analyzers: {

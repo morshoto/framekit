@@ -87,7 +87,7 @@ because `project.inspect` has no canonical snapshot provider, while
 `editor.timelineWrite`. Analyzer availability is negotiated independently.
 
 Project targeting is also explicit. `editor.projectSelectionMode` is
-`background-capable`, `headed-only`, or `unavailable`; the legacy
+`background-capable`, `active-target-only`, `headed-only`, or `unavailable`; the legacy
 `editor.projectSelection` boolean remains for compatibility. A successful
 `project.select` response includes the requested stable target, the observed
 active target, and the observed context revision. The bundled Workflow
@@ -100,6 +100,9 @@ the catalog source, live Workflow Extension revision/timing source, and
 reconciliation status explicit. It returns active IDs only after stable project
 and sequence IDs match across both observations; name-only matches and any
 revision or target drift fail closed by returning unresolved/stale metadata.
+The native canonical provider's active-target-only mode returns a rebind result
+only after the requested IDs also match its canonical snapshot; it does not
+activate a different project.
 Unresolved and stale results retain per-scope diagnostics for stable-ID
 mismatch, ambiguous names, or unavailable identity, including the candidate
 catalog IDs when a name is ambiguous. They also expose a

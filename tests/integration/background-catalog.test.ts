@@ -155,7 +155,7 @@ test("background catalogs reject duplicate and inconsistent identities", async (
   await assert.rejects(provider.listProjects(), /PROJECT_CATALOG_INVALID: duplicate project id background-project/);
 });
 
-test("canonical provider fails closed when background project selection is unavailable", async () => {
+test("canonical provider fails closed when canonical rebind snapshot is unavailable", async () => {
   const provider = providerFor({
     backend: "final-cut-background-library",
     listProjects: async () => catalog(),
@@ -165,7 +165,7 @@ test("canonical provider fails closed when background project selection is unava
 
   await assert.rejects(
     provider.selectProject({ projectId: "background-project", sequenceId: "background-sequence" }),
-    /CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider/,
+    /CAPABILITY_UNAVAILABLE: active-target-only rebind requires a complete canonical snapshot/,
   );
 });
 
@@ -186,7 +186,7 @@ test("MCP project.list preserves background reconciliation provenance", async ()
     assert.equal(result.provenance?.catalog.backend, "final-cut-background-library");
     assert.equal(result.provenance?.live?.state.revision.id, "live-1");
     assert.equal(result.provenance?.reconciliation.status, "matched");
-    assert.equal(result.provenance?.selection.unavailableReason, "project selection is not exposed by the background provider");
+    assert.equal(result.provenance?.selection.unavailableReason, "active-target-only rebind requires a complete canonical snapshot; the provider does not activate projects");
 
     const route = JSON.parse(textFrom(await client.callTool({
       name: "editing.route",

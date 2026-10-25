@@ -2838,7 +2838,25 @@ async function createNativeHandoffReadiness(
           && resultTarget
           && nativeTargetIdentityMatches(job.createdTarget, resultTarget);
         if (job.state === "verified" && job.result?.verified === true && targetMatches) {
-          verifiedTarget = resultTarget;
+          if (typeof publisher.verifyCreatedTarget === "function") {
+            try {
+              const reboundTarget = await publisher.verifyCreatedTarget(job.jobId);
+              if (!nativeTargetIdentityMatches(resultTarget, reboundTarget)) {
+                throw new Error("persisted target identity changed during live rebind");
+              }
+              verifiedTarget = reboundTarget;
+            } catch (error) {
+              reasons.push({
+                code: "FINAL_CUT_PUBLISH_TARGET_REBIND_FAILED",
+                message: `Publish job ${job.jobId} no longer matches the live native target: ${error instanceof Error ? error.message : String(error)}`,
+              });
+            }
+          } else {
+            reasons.push({
+              code: "FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE",
+              message: `Publish job ${job.jobId} cannot be rebound because the publisher cannot revalidate the native library and active target`,
+            });
+          }
         } else {
           reasons.push({
             code: "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED",

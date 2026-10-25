@@ -30,8 +30,10 @@ import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, F
 import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
+import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
 import { HeadlessProjectService } from "./headless-projects.js";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "@framekit/headless-renderer";
+import { shouldConfigureFinalCutProjectPublisher } from "./final-cut-runtime-config.js";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
@@ -154,17 +156,10 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           return { undone: result.undone, verification: result.verification };
         },
       },
-      readSnapshot: async () => {
-        const live = await liveAdapter!.readLiveState();
-        const projectId = live.project?.id;
-        const sequenceId = live.sequence?.id;
-        if (!projectId || projectId.startsWith("final-cut:") || !sequenceId || sequenceId.startsWith("final-cut:")) {
-          throw new Error("TARGET_UNAVAILABLE: stable live project and sequence identities are required for canonical export");
-        }
-        return new FinalCutCanonicalSnapshotSource({
-          target: { projectId, projectUid: projectId, sequenceId },
-        }).readSnapshot();
-      },
+      readSnapshot: createCanonicalNativeSnapshotReader(
+        () => liveAdapter!.readLiveState(),
+        (target) => new FinalCutCanonicalSnapshotSource({ readbackTarget: target }).readSnapshot(),
+      ),
       resolveTarget: canonicalNativeTargetResolver!,
       backgroundCatalog: backgroundLibraryProvider,
     })
@@ -241,7 +236,11 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
 const nativeOperationSession = disposableNative && nativeEditor
   ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor })
   : undefined;
-const projectPublisher = liveMode && fcpxmlPath
+const projectPublisher = shouldConfigureFinalCutProjectPublisher({
+  liveMode,
+  fcpxmlPath,
+  canonicalNativeProviderEnabled,
+})
   ? new FinalCutProjectPublisher({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
