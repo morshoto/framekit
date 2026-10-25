@@ -152,6 +152,7 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
 test("Codex video handoff records complete #541 acceptance provenance", async () => {
   const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
   const evidenceSection = runbook.match(/## Record the run([\s\S]*?)(?:\n## |$)/)?.[1] ?? "";
+  const normalizedEvidenceSection = evidenceSection.replace(/\s+/g, " ").toLowerCase();
 
   for (const expected of [
     "canonical revision",
@@ -159,7 +160,7 @@ test("Codex video handoff records complete #541 acceptance provenance", async ()
     "MP4 and FCPXML SHA-256",
     "headless preview digest",
     "native publish preview",
-    "Workflow Extension fingerprint",
+    "Workflow Extension version and fingerprint",
     "sanitized Codex/MCP transcript",
     "approval records",
     "created-target readback",
@@ -167,7 +168,7 @@ test("Codex video handoff records complete #541 acceptance provenance", async ()
     "recovery evidence",
     "#517",
   ]) {
-    assert.ok(evidenceSection.toLowerCase().includes(expected.toLowerCase()), `evidence section includes ${expected}`);
+    assert.ok(normalizedEvidenceSection.includes(expected.toLowerCase()), `evidence section includes ${expected}`);
   }
 });
 

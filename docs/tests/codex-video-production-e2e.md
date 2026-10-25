@@ -170,13 +170,40 @@ when verification has not reached `verified`.
 
 ## Record the run
 
-Record the Codex version, plugin version, MCP build fingerprint, state
-directory, analyzer ID/version, source digest, project and sequence IDs,
-analysis statuses, query, plan digest, output paths, render verification,
-FCPXML digest, and execution ID. Record the native publish job and live target
-readback separately, if that separately authorized leg was run. A successful
-headless result does not establish native delivery; fixture tests and this
-runbook do not establish headed Final Cut acceptance by themselves.
+For issue #541, keep one evidence record for the exact tested checkout and
+package. Record the repository commit; Codex CLI version; installed plugin
+version and content fingerprint; MCP package version, commit, package digest,
+and build fingerprint; Workflow Extension version and fingerprint; and macOS
+and Final Cut versions. Do not infer an installed runtime or extension identity
+from the source checkout.
+
+For the approved headless edit, record the project ID, source revision,
+canonical revision, headless execution ID, plan digest, source bindings, and
+the source-media SHA-256 for A, B, C, and the separately registered music
+asset. Record the headless preview digest and its approval record. Include the
+verified MP4 and FCPXML paths in the private run record, their MP4 and FCPXML
+SHA-256 values, output verification results, and the exact FCPXML artifact path
+and digest passed to the native preview. A changed input or output requires a
+fresh preview and approval.
+
+For native delivery, record the native publish preview and its separate
+approval record, the exact absolute `.fcpbundle` `targetLibraryPath`, publish
+job ID, every status transition, and whether import ran. Record the created
+library, event, project, and sequence identities in the matching created-target
+readback, plus active-project before/after identities. Compare source bindings,
+clip order and ranges, editable title, independent music, and supported audio
+semantics with the approved canonical revision. If a path contains a
+user-specific location, retain the exact value in the private run record and
+redact it from shared evidence.
+
+Link a sanitized Codex/MCP transcript and approval records. Remove credentials,
+private media, and user-specific paths from shared evidence. Include recovery
+evidence for rejected approval, stale input, unavailable or mismatched
+capability, interruption, and verification-pending behavior; mark scenarios
+that were not run as `not run` instead of inferring an outcome. Link the
+sanitized report to #517. A successful headless result does not establish
+native delivery; fixture tests and this runbook do not establish headed Final
+Cut acceptance by themselves.
 
 ## Failure checks
 
