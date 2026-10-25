@@ -1498,6 +1498,109 @@ test("FCPXML publish jobs resume verification without importing twice", async ()
   assert.equal(liveStateCalls, 5);
 });
 
+test("FCPXML publish jobs resume verification after publisher restart", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-restart-resume-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "New Library.fcpbundle");
+  const publishJobsDirectory = join(directory, "publish-jobs");
+  const source = '<fcpxml version="1.11"><library><event><project uid="project-restart" name="Restart Publish"><sequence uid="sequence-restart" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveryCalls = 0;
+  const beforeState: EditorLiveState = {
+    project: { id: "project-before", name: "Existing" },
+    sequence: {
+      id: "sequence-before",
+      name: "Existing",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "10", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+    revision: { id: "revision-before", sequence: 1, timestamp: new Date(0).toISOString() },
+  };
+  const createdState: EditorLiveState = {
+    project: { id: "project-created", name: "Restart Publish" },
+    sequence: {
+      id: "sequence-created",
+      name: "Main",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "10", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+    revision: { id: "revision-created", sequence: 2, timestamp: new Date(1).toISOString() },
+  };
+  const publisherOptions = {
+    enabled: true,
+    sourcePath,
+    publishJobsDirectory,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    documentDelivery: {
+      deliverFcpxml: async ({ targetLibraryLocation, activates }: { targetLibraryLocation?: string; activates: boolean }) => {
+        deliveryCalls += 1;
+        assert.equal(targetLibraryLocation, targetLibraryPath);
+        assert.equal(activates, false);
+        return {
+          status: "dispatched" as const,
+          route: "background-document-open" as const,
+          attempted: true,
+          imported: false,
+          requestedActivates: false,
+          activation: "preserved" as const,
+          ui: "unknown" as const,
+          target: { requestedLibraryLocation: targetLibraryPath, guarantee: "requested-unverified" as const },
+        };
+      },
+    },
+    targetBinding: async () => ({
+      projectId: "project-created",
+      sequenceId: "sequence-created",
+      libraryId: "library-created",
+      eventId: "event-created",
+      libraryPath: targetLibraryPath,
+    }),
+  };
+  const firstPublisher = createPublisherForTest({
+    ...publisherOptions,
+    liveState: async () => beforeState,
+  });
+  const prepared = await firstPublisher.preparePublish({
+    sourceTransactionId: "txn-restart-resume",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+  });
+
+  const pending = await firstPublisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(pending.state, "verification-pending");
+  assert.equal(deliveryCalls, 1);
+  const restartedPublisher = createPublisherForTest({
+    ...publisherOptions,
+    liveState: async () => createdState,
+  });
+  assert.equal(restartedPublisher.getPublishJob(prepared.jobId).state, "verification-pending");
+
+  const resumed = await restartedPublisher.executePublishJob(prepared.jobId, true);
+
+  assert.equal(resumed.state, "verified");
+  assert.deepEqual(resumed.createdTarget, {
+    kind: "editor.project",
+    projectId: "project-created",
+    sequenceId: "sequence-created",
+    libraryId: "library-created",
+    eventId: "event-created",
+    libraryPath: targetLibraryPath,
+    projectName: "Restart Publish",
+    sequenceName: "Main",
+  });
+  assert.equal(deliveryCalls, 1, "restart recovery must not dispatch a second import");
+  assert.equal(restartedPublisher.getPublishJob(prepared.jobId).state, "verified");
+});
+
 test("FCPXML publish jobs do not report success when the native timeline differs", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-semantic-mismatch-"));
   const sourcePath = join(directory, "project.fcpxml");
