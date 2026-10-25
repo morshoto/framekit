@@ -1,0 +1,13 @@
+# In this checkout, run Framekit from source instead of the published npm package.
+# Codex resolves this relative cwd from .codex/, so it points to the repository root.
+[mcp_servers.framekit-local]
+command = "pnpm"
+args = ["run", "framekit", "--", "mcp", "--editor", "final-cut-live"]
+cwd = ".."
+
+[mcp_servers.framekit-local.env]
+FRAMEKIT_EDITOR = "final-cut-live"
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER = "native"
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES = "1"
+FRAMEKIT_FINAL_CUT_HEADLESS = "0"
+FRAMEKIT_AUTO_CONNECT = "0"
