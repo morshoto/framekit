@@ -827,7 +827,7 @@ function emptySemanticDescription(): MediaSemanticDescription {
 }
 
 function matchesMediaIndexQuery(entry: MediaIndexEntry, query: MediaIndexQuery): boolean {
-  const text = query.query?.trim().toLowerCase();
+  const terms = query.query?.trim().toLowerCase().split(/\s+/u).filter(Boolean) ?? [];
   const values = [
     entry.sourceIdentity.mediaId,
     entry.sourceIdentity.source,
@@ -838,7 +838,7 @@ function matchesMediaIndexQuery(entry: MediaIndexEntry, query: MediaIndexQuery):
     ...entry.semantic.timeOfDay.map((tag) => tag.value),
     ...entry.semantic.moods.map((tag) => tag.value),
   ].map((value) => value.toLowerCase());
-  if (text && !values.some((value) => value.includes(text))) return false;
+  if (terms.length > 0 && !values.some((value) => terms.some((term) => value.includes(term)))) return false;
   if (query.subject && !matchesTag(entry.semantic.subjects, query.subject)) return false;
   if (query.scene && !matchesTag(entry.semantic.scenes, query.scene)) return false;
   if (query.environment && !matchesTag(entry.semantic.environments, query.environment)) return false;
