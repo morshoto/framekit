@@ -363,15 +363,13 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
   assert.equal(result.delivery?.activation, "preserved");
 });
 
-test("FCPXML publisher uses headed import only when explicitly enabled", async () => {
+test("FCPXML publisher does not fallback after an attempted background open", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-headed-fallback-"));
   const sourcePath = join(directory, "project.fcpxml");
   const disabledTargetLibraryPath = join(directory, "Fallback Disabled.fcpbundle");
-  const enabledTargetLibraryPath = join(directory, "Fallback Enabled.fcpbundle");
   const source = '<fcpxml version="1.11"><library><event><project name="Fallback Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
 
-  let disabledFallbackCalls = 0;
   const failedDelivery = {
     deliverFcpxml: async (request: { targetLibraryLocation?: string; activates: boolean }) => ({
       status: "failed" as const,
@@ -385,42 +383,75 @@ test("FCPXML publisher uses headed import only when explicitly enabled", async (
       error: { code: "FINAL_CUT_DELIVERY_OPEN_FAILED", message: "Final Cut could not open the staged document" },
     }),
   };
-  const disabledPublisher = createPublisherForTest({
-    enabled: true,
-    sourcePath,
-    documentDelivery: failedDelivery,
-    targetBinding: async () => ({ projectId: "fallback-project", sequenceId: "fallback-sequence", libraryPath: disabledTargetLibraryPath }),
-    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
-    executor: async () => {
-      disabledFallbackCalls += 1;
-      return "unexpected";
-    },
-  });
-
-  await assert.rejects(disabledPublisher.publishNewProject({
-    sourceTransactionId: "txn-disabled-headed-fallback",
-    artifactPath: sourcePath,
-    artifactDigest: digest(source),
-    targetLibraryPath: disabledTargetLibraryPath,
-    confirm: true,
-  }), /FINAL_CUT_PUBLISH_VERIFICATION_PENDING.*FINAL_CUT_DELIVERY_OPEN_FAILED/);
-  assert.equal(disabledFallbackCalls, 0);
-
   let liveStateCalls = 0;
   const fallbackScripts: string[] = [];
-  const enabledResult = await createPublisherForTest({
+  const publisher = createPublisherForTest({
     enabled: true,
     sourcePath,
     documentDelivery: failedDelivery,
     allowHeadedFallback: true,
-    targetBinding: async () => ({ projectId: "fallback-project", sequenceId: "fallback-sequence", libraryPath: enabledTargetLibraryPath }),
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    targetBinding: async () => ({ projectId: "fallback-project", sequenceId: "fallback-sequence", libraryPath: disabledTargetLibraryPath }),
+    liveState: async () => {
+      liveStateCalls += 1;
+      return { revision: { id: `before-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() } };
+    },
+    executor: async (script) => {
+      fallbackScripts.push(script);
+      return "opened";
+    },
+  });
+
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn-attempted-headed-fallback",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath: disabledTargetLibraryPath,
+    confirm: true,
+  }), /FINAL_CUT_PUBLISH_VERIFICATION_PENDING/);
+  assert.deepEqual(fallbackScripts, []);
+  assert.equal(liveStateCalls, 1);
+});
+
+test("FCPXML publisher previews and dispatches the selected headed route once", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-selected-route-"));
+  const sourcePath = join(directory, "selected route.fcpxml");
+  const targetLibraryPath = join(directory, "Approved Target.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Selected Route"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+
+  let liveStateCalls = 0;
+  const appleScripts: string[] = [];
+  let backgroundDeliveries = 0;
+  const options = {
+    enabled: true,
+    sourcePath,
+    publishRoute: "headed-apple-event" as const,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    documentDelivery: {
+      deliverFcpxml: async () => {
+        backgroundDeliveries += 1;
+        throw new Error("selected headed route must not use background delivery");
+      },
+    },
+    executor: async (script: string) => {
+      appleScripts.push(script);
+      return "opened";
+    },
+    targetBinding: async (path: string | undefined) => ({
+      projectId: "selected-project",
+      sequenceId: "selected-sequence",
+      libraryPath: path,
+    }),
     liveState: async () => {
       const imported = liveStateCalls++ > 0;
       return {
-        project: { id: imported ? "fallback-project" : "existing-project", name: imported ? "Fallback Project" : "Existing Project" },
+        project: { id: imported ? "selected-project" : "existing-project", name: imported ? "Selected Route" : "Existing" },
         sequence: {
-          id: imported ? "fallback-sequence" : "existing-sequence",
-          name: imported ? "Main" : "Existing Sequence",
+          id: imported ? "selected-sequence" : "existing-sequence",
+          name: "Main",
           startTime: { value: "0", timescale: "1" },
           duration: { value: "1", timescale: "1" },
           frameDuration: { value: "1", timescale: "24" },
@@ -428,23 +459,27 @@ test("FCPXML publisher uses headed import only when explicitly enabled", async (
         revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
       };
     },
-    executor: async (script) => {
-      fallbackScripts.push(script);
-      return "imported";
-    },
-  }).publishNewProject({
-    sourceTransactionId: "txn-enabled-headed-fallback",
+  } as ConstructorParameters<typeof FinalCutProjectPublisher>[0];
+  const publisher = createPublisherForTest(options);
+  const preview = await publisher.preparePublish({
+    sourceTransactionId: "txn-selected-route",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    targetLibraryPath: enabledTargetLibraryPath,
-    confirm: true,
+    targetLibraryPath,
   });
 
-  assert.equal(enabledResult.verified, true);
-  assert.equal(enabledResult.delivery?.route, "headed-apple-event");
-  assert.equal(enabledResult.delivery?.status, "dispatched");
-  assert.match(fallbackScripts[0] ?? "", /tell application "Final Cut Pro"\s+activate\s+open POSIX file ".+project\.fcpxml"\s+end tell/);
-  assert.doesNotMatch(fallbackScripts[0] ?? "", /System Events|Import XML|key code|keystroke/);
+  assert.equal((preview.handoff as { route?: string }).route, "headed-apple-event");
+  assert.match(preview.handoff.reason, /activate Final Cut Pro/i);
+  assert.equal((await publisher.executePublishJob(preview.jobId, true)).state, "verified");
+  assert.equal(backgroundDeliveries, 0);
+  assert.equal(appleScripts.length, 1);
+  assert.match(appleScripts[0] ?? "", /open POSIX file ".*selected route\.fcpxml"/);
+  assert.match(appleScripts[0] ?? "", /tell application "Final Cut Pro"\s+activate/);
+  assert.doesNotMatch(appleScripts[0] ?? "", /System Events|Import XML|key code|keystroke/);
+  const published = publisher.getPublishJob(preview.jobId).result!;
+  const stagedXml = await readFile(published.importedPath, "utf8");
+  assert.match(stagedXml, new RegExp(`key="library location" value="file://${targetLibraryPath.replaceAll(" ", "%20")}`));
+  assert.equal(published.delivery?.route, "headed-apple-event");
 });
 
 test("FCPXML publisher requires exact live identity for a library-bound target", async () => {
