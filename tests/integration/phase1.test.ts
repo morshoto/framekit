@@ -121,7 +121,7 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   await adapter.apply({
     type: "add-marker",
     timelineId: before.timeline.id,
-    marker: { id: "marker-1", start: 2, duration: 0, name: "Review" },
+    marker: { id: "marker-1", start: 0.02, duration: 0, name: "Review" },
   }, after.revision);
   const marked = await adapter.readProject();
   assert.equal(marked.timeline.markers[0]?.name, "Review");

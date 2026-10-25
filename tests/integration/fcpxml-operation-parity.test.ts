@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -80,6 +80,8 @@ test("FCPXML operation coverage has a documented evidence boundary", async () =>
   ]) {
     assert.match(matrix, new RegExp(operation.replaceAll(".", "\\.")));
   }
+  assert.match(matrix, /Marker nested under an existing story element/);
+  assert.match(matrix, /Marker range must fit inside a covering gap or clip/);
   assert.match(matrix, /CAPABILITY_UNAVAILABLE/);
   assert.match(matrix, /does not prove a live\s+Final Cut timeline change/i);
 });
@@ -143,6 +145,44 @@ test("FCPXML media additions preserve music roles through read-after-write", asy
   assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
   assert.equal(transaction.after.timeline.clips.find((clip) => clip.id === "music-1")?.role, "music");
   assert.match(await readFile(path, "utf8"), /id="music-1"[^>]+role="music"/);
+});
+
+test("FCPXML marker edits stay inside a DTD-valid story element", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-marker-dtd-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources><format id="format-main" frameDuration="1/24s" /></resources>
+  <library><event name="Event"><project uid="project-marker" name="Marker Project">
+    <sequence format="format-main" duration="1s"><spine>
+      <gap name="Black" offset="0s" duration="1s" />
+    </spine></sequence>
+  </project></event></library>
+</fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "marker-1", start: 0, duration: 0, name: "Framekit Publisher E2E" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    assert.equal(transaction.after.timeline.markers[0]?.id, "marker-1");
+    assert.equal(transaction.after.timeline.markers[0]?.name, "Framekit Publisher E2E");
+    assert.equal(transaction.after.timeline.markers[0]?.start, 0);
+
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<gap[^>]*>\s*<marker(?=[^>]*\bstart="0\/1s")(?=[^>]*\bduration="0\/1s")(?=[^>]*\bvalue="Framekit Publisher E2E")(?=[^>]*\bnote="com\.framekit\.id:marker-1")[^>]*><\/marker>\s*<\/gap>/);
+    assert.doesNotMatch(xml, /<spine[^>]*>\s*<marker/);
+    assert.doesNotMatch(xml, /<marker[^>]*\bid=/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("FCPXML titles, transitions, and audio parameters round-trip through one transaction", async () => {
