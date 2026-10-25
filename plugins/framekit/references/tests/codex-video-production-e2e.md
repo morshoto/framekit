@@ -68,10 +68,12 @@ analysis to satisfy the edit. The plugin should:
    Confirm that speech output includes the configured provider version, VAD
    capability, exact source identity, and project revision for A, B, and C.
    Report each other modality as analyzed or unavailable.
-4. Call `rough-cut.plan` with the same `projectId` and a transcript query. Check
-   that the plan supplies evidence for the requested B, A, and C ranges. Keep
-   the returned source identities, digests, VAD evidence, and revision; apply
-   the requested B-A-C order without changing the evidence.
+4. Call `rough-cut.plan` with the same `projectId` and a transcript query that
+   includes terms for each intended source. The planner matches individual
+   terms and ranks speech ranges by term hits, so confirm the result includes A,
+   B, and C before proceeding. Check that its evidence supports the requested
+   ranges. Keep the returned source identities, digests, VAD evidence, and
+   revision; apply the requested B-A-C order without changing the evidence.
 5. Include a title operation at timeline 0-6 seconds and an independent music
    occurrence at 0-30 seconds with gain `-12`, using the registered music ID.
    Call `headless.rough-cut.preview`; check the exact B-A-C sequence, `FrameKit

@@ -39,6 +39,7 @@ The publisher contract (#519) and new-project backend (#212) are already merged 
 | B3 | Native execution requires separate approval and only reports success after matching created-target and active-project readback | Publisher contract plus headed acceptance | `tests/integration/publisher.test.ts`, then authorized headed run |
 | B4 | Unavailable/mismatched capability, rejected approval, stale input, interruption, and pending verification remain bounded and do not duplicate import | Contract and retry tests | `tests/integration/publisher.test.ts`, `tests/integration/runtime-alignment.test.ts` |
 | B5 | Sanitized run evidence is linked to #517 without exposing private media, credentials, or user-specific paths | Evidence review | `docs/release-evidence/v0.1.18/issue-541-codex-handoff.md` |
+| B6 | Multi-term editorial queries return matching speech ranges across all intended sources | Runtime integration | `tests/integration/semantic-media.test.ts` |
 
 ## Test-first implementation cycles
 
@@ -74,6 +75,22 @@ The publisher contract (#519) and new-project backend (#212) are already merged 
 **Refactor**
 
 - Rerun the affected MCP and publisher tests before adjusting shared helpers or documentation.
+
+### Cycle 2a: Preserve multi-source rough-cut query matches
+
+**Red**
+
+- Reproduce a Codex query containing terms from three source transcripts; the current whole-query substring filter returns no candidates.
+- Add an integration assertion that each source with at least one matching query term appears in the capped plan.
+
+**Green**
+
+- Match entries when any individual query term appears in source identity or semantic text; keep planner term-hit ranking for candidate ordering.
+- Document the multi-term query behavior in the plugin skill and production runbook.
+
+**Refactor**
+
+- Confirm the query test and packaged runbook alignment, then rerun semantic-media and Codex plugin tests.
 
 ### Cycle 3: Run the exact-package Codex workflow
 

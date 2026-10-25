@@ -28,10 +28,13 @@ live project state or silently switch to UI automation.
 4. Call `rough-cut.plan` with `projectId` and the user's editorial query. Review
    each proposed source, range, confidence, rationale, and evidence. Ask for
    clarification when the plan has no supported shots or misses the user's
-   intent. Follow the user's requested source order, ranges, title, music, and
-   audio policy. Reorder returned shots only when requested, preserving their
-   source identities, ranges, and evidence. Do not create speech/VAD evidence
-   or unsupported shot ranges. Get approval for the exact plan before execution.
+  intent. The planner matches individual query terms and ranks supported
+  speech ranges by term hits; include terms for each intended source, then
+  confirm every intended source appears in the result. Follow the user's
+  requested source order, ranges, title, music, and audio policy. Reorder
+  returned shots only when requested, preserving their source identities,
+  ranges, and evidence. Do not create speech/VAD evidence or unsupported shot
+  ranges. Get approval for the exact plan before execution.
 5. Call `headless.rough-cut.preview` with that plan and explicit output paths.
    Put requested title and music edits in its `operations`, and set
    `sourceAudioPolicy: "preserve-and-mix"` when requested. Review its plan
