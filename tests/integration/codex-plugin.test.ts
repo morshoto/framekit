@@ -110,6 +110,8 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     "projectId",
     "media.understand",
     "rough-cut.plan",
+    "matches individual query terms",
+    "every intended source appears",
     "headless.rough-cut.preview",
     "headless.rough-cut.execute",
     "artifact.publish.preview",
