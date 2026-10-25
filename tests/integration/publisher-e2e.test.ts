@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { FcpxmlDocumentAdapter } from "../../adapters/final-cut/typescript/src/fcpxml.js";
 import { verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -26,6 +27,21 @@ test("publisher headed E2E is a separate FCPXML workflow", async () => {
   assert.equal(publisherRunner.includes("editor.native."), false);
   assert.equal(nativeRunner.includes("artifact.publish"), false);
   assert.match(nativeRunner, /FRAMEKIT_FCPXML_PATH: ""/);
+});
+
+test("headed publisher fixture uses DTD-supported sequence identity", async () => {
+  const fixturePath = join(repositoryRoot, "tests/fixtures/final-cut-publisher-headed.fcpxml");
+  const source = await readFile(fixturePath, "utf8");
+  const sequenceAttributes = source.match(/<sequence\b([^>]*)>/)?.[1];
+  const snapshot = await new FcpxmlDocumentAdapter(fixturePath, undefined, {
+    allowMissingImmutableIdsForReadback: true,
+  }).readProject();
+
+  assert.ok(sequenceAttributes, "headed publisher fixture must contain a sequence");
+  assert.match(sequenceAttributes, /\bformat="r1"/);
+  assert.doesNotMatch(sequenceAttributes, /\b(?:name|uid)=/);
+  assert.match(source, /<format\b[^>]*\bid="r1"/);
+  assert.equal(snapshot.timeline.name, snapshot.projectName);
 });
 
 test("publisher headed E2E rejects missing post-import identities", () => {
