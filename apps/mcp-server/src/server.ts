@@ -2834,8 +2834,7 @@ function createNativeHandoffReadiness(
         const resultTarget = job.result?.createdTarget;
         const targetMatches = job.createdTarget
           && resultTarget
-          && job.createdTarget.projectId === resultTarget.projectId
-          && job.createdTarget.sequenceId === resultTarget.sequenceId;
+          && nativeTargetIdentityMatches(job.createdTarget, resultTarget);
         if (job.state === "verified" && job.result?.verified === true && targetMatches) {
           verifiedTarget = resultTarget;
         } else {
@@ -2868,6 +2867,29 @@ function createNativeHandoffReadiness(
     ...(publish ? { publish } : {}),
     ...(ready && verifiedTarget ? { createdTarget: verifiedTarget } : {}),
   };
+}
+
+function nativeTargetIdentityMatches(
+  left: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+  },
+  right: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+  },
+): boolean {
+  return left.kind === right.kind
+    && left.projectId === right.projectId
+    && left.sequenceId === right.sequenceId
+    && left.libraryId === right.libraryId
+    && left.eventId === right.eventId;
 }
 
 function inspectProjectPublisherReadiness(
