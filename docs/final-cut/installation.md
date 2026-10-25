@@ -49,6 +49,8 @@ native assets exist:
     --pattern "$archive" --pattern "$archive.sha256" --dir "$install_dir"
   (cd "$install_dir" && shasum -a 256 --check "$archive.sha256")
   ditto -x -k "$install_dir/$archive" "$install_dir"
+  codesign --verify --deep --strict \
+    "$install_dir/FramekitFinalCutWorkflow.app"
   mkdir -p "$HOME/Applications"
   ditto "$install_dir/FramekitFinalCutWorkflow.app" \
     "$HOME/Applications/FramekitFinalCutWorkflow.app"
