@@ -297,6 +297,36 @@ test('automatic release keeps native packaging off the publication critical path
 	assert.match(verifier, /goNoGo: releaseReady \? "GO" : "NO_GO"/);
 });
 
+test('native release verifies the uploaded archive from a clean download before provenance', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/native-release.yml'),
+		'utf8',
+	);
+	const upload = workflow.indexOf('name: Upload native release assets');
+	const cleanInstall = workflow.indexOf('name: Verify downloaded native release installation');
+	const provenance = workflow.indexOf('verify-release-provenance:');
+
+	assert.ok(upload >= 0 && cleanInstall > upload && provenance > cleanInstall);
+	const verification = workflow.slice(cleanInstall, provenance);
+	assert.match(verification, /gh release download "\$\{RELEASE_TAG\}"/);
+	assert.match(verification, /shasum -a 256 --check/);
+	assert.match(verification, /ditto -x -k/);
+	assert.match(verification, /codesign --verify --deep --strict/);
+	assert.match(verification, /FramekitBuildVersion/);
+	assert.match(verification, /FramekitBuildCommit/);
+	assert.match(verification, /git rev-parse "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}"/);
+});
+
+test('native release checksum names the portable archive basename', async () => {
+	const packaging = await readFile(
+		resolve(repository, 'scripts/package-final-cut-release.sh'),
+		'utf8',
+	);
+	assert.match(packaging, /cd "\$output_dir"/);
+	assert.match(packaging, /shasum -a 256 "\$archive_name" > "\$archive_name\.sha256"/);
+	assert.doesNotMatch(packaging, /shasum -a 256 "\$output_dir\/\$archive_name"/);
+});
+
 test('native release is an explicit retry without runner preflight', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),

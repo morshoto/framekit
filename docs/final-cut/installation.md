@@ -33,6 +33,40 @@ Configure the Framekit marketplace once:
 codex plugin marketplace add morshoto/framekit
 ```
 
+Once the matching release assets are published, install the signed app from
+that exact tag. This example uses v0.1.18; it fails until that release and its
+native assets exist:
+
+```sh
+(
+  set -euo pipefail
+  release_tag=v0.1.18
+  release_version="${release_tag#v}"
+  archive="FramekitFinalCutWorkflow-${release_version}.zip"
+  install_dir="$(mktemp -d)"
+  trap 'rm -rf "$install_dir"' EXIT
+  gh release download "$release_tag" --repo morshoto/framekit \
+    --pattern "$archive" --pattern "$archive.sha256" --dir "$install_dir"
+  (cd "$install_dir" && shasum -a 256 --check "$archive.sha256")
+  ditto -x -k "$install_dir/$archive" "$install_dir"
+  codesign --verify --deep --strict \
+    "$install_dir/FramekitFinalCutWorkflow.app"
+  mkdir -p "$HOME/Applications"
+  ditto "$install_dir/FramekitFinalCutWorkflow.app" \
+    "$HOME/Applications/FramekitFinalCutWorkflow.app"
+  codesign --verify --deep --strict \
+    "$HOME/Applications/FramekitFinalCutWorkflow.app"
+)
+```
+
+For an update, close the Workflow Extension and Final Cut, then repeat the
+exact-tag download and installation with the new version. Reopen Final Cut and
+the extension before running `npx -y @morshoto/framekit doctor finalcut`.
+Use `connection.status` and `editor.inspect` to confirm the installed MCP and
+extension fingerprints match. If the archive, checksum, or signature check
+fails, stop and use the release's documented retry path; do not substitute a
+local development build as signed-release evidence.
+
 Open `/plugins`, install **Framekit**, and start a new Codex session. Installation
 requires neither a repository checkout nor manual `codex mcp add`. The plugin
 starts the published package as:
