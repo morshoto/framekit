@@ -50,6 +50,16 @@ export interface FcpxmlDocumentAdapterOptions {
 }
 
 const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "mc-clip", "audio", "video"]);
+const MARKER_FOLLOWING_CHILD_KINDS = new Set([
+  "audio-channel-source",
+  "audio-role-source",
+  "sync-source",
+  "filter-video",
+  "filter-video-mask",
+  "filter-audio",
+  "metadata",
+  "reserved",
+]);
 const TIMELINE_KINDS = new Set([
   ...CLIP_KINDS,
   "gap",
@@ -477,14 +487,19 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       ? parseRational(attribute(host.node, "start") ?? "0s")
       : { value: "0", timescale: "1" };
     const localStart = addRational(sourceStart, subtractRational(markerStart, host.startTime));
-    appendChild(host.node, "marker", {
-      ":@": {
-        "@_start": formatRational(localStart),
-        "@_duration": formatRational(markerDuration),
-        "@_value": operation.marker.name,
-        "@_note": `com.framekit.id:${operation.marker.id}`,
-      },
+    const marker = elementNode("marker", {
+      start: formatRational(localStart),
+      duration: formatRational(markerDuration),
+      value: operation.marker.name,
+      note: `com.framekit.id:${operation.marker.id}`,
     });
+    const firstFollowingChild = storyEntries(host.node)
+      .find(({ kind }) => MARKER_FOLLOWING_CHILD_KINDS.has(kind));
+    if (firstFollowingChild) {
+      insertChildBefore(host.node, firstFollowingChild.node, "marker", marker);
+    } else {
+      appendChild(host.node, "marker", marker);
+    }
   }
 
   private findClipEntry(spine: XmlNode, clipId: string, timelineId: string): TimelineEntry | undefined {
@@ -1272,6 +1287,24 @@ function appendChild(node: XmlNode, kind: string, child: XmlNode): void {
   } else {
     node[kind] = [...(Array.isArray(node[kind]) ? node[kind] : []), wrapper];
   }
+}
+
+function insertChildBefore(parent: XmlNode, before: XmlNode, kind: string, child: XmlNode): void {
+  const elementKey = Object.keys(parent).find((key) => key !== ":@");
+  if (!elementKey || !Array.isArray(parent[elementKey])) {
+    appendChild(parent, kind, child);
+    return;
+  }
+  const children = parent[elementKey] as XmlNode[];
+  const index = children.indexOf(before);
+  if (index < 0) {
+    appendChild(parent, kind, child);
+    return;
+  }
+  const wrapper = Object.prototype.hasOwnProperty.call(child, kind)
+    ? child
+    : { [kind]: [], ...child };
+  children.splice(index, 0, wrapper);
 }
 
 function attributes(node: XmlNode): XmlNode {

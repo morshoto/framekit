@@ -248,6 +248,45 @@ test("FCPXML gap markers round-trip from nonzero source time", async () => {
   }
 });
 
+test("FCPXML markers precede ordered filter and metadata children", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-filter-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+  <format id="format-filter" frameDuration="1/24s" />
+  <asset id="source" name="Source.mov" duration="2s" hasVideo="1"><media-rep src="file:///fixtures/source.mov" /></asset>
+  <effect id="filter-effect" name="Test Filter" uid="/Effects/Test.localized/Test.moti" />
+</resources><library><event name="Event"><project uid="project-filter-marker" name="Filter Marker Project">
+  <sequence format="format-filter" duration="2s"><spine>
+    <asset-clip ref="source" offset="0s" start="0s" duration="2s"><filter-video ref="filter-effect" /><metadata /></asset-clip>
+  </spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "filtered-marker", start: 1, duration: 0, name: "Filtered Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    const xml = await readFile(path, "utf8");
+    const assetClip = xml.match(/<asset-clip[^>]*>([\s\S]*?)<\/asset-clip>/)?.[1];
+    assert.ok(assetClip);
+    const markerIndex = assetClip.indexOf("<marker");
+    const filterIndex = assetClip.indexOf("<filter-video");
+    const metadataIndex = assetClip.indexOf("<metadata");
+    assert.ok(markerIndex >= 0 && markerIndex < filterIndex && filterIndex < metadataIndex, assetClip);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FCPXML titles, transitions, and audio parameters round-trip through one transaction", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);
