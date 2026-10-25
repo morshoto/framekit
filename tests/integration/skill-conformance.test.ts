@@ -50,7 +50,7 @@ test("neutral add-marker Skill passes the complete in-memory conformance lifecyc
 test("the same add-marker Skill runs through the FCPXML adapter when artifact capabilities match", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-skill-conformance-"));
   const path = join(directory, "fixture.fcpxml");
-  await writeFile(path, `<?xml version="1.0"?><fcpxml version="1.11"><resources/><library><event><project uid="conformance-project" name="Conformance"><sequence uid="conformance-sequence" name="Main" duration="0s"><spine/></sequence></project></event></library></fcpxml>`);
+  await writeFile(path, `<?xml version="1.0"?><fcpxml version="1.11"><resources><format id="format-main" frameDuration="1/24s" /></resources><library><event><project uid="conformance-project" name="Conformance"><sequence format="format-main" duration="2s"><spine><gap name="Black" offset="0s" duration="2s" /></spine></sequence></project></event></library></fcpxml>`);
   const adapter = new FcpxmlDocumentAdapter(path);
   const capabilities = await adapter.getCapabilities();
   assert.equal(capabilities.editor.timelineArtifactWrite, true);

@@ -20,7 +20,7 @@ export interface FinalCutPublishSourceMediaDigest {
 
 export interface FinalCutProjectPublishDelivery {
   status: "dispatched";
-  route: "background-document-open" | "headed-accessibility";
+  route: "background-document-open" | "headed-apple-event";
   requestedActivates: boolean;
   activation: FinalCutFcpxmlDelivery["activation"];
   ui: FinalCutFcpxmlDelivery["ui"];
@@ -555,7 +555,7 @@ export class FinalCutProjectPublisher {
           await this.executor(importXmlScript(importedPath));
           delivery = {
             status: "dispatched",
-            route: "headed-accessibility",
+            route: "headed-apple-event",
             requestedActivates: true,
             activation: "activated",
             ui: "displayed",
@@ -567,7 +567,7 @@ export class FinalCutProjectPublisher {
         await this.executor(importXmlScript(importedPath));
         delivery = {
           status: "dispatched",
-          route: "headed-accessibility",
+          route: "headed-apple-event",
           requestedActivates: true,
           activation: "activated",
           ui: "displayed",
@@ -755,148 +755,9 @@ async function runAppleScript(script: string): Promise<string> {
 
 function importXmlScript(path: string): string {
   return `
-using terms from application "System Events"
-
-on waitForMenuItem(container, expectedNames, timeoutSeconds, timeoutMessage)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    repeat with candidate in (menu items of container)
-      try
-        set candidateName to name of candidate as text
-        repeat with expectedName in expectedNames
-          if candidateName is (expectedName as text) then return candidate
-        end repeat
-      end try
-    end repeat
-    if (current date) > deadline then error timeoutMessage
-    delay 0.1
-  end repeat
-end waitForMenuItem
-
-on waitForSubmenu(menuItem, submenuName, timeoutSeconds, timeoutMessage)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    try
-      if exists menu submenuName of menuItem then return menu submenuName of menuItem
-    end try
-    if (current date) > deadline then error timeoutMessage
-    delay 0.1
-  end repeat
-end waitForSubmenu
-
-on waitForWindow(finalCut, windowName, timeoutSeconds, timeoutMessage)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    try
-      if exists window windowName of finalCut then return window windowName of finalCut
-    end try
-    if (current date) > deadline then error timeoutMessage
-    delay 0.1
-  end repeat
-end waitForWindow
-
-on waitForImportSheet(importWindow, timeoutSeconds)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    try
-      if exists sheet 1 of importWindow then return sheet 1 of importWindow
-    end try
-    if (current date) > deadline then error "FINAL_CUT_PUBLISH_IMPORT_SHEET_TIMEOUT: Import XML sheet did not appear"
-    delay 0.1
-  end repeat
-end waitForImportSheet
-
-on matchesImportPathField(candidate)
-  set candidateIdentifier to ""
-  set candidateDescription to ""
-  try
-    set candidateIdentifier to value of attribute "AXIdentifier" of candidate as text
-  end try
-  try
-    set candidateDescription to description of candidate as text
-  end try
-  if candidateIdentifier is "path" or candidateIdentifier is "location" then return true
-  if candidateDescription contains "Go to the folder" then return true
-  if candidateDescription contains "path" or candidateDescription contains "location" then return true
-  return false
-end matchesImportPathField
-
-on locateImportPathField(pathSheet)
-  set matchingFields to {}
-  repeat with candidate in (text fields of pathSheet)
-    if matchesImportPathField(candidate) then set end of matchingFields to candidate
-  end repeat
-  if (count of matchingFields) is 0 then error "FINAL_CUT_PUBLISH_PATH_CONTROL_UNAVAILABLE: Import XML path control had no accessibility identifier or description"
-  if (count of matchingFields) is not 1 then error "FINAL_CUT_PUBLISH_PATH_CONTROL_AMBIGUOUS: Import XML path control was not unique"
-  return item 1 of matchingFields
-end locateImportPathField
-
-on waitForImportSheetDismissal(importWindow, timeoutSeconds)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    try
-      if not (exists sheet 1 of importWindow) then return
-    end try
-    if (current date) > deadline then error "FINAL_CUT_PUBLISH_IMPORT_SHEET_DISMISS_TIMEOUT: Import XML sheet did not disappear"
-    delay 0.1
-  end repeat
-end waitForImportSheetDismissal
-
-on waitForImportWindowDismissal(finalCut, timeoutSeconds)
-  set deadline to (current date) + timeoutSeconds
-  repeat
-    try
-      if not (exists window "Import XML" of finalCut) then return
-    end try
-    if (current date) > deadline then error "FINAL_CUT_PUBLISH_IMPORT_TIMEOUT: Import XML window did not close"
-    delay 0.1
-  end repeat
-end waitForImportWindowDismissal
-
-on cancelImportIfOpen(finalCut)
-  try
-    if exists window "Import XML" of finalCut then
-      set importWindow to window "Import XML" of finalCut
-      repeat with candidate in (buttons of importWindow)
-        try
-          if (name of candidate as text) is "Cancel" then
-            perform action "AXPress" of candidate
-            exit repeat
-          end if
-        end try
-      end repeat
-    end if
-  end try
-end cancelImportIfOpen
-
-end using terms from
-
-tell application "System Events"
-  tell process "Final Cut Pro"
-    set finalCut to it
-    set importWindow to missing value
-    try
-      if not frontmost then error number -1719
-      set fileMenu to menu "File" of menu bar 1
-      set importMenuItem to my waitForMenuItem(fileMenu, {"Import"}, 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: File > Import was not exposed")
-      perform action "AXPress" of importMenuItem
-      set importMenu to my waitForSubmenu(importMenuItem, "Import", 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: Import submenu was not exposed")
-      set xmlMenuItem to my waitForMenuItem(importMenu, {"XML…", "XML..."}, 10, "FINAL_CUT_PUBLISH_IMPORT_MENU_TIMEOUT: Import XML command was not exposed")
-      perform action "AXPress" of xmlMenuItem
-      set importWindow to my waitForWindow(finalCut, "Import XML", 10, "FINAL_CUT_PUBLISH_IMPORT_SHEET_TIMEOUT: Import XML sheet did not appear")
-      keystroke "g" using {command down, shift down}
-      set pathSheet to my waitForImportSheet(importWindow, 10)
-      set pathField to my locateImportPathField(pathSheet)
-      set value of pathField to ${appleScriptString(path)}
-      key code 36
-      my waitForImportSheetDismissal(importWindow, 10)
-      key code 36
-      my waitForImportWindowDismissal(finalCut, 60)
-    on error errorMessage number errorNumber
-      my cancelImportIfOpen(finalCut)
-      error errorMessage number errorNumber
-    end try
-  end tell
+tell application "Final Cut Pro"
+  activate
+  open POSIX file ${appleScriptString(path)}
 end tell`;
 }
 

@@ -147,28 +147,9 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
     after: { id: "project-2", name: "Published Edit" },
     changed: true,
   });
-  assert.match(scripts[0], /waitForMenuItem/);
-  assert.match(scripts[0], /waitForImportSheet/);
-  assert.match(scripts[0], /waitForSubmenu\(importMenuItem, "Import"/);
-  assert.match(scripts[0], /my waitForMenuItem/);
-  assert.match(scripts[0], /my waitForSubmenu/);
-  assert.match(scripts[0], /my waitForWindow/);
-  assert.match(scripts[0], /my waitForImportSheet/);
-  assert.match(scripts[0], /my locateImportPathField/);
-  assert.match(scripts[0], /my waitForImportSheetDismissal/);
-  assert.match(scripts[0], /my waitForImportWindowDismissal/);
-  assert.match(scripts[0], /my cancelImportIfOpen/);
-  assert.match(scripts[0], /perform action "AXPress"/);
-  assert.match(scripts[0], /keystroke "g" using \{command down, shift down\}/);
-  assert.match(scripts[0], /text fields of pathSheet/);
-  assert.match(scripts[0], /locateImportPathField/);
-  assert.match(scripts[0], /value of attribute "AXIdentifier"/);
-  assert.match(scripts[0], /description of candidate/);
-  assert.match(scripts[0], /FINAL_CUT_PUBLISH_PATH_CONTROL_AMBIGUOUS/);
-  assert.equal(scripts[0].includes("set pathField to item 1 of pathFields"), false);
-  assert.match(scripts[0], /waitForImportSheetDismissal/);
-  assert.match(scripts[0], /on error/);
-  assert.match(scripts[0], /Cancel/);
+  assert.match(scripts[0], /tell application "Final Cut Pro"\s+activate\s+open POSIX file ".*published project\.fcpxml"\s+end tell/);
+  assert.doesNotMatch(scripts[0], /System Events|Import XML|key code|keystroke/);
+  assert.equal(scripts[0].includes(sourcePath), false);
   assert.equal(scripts[0].includes("delay 0.4"), false);
   assert.match(scripts[0], /published project\.fcpxml/);
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
@@ -380,6 +361,90 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
   assert.equal(result.delivery?.status, "dispatched");
   assert.equal(result.delivery?.requestedActivates, false);
   assert.equal(result.delivery?.activation, "preserved");
+});
+
+test("FCPXML publisher uses headed import only when explicitly enabled", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-headed-fallback-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const disabledTargetLibraryPath = join(directory, "Fallback Disabled.fcpbundle");
+  const enabledTargetLibraryPath = join(directory, "Fallback Enabled.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Fallback Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+
+  let disabledFallbackCalls = 0;
+  const failedDelivery = {
+    deliverFcpxml: async (request: { targetLibraryLocation?: string; activates: boolean }) => ({
+      status: "failed" as const,
+      route: "background-document-open" as const,
+      attempted: true,
+      imported: false,
+      requestedActivates: request.activates,
+      activation: "unknown" as const,
+      ui: "unknown" as const,
+      target: { requestedLibraryLocation: request.targetLibraryLocation, guarantee: "requested-unverified" as const },
+      error: { code: "FINAL_CUT_DELIVERY_OPEN_FAILED", message: "Final Cut could not open the staged document" },
+    }),
+  };
+  const disabledPublisher = createPublisherForTest({
+    enabled: true,
+    sourcePath,
+    documentDelivery: failedDelivery,
+    targetBinding: async () => ({ projectId: "fallback-project", sequenceId: "fallback-sequence", libraryPath: disabledTargetLibraryPath }),
+    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+    executor: async () => {
+      disabledFallbackCalls += 1;
+      return "unexpected";
+    },
+  });
+
+  await assert.rejects(disabledPublisher.publishNewProject({
+    sourceTransactionId: "txn-disabled-headed-fallback",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath: disabledTargetLibraryPath,
+    confirm: true,
+  }), /FINAL_CUT_PUBLISH_VERIFICATION_PENDING.*FINAL_CUT_DELIVERY_OPEN_FAILED/);
+  assert.equal(disabledFallbackCalls, 0);
+
+  let liveStateCalls = 0;
+  const fallbackScripts: string[] = [];
+  const enabledResult = await createPublisherForTest({
+    enabled: true,
+    sourcePath,
+    documentDelivery: failedDelivery,
+    allowHeadedFallback: true,
+    targetBinding: async () => ({ projectId: "fallback-project", sequenceId: "fallback-sequence", libraryPath: enabledTargetLibraryPath }),
+    liveState: async () => {
+      const imported = liveStateCalls++ > 0;
+      return {
+        project: { id: imported ? "fallback-project" : "existing-project", name: imported ? "Fallback Project" : "Existing Project" },
+        sequence: {
+          id: imported ? "fallback-sequence" : "existing-sequence",
+          name: imported ? "Main" : "Existing Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+    executor: async (script) => {
+      fallbackScripts.push(script);
+      return "imported";
+    },
+  }).publishNewProject({
+    sourceTransactionId: "txn-enabled-headed-fallback",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath: enabledTargetLibraryPath,
+    confirm: true,
+  });
+
+  assert.equal(enabledResult.verified, true);
+  assert.equal(enabledResult.delivery?.route, "headed-apple-event");
+  assert.equal(enabledResult.delivery?.status, "dispatched");
+  assert.match(fallbackScripts[0] ?? "", /tell application "Final Cut Pro"\s+activate\s+open POSIX file ".+project\.fcpxml"\s+end tell/);
+  assert.doesNotMatch(fallbackScripts[0] ?? "", /System Events|Import XML|key code|keystroke/);
 });
 
 test("FCPXML publisher requires exact live identity for a library-bound target", async () => {

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11">
+  <resources>
+    <format id="r1" name="FFVideoFormat1080p25" frameDuration="1/25s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)" />
+  </resources>
+  <library>
+    <event name="Framekit Disposable QA">
+      <project uid="framekit-212-disposable-project" name="Framekit 212 Disposable QA">
+        <sequence format="r1" duration="1s" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+          <spine>
+            <gap name="Black" offset="0s" duration="1s" />
+          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>

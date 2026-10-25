@@ -50,6 +50,17 @@ export interface FcpxmlDocumentAdapterOptions {
 }
 
 const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "mc-clip", "audio", "video"]);
+const MARKER_HOST_KINDS = new Set([...CLIP_KINDS, "gap", "title", "live-drawing"]);
+const MARKER_FOLLOWING_CHILD_KINDS = new Set([
+  "audio-channel-source",
+  "audio-role-source",
+  "sync-source",
+  "filter-video",
+  "filter-video-mask",
+  "filter-audio",
+  "metadata",
+  "reserved",
+]);
 const TIMELINE_KINDS = new Set([
   ...CLIP_KINDS,
   "gap",
@@ -419,17 +430,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         this.applyRippleDelete(spine, operation.range.start, operation.range.end);
         break;
       case "add-marker": {
-        if (operation.timelineId !== timelineId) {
-          throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
-        }
-        appendChild(spine, "marker", {
-          ":@": {
-            "@_id": operation.marker.id,
-            "@_start": formatSeconds(operation.marker.start),
-            "@_duration": formatSeconds(operation.marker.duration),
-            "@_value": operation.marker.name,
-          },
-        });
+        this.applyMarker(spine, timelineId, operation);
         break;
       }
       case "timeline.media.add":
@@ -461,6 +462,43 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         break;
     }
     this.updateSequenceDuration(sequence, spine);
+  }
+
+  private applyMarker(
+    spine: XmlNode,
+    timelineId: string,
+    operation: Extract<WorkflowOperation, { type: "add-marker" }>,
+  ): void {
+    if (operation.timelineId !== timelineId) {
+      throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
+    }
+    const markerStart = parseRational(formatSeconds(operation.marker.start));
+    const markerDuration = parseRational(formatSeconds(operation.marker.duration));
+    const markerEnd = addRational(markerStart, markerDuration);
+    const host = timelineEntries(spine).find((entry) => {
+      if (!MARKER_HOST_KINDS.has(entry.kind)) return false;
+      const hostEnd = addRational(entry.startTime, entry.durationTime);
+      return compareRational(markerStart, entry.startTime) >= 0
+        && compareRational(markerEnd, hostEnd) <= 0;
+    });
+    if (!host) {
+      throw new Error("FCPXML_MARKER_TARGET_UNAVAILABLE: marker must fit inside an existing story element");
+    }
+    const sourceStart = parseRational(attribute(host.node, "start") ?? "0s");
+    const localStart = addRational(sourceStart, subtractRational(markerStart, host.startTime));
+    const marker = elementNode("marker", {
+      start: formatRational(localStart),
+      duration: formatRational(markerDuration),
+      value: operation.marker.name,
+      note: `com.framekit.id:${operation.marker.id}`,
+    });
+    const firstFollowingChild = storyEntries(host.node)
+      .find(({ kind }) => MARKER_FOLLOWING_CHILD_KINDS.has(kind));
+    if (firstFollowingChild) {
+      insertChildBefore(host.node, firstFollowingChild.node, "marker", marker);
+    } else {
+      appendChild(host.node, "marker", marker);
+    }
   }
 
   private findClipEntry(spine: XmlNode, clipId: string, timelineId: string): TimelineEntry | undefined {
@@ -1193,8 +1231,13 @@ function timelineEntries(spine: XmlNode): TimelineEntry[] {
           ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
           ?? "0s",
       );
-      const localStart = parentKind === "asset-clip"
-        && (kind === "title" || kind === "caption" || kind === "marker" || kind === "asset-clip" && attribute(child, "audioRole") === "music")
+      const markerInHost = kind === "marker"
+        && parentKind !== undefined
+        && MARKER_HOST_KINDS.has(parentKind);
+      const assetClipRelativeChild = parentKind === "asset-clip"
+        && (kind === "title" || kind === "caption" || kind === "asset-clip" && attribute(child, "audioRole") === "music");
+      const sourceRelativeChild = markerInHost || assetClipRelativeChild;
+      const localStart = sourceRelativeChild
         ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
         : localOffset;
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
@@ -1246,6 +1289,24 @@ function appendChild(node: XmlNode, kind: string, child: XmlNode): void {
   } else {
     node[kind] = [...(Array.isArray(node[kind]) ? node[kind] : []), wrapper];
   }
+}
+
+function insertChildBefore(parent: XmlNode, before: XmlNode, kind: string, child: XmlNode): void {
+  const elementKey = Object.keys(parent).find((key) => key !== ":@");
+  if (!elementKey || !Array.isArray(parent[elementKey])) {
+    appendChild(parent, kind, child);
+    return;
+  }
+  const children = parent[elementKey] as XmlNode[];
+  const index = children.indexOf(before);
+  if (index < 0) {
+    appendChild(parent, kind, child);
+    return;
+  }
+  const wrapper = Object.prototype.hasOwnProperty.call(child, kind)
+    ? child
+    : { [kind]: [], ...child };
+  children.splice(index, 0, wrapper);
 }
 
 function attributes(node: XmlNode): XmlNode {

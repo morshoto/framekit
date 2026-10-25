@@ -11,7 +11,7 @@ adapter. It applies to the managed artifact configured with
 | `rename-clip` | Existing clip `name` attribute | Existing occurrence only |
 | `trim-clip` | Clip `duration` | Source range must remain within the referenced media |
 | `set-gain` | `adjust-volume amount` | Finite dB value |
-| `add-marker` | Spine `marker` | Explicit timeline ID |
+| `add-marker` | Marker nested under an existing story element | Marker range must fit inside a covering gap or clip |
 | `timeline.media.add` | New `asset-clip` or `audio` resource reference | Known media resource, compatible role, valid lane and source range |
 | `timeline.media.move` | Clip `offset` and `lane` | Primary-storyline and parent-relative moves only |
 | `timeline.media.replace` | Existing clip `ref` and duration | Compatible media kind and source range |

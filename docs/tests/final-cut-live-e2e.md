@@ -229,7 +229,7 @@ then run:
 FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH="/absolute/path/to/disposable publisher.fcpxml" \
 FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH="/absolute/path/to/new publisher library.fcpbundle" \
 FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT="Imported Publisher E2E" \
-FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE="Main" \
+FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1 \
 pnpm run test:final-cut-publisher-headed \
   > docs/tests/evidence/$(date +%F)-publisher-live.json
 ```
@@ -237,11 +237,17 @@ pnpm run test:final-cut-publisher-headed \
 The runner checks the managed artifact, prepares it through a verified artifact
 transaction, and calls `artifact.publish` with the explicit new library path and
 confirmation. The staged FCPXML uses Final Cut's `library location` import
-option. The bridge reports dispatch; a read-only library catalog must then
-confirm the exact library, project, and sequence identities. The runner also
-requires the bound target to be active for headed `File > Export XML` semantic
-readback and records source-media SHA-256 digests before and after delivery.
-Paths containing spaces are supported.
+option. `FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1` explicitly enables the
+activated AppleEvent fallback when background document delivery is rejected.
+The bridge reports dispatch; a read-only library catalog must then confirm the
+exact library, project, and sequence identities. The import may add the project
+without activating its timeline. While publish verification is waiting,
+double-click the imported project in the new library's Event Browser. The runner requires
+that exact target to be active for headed `File > Export XML` semantic readback,
+then records source-media SHA-256 digests before and after delivery. If the target
+is not opened before verification times out, no publish success is reported. Use
+an FCPXML artifact valid for the installed Final Cut version. Paths containing
+spaces are supported.
 
 This runner does not call `editor.native.*`, create a native fixture project, or
 claim that a native timeline edit succeeded. Use the prepared disposable fixture
