@@ -38,19 +38,23 @@ that exact tag. This example uses v0.1.18; it fails until that release and its
 native assets exist:
 
 ```sh
-release_tag=v0.1.18
-release_version="${release_tag#v}"
-archive="FramekitFinalCutWorkflow-${release_version}.zip"
-install_dir="$(mktemp -d)"
-gh release download "$release_tag" --repo morshoto/framekit \
-  --pattern "$archive" --pattern "$archive.sha256" --dir "$install_dir"
-(cd "$install_dir" && shasum -a 256 --check "$archive.sha256")
-ditto -x -k "$install_dir/$archive" "$install_dir"
-mkdir -p "$HOME/Applications"
-ditto "$install_dir/FramekitFinalCutWorkflow.app" \
-  "$HOME/Applications/FramekitFinalCutWorkflow.app"
-codesign --verify --deep --strict \
-  "$HOME/Applications/FramekitFinalCutWorkflow.app"
+(
+  set -euo pipefail
+  release_tag=v0.1.18
+  release_version="${release_tag#v}"
+  archive="FramekitFinalCutWorkflow-${release_version}.zip"
+  install_dir="$(mktemp -d)"
+  trap 'rm -rf "$install_dir"' EXIT
+  gh release download "$release_tag" --repo morshoto/framekit \
+    --pattern "$archive" --pattern "$archive.sha256" --dir "$install_dir"
+  (cd "$install_dir" && shasum -a 256 --check "$archive.sha256")
+  ditto -x -k "$install_dir/$archive" "$install_dir"
+  mkdir -p "$HOME/Applications"
+  ditto "$install_dir/FramekitFinalCutWorkflow.app" \
+    "$HOME/Applications/FramekitFinalCutWorkflow.app"
+  codesign --verify --deep --strict \
+    "$HOME/Applications/FramekitFinalCutWorkflow.app"
+)
 ```
 
 For an update, close the Workflow Extension and Final Cut, then repeat the
