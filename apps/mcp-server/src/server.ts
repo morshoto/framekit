@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { resolve as resolvePath } from "node:path";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
   createCapabilityPreflight,
