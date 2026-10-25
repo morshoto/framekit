@@ -1037,6 +1037,46 @@ test("canonical export binds missing sequence UID to the live target", async () 
   assert.equal(project.timeline.id, "sequence-live");
 });
 
+test("publish canonical readback binds a catalog target when the export has no immutable UIDs", async () => {
+  const source = new FinalCutCanonicalSnapshotSource({
+    readbackTarget: {
+      projectId: "catalog-project",
+      sequenceId: "catalog-sequence",
+      projectName: "Created Edit",
+      sequenceName: "Main",
+    },
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      await writeFile(canonicalExportPath(script), '<fcpxml version="1.11"><library><event><project name="Created Edit"><sequence name="Main" duration="1s"><spine/></sequence></project></event></library></fcpxml>');
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  const snapshot = await source.readSnapshot();
+  assert.equal(snapshot.projectId, "catalog-project");
+  assert.equal(snapshot.timeline.id, "catalog-sequence");
+});
+
+test("publish canonical readback rejects an export for another named target", async () => {
+  const source = new FinalCutCanonicalSnapshotSource({
+    readbackTarget: {
+      projectId: "catalog-project",
+      sequenceId: "catalog-sequence",
+      projectName: "Created Edit",
+      sequenceName: "Main",
+    },
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      await writeFile(canonicalExportPath(script), '<fcpxml version="1.11"><library><event><project name="Another Edit"><sequence name="Main" duration="1s"><spine/></sequence></project></event></library></fcpxml>');
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  await assert.rejects(source.readSnapshot(), /TARGET_MISMATCH: canonical export project and sequence names/);
+});
+
 test("canonical export rejects a sequence UID from another live target", async () => {
   const completeDocument = "<?xml version=\"1.0\"?><fcpxml><resources/><library><event><project uid=\"project-package\" name=\"Packaged\"><sequence uid=\"sequence-other\" name=\"Main\" duration=\"1s\"><spine/></sequence></project></event></library></fcpxml>";
   const source = new FinalCutCanonicalSnapshotSource({

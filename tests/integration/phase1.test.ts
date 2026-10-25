@@ -167,14 +167,18 @@ test("FCPXML project identity fails closed without an immutable uid", async () =
   await assert.rejects(adapter.readProject(), /FCPXML_PROJECT_IDENTITY_UNAVAILABLE/);
 });
 
-test("FCPXML sequence identity fails closed without an immutable uid", async () => {
+test("FCPXML 1.11 sequence identity derives from the immutable project uid", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-sequence-identity-"));
   const path = join(directory, "project.fcpxml");
   await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-stable" name="Stable Project"><sequence name="Mutable Sequence" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
   const adapter = new FcpxmlDocumentAdapter(path);
 
-  await assert.rejects(adapter.listProjects(), /FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE/);
-  await assert.rejects(adapter.readProject(), /FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE/);
+  await adapter.listProjects();
+  const before = await adapter.readProject();
+  assert.equal(before.timeline.id, "fcpxml:sequence:project-stable");
+  await writeFile(path, (await readFile(path, "utf8")).replace("Mutable Sequence", "Renamed Sequence"));
+  const after = await new FcpxmlDocumentAdapter(path).readProject();
+  assert.equal(after.timeline.id, before.timeline.id);
 });
 
 test("UID-backed FCPXML identities remain stable across project and sequence renames", async () => {

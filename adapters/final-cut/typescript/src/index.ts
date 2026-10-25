@@ -11,6 +11,7 @@ export * from "./media.js";
 export * from "./native.js";
 export * from "./disposable-native.js";
 export * from "./publisher.js";
+export * from "./publish-readback.js";
 export * from "./export.js";
 export * from "./background-export.js";
 export * from "./background-materialization.js";

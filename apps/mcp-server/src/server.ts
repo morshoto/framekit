@@ -67,6 +67,7 @@ import {
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
 } from "./headless-projects.js";
+import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
@@ -118,6 +119,7 @@ const timelineSemanticContextQuerySchema = z.object({
 }).strict();
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
+  projectId: z.string().min(1).optional(),
 });
 const durationRangeSchema = z.object({
   startSeconds: z.number().finite().nonnegative(),
@@ -1870,29 +1872,46 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.preview", {
-    description: "Prepare a verified FCPXML publish handoff without opening Final Cut; the configured native route may use non-activating document delivery or an explicit headed fallback.",
+    description: "Prepare a verified managed-artifact or approved headless-rough-cut publish handoff without opening Final Cut.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
       targetLibraryPath: z.string().trim().min(1),
-      transactionId: z.string().min(1),
+      transactionId: z.string().min(1).optional(),
+      headlessExecutionId: z.string().min(1).optional(),
     },
-  }, async ({ artifactPath, targetLibraryPath, transactionId }) => {
+  }, async ({ artifactPath, targetLibraryPath, transactionId, headlessExecutionId }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    const transaction = runtime.getTransaction(transactionId);
-    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
-      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    if (Boolean(transactionId) === Boolean(headlessExecutionId)) {
+      throw new Error("PUBLISH_SOURCE_REQUIRED: provide exactly one of transactionId or headlessExecutionId");
     }
-    if (!transaction.artifactDigest) {
-      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    let sourceTransactionId: string;
+    let artifactDigest: string;
+    let sourceProof: Awaited<ReturnType<HeadlessProjectService["verifyPublishableRoughCut"]>> | undefined;
+    if (headlessExecutionId) {
+      sourceProof = await requireHeadlessProjects().verifyPublishableRoughCut(headlessExecutionId, artifactPath);
+      sourceTransactionId = sourceProof.sourceTransactionId;
+      artifactDigest = sourceProof.artifactDigest;
+    } else {
+      const transaction = runtime.getTransaction(transactionId!);
+      if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+        throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+      }
+      if (!transaction.artifactDigest) {
+        throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+      }
+      const verification = await runtime.verifyTransaction(transactionId!);
+      if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+      sourceTransactionId = transactionId!;
+      artifactDigest = transaction.artifactDigest;
     }
-    const verification = await runtime.verifyTransaction(transactionId);
-    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
-    return jsonResult(await options.projectPublisher.preparePublish({
-      sourceTransactionId: transactionId,
+
+    const job = await options.projectPublisher.preparePublish({
+      sourceTransactionId,
       artifactPath,
-      artifactDigest: transaction.artifactDigest,
+      artifactDigest,
       targetLibraryPath,
-    }));
+    });
+    return jsonResult({ ...job, ...(sourceProof ? { sourceProof } : {}) });
   });
 
   server.registerTool("artifact.publish.execute", {
@@ -2176,14 +2195,27 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
 
   server.registerTool("media.understand", {
-    description: "Return combined speech, audio, and visual understanding for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
+    description: "Return combined speech, audio, and visual understanding for one media item in the selected editor project or a named headless project.",
+    inputSchema: { mediaId: z.string().min(1), projectId: z.string().min(1).optional() },
+  }, async ({ mediaId, projectId }) => {
+    if (!projectId) return jsonResult(await runtime.understandMedia(mediaId));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("rough-cut.plan", {
-    description: "Create a deterministic, explainable, read-only shot plan from analyzed media; does not mutate the timeline.",
+    description: "Create a deterministic, explainable, read-only shot plan from analyzed editor or named headless project media; does not mutate the timeline.",
     inputSchema: roughCutPlanSchema.shape,
-  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
+  }, async (request) => {
+    const { projectId, ...planRequest } = request;
+    if (!projectId) return jsonResult(await runtime.planRoughCut(planRequest));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.planRoughCutInProject(planRequest, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("editor.assets", {
     description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
@@ -2664,7 +2696,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     : "unavailable";
   const publishingAvailable = configuredPublisher && (
     publisherExecutionMode === "background-capable"
-    || (processMode === "headed" && inspected.capabilities.editor.canonicalTimelineMode !== "metadata-only")
+    || processMode === "headed"
   );
   const publishingMode = publishingAvailable ? publisherExecutionMode : "unavailable";
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());

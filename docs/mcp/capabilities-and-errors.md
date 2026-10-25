@@ -280,16 +280,15 @@ native UI access. A missing provider returns an unavailable descriptor rather
 than an empty or invented catalog.
 
 `artifactPublish` is true when a configured publisher has a supported route.
-`artifactPublishMode` reports `background-capable` when the Workflow Extension
-document-open bridge is configured, `headed-only` for the explicit
-Accessibility path when the process has a live non-metadata Final Cut route,
-and `unavailable` otherwise. A publisher also needs a native library-catalog
-provider that reads the exact created project and sequence IDs from the
-requested `.fcpbundle` path. Background-capable means only that Framekit can
-attempt `NSWorkspace` document delivery with `activates=false`; it does not
-claim import completion or target-bound readback. The job tools remain
-available when a managed artifact is configured so callers can prepare and
-inspect a bounded handoff. `artifactPublish` is separate from both
+`artifactPublishMode` reports `headed-only` when publishing requires Final
+Cut's headed `File > Export XML` semantic readback, and `unavailable`
+otherwise. The Workflow Extension may dispatch the FCPXML document in the
+background, but that does not make the full handoff background-capable. A
+publisher also needs a native library-catalog provider that reads the exact
+created project and sequence IDs from the requested `.fcpbundle` path, active
+target identity around canonical export, and matching source-media hashes.
+The job tools remain available when a managed artifact is configured so callers
+can prepare and inspect a bounded handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
 new project is neither an artifact edit nor an edit of the open timeline.
 
@@ -515,16 +514,19 @@ missing. Both tools include `timelineWindowAvailable`, `timelineFocused`,
 focus tool changes application focus only; it does not select a project or
 mutate timeline content, and it never clicks the Framekit close button.
 
-`artifact.publish` is reported separately from `timelineWrite`. It accepts a
-verified artifact transaction, matching `artifactPath`, a new absolute
-`.fcpbundle` `targetLibraryPath`, and `confirm: true`. The staged FCPXML names
-that library location; the approved artifact is unchanged. A native library
-catalog provider must read the created project and sequence IDs from that
-exact path. The result identifies the source artifact, created target, and
-active project before/after; it does not mean the currently open timeline is
-directly writable. Missing confirmation fails with
-`PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched artifact fails with
-`PUBLISH_TARGET_MISMATCH`.
+`artifact.publish` is reported separately from `timelineWrite`. The job-based
+`artifact.publish.preview` accepts either a verified artifact transaction or a
+durable, approved headless rough-cut execution, bound to the matching
+`artifactPath` and a new absolute `.fcpbundle` `targetLibraryPath`.
+`artifact.publish.execute` requires `confirm: true` before a new Final Cut
+project is imported. The staged FCPXML names that library location; the
+approved artifact is unchanged. A native library catalog provider must read the
+created library, project, and sequence from that exact path. An FCPXML
+destination UID is not native readback. The result identifies the source
+artifact, created target, and active project before/after; it does not mean the
+currently open timeline is directly writable. Missing
+confirmation fails with `PUBLISH_CONFIRMATION_REQUIRED`, and a mismatched
+artifact fails with `PUBLISH_TARGET_MISMATCH`.
 
 The job-based `artifact.publish.preview`, `artifact.publish.execute`, and
 `artifact.publish.status` tools make the delivery boundary explicit. They

@@ -10,8 +10,10 @@ For a Framekit-owned project, use the headless path by default:
    edit surface as one headless capability.
 2. Confirm `selectedPath: "headless"` and `reason.code: "HEADLESS_SELECTED"`.
 3. Use `headless.project.open` or `headless.project.inspect`, then
-   `headless.edit.preview` and `headless.edit.execute`. For semantic rough cuts,
-   pass the read-only `rough-cut.plan` result to
+   `headless.edit.preview` and `headless.edit.execute`. For a new semantic
+   rough cut, register sources with `headless.media.register`, call
+   `media.understand` and `rough-cut.plan` with that project's `projectId`, and
+   pass the read-only plan to
    `headless.rough-cut.preview`, review its provenance and output intent, then
    call `headless.rough-cut.execute` with the returned plan digest and explicit
    approval.
@@ -27,12 +29,14 @@ include titles, audio occurrences, and other supported edits in the same
 revision as the planned shots. Set `sourceAudioPolicy: "preserve-and-mix"` to
 make the source-audio behavior explicit: embedded video audio is retained and
 registered audio/music occurrences are mixed with their configured gain. The
-returned `planDigest` binds the plan, operations, audio policy, and render and
-FCPXML output intent. Review the preview's `diff.operations`, final timeline,
-FCPXML coverage, and output intent
-before passing the unchanged plan, operations, and output settings with the
-returned digest and `approved: true` to execute. The transaction renders MP4
-and writes matching editable FCPXML from one proposed revision.
+returned `planDigest` binds the plan, operations, output intent, source and
+predicted committed revisions, resolved FCPXML output path, and compiled
+artifact digest. Review the preview's `diff.operations`, final timeline,
+FCPXML coverage, and output intent before passing the unchanged plan,
+operations, and output settings with the returned digest and `approved: true`
+to execute. The transaction renders MP4 and writes matching editable FCPXML
+from one approved revision. The resulting `executionId` can be passed to
+`artifact.publish.preview` for a separately confirmed native handoff.
 
 ## Explicit headed/editor-first routing
 
@@ -159,7 +163,7 @@ is a separate, confirmed `artifact.publish` step.
 | `artifact.edit` | Edit the identified managed FCPXML artifact | Requires the exact `artifactPath` and artifact read-after-write/rollback capability |
 | `artifact.edit.preview` | Preview an ordered edit against the identified FCPXML artifact | Non-mutating; requires the artifact target and preview capability |
 | `artifact.edit.execute` | Execute one artifact preview token and verify the artifact transaction | Requires an unexpired, single-use artifact preview token |
-| `artifact.publish.preview` | Prepare a verified artifact handoff without opening Final Cut | Requires the verified `artifactPath`, `transactionId`, and new absolute `.fcpbundle` `targetLibraryPath`; returns the exact source and destination |
+| `artifact.publish.preview` | Prepare a verified managed-artifact or approved headless-rough-cut handoff without opening Final Cut | Requires `artifactPath`, exactly one of `transactionId` or `headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`; returns the exact source and destination |
 | `artifact.publish.execute` | Execute a confirmed artifact publish job or resume its verification | Requires a job ID and literal `confirm: true`; never reports success before live target readback |
 | `artifact.publish.status` | Read a publish job state | Read-only; does not retry or open Final Cut |
 | `artifact.publish` | Create/import a new Final Cut project from a verified FCPXML artifact | Requires `artifactPath`, `transactionId`, a new absolute `.fcpbundle` `targetLibraryPath`, `confirm: true`, and native publishing capability; reports the created target and active project before/after |
@@ -189,8 +193,8 @@ is a separate, confirmed `artifact.publish` step.
 | `color.correction.preview` | Preview exposure, contrast, saturation, white balance, or a basic preset on one clip | Requires explicit clip targeting and advertised color-correction capability |
 | `color.correction.execute` | Execute the color preview and return before/after diff, verification, and rollback evidence | Use `edit.undo` with the returned transaction ID for a later reversal |
 | `visual.analyze` | Scenes, subjects, motion, and keyframes | Fixture or configured local JSON provider |
-| `media.understand` | Combined speech, audio, visual, and metadata understanding | Returns per-capability analyzed or unavailable statuses |
-| `rough-cut.plan` | Explainable read-only, speech-first shot plan from semantic media ranges | Uses analyzed VAD speech intervals or transcript word ranges before metadata-only ranges; returns exact source identity, evidence, and rationale; never mutates the timeline |
+| `media.understand` | Combined speech, audio, visual, and metadata understanding for editor media or one `projectId` headless project | Returns per-capability analyzed or unavailable statuses; headless media uses configured analyzers without requiring a connected Final Cut session |
+| `rough-cut.plan` | Explainable read-only, speech-first shot plan from editor media or one `projectId` headless project | Uses analyzed VAD speech intervals or transcript word ranges before metadata-only ranges; returns exact source identity, evidence, and rationale; never mutates the timeline |
 | `editor.assets` | Search editor assets by text, kind, vendor, and explicit discovery mode; IDs are provider-qualified and include discovery provenance | `discovery: "background"` is the default filesystem registry; `discovery: "native"` explicitly requires Accessibility and Final Cut frontmost; `discovery: "all"` composes both |
 | `edit.diff` | Transaction diff | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
 | `edit.verify` | Verification results | Fixture/FCPXML transaction path or a canonical-capable live Final Cut bridge |
@@ -317,16 +321,21 @@ The three editing surfaces have separate targets and guarantees:
   operation. The staged FCPXML binds the import to that path; the approved
   source artifact is unchanged. The bridge reports dispatch only. Publishing
   succeeds only after catalog readback binds the exact library, project, and
-  sequence IDs. Without that readback, no successful result is reported. The
-  result identifies `sourceTarget`, `createdTarget`, and active project before
-  and after delivery. Missing confirmation returns
+  sequence IDs, the same native target is active around headed `File > Export
+  XML` readback, the supported timeline semantics match, and source-media
+  digests remain unchanged. Without those checks, no successful result is
+  reported. The result identifies `sourceTarget`, `createdTarget`, semantic
+  readback evidence, and active project before and after delivery. Missing confirmation returns
   `PUBLISH_CONFIRMATION_REQUIRED`; a different artifact returns
   `PUBLISH_TARGET_MISMATCH`.
-- `artifact.publish.preview` records the explicit destination path along with
-  the verified source transaction. `artifact.publish.execute` requires
-  confirmation; `artifact.publish.status` is read-only.
-- `artifact.publish.execute` and
-  `artifact.publish.status` expose a bounded publish handoff state machine.
+- `artifact.publish.preview` accepts either a verified artifact transaction or
+  a durable approved headless rough-cut execution through `headlessExecutionId`.
+  It records the matching `artifactPath` and new absolute
+  `.fcpbundle` `targetLibraryPath`; `artifact.publish.execute` requires explicit
+  confirmation, and `artifact.publish.status` is read-only. The native
+  publisher requires a separately configured Final Cut server.
+- `artifact.publish.preview`, `artifact.publish.execute`, and
+  `artifact.publish.status` expose a bounded native handoff state machine.
   `awaiting-final-cut` is retryable before import; `verification-pending` is
   retryable verification only and never repeats the import. Neither state has
   a `createdTarget`, and only `verified` has a successful publish result.
@@ -425,12 +434,17 @@ not replace that target with a UI index or coordinate-only match.
 ## Semantic media understanding
 
 `media.understand` runs the independently configured speech, audio, visual, and
-metadata analyzers for one media item. Its response includes the exact source
-identity (`mediaId`, source, optional digest, kind, and duration), semantic tags,
-usable source ranges, and one machine-readable status per capability. A provider
-failure or missing provider is reported as `unavailable`; successful modalities
-remain available in a partial result, and no description is invented for a
-missing modality.
+metadata analyzers for one media item. Supply `projectId` to read that media
+from a persisted Framekit headless project; the tool reopens the project,
+revalidates its registered local source, and analyzes a runtime snapshot of its
+Timeline IR without using the live editor context. Its response includes the
+exact source identity (`mediaId`, source, optional digest, kind, and duration),
+semantic tags, usable source ranges, and one machine-readable status per
+capability. A provider failure or missing provider is reported as
+`unavailable`; successful modalities remain available in a partial result, and
+no description is invented for a missing modality. The source-bound index is
+persisted so `rough-cut.plan` with the same `projectId` can consume the analysis
+after an MCP restart.
 
 `media.index` searches the attached, provenance-aware descriptions. Filters can
 match `subject`, `scene`, `environment`, `timeOfDay`, `mood`, `motion`, free text,
@@ -439,9 +453,11 @@ overlapping semantic or analyzed speech `range`, and required analyzer
 identity used to produce it.
 
 `rough-cut.plan` consumes the same index and returns deterministic video shots
-sorted by query relevance, media ID, and source range. When speech evidence is
-available, speech VAD intervals (or grouped transcript word ranges) are selected
-first and silence intervals are excluded. Each shot includes its exact source
+sorted by query relevance, media ID, and source range. When `projectId` is
+provided, results are limited to exact source identities registered in that
+headless project. When speech evidence is available, speech VAD intervals (or
+grouped transcript word ranges) are selected first and silence intervals are
+excluded. Each shot includes its exact source
 identity, source range, confidence, matched properties, rationale, and optional
 speech evidence with transcript, word confidence, VAD, and loudness metadata.
 Audio-only entries with usable ranges are excluded from the shots and reported in

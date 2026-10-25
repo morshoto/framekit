@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { readFile, mkdtemp, rm, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { chmod, mkdir, readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -39,6 +40,132 @@ test("production rough-cut tools expose digest-bound edit operations", async () 
       assert.ok(tool, `${name} is registered`);
       assert.ok((tool.inputSchema as any).properties.operations, `${name} accepts edit operations`);
     }
+    const publishPreview = tools.tools.find((entry) => entry.name === "artifact.publish.preview");
+    assert.ok(publishPreview);
+    assert.ok((publishPreview.inputSchema as any).properties.headlessExecutionId);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless project media can be understood and planned without a Final Cut connection", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-analysis-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(directory, "source.mp4");
+  const stateDirectory = join(directory, "state");
+  const speechAnalyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const audioAnalyzer = await makeFixedAnalyzer(directory, "audio", JSON.stringify({
+    integratedLufs: -18,
+    truePeakDb: -3,
+    silenceMs: 0,
+    analyzedDurationSeconds: 5,
+  }));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: stateDirectory,
+    FRAMEKIT_SPEECH_ANALYZER: speechAnalyzer,
+    FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1",
+    FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
+    FRAMEKIT_AUDIO_ANALYZER: audioAnalyzer,
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 5 }], 440);
+    const unrelatedSource = {
+      mediaId: "000-unrelated-project-media",
+      source: join(directory, "unrelated.mp4"),
+      sourceDigest: "f".repeat(64),
+      mediaKind: "video",
+      duration: 5,
+    };
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(join(stateDirectory, "semantic-media-index.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [{
+        mediaId: unrelatedSource.mediaId,
+        source: unrelatedSource.source,
+        sourceIdentity: unrelatedSource,
+        semantic: {
+          subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [],
+          usableRanges: [{ start: 0, end: 5 }], transcript: "highlight",
+        },
+        analysis: [{ capability: "speech", status: "analyzed" }],
+        speech: {
+          words: [{ text: "highlight", start: 0.5, end: 1.4, confidence: 0.99 }],
+          vadSegments: [{ start: 0, end: 2, kind: "speech", confidence: 0.99 }],
+        },
+        analysisRevision: { id: "unrelated-revision", sequence: 1, timestamp: "2026-10-12T00:00:00.000Z" },
+      }],
+    }));
+    ({ client, transport } = await connectProductionClient(here, environment));
+
+    const connection = payload(await client.callTool({ name: "connection.status", arguments: {} }));
+    assert.notEqual(connection.state, "ready");
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: {
+      projectId,
+      sourcePath,
+      expectedRevision: created.timeline.revision,
+    } }));
+
+    const understanding = payload(await client.callTool({ name: "media.understand", arguments: {
+      projectId,
+      mediaId: registered.resource.id,
+    } }));
+    assert.equal(understanding.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
+    assert.equal(understanding.speech.capability, "transcription-plus-vad");
+    assert.equal(understanding.audio.integratedLufs, -18);
+    assert.ok(understanding.analysis.every((status: any) => status.status === "analyzed" || status.status === "unavailable"));
+
+    const plan = payload(await client.callTool({ name: "rough-cut.plan", arguments: {
+      projectId,
+      query: "highlight",
+      maxShots: 1,
+    } }));
+    assert.deepEqual(plan.revision, understanding.analysisRevision);
+    assert.equal(plan.shots.length, 1);
+    assert.equal(plan.shots[0].sourceIdentity.mediaId, registered.resource.id);
+    assert.equal(plan.shots[0].evidence.vad.kind, "speech");
+    assert.equal(plan.shots[0].evidence.audio.integratedLufs, -18);
+
+    const preview = payload(await client.callTool({ name: "headless.rough-cut.preview", arguments: {
+      projectId,
+      sequenceId: created.timeline.sequence.id,
+      plan,
+      render: { outputPath: join(directory, "highlight.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: {
+        path: join(directory, "highlight.fcpxml"),
+        target: {
+          provider: "final-cut",
+          libraryUid: "codex-workflow-library",
+          eventUid: "codex-workflow-event",
+          projectUid: "codex-workflow-project",
+          sequenceUid: "codex-workflow-sequence",
+          materialization: "versioned",
+        },
+      },
+    } }));
+    const executed = payload(await client.callTool({ name: "headless.rough-cut.execute", arguments: {
+      projectId,
+      sequenceId: created.timeline.sequence.id,
+      plan,
+      render: preview.outputIntent.render,
+      fcpxml: preview.outputIntent.fcpxml,
+      approved: true,
+      planDigest: preview.planDigest,
+    } }));
+    assert.equal(executed.committed, true);
+    assert.deepEqual(executed.render.outcome.render.projectRevision, executed.after.timeline.revision);
+    assert.deepEqual(executed.fcpxml.provenance.revision, executed.after.timeline.revision);
   } finally {
     await client?.close();
     await transport?.close();
@@ -57,6 +184,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
     FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
     FRAMEKIT_FCPXML_PATH: join(directory, "missing-project.fcpxml"),
+    FRAMEKIT_FINAL_CUT_LIBRARY_UID: "issue-517-disposable-library",
     FRAMEKIT_STATE_DIR: join(directory, "state"),
   };
   let client: Client | undefined;
@@ -152,7 +280,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
       },
     ];
     const outputPath = join(directory, "issue-517-mvp.mp4");
-    const fcpxmlPath = join(directory, "issue-517-mvp.fcpxml");
+    const fcpxmlPath = environment.FRAMEKIT_FCPXML_PATH!;
     const request = {
       projectId,
       sequenceId,
@@ -240,6 +368,30 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal((await stat(outputPath)).isFile(), true);
     assert.equal((await stat(fcpxmlPath)).isFile(), true);
 
+    const publishPreview = payload(await client.callTool({
+      name: "artifact.publish.preview",
+      arguments: {
+        artifactPath: fcpxmlPath,
+        headlessExecutionId: executed.executionId,
+        targetLibraryPath: join(directory, "Approved Headless Publish.fcpbundle"),
+      },
+    }));
+    assert.equal(publishPreview.sourceTransactionId, `headless-rough-cut:${executed.executionId}`);
+    assert.equal(publishPreview.sourceProof.planDigest, preview.planDigest);
+    assert.equal(publishPreview.sourceProof.renderId, executed.render.renderId);
+    assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml.destination.projectUid);
+    assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    const approvedMediaDigests = Object.values(registrations)
+      .map((resource: any) => ({ source: resource.source, sha256: resource.sourceDigest }))
+      .sort((left: any, right: any) => left.source.localeCompare(right.source));
+    assert.deepEqual(publishPreview.sourceProof.sourceMediaDigests, approvedMediaDigests);
+    assert.equal("targetBinding" in publishPreview, false);
+    const publishBlocked = payload(await client.callTool({
+      name: "artifact.publish.execute",
+      arguments: { jobId: publishPreview.jobId, confirm: true },
+    }));
+    assert.equal(publishBlocked.state, "awaiting-final-cut");
+
     const outputMetadata = await new FfmpegMediaMetadataProbe().probe(outputPath);
     assert.equal(rationalSeconds(outputMetadata.durationTime), 30);
     assert.ok(outputMetadata.streams.some((stream: any) => stream.kind === "video"));
@@ -254,8 +406,13 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assertAudioMix(await readAudioWindow(outputPath, 22), 660);
 
     const xml = await readFile(fcpxmlPath, "utf8");
+    const finalCutDtd = "/Applications/Final Cut Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_11.dtd";
+    if (existsSync(finalCutDtd)) {
+      await execFileAsync("xmllint", ["--noout", "--dtdvalid", pathToFileURL(finalCutDtd).href, fcpxmlPath]);
+    }
     assert.match(xml, /<text>FrameKit MVP Test<\/text>/);
-    assert.match(xml, /<asset-clip id="issue-517-music"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
+    assert.match(xml, /<asset-clip [^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
+    assert.match(xml, /<md key="com\.framekit\.id" value="issue-517-music" \/>/);
     assert.match(xml, /<adjust-volume amount="-12dB" \/>/);
     assert.equal((xml.match(/hasAudio="1"/g) ?? []).length, 4);
     assert.match(xml, /issue-517-b|source-b\.mp4/);
@@ -501,11 +658,43 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
     );
 
-    const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    const resumedAfterPreview = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer(),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
-    assert.match(await readFile(request.fcpxml.path, "utf8"), /start="1\/4s"/);
+    assert.deepEqual(executed.after.timeline.revision, executed.transaction.after.timeline.revision);
+    assert.deepEqual((executed.render.outcome as any).render.projectRevision, executed.transaction.after.timeline.revision);
+    assert.deepEqual(executed.fcpxml.provenance.revision, executed.transaction.after.timeline.revision);
+    assert.equal(typeof (executed as any).executionId, "string");
+    assert.equal(typeof (resumedAfterPreview as any).verifyPublishableRoughCut, "function");
+    const executionId = (executed as any).executionId as string;
+    const proof = await resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path);
+    assert.equal(proof.sourceRevision.id, plan.revision.id);
+    assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
+    assert.equal(proof.planDigest, preview.planDigest);
+    assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
+    assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
+    assert.equal("targetBinding" in proof, false);
+    const restarted = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer(),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    await writeFile(request.fcpxml.path, "tampered FCPXML");
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -548,6 +737,41 @@ async function connectProductionClient(here: string, environment: Record<string,
   const client = new Client({ name: "headless-project-production-stdio-test", version: "0.1.0" });
   await client.connect(transport);
   return { client, transport };
+}
+
+async function makeHeadlessSpeechAnalyzer(directory: string): Promise<string> {
+  const analyzerPath = join(directory, "speech-analyzer.mjs");
+  await writeFile(analyzerPath, [
+    "#!/usr/bin/env node",
+    'let input = "";',
+    'for await (const chunk of process.stdin) input += chunk;',
+    "const request = JSON.parse(input);",
+    "const range = request.range ?? { start: 0, end: request.media.duration };",
+    "process.stdout.write(JSON.stringify({",
+    "  schemaVersion: 1,",
+    "  mediaId: request.media.mediaId,",
+    "  sourceIdentity: request.media,",
+    "  requestedRange: range,",
+    "  observedRange: range,",
+    "  revision: request.revision,",
+    '  provider: { id: "command.speech", provider: "command", version: "test-vad@1" },',
+    '  words: [{ text: "highlight", start: 0.5, end: 1.4, confidence: 0.99 }],',
+    '  vadSegments: [{ start: 0, end: 2, kind: "speech", confidence: 0.99 }],',
+    '  sourceTimebase: { value: "1", timescale: "1000" },',
+    "}));",
+  ].join("\n"));
+  await chmod(analyzerPath, 0o755);
+  return analyzerPath;
+}
+
+async function makeFixedAnalyzer(directory: string, name: string, output: string): Promise<string> {
+  const analyzerPath = join(directory, `${name}-analyzer.mjs`);
+  await writeFile(analyzerPath, [
+    "#!/usr/bin/env node",
+    `process.stdout.write(${JSON.stringify(output)});`,
+  ].join("\n"));
+  await chmod(analyzerPath, 0o755);
+  return analyzerPath;
 }
 
 async function generateSegmentedSource(
