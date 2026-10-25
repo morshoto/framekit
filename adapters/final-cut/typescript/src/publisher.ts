@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { chmodSync, constants, createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -153,6 +153,8 @@ export function parseFinalCutProjectPublishRoute(
 export interface FinalCutProjectPublisherOptions {
   enabled?: boolean;
   sourcePath: string;
+  /** Persists verified publish jobs so native target identity survives MCP restarts. */
+  publishJobDirectory?: string;
   executor?: (script: string) => Promise<string>;
   liveState?: () => Promise<EditorLiveState>;
   /** Reads the exact created target from the requested native library after import. */
@@ -208,6 +210,7 @@ interface PersistedPublishJob {
 export class FinalCutProjectPublisher {
   private readonly enabled: boolean;
   private readonly sourcePath: string;
+  private readonly publishJobDirectory?: string;
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly targetBinding?: FinalCutProjectPublisherOptions["targetBinding"];
@@ -224,6 +227,7 @@ export class FinalCutProjectPublisher {
   public constructor(options: FinalCutProjectPublisherOptions) {
     this.enabled = options.enabled ?? false;
     this.sourcePath = options.sourcePath;
+    this.publishJobDirectory = options.publishJobDirectory;
     this.executor = options.executor ?? runAppleScript;
     this.liveState = options.liveState;
     this.targetBinding = options.targetBinding;
@@ -321,12 +325,36 @@ export class FinalCutProjectPublisher {
     return clonePublishJob(job);
   }
 
+  public async loadPublishJob(jobId: string): Promise<FinalCutProjectPublishJob> {
+    const current = this.publishJobs.get(jobId);
+    if (current) return clonePublishJob(current);
+    if (!this.publishJobDirectory) {
+      throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    }
+
+    let persisted: unknown;
+    try {
+      persisted = JSON.parse(await readFile(this.publishJobPath(jobId), "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+      }
+      throw new Error(`PUBLISH_JOB_STATE_INVALID: could not read verified publish job ${jobId}`);
+    }
+
+    if (!isVerifiedPublishJob(persisted, jobId)) {
+      throw new Error(`PUBLISH_JOB_STATE_INVALID: verified publish job ${jobId} has incomplete target proof`);
+    }
+    const job = clonePublishJob(persisted);
+    this.publishJobs.set(jobId, job);
+    return clonePublishJob(job);
+  }
+
   public async executePublishJob(
     jobId: string,
     confirm: boolean,
   ): Promise<FinalCutProjectPublishJob> {
-    const storedJob = this.publishJobs.get(jobId);
-    if (!storedJob) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    const storedJob = this.publishJobs.get(jobId) ?? await this.loadPublishJob(jobId);
     const job = clonePublishJob(storedJob);
     if (job.state === "verified") return clonePublishJob(job);
     if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
@@ -727,15 +755,53 @@ export class FinalCutProjectPublisher {
     }
   }
 
-  private markVerified(job: FinalCutProjectPublishJob, result: FinalCutProjectPublishResult): FinalCutProjectPublishJob {
+  private async markVerified(job: FinalCutProjectPublishJob, result: FinalCutProjectPublishResult): Promise<FinalCutProjectPublishJob> {
     job.state = "verified";
     job.nextAction = "none";
     job.retryable = false;
     job.createdTarget = structuredClone(result.createdTarget);
     job.result = structuredClone(result);
     delete job.error;
-    this.persistPublishJob(job);
+
+    try {
+      await this.persistVerifiedPublishJob(job);
+      this.persistPublishJob(job);
+    } catch (error) {
+      job.state = "verification-pending";
+      job.nextAction = "retry";
+      job.retryable = true;
+      delete job.createdTarget;
+      delete job.result;
+      job.error = {
+        code: "FINAL_CUT_PUBLISH_JOB_PERSISTENCE_FAILED",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    this.publishJobs.set(job.jobId, job);
     return clonePublishJob(job);
+  }
+
+  private async persistVerifiedPublishJob(job: FinalCutProjectPublishJob): Promise<void> {
+    if (!this.publishJobDirectory) return;
+    const path = this.publishJobPath(job.jobId);
+    const temporaryPath = `${path}.${randomUUID()}.tmp`;
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    try {
+      await writeFile(temporaryPath, `${JSON.stringify(job)}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      await rename(temporaryPath, path);
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private publishJobPath(jobId: string): string {
+    const key = createHash("sha256").update(jobId).digest("hex");
+    return join(this.publishJobDirectory!, `${key}.json`);
   }
 
   private async readAndVerifyCanonicalTarget(
@@ -793,6 +859,22 @@ export class FinalCutProjectPublisher {
     for (const name of readdirSync(this.publishJobsDirectory)) {
       if (!name.endsWith(".json")) continue;
       const path = join(this.publishJobsDirectory, name);
+      if (/^[a-f0-9]{64}\.json$/i.test(name)) {
+        let legacyJob: unknown;
+        try {
+          legacyJob = JSON.parse(readFileSync(path, "utf8"));
+        } catch (error) {
+          throw new Error(`PUBLISH_JOB_STORE_INVALID: could not read ${path}`, { cause: error });
+        }
+        const jobId = legacyJob && typeof legacyJob === "object"
+          ? (legacyJob as { jobId?: unknown }).jobId
+          : undefined;
+        if (typeof jobId !== "string" || !isVerifiedPublishJob(legacyJob, jobId)
+          || name !== `${createHash("sha256").update(jobId).digest("hex")}.json`) {
+          throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid legacy verified publish job ${path}`);
+        }
+        continue;
+      }
       let persisted: PersistedPublishJob;
       try {
         persisted = JSON.parse(readFileSync(path, "utf8")) as PersistedPublishJob;
@@ -1256,6 +1338,39 @@ function normalizeLibraryPath(path: string): string {
 
 function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {
   return structuredClone(job);
+}
+
+function isVerifiedPublishJob(value: unknown, jobId: string): value is FinalCutProjectPublishJob {
+  if (!value || typeof value !== "object") return false;
+  const job = value as FinalCutProjectPublishJob;
+  return job.jobId === jobId
+    && job.state === "verified"
+    && job.result?.verified === true
+    && sameNativeTargetIdentity(job.createdTarget, job.result.createdTarget);
+}
+
+function sameNativeTargetIdentity(
+  left: FinalCutProjectPublishResult["createdTarget"] | undefined,
+  right: FinalCutProjectPublishResult["createdTarget"] | undefined,
+): boolean {
+  if (!hasStableNativeTargetIds(left) || !hasStableNativeTargetIds(right)) return false;
+  return left.kind === right.kind
+    && left.projectId === right.projectId
+    && left.sequenceId === right.sequenceId
+    && left.libraryId === right.libraryId
+    && left.eventId === right.eventId;
+}
+
+function hasStableNativeTargetIds(
+  value: FinalCutProjectPublishResult["createdTarget"] | undefined,
+): value is FinalCutProjectPublishResult["createdTarget"] {
+  return value?.kind === "editor.project"
+    && typeof value.projectId === "string"
+    && value.projectId.trim().length > 0
+    && typeof value.sequenceId === "string"
+    && value.sequenceId.trim().length > 0
+    && (value.libraryId === undefined || (typeof value.libraryId === "string" && value.libraryId.trim().length > 0))
+    && (value.eventId === undefined || (typeof value.eventId === "string" && value.eventId.trim().length > 0));
 }
 
 function publishResult(

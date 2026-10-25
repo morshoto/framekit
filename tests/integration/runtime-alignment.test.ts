@@ -18,7 +18,7 @@ import {
 } from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import type { RuntimeCapabilities } from "@framekit/runtime";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { FRAMEKIT_BUILD_FINGERPRINT, FRAMEKIT_VERSION } from "../../apps/mcp-server/src/version.js";
@@ -120,6 +120,42 @@ function fcpxmlWithLiveRuntime(): AgentVideoRuntime {
   return new AgentVideoRuntime(new FinalCutSessionAdapter({ snapshot, mutation: snapshot, live }));
 }
 
+function targetRebindingRuntime(): AgentVideoRuntime {
+  const editor = new InMemoryEditorAdapter({
+    projectId: "unrelated-project",
+    projectName: "Unrelated Project",
+    timelineId: "unrelated-sequence",
+    timelineName: "Main",
+    frameDuration: { value: "1001", timescale: "24000" },
+    clips: [],
+    projects: [
+      { id: "unrelated-project", name: "Unrelated Project", sequences: [{ id: "unrelated-sequence", name: "Main" }] },
+      { id: "created-project-stable", name: "Published Project", sequences: [{ id: "created-sequence-stable", name: "Main" }] },
+    ],
+    projectSnapshots: [
+      {
+        projectId: "unrelated-project",
+        projectName: "Unrelated Project",
+        timelineId: "unrelated-sequence",
+        timelineName: "Main",
+        frameDuration: { value: "1001", timescale: "24000" },
+        clips: [],
+      },
+      {
+        projectId: "created-project-stable",
+        projectName: "Published Project",
+        timelineId: "created-sequence-stable",
+        timelineName: "Main",
+        frameDuration: { value: "1001", timescale: "24000" },
+        clips: [],
+      },
+    ],
+  });
+  const getIdentity = editor.getIdentity.bind(editor);
+  editor.getIdentity = async () => ({ ...await getIdentity(), buildFingerprint: extensionFingerprint });
+  return new AgentVideoRuntime(editor);
+}
+
 class FailingInspectionAdapter extends InMemoryEditorAdapter {
   public override async getIdentity(): Promise<never> {
     throw new Error("CAPABILITY_UNAVAILABLE: runtime inspection unavailable");
@@ -138,6 +174,7 @@ async function withClient(
     nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
     projectPublisher?: FinalCutProjectPublisher;
     videoExporter?: FinalCutVideoExporter;
+    sessionDirectory?: string;
   } = {},
 ): Promise<void> {
   const server = createMcpServer(runtime, {
@@ -149,6 +186,7 @@ async function withClient(
     nativeOperationSession: overrides.nativeOperationSession,
     projectPublisher: overrides.projectPublisher,
     videoExporter: overrides.videoExporter,
+    sessionDirectory: overrides.sessionDirectory,
     connectionStatus: () => ({
       state: "ready",
       editorDetected: true,
@@ -493,7 +531,8 @@ test("serves a verified native target after the publisher restarts", async () =>
     assert.equal(verified.state, "verified");
 
     const restartedPublisher = new FinalCutProjectPublisher(publisherOptions);
-    await withClient(metadataOnlyRuntime(), async (client) => {
+    const reboundRuntime = targetRebindingRuntime();
+    await withClient(reboundRuntime, async (client) => {
       const status = await client.callTool({
         name: "artifact.publish.status",
         arguments: { jobId: verified.jobId },
@@ -517,7 +556,33 @@ test("serves a verified native target after the publisher restarts", async () =>
         projectName: "Published Project",
         sequenceName: "Main",
       });
-    }, { projectPublisher: restartedPublisher });
+
+      const selection = JSON.parse(textFrom(await client.callTool({
+        name: "project.select",
+        arguments: {
+          projectId: readiness.createdTarget.projectId,
+          sequenceId: readiness.createdTarget.sequenceId,
+        },
+      })));
+      assert.deepEqual(selection.observedActiveTarget, {
+        projectId: "created-project-stable",
+        sequenceId: "created-sequence-stable",
+      });
+      const canonical = await reboundRuntime.inspectProject();
+      const base = createTimelineIrFromProjectSnapshot(canonical, { id: "final-cut" });
+      const createdSession = JSON.parse(textFrom(await client.callTool({
+        name: "session.create",
+        arguments: { sessionId: "rebound-session", provider: { id: "final-cut" }, base },
+      })));
+      assert.equal(createdSession.document.base.project.id, "created-project-stable");
+      assert.equal(createdSession.document.base.sequence.id, "created-sequence-stable");
+      const restoredSession = JSON.parse(textFrom(await client.callTool({
+        name: "session.inspect",
+        arguments: { sessionId: "rebound-session" },
+      })));
+      assert.equal(restoredSession.document.base.project.id, readiness.createdTarget.projectId);
+      assert.equal(restoredSession.document.base.sequence.id, readiness.createdTarget.sequenceId);
+    }, { projectPublisher: restartedPublisher, sessionDirectory: join(directory, "sessions") });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

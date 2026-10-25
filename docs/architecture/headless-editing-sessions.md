@@ -62,6 +62,25 @@ digest/revision, and provider change source are checked before publication. A
 changed or unobservable base fails closed; it is never treated as an
 artifact-only success.
 
+## Native publish restart continuity
+
+The production MCP server stores successfully verified native publish jobs in
+`$FRAMEKIT_STATE_DIR/publish-jobs` (default: `~/.framekit/publish-jobs`). Each
+job is written with a same-directory temporary file and atomic rename, using
+owner-only file permissions. The filename is derived from the publish job ID.
+Only a job with successful canonical readback and matching stable target
+identity is available after restart; missing, malformed, or contradictory
+records fail closed.
+
+After an MCP restart, `artifact.publish.status` and
+`editor.native.handoff.readiness` load the persisted record. Readiness exposes
+the created target only when project and sequence IDs, plus any recorded
+library and event IDs, agree between the job and its verified result and the
+runtime/Workflow Extension fingerprints match. Display names do not establish
+target identity. Rebinding then uses `project.select` with the verified IDs and
+requires a complete provider canonical snapshot before editing; partial or
+unsupported observations remain blocked pending explicit canonical resync.
+
 ## Background Final Cut publication
 
 Production MCP wiring exposes a background publisher only when

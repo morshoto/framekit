@@ -245,6 +245,7 @@ const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
+      publishJobDirectory: join(framekitStateDirectory, "publish-jobs"),
       publishJobsDirectory: join(framekitStateDirectory, "publish-jobs"),
       documentDelivery: liveAdapter!,
       publishRoute: parseFinalCutProjectPublishRoute(
