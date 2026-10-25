@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { RuntimeCapabilities } from "@framekit/runtime";
@@ -10,6 +11,7 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { HeadlessProjectService } from "../../apps/mcp-server/src/headless-projects.js";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
   EDITOR_FIRST_WORKFLOW,
@@ -518,6 +520,46 @@ test("MCP exposes editor-first instructions, descriptions, and routing decisions
     })));
     assert.equal(route.status, "editor-selected");
     assert.equal(route.selectedPath, "editor");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("headless routing does not connect a headed-capable MCP server", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Routing Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  let connections = 0;
+  const server = createMcpServer(runtime, {
+    processMode: "headed",
+    headlessProjects: new HeadlessProjectService({ directory: join(tmpdir(), "framekit-routing-unused") }),
+    connectionStatus: () => {
+      connections += 1;
+      return { state: "unavailable" };
+    },
+  });
+  const client = new Client({ name: "dual-path-routing-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    for (const arguments_ of [
+      { operation: "timeline.edit", editType: "rename-occurrence" },
+      { operation: "timeline.edit", editType: "rename-occurrence", path: "headless" },
+      { operation: "timeline.edit", editType: "reduce-noise", path: "headless" },
+    ]) {
+      const route = JSON.parse(textFrom(await client.callTool({ name: "editing.route", arguments: arguments_ })));
+      assert.equal(route.selectedPath, arguments_.editType === "reduce-noise" ? "none" : "headless");
+      assert.equal(connections, 0);
+    }
+    await client.callTool({ name: "editing.route", arguments: {
+      operation: "timeline.edit", editType: "rename-clip", path: "headed",
+    } });
+    assert.equal(connections, 1);
   } finally {
     await client.close();
     await server.close();

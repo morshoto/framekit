@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-24T12:14:53.589Z",
+  "evidenceType": "codex-plugin-headless-render-and-headed-read-only-baseline",
+  "candidate": {
+    "commit": "e38edce73671fc16a776ccfeba578c85ac60e3c3",
+    "version": "0.1.17"
+  },
+  "preview": {
+    "planDigest": "0dfa95ac34ce6319f6b5c94fa623a1b5d7ba0b7b69e74c2ff971ce01dc3f3477",
+    "sourceRevision": {
+      "id": "revision-017748b16c549d9238c84b4d9b958c79da73ee3654b90a082c24a6e4d7efcc09",
+      "sequence": 4
+    },
+    "canonicalRevision": {
+      "id": "ir:310b5990c6e8578b0d9a5a7038eff6286fe372b0bb44e4e4d476d9abad61a568",
+      "sequence": 5
+    },
+    "executionId": "rough-cut-0a524437-b5d4-4060-9225-6f85b3d04934",
+    "renderId": "render-a8c76455-aed1-4aa1-bc05-bd5fd044edab",
+    "renderStatus": "passed",
+    "sourceAudioPolicy": "preserve-and-mix",
+    "overwrite": false,
+    "timeline": {
+      "shots": [
+        {
+          "source": "B",
+          "sourceRangeSeconds": [
+            5,
+            13
+          ],
+          "timelineRangeSeconds": [
+            0,
+            8
+          ]
+        },
+        {
+          "source": "A",
+          "sourceRangeSeconds": [
+            10,
+            22
+          ],
+          "timelineRangeSeconds": [
+            8,
+            20
+          ]
+        },
+        {
+          "source": "C",
+          "sourceRangeSeconds": [
+            2,
+            12
+          ],
+          "timelineRangeSeconds": [
+            20,
+            30
+          ]
+        }
+      ],
+      "title": {
+        "text": "FrameKit MVP Test",
+        "timelineRangeSeconds": [
+          0,
+          6
+        ],
+        "editable": true
+      },
+      "music": {
+        "source": "generated-music.wav",
+        "timelineRangeSeconds": [
+          0,
+          30
+        ],
+        "lane": 1,
+        "gainDb": -12,
+        "separateOccurrence": true
+      }
+    },
+    "sources": {
+      "clip-a.mp4": "1d4d7001506d1972db2ca52dbdb30a1a98d9f11806cc07e1e4206774c54b0731",
+      "clip-b.mp4": "3c6d84797a2a54f836f6abe379dbb4db05d8743a2f27e26470f8d0ae5980926b",
+      "clip-c.mp4": "d64e27801ec631596ef746030e439240bb3e339ff6154a7addac510c0999931d",
+      "generated-music.wav": "b46293d3cfa362b9820cbd43bf4d92bbe8ac4fcb4c93026798ae363e8e6a9e33"
+    },
+    "artifacts": {
+      "mp4": {
+        "name": "highlight.mp4",
+        "sha256": "52ec1e9e2e4f240e65eb5743f76e3f6216ebdc0ab9b558bad9bbe9322b124dc3",
+        "bytes": 547333,
+        "durationSeconds": 30,
+        "width": 1280,
+        "height": 720,
+        "frameRate": "24/1",
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "audioSampleRate": 48000,
+        "audioChannels": 1
+      },
+      "fcpxml": {
+        "name": "highlight.fcpxml",
+        "sha256": "1cc01f7f092275778e45b4d6ad5d9075b7e8c1d2723346e332c849abf39db9cc",
+        "bytes": 5918,
+        "verified": true,
+        "coverage": {
+          "degraded": [],
+          "unsupported": []
+        }
+      }
+    }
+  },
+  "nativeReadOnlyBaseline": {
+    "preflight": {
+      "consoleLockState": "unlocked",
+      "consoleLockSource": "IOConsoleLocked",
+      "frontmost": "Final Cut Pro",
+      "passed": true
+    },
+    "passed": true,
+    "recordedAt": "2026-10-24T12:14:53.589Z",
+    "finalCutVersion": "10.7.1",
+    "runnerCommit": "345d27b55dfa2f8cbafdbd86bb4f47789178f5d9",
+    "project": {
+      "id": "3CE5D619-7DFE-46BF-962A-B28508D8D85D",
+      "name": "Framekit Native Handoff v016 20261008",
+      "sequenceId": "BUCbDvIVSz6A5lrHoHe7Ow",
+      "revision": "canonical:2230bb7c9156111fa80b3d2d5271552c96c8830ed732c1c10f09bdaf024d30df",
+      "durationSeconds": 65.065,
+      "clipCount": 4
+    }
+  },
+  "nativeHandoff": {
+    "status": "blocked",
+    "runtimeCommit": "e38edce73671fc16a776ccfeba578c85ac60e3c3",
+    "installedExtensionCommit": "1ebd32f262633cb719b0354ffd5e597397820944",
+    "buildAlignment": "mismatched",
+    "artifactPublishAvailable": false,
+    "candidateExtensionBinarySha256": "014efd1c396c4446162e2d1b996a2595c478c765555a1de15bb4d5261079c7b4",
+    "candidateExtensionSignature": "valid",
+    "importAttempted": false,
+    "createdTargetReadback": "not run"
+  }
+}

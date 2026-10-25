@@ -66,10 +66,15 @@ Open `/plugins` in Codex, find **Framekit**, and select **Install**. Start a new
 Codex session to load the Framekit MCP tools. No repository checkout or manual
 `codex mcp add` is required.
 
-The plugin runs the published package in headless mode. It connects only to an
-existing Workflow Extension bridge and does not launch, activate, focus, or
-edit Final Cut through macOS UI automation. See the
-[first-run setup and capability boundaries](./docs/final-cut/installation.md).
+The plugin runs the published package in headless mode. For live Final Cut
+capabilities, it connects only to an existing Workflow Extension bridge and
+does not launch, activate, focus, or edit Final Cut through macOS UI automation.
+Framekit-owned video projects can register local media, analyze it, create an
+approved rough-cut plan, and render a verified MP4 plus editable FCPXML without
+a connected Final Cut session. Importing that FCPXML requires a separately
+configured headed server and explicit user authorization. See the
+[Codex video production runbook](./docs/tests/codex-video-production-e2e.md)
+and [first-run setup and capability boundaries](./docs/final-cut/installation.md).
 
 For local native development, use the checkout's CLI wrapper from the repository
 root:

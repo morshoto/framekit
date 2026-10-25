@@ -10,6 +10,7 @@ import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
 const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
+const AUDIO_FORMAT_ID = "format-audio";
 const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
 
 /** Stable Final Cut identities required for target-bound publication. */
@@ -73,7 +74,7 @@ export interface TimelineIrToFcpxmlResult {
 
 interface RenderableElement {
   id: string;
-  kind: "asset-clip" | "gap" | "title";
+  kind: "asset-clip" | "gap" | "title" | "marker" | "caption";
   startTime: { value: string; timescale: string };
   durationTime: { value: string; timescale: string };
   lane?: number;
@@ -117,17 +118,21 @@ export function compileTimelineIrToFcpxml(
     if (elementIds.has(element.id)) throw new Error(`FCPXML_DUPLICATE_ELEMENT_ID: ${element.id}`);
     elementIds.add(element.id);
   }
-  for (const item of [...timeline.sequence.markers, ...timeline.sequence.captions]) {
-    if (elementIds.has(item.id)) throw new Error(`FCPXML_DUPLICATE_ELEMENT_ID: ${item.id}`);
-    elementIds.add(item.id);
-  }
-
   const formatId = "format-framekit";
+  const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) =>
+    stream.kind === "video" && stream.width !== undefined && stream.height !== undefined) ?? [])[0];
+  const projectDimensions = projectVideo?.width && projectVideo.height
+    ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
+    : "";
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
-    `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}" />`,
+    `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
+    ...(resources.some((resource) => resource.mediaKind === "audio")
+      ? [`    <format id="${AUDIO_FORMAT_ID}" name="FFFrameRateUndefined" />`]
+      : []),
+    ...resources.flatMap((resource) => renderResourceFormat(resource, resourceIds.get(resource.id)!)),
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
       : []),
@@ -136,17 +141,9 @@ export function compileTimelineIrToFcpxml(
     "  <library>",
     `    <event uid="${xmlEscape(options.target.eventUid)}" name="${xmlEscape(options.target.eventName ?? "Framekit Event")}">`,
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
-    `        <sequence uid="${xmlEscape(destination.sequenceUid)}" name="${xmlEscape(destination.sequenceName)}" format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
+    `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
     "          <spine>",
     ...renderElements(elements),
-    ...timeline.sequence.markers
-      .slice()
-      .sort(compareTimedItems)
-      .map((marker) => `            <marker id="${xmlEscape(marker.id)}" start="${formatRational(marker.startTime, `marker ${marker.id}.startTime`)}" duration="${formatRational(marker.durationTime, `marker ${marker.id}.durationTime`)}" value="${xmlEscape(marker.name)}" />`),
-    ...timeline.sequence.captions
-      .slice()
-      .sort(compareTimedItems)
-      .map((caption) => `            <caption id="${xmlEscape(caption.id)}" start="${formatRational(caption.startTime, `caption ${caption.id}.startTime`)}" duration="${formatRational(caption.durationTime, `caption ${caption.id}.durationTime`)}" text="${xmlEscape(caption.text)}" />`),
     "          </spine>",
     "        </sequence>",
     "      </project>",
@@ -253,18 +250,19 @@ function resolveDestination(
       projectUid: target.projectUid,
       sequenceUid: target.sequenceUid,
       projectName: timeline.project.name,
-      sequenceName: timeline.sequence.name,
+      sequenceName: timeline.project.name,
     };
   }
 
   const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}`);
   const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
+  const projectName = `${timeline.project.name} (Framekit ${revisionName}-${revisionKey})`;
   return {
     mode: "versioned",
     projectUid: `${safeId(target.projectUid)}-framekit-${revisionKey}`,
     sequenceUid: `${safeId(target.sequenceUid)}-framekit-${revisionKey}`,
-    projectName: `${timeline.project.name} (Framekit ${revisionName}-${revisionKey})`,
-    sequenceName: `${timeline.sequence.name} (Framekit ${revisionName}-${revisionKey})`,
+    projectName,
+    sequenceName: projectName,
   };
 }
 
@@ -315,12 +313,33 @@ function renderResource(
     throw new Error(`FCPXML_RESOURCE_SOURCE_UNSUPPORTED: resource ${resource.id} has an invalid file URL: ${error instanceof Error ? error.message : String(error)}`);
   }
   const videoAttribute = resource.mediaKind === "video" ? ' hasVideo="1"' : ' hasVideo="0"';
+  const metadata = resource.metadata;
+  const video = metadata?.streams.find((stream) => stream.kind === "video");
+  const audio = metadata?.streams.find((stream) => stream.kind === "audio");
+  const timingAttributes = metadata
+    ? ` start="0s" duration="${formatRational(metadata.durationTime, `resource ${resource.id}.durationTime`)}"`
+    : "";
+  const formatAttribute = video?.width && video.height && video.frameRate
+    ? ` format="format-${id}"`
+    : resource.mediaKind === "audio"
+      ? ` format="${AUDIO_FORMAT_ID}"`
+      : "";
   const audioAttribute = resource.mediaKind === "audio"
     ? ' hasAudio="1"'
-    : resource.metadata?.streams
-      ? ` hasAudio="${resource.metadata.streams.some((stream) => stream.kind === "audio") ? "1" : "0"}"`
+    : metadata?.streams
+      ? ` hasAudio="${audio ? "1" : "0"}"`
       : "";
-  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}" src="${xmlEscape(src)}"${videoAttribute}${audioAttribute} />`;
+  const sourceAttributes = `${video ? ' videoSources="1"' : ""}${audio ? ' audioSources="1"' : ""}`;
+  const audioDetails = audio?.channels && audio.sampleRate
+    ? ` audioChannels="${audio.channels}" audioRate="${audio.sampleRate}"`
+    : "";
+  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}"${timingAttributes}${videoAttribute}${formatAttribute}${audioAttribute}${sourceAttributes}${audioDetails}><media-rep kind="original-media" src="${xmlEscape(src)}" /></asset>`;
+}
+
+function renderResourceFormat(resource: TimelineIr["resources"][number], id: string): string[] {
+  const video = resource.metadata?.streams.find((stream) => stream.kind === "video");
+  if (!video?.width || !video.height || !video.frameRate) return [];
+  return [`    <format id="format-${id}" frameDuration="${formatRational({ value: video.frameRate.timescale, timescale: video.frameRate.value }, `resource ${resource.id}.frameRate`)}" width="${video.width}" height="${video.height}" />`];
 }
 
 function renderableElements(timeline: TimelineIr, resourceIds: Map<string, string>): RenderableElement[] {
@@ -344,7 +363,45 @@ function renderableElements(timeline: TimelineIr, resourceIds: Map<string, strin
   for (const title of timeline.sequence.titles ?? []) {
     elements.push(renderableTitle(title, timeline));
   }
+  for (const marker of timeline.sequence.markers) {
+    elements.push({
+      id: marker.id,
+      kind: "marker",
+      startTime: marker.startTime,
+      durationTime: marker.durationTime,
+      parentId: primaryAnchorForTime("marker", marker.id, marker.startTime, marker.durationTime, elements),
+      name: marker.name,
+    });
+  }
+  for (const caption of timeline.sequence.captions) {
+    elements.push({
+      id: caption.id,
+      kind: "caption",
+      startTime: caption.startTime,
+      durationTime: caption.durationTime,
+      parentId: primaryAnchorForTime("caption", caption.id, caption.startTime, caption.durationTime, elements),
+      text: caption.text,
+    });
+  }
   return elements;
+}
+
+function primaryAnchorForTime(
+  kind: "marker" | "caption",
+  id: string,
+  startTime: RenderableElement["startTime"],
+  durationTime: RenderableElement["durationTime"],
+  elements: readonly RenderableElement[],
+): string {
+  const endTime = addExactTimes(startTime, durationTime);
+  const anchor = elements
+    .filter((element) => element.parentId === undefined
+      && (element.kind === "gap" || (element.kind === "asset-clip" && element.role === undefined)))
+    .filter((element) => compareExactTimes(startTime, element.startTime) >= 0
+      && compareExactTimes(endTime, addExactTimes(element.startTime, element.durationTime)) <= 0)
+    .sort((left, right) => compareExactTimes(right.startTime, left.startTime))[0];
+  if (!anchor) throw new Error(`FCPXML_${kind.toUpperCase()}_ANCHOR_NOT_FOUND: ${id}`);
+  return anchor.id;
 }
 
 function renderableTitle(title: TimelineIrTitle, timeline: TimelineIr): RenderableElement {
@@ -432,14 +489,19 @@ function renderElements(elements: RenderableElement[]): string[] {
     siblings.push(element);
     byParent.set(element.parentId, siblings);
   }
-  for (const siblings of byParent.values()) siblings.sort(compareTimedItems);
+  for (const siblings of byParent.values()) {
+    siblings.sort((left, right) => {
+      if (left.kind === "marker" && right.kind !== "marker") return 1;
+      if (right.kind === "marker" && left.kind !== "marker") return -1;
+      return compareTimedItems(left, right);
+    });
+  }
   const rendered = new Set<string>();
   const lines: string[] = [];
   const render = (parentId: string | undefined, indent: string): void => {
     for (const element of byParent.get(parentId) ?? []) {
       if (rendered.has(element.id)) throw new Error(`FCPXML_CYCLIC_ATTACHMENT: ${element.id}`);
       rendered.add(element.id);
-      const children = byParent.get(element.id) ?? [];
       const parentElement = element.parentId === undefined ? undefined : byId.get(element.parentId);
       const parentStartTime = element.parentId === undefined
         ? { value: "0", timescale: "1" }
@@ -447,13 +509,12 @@ function renderElements(elements: RenderableElement[]): string[] {
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
       const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
       const offsetTime = parentElement?.kind === "asset-clip"
-        && (element.kind === "title" || element.role === "music")
+        && (element.kind === "title" || element.kind === "caption" || element.kind === "marker" || element.role === "music")
         && parentElement.sourceStartTime !== undefined
         ? addExactTimes(localStartTime, parentElement.sourceStartTime)
         : localStartTime;
       const attributes = element.kind === "asset-clip"
         ? [
-            `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
             `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
@@ -465,34 +526,46 @@ function renderElements(elements: RenderableElement[]): string[] {
           ]
         : element.kind === "title"
           ? [
-            `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
             `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
           ]
-          : [
-            `id="${xmlEscape(element.id)}"`,
+          : element.kind === "gap"
+          ? [
             `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
-          ];
-      const opening = `<${element.kind} ${attributes.join(" ")}>`;
-      const childLines = [
-        ...(element.gainDb !== undefined
-          ? [`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`]
-          : []),
-        ...(element.kind === "title" ? [`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`] : []),
-      ];
-      const childStart = childLines.length > 0 ? childLines : [];
-      if (children.length === 0 && childStart.length === 0) {
-        lines.push(`${indent}<${element.kind} ${attributes.join(" ")} />`);
+          ]
+          : element.kind === "marker"
+            ? [
+              `start="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
+              `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
+              `value="${xmlEscape(element.name!)}"`,
+              `note="com.framekit.id:${xmlEscape(element.id)}"`,
+            ]
+            : [
+              `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
+              `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
+            ];
+      if (element.kind === "marker") {
+        lines.push(`${indent}<marker ${attributes.join(" ")} />`);
         continue;
       }
-      lines.push(`${indent}${opening}`);
-      lines.push(...childStart);
+      lines.push(`${indent}<${element.kind} ${attributes.join(" ")}>`);
+      if (element.kind === "title" || element.kind === "caption") {
+        lines.push(`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`);
+      }
+      if (element.gainDb !== undefined) {
+        lines.push(`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`);
+      }
       render(element.id, `${indent}  `);
+      if (element.kind === "caption") {
+        lines.push(`${indent}  <note>com.framekit.id:${xmlEscape(element.id)}</note>`);
+      } else {
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
+      }
       lines.push(`${indent}</${element.kind}>`);
     }
   };

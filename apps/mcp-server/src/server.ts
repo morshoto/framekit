@@ -67,6 +67,7 @@ import {
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
 } from "./headless-projects.js";
+import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
@@ -118,6 +119,7 @@ const timelineSemanticContextQuerySchema = z.object({
 }).strict();
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
+  projectId: z.string().min(1).optional(),
 });
 const durationRangeSchema = z.object({
   startSeconds: z.number().finite().nonnegative(),
@@ -1522,7 +1524,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       editType: z.enum(EDITING_ROUTE_EDIT_TYPES).optional(),
     },
   }, async ({ operation, fallback, path, editType }) => {
-    const context = await editingRouteContext(runtime, options);
+    const headlessOnly = fallback === "none"
+      && (path === "headless" || (Boolean(options.headlessProjects) && operation === "timeline.edit" && path !== "headed"));
+    const context = headlessOnly
+      ? { connection: { state: "disconnected" }, ...headlessRoutingContext(options) } as EditorRoutingContext
+      : await editingRouteContext(runtime, options);
     return jsonResult(resolveEditingRoute({
       operation,
       fallback,
@@ -2189,14 +2195,27 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
 
   server.registerTool("media.understand", {
-    description: "Return combined speech, audio, and visual understanding for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
+    description: "Return combined speech, audio, and visual understanding for one media item in the selected editor project or a named headless project.",
+    inputSchema: { mediaId: z.string().min(1), projectId: z.string().min(1).optional() },
+  }, async ({ mediaId, projectId }) => {
+    if (!projectId) return jsonResult(await runtime.understandMedia(mediaId));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("rough-cut.plan", {
-    description: "Create a deterministic, explainable, read-only shot plan from analyzed media; does not mutate the timeline.",
+    description: "Create a deterministic, explainable, read-only shot plan from analyzed editor or named headless project media; does not mutate the timeline.",
     inputSchema: roughCutPlanSchema.shape,
-  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
+  }, async (request) => {
+    const { projectId, ...planRequest } = request;
+    if (!projectId) return jsonResult(await runtime.planRoughCut(planRequest));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.planRoughCutInProject(planRequest, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("editor.assets", {
     description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
@@ -2968,18 +2987,20 @@ async function editingRouteContext(
   return {
     connection,
     ...(editor ? { editor } : {}),
-    ...(options.headlessProjects ? {
-      headless: {
-        available: true,
-        backend: "framekit-project-store",
-        guarantee: "canonical-write" as const,
-        // Advertise only concrete Timeline IR edit capabilities. The legacy
-        // timeline.edit surface also accepts operations that the headless
-        // transaction layer does not implement.
-        supportedOperations: HEADLESS_TIMELINE_EDIT_TYPES.map((editType) => `timeline.edit:${editType}`),
-      },
-    } : {}),
+    ...headlessRoutingContext(options),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
     ...(nativeReadiness ? { nativeReadiness } : {}),
   };
+}
+
+function headlessRoutingContext(options: McpServerOptions): Pick<EditorRoutingContext, "headless"> {
+  return options.headlessProjects ? {
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      // The legacy timeline.edit surface also includes unsupported operations.
+      supportedOperations: HEADLESS_TIMELINE_EDIT_TYPES.map((editType) => `timeline.edit:${editType}`),
+    },
+  } : {};
 }
