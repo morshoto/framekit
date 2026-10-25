@@ -40,6 +40,7 @@ The publisher contract (#519) and new-project backend (#212) are already merged 
 | B4 | Unavailable/mismatched capability, rejected approval, stale input, interruption, and pending verification remain bounded and do not duplicate import | Contract and retry tests | `tests/integration/publisher.test.ts`, `tests/integration/runtime-alignment.test.ts` |
 | B5 | Sanitized run evidence is linked to #517 without exposing private media, credentials, or user-specific paths | Evidence review | `docs/release-evidence/v0.1.18/issue-541-codex-handoff.md` |
 | B6 | Multi-term editorial queries return matching speech ranges across all intended sources | Runtime integration | `tests/integration/semantic-media.test.ts` |
+| B7 | Render verification follows the FFmpeg renderer's normalized audio format when source rates differ | Headless render integration | `tests/integration/render-and-verify.test.ts` |
 
 ## Test-first implementation cycles
 
@@ -92,6 +93,23 @@ The publisher contract (#519) and new-project backend (#212) are already merged 
 
 - Confirm the query test and packaged runbook alignment, then rerun semantic-media and Codex plugin tests.
 
+### Cycle 2b: Verify normalized mixed-audio output
+
+**Red**
+
+- Render a valid 22.05 kHz source as the FFmpeg renderer's 48 kHz mono output.
+- Expected failure: the verifier incorrectly compares output sample rate with the first source stream's rate.
+- Run: `node_modules/.bin/tsx --test tests/integration/render-and-verify.test.ts`.
+
+**Green**
+
+- Validate audio against the renderer's explicit 48 kHz mono output format while still requiring an audio stream when timeline media has audio.
+- Rerun the focused render verification test.
+
+**Refactor**
+
+- Keep the check tied to the renderer output contract; source sample rate may differ after mixed audio is resampled.
+
 ### Cycle 3: Run the exact-package Codex workflow
 
 - Start a fresh Codex session using the packaged plugin and MCP built from the recorded candidate.
@@ -140,3 +158,10 @@ The headed native run is a separate evidence tier and requires separate authoriz
 - [ ] Actual Codex/MCP run identities, approvals, source/output hashes, and transcript are recorded.
 - [ ] Native success is claimed only after authorized import and matching target readback; otherwise the exact blocker is recorded.
 - [ ] Sanitized evidence is linked into #517 and the PR remains open for review.
+
+## Run status
+
+- The installed Codex plugin produced an approved, verified headless MP4 and FCPXML from fresh synthetic media. The first execution exposed B7; the same approved plan passed after the verifier fix.
+- Native `artifact.publish.preview` bound the verified execution, FCPXML digest, source digests, and a new `.fcpbundle` target. Headed readiness is blocked because the installed Workflow Extension commit differs from the tested MCP package commit.
+- No native import was attempted. It still requires a matching extension build and separate user approval of the exact publish preview.
+- Sanitized transcript and artifact evidence are in `issue-541-codex-transcript.json` and `issue-541-codex-handoff.md`; this PR references #517 for QA follow-up.
