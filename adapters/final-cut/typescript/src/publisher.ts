@@ -324,8 +324,9 @@ export class FinalCutProjectPublisher {
     jobId: string,
     confirm: boolean,
   ): Promise<FinalCutProjectPublishJob> {
-    const job = this.publishJobs.get(jobId);
-    if (!job) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    const storedJob = this.publishJobs.get(jobId);
+    if (!storedJob) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
+    const job = clonePublishJob(storedJob);
     if (job.state === "verified") return clonePublishJob(job);
     if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
     if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
@@ -389,11 +390,18 @@ export class FinalCutProjectPublisher {
       ...(validated.sourceProof ? { targetLibraryUid: validated.sourceProof.targetLibraryUid } : {}),
       ...(validated.sourceProof ? { approvedSourceMediaDigests: structuredClone(validated.sourceProof.sourceMediaDigests) } : {}),
     };
+    const previousRuntime = this.publishJobRuntime.get(job.jobId);
     this.publishJobRuntime.set(job.jobId, runtime);
     job.state = "verification-pending";
     job.nextAction = "status";
     job.retryable = false;
-    this.persistPublishJob(job);
+    try {
+      this.persistPublishJob(job);
+    } catch (error) {
+      if (previousRuntime) this.publishJobRuntime.set(job.jobId, previousRuntime);
+      else this.publishJobRuntime.delete(job.jobId);
+      throw error;
+    }
     try {
       const result = await this.importAndVerify(
         {
@@ -571,8 +579,7 @@ export class FinalCutProjectPublisher {
       }
       await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
       if (route === "headed-apple-event") {
-        if (runtime) runtime.importAttempted = true;
-        this.persistRuntimeForJob(publishJob, runtime);
+        this.persistImportAttemptBeforeDispatch(publishJob, runtime);
         await this.executor(importXmlScript(importedPath));
         delivery = {
           status: "dispatched",
@@ -585,8 +592,7 @@ export class FinalCutProjectPublisher {
             : { guarantee: "unavailable" },
         };
       } else if (this.documentDelivery) {
-        if (runtime) runtime.importAttempted = true;
-        this.persistRuntimeForJob(publishJob, runtime);
+        this.persistImportAttemptBeforeDispatch(publishJob, runtime);
         const dispatched = await this.documentDelivery.deliverFcpxml({
           artifactPath: importedPath,
           ...(targetLibraryPath ? { targetLibraryLocation: targetLibraryPath } : {}),
@@ -827,9 +833,25 @@ export class FinalCutProjectPublisher {
     this.persistPublishJob(job);
   }
 
+  private persistImportAttemptBeforeDispatch(
+    job: FinalCutProjectPublishJob | undefined,
+    runtime: PublishJobRuntime | undefined,
+  ): void {
+    if (!runtime) return;
+    runtime.importAttempted = true;
+    try {
+      this.persistRuntimeForJob(job, runtime);
+    } catch (error) {
+      runtime.importAttempted = false;
+      throw error;
+    }
+  }
+
   private persistPublishJob(job: FinalCutProjectPublishJob): void {
-    this.publishJobs.set(job.jobId, job);
-    if (!this.publishJobsDirectory) return;
+    if (!this.publishJobsDirectory) {
+      this.publishJobs.set(job.jobId, clonePublishJob(job));
+      return;
+    }
     if (!/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(job.jobId)) {
       throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish job ID ${job.jobId}`);
     }
@@ -850,6 +872,7 @@ export class FinalCutProjectPublisher {
     } finally {
       rmSync(temporary, { force: true });
     }
+    this.publishJobs.set(job.jobId, clonePublishJob(job));
   }
 }
 

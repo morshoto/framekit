@@ -1660,6 +1660,112 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   assert.equal(restartedPublisher.getPublishJob(prepared.jobId).state, "verified");
 });
 
+async function createCheckpointFailureFixture(prefix: string) {
+  const directory = await mkdtemp(join(os.tmpdir(), prefix));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "New Library.fcpbundle");
+  const publishJobsDirectory = join(directory, "publish-jobs");
+  const source = '<fcpxml version="1.11"><library><event><project uid="checkpoint-project" name="Checkpoint Project"><sequence uid="checkpoint-sequence" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveryCalls = 0;
+  const publisher = createPublisherForTest({
+    enabled: true,
+    sourcePath,
+    publishJobsDirectory,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    documentDelivery: {
+      deliverFcpxml: async () => {
+        deliveryCalls += 1;
+        return {
+          status: "dispatched",
+          route: "background-document-open",
+          attempted: true,
+          imported: false,
+          requestedActivates: false,
+          activation: "preserved",
+          ui: "unknown",
+          target: { requestedLibraryLocation: targetLibraryPath, guarantee: "requested-unverified" },
+        };
+      },
+    },
+    targetBinding: async () => ({
+      projectId: "checkpoint-project",
+      sequenceId: "checkpoint-sequence",
+      libraryId: "checkpoint-library",
+      eventId: "checkpoint-event",
+      libraryPath: targetLibraryPath,
+    }),
+    liveState: async () => ({
+      project: deliveryCalls === 0
+        ? { id: "before-project", name: "Existing" }
+        : { id: "checkpoint-project", name: "Checkpoint Project" },
+      sequence: deliveryCalls === 0
+        ? { id: "before-sequence", name: "Existing", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } }
+        : { id: "checkpoint-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: `revision-${deliveryCalls}`, sequence: deliveryCalls, timestamp: new Date(0).toISOString() },
+    }),
+  });
+  const job = await publisher.preparePublish({
+    sourceTransactionId: "txn-checkpoint-failure",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+  });
+  return {
+    directory,
+    publishJobsDirectory,
+    publisher,
+    job,
+    deliveryCalls: () => deliveryCalls,
+  };
+}
+
+test("publish job state rolls back when its pre-import checkpoint fails", async () => {
+  const fixture = await createCheckpointFailureFixture("framekit-publisher-checkpoint-rollback-");
+  const internals = fixture.publisher as unknown as { publishJobsDirectory: string };
+  const invalidParent = join(fixture.directory, "not-a-directory");
+  await writeFile(invalidParent, "file blocks the publish-job directory");
+  const originalDirectory = internals.publishJobsDirectory;
+  internals.publishJobsDirectory = join(invalidParent, "publish-jobs");
+
+  await assert.rejects(fixture.publisher.executePublishJob(fixture.job.jobId, true), /ENOTDIR|not a directory/i);
+  assert.equal(fixture.publisher.getPublishJob(fixture.job.jobId).state, "awaiting-confirmation");
+  assert.equal(fixture.deliveryCalls(), 0);
+
+  internals.publishJobsDirectory = originalDirectory;
+  const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(verified.state, "verified");
+  assert.equal(fixture.deliveryCalls(), 1);
+});
+
+test("publish retries when the pre-dispatch import marker cannot persist", async () => {
+  const fixture = await createCheckpointFailureFixture("framekit-publisher-marker-rollback-");
+  const internals = fixture.publisher as unknown as {
+    persistPublishJob(job: unknown): void;
+  };
+  const originalPersist = internals.persistPublishJob.bind(fixture.publisher);
+  let persistCalls = 0;
+  internals.persistPublishJob = (job) => {
+    persistCalls += 1;
+    if (persistCalls === 2) throw new Error("simulated checkpoint write failure");
+    originalPersist(job);
+  };
+
+  const pending = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(pending.state, "awaiting-final-cut");
+  assert.equal(fixture.deliveryCalls(), 0);
+  const persisted = JSON.parse(await readFile(join(fixture.publishJobsDirectory, `${fixture.job.jobId}.json`), "utf8")) as {
+    runtime?: { importAttempted?: boolean };
+  };
+  assert.equal(persisted.runtime?.importAttempted, false);
+
+  internals.persistPublishJob = originalPersist;
+  const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(verified.state, "verified");
+  assert.equal(fixture.deliveryCalls(), 1);
+});
+
 test("FCPXML publish jobs do not report success when the native timeline differs", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-semantic-mismatch-"));
   const sourcePath = join(directory, "project.fcpxml");
