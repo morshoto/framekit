@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -501,6 +502,118 @@ test("FCPXML publisher recovers a dead reservation only when its target is absen
 
   assert.equal(result.verified, true);
   await assert.rejects(readFile(reservationPath), { code: "ENOENT" });
+});
+
+test("FCPXML publisher allows only one process to recover a stale library reservation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-concurrent-recovery-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Concurrent Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Concurrent Project"><sequence name="Main" /></project></event></library></fcpxml>';
+  const rendezvous = join(directory, "rendezvous");
+  await mkdir(rendezvous);
+  await writeFile(sourcePath, source);
+  const reservationPath = await reservationPathFor(targetLibraryPath);
+  await writeFile(reservationPath, JSON.stringify({
+    reservationId: "abandoned-concurrent-reservation",
+    targetLibraryPath: join(await realpath(dirname(targetLibraryPath)), basename(targetLibraryPath)),
+    pid: 2_000_000_000,
+    createdAt: new Date(0).toISOString(),
+  }));
+
+  const workerSource = `
+    import { access, mkdir, writeFile } from "node:fs/promises";
+    import { join } from "node:path";
+    import { FinalCutProjectPublisher } from "@framekit/final-cut";
+    const { sourcePath, targetLibraryPath, rendezvous, workerId } = process.env;
+    const marker = (name) => join(rendezvous, name);
+    const exists = async (path) => { try { await access(path); return true; } catch { return false; } };
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 10));
+    await writeFile(marker("ready-" + workerId), "ready");
+    while (!(await exists(marker("start")))) await pause();
+    let stateCalls = 0;
+    const publisher = new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath,
+      verificationTimeoutMs: 0,
+      pollIntervalMs: 0,
+      executor: async () => {
+        await writeFile(marker("started-" + workerId), "started");
+        while (!(await exists(marker("release")))) await pause();
+        await mkdir(targetLibraryPath);
+        return "imported";
+      },
+      targetBinding: async () => ({ projectId: "project-" + workerId, sequenceId: "sequence-" + workerId, libraryPath: targetLibraryPath }),
+      liveState: async () => stateCalls++ === 0
+        ? { revision: { id: "before-" + workerId, sequence: 1, timestamp: new Date(0).toISOString() } }
+        : {
+          project: { id: "project-" + workerId, name: "Concurrent Project" },
+          sequence: { id: "sequence-" + workerId, name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+          revision: { id: "after-" + workerId, sequence: 2, timestamp: new Date(1).toISOString() },
+        },
+    });
+    try {
+      const result = await publisher.publishNewProject({
+        sourceTransactionId: "txn-concurrent-" + workerId,
+        artifactPath: sourcePath,
+        artifactDigest: ${JSON.stringify(digest(source))},
+        targetLibraryPath,
+        confirm: true,
+      });
+      process.stdout.write("verified:" + result.createdTarget.projectId);
+    } catch (error) {
+      process.stdout.write("error:" + (error instanceof Error ? error.message : String(error)));
+    }
+  `;
+  const workerCount = 6;
+  let closedWorkers = 0;
+  const workers = Array.from({ length: workerCount }, (_, index) => {
+    const workerId = String(index);
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", workerSource], {
+      cwd: process.cwd(),
+      env: { ...process.env, sourcePath, targetLibraryPath, rendezvous, workerId },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { output += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { errors += chunk; });
+    const closed = new Promise<{ code: number | null; output: string; errors: string }>((resolve) => {
+      child.once("close", (code) => {
+        closedWorkers += 1;
+        resolve({ code, output, errors });
+      });
+    });
+    return { child, closed };
+  });
+
+  const waitFor = async (predicate: (names: string[]) => boolean, description: string): Promise<string[]> => {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const names = await readdir(rendezvous);
+      if (predicate(names)) return names;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`timed out waiting for publisher workers: ${description}`);
+  };
+
+  try {
+    await waitFor((names) => names.filter((name) => name.startsWith("ready-")).length === workerCount, "all workers ready");
+    await writeFile(join(rendezvous, "start"), "start");
+    const attempted = await waitFor((names) => closedWorkers + names.filter((name) => name.startsWith("started-")).length === workerCount, "all workers to reserve or reject");
+    const started = attempted.filter((name) => name.startsWith("started-"));
+    await writeFile(join(rendezvous, "release"), "release");
+    const results = await Promise.all(workers.map(({ closed }) => closed));
+
+    assert.equal(started.length, 1, `only one process may import; started: ${started.join(", ")}`);
+    assert.equal(results.filter(({ output }) => output.startsWith("verified:")).length, 1);
+    assert.equal(results.filter(({ output }) => output.startsWith("error:PUBLISH_TARGET_LIBRARY_RESERVED:")).length, workerCount - 1);
+    assert.deepEqual(results.map(({ code }) => code), Array(workerCount).fill(0));
+    assert.deepEqual(results.filter(({ errors }) => errors.length > 0), []);
+  } finally {
+    await writeFile(join(rendezvous, "start"), "start").catch(() => undefined);
+    await writeFile(join(rendezvous, "release"), "release").catch(() => undefined);
+    for (const { child } of workers) child.kill();
+  }
 });
 
 test("FCPXML publisher keeps malformed and live-process reservations", async () => {
