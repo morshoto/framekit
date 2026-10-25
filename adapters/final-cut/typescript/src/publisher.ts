@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { constants, createReadStream, realpathSync } from "node:fs";
-import { access, lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -1024,29 +1024,18 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   const normalizedKey = process.platform === "darwin" ? reservationKey.toLowerCase() : reservationKey;
   const reservationPath = join(parent, `.framekit-publish-${hash(normalizedKey)}.lock`);
   const reservationId = randomUUID();
+  const reservationContents = JSON.stringify({
+    reservationId,
+    targetLibraryPath: canonicalTarget,
+    pid: process.pid,
+    createdAt: new Date().toISOString(),
+  });
   try {
-    await writeFile(reservationPath, JSON.stringify({
-      reservationId,
-      targetLibraryPath: canonicalTarget,
-      pid: process.pid,
-      createdAt: new Date().toISOString(),
-    }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await writeFile(reservationPath, reservationContents, { encoding: "utf8", flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
-      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, canonicalTarget);
-      if (recovered) {
-        try {
-          await writeFile(reservationPath, JSON.stringify({
-            reservationId,
-            targetLibraryPath: canonicalTarget,
-            pid: process.pid,
-            createdAt: new Date().toISOString(),
-          }), { encoding: "utf8", flag: "wx", mode: 0o600 });
-          return { path: reservationPath, id: reservationId };
-        } catch (retryError) {
-          if ((retryError as NodeJS.ErrnoException)?.code !== "EEXIST") throw retryError;
-        }
-      }
+      const recovered = await recoverAbandonedTargetLibraryReservation(reservationPath, canonicalTarget, reservationContents);
+      if (recovered) return { path: reservationPath, id: reservationId };
       throw new Error(`PUBLISH_TARGET_LIBRARY_RESERVED: another publisher is creating ${requestedTarget}`);
     }
     throw error;
@@ -1054,7 +1043,55 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   return { path: reservationPath, id: reservationId };
 }
 
-async function recoverAbandonedTargetLibraryReservation(reservationPath: string, requestedTarget: string): Promise<boolean> {
+async function recoverAbandonedTargetLibraryReservation(
+  reservationPath: string,
+  requestedTarget: string,
+  nextReservationContents: string,
+): Promise<boolean> {
+  const recoveryPath = `${reservationPath}.recovery`;
+  const recoveryId = randomUUID();
+  const darwinExclusiveLock = process.platform === "darwin";
+  // Darwin's O_EXLOCK is 0x20; the descriptor lock is released by the kernel if a publisher exits.
+  const recoveryFlags = darwinExclusiveLock
+    ? constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | constants.O_NOFOLLOW | 0x20
+    : "wx";
+  let recoveryHandle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    recoveryHandle = await open(recoveryPath, recoveryFlags, 0o600);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "EEXIST" || code === "EAGAIN" || code === "EWOULDBLOCK") return false;
+    throw error;
+  }
+  if (!recoveryHandle) return false;
+
+  try {
+    if (!darwinExclusiveLock) {
+      await recoveryHandle.writeFile(JSON.stringify({ recoveryId, pid: process.pid }));
+    }
+    return await reclaimAbandonedTargetLibraryReservation(
+      reservationPath,
+      requestedTarget,
+      nextReservationContents,
+    );
+  } finally {
+    await recoveryHandle.close();
+    if (!darwinExclusiveLock) {
+      try {
+        const current = JSON.parse(await readFile(recoveryPath, "utf8")) as { recoveryId?: unknown };
+        if (current.recoveryId === recoveryId) await rm(recoveryPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+      }
+    }
+  }
+}
+
+async function reclaimAbandonedTargetLibraryReservation(
+  reservationPath: string,
+  requestedTarget: string,
+  nextReservationContents: string,
+): Promise<boolean> {
   let reservationStat;
   let reservationContents: string;
   try {
@@ -1084,14 +1121,27 @@ async function recoverAbandonedTargetLibraryReservation(reservationPath: string,
     if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") return false;
   }
 
+  let currentStat;
+  let currentContents: string;
   try {
-    const currentStat = await lstat(reservationPath);
-    const currentContents = await readFile(reservationPath, "utf8");
-    if (currentStat.dev !== reservationStat.dev || currentStat.ino !== reservationStat.ino || currentContents !== reservationContents) return false;
-    await rm(reservationPath);
-    return true;
+    currentStat = await lstat(reservationPath);
+    currentContents = await readFile(reservationPath, "utf8");
   } catch {
     return false;
+  }
+  if (currentStat.dev !== reservationStat.dev || currentStat.ino !== reservationStat.ino || currentContents !== reservationContents) return false;
+
+  try {
+    await rm(reservationPath);
+  } catch {
+    return false;
+  }
+  try {
+    await writeFile(reservationPath, nextReservationContents, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "EEXIST") return false;
+    throw error;
   }
 }
 
