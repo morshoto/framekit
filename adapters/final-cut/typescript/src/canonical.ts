@@ -1093,17 +1093,29 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       throw new Error("CAPABILITY_UNAVAILABLE: active-target-only rebind requires a complete canonical snapshot");
     }
     const catalog = await this.listProjects();
-    if (catalog.activeProjectId !== selection.projectId
-      || (selection.sequenceId !== undefined && catalog.activeSequenceId !== selection.sequenceId)) {
+    if (catalog.activeProjectId !== selection.projectId) {
       throw new Error(
         `TARGET_MISMATCH: active-only rebind requires requested target ${selection.projectId}/${selection.sequenceId ?? "<any>"}; observed ${catalog.activeProjectId ?? "<unavailable>"}/${catalog.activeSequenceId ?? "<unavailable>"}`,
       );
     }
+    const selectedProject = catalog.projects.find(({ id }) => id === selection.projectId);
+    if (!selectedProject) {
+      throw new Error(`TARGET_MISMATCH: active project ${selection.projectId} is missing from the background catalog`);
+    }
+    if (selection.sequenceId === undefined && selectedProject.sequences.length !== 1) {
+      throw new Error("AMBIGUOUS_PROJECT_TARGET: sequenceId is required unless the project has exactly one sequence");
+    }
+    const selectedSequenceId = selection.sequenceId ?? selectedProject.sequences[0]!.id;
+    if (catalog.activeSequenceId !== selectedSequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: active-only rebind requires requested target ${selection.projectId}/${selectedSequenceId}; observed ${catalog.activeProjectId ?? "<unavailable>"}/${catalog.activeSequenceId ?? "<unavailable>"}`,
+      );
+    }
     const snapshot = await this.readProject();
     if (snapshot.projectId !== selection.projectId
-      || (selection.sequenceId !== undefined && snapshot.timeline.id !== selection.sequenceId)) {
+      || snapshot.timeline.id !== selectedSequenceId) {
       throw new Error(
-        `TARGET_MISMATCH: canonical snapshot does not match active-only rebind target ${selection.projectId}/${selection.sequenceId ?? "<any>"}`,
+        `TARGET_MISMATCH: canonical snapshot does not match active-only rebind target ${selection.projectId}/${selectedSequenceId}`,
       );
     }
     return createProjectSelectionResult(catalog, selection, snapshot.revision);

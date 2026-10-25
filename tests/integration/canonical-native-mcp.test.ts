@@ -77,6 +77,7 @@ function liveState(): EditorLiveState {
 function createRuntime(
   calls: string[],
   readSnapshot?: () => Promise<ProjectSnapshot>,
+  catalogSequences = [{ id: "final-cut:sequence:canonical-mcp", name: "Main Edit" }],
 ) {
   let clipName = "Original";
   const snapshotReader = readSnapshot ?? (async () => snapshot(clipName));
@@ -107,7 +108,7 @@ function createRuntime(
         projects: [{
           id: "final-cut:project:canonical-mcp",
           name: "Canonical MCP",
-          sequences: [{ id: "final-cut:sequence:canonical-mcp", name: "Main Edit" }],
+          sequences: catalogSequences,
         }],
         activeProjectId: "final-cut:project:canonical-mcp",
         activeSequenceId: "final-cut:sequence:canonical-mcp",
@@ -139,6 +140,16 @@ test("canonical native provider rebinds only its active stable target", async ()
   const { client, server } = await connect(createRuntime(calls));
 
   try {
+    const projectOnlySelection = await client.callTool({
+      name: "project.select",
+      arguments: { projectId: "final-cut:project:canonical-mcp" },
+    });
+    assert.equal(projectOnlySelection.isError ?? false, false, textFrom(projectOnlySelection));
+    assert.deepEqual(JSON.parse(textFrom(projectOnlySelection)).observedActiveTarget, {
+      projectId: "final-cut:project:canonical-mcp",
+      sequenceId: "final-cut:sequence:canonical-mcp",
+    });
+
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.identity.backend, "final-cut-native-canonical");
     assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-read");
@@ -187,6 +198,27 @@ test("canonical native provider rebinds only its active stable target", async ()
     const inspected = JSON.parse(textFrom(project));
     assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
     assert.equal(inspected.timeline.id, "final-cut:sequence:canonical-mcp");
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("canonical native provider requires a sequence when the project has multiple", async () => {
+  const calls: string[] = [];
+  const { client, server } = await connect(createRuntime(calls, undefined, [
+    { id: "final-cut:sequence:canonical-mcp", name: "Main Edit" },
+    { id: "final-cut:sequence:alternate", name: "Alternate" },
+  ]));
+
+  try {
+    const selection = await client.callTool({
+      name: "project.select",
+      arguments: { projectId: "final-cut:project:canonical-mcp" },
+    });
+    assert.equal(selection.isError, true);
+    assert.match(textFrom(selection), /AMBIGUOUS_PROJECT_TARGET:.*sequenceId is required/);
     assert.deepEqual(calls, []);
   } finally {
     await client.close();
