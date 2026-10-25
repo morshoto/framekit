@@ -75,6 +75,12 @@ export interface FinalCutProjectPublishTargetBinding {
   libraryPath?: string;
 }
 
+export interface FinalCutProjectPublishReadiness {
+  available: boolean;
+  targetBindingAvailable: boolean;
+  reasons: Array<{ code: string; message: string }>;
+}
+
 export type FinalCutProjectPublishJobState =
   | "awaiting-confirmation"
   | "awaiting-final-cut"
@@ -175,7 +181,35 @@ export class FinalCutProjectPublisher {
   }
 
   public isAvailable(): boolean {
-    return this.enabled && Boolean(this.liveState && this.targetBinding);
+    return this.inspectReadiness().available;
+  }
+
+  /** Describe configured handoff providers without querying or changing Final Cut. */
+  public inspectReadiness(): FinalCutProjectPublishReadiness {
+    const reasons: FinalCutProjectPublishReadiness["reasons"] = [];
+    if (!this.enabled) {
+      reasons.push({
+        code: "FINAL_CUT_PUBLISH_DISABLED",
+        message: "Final Cut project publishing is disabled",
+      });
+    }
+    if (!this.liveState) {
+      reasons.push({
+        code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+        message: "Live Final Cut project and sequence verification is unavailable",
+      });
+    }
+    if (!this.targetBinding) {
+      reasons.push({
+        code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+        message: "No native provider can bind the imported artifact to a created target",
+      });
+    }
+    return {
+      available: reasons.length === 0,
+      targetBindingAvailable: Boolean(this.targetBinding),
+      reasons,
+    };
   }
 
   public executionMode(): "background-capable" | "headed-only" {

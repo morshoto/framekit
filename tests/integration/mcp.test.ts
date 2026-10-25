@@ -43,6 +43,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "skill.list",
         "skill.preview",
         "connection.status",
+        "editor.native.handoff.readiness",
         "context.changes",
         "context.inspect",
         "edit.diff",

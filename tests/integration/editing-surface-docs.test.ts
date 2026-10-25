@@ -16,6 +16,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   const liveE2e = await readFile(join(repositoryRoot, "docs/tests/final-cut-live-e2e.md"), "utf8");
   const roughCutConstruction = await readFile(join(repositoryRoot, "docs/architecture/rough-cut-construction.md"), "utf8");
   const artifactPublishing = await readFile(join(repositoryRoot, "docs/architecture/artifact-publishing.md"), "utf8");
+  const mcpQaPrompt = await readFile(join(repositoryRoot, "docs/tests/mcp-qa-prompt.md"), "utf8");
 
   assert.match(compatibility, /## Editing surface semantics/);
   assert.match(compatibility, /Target[\s\S]*Revision[\s\S]*Read-after-write[\s\S]*Undo[\s\S]*Resulting project state/);
@@ -26,6 +27,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
     assert.match(mcpTools, new RegExp("\\| `" + escapedSurface + "`"));
   }
   assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*targetLibraryPath[\s\S]*confirm/);
+  assert.match(mcpTools, /editor\.native\.handoff\.readiness[\s\S]*native readback/);
   assert.match(mcpTools, /PUBLISH_CONFIRMATION_REQUIRED/);
   assert.match(mcpTools, /## Background FCPXML artifact workflow/);
   assert.match(mcpTools, /FRAMEKIT_FCPXML_PATH/);
@@ -62,4 +64,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(artifactPublishing, /artifactDigest/);
   assert.match(artifactPublishing, /target-binding proof/);
   assert.match(artifactPublishing, /`dispatched` result/);
+  assert.match(artifactPublishing, /editor\.native\.handoff\.readiness/);
+  assert.match(mcpQaPrompt, /editor\.native\.handoff\.readiness[\s\S]*#517 acceptance evidence/);
+  assert.match(mcpQaPrompt, /native target identity/);
 });
