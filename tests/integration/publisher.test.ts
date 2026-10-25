@@ -6,12 +6,20 @@ import os from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { FcpxmlDocumentAdapter, FinalCutProjectPublisher } from "@framekit/final-cut";
+import { FcpxmlDocumentAdapter, FinalCutProjectPublisher, parseFinalCutProjectPublishRoute } from "@framekit/final-cut";
 import type { EditorLiveState } from "@framekit/runtime";
 
 function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
+
+test("publish route configuration is explicit and rejects unknown routes", () => {
+  assert.equal(parseFinalCutProjectPublishRoute(undefined, true), "background-document-open");
+  assert.equal(parseFinalCutProjectPublishRoute(undefined, false), "headed-apple-event");
+  assert.equal(parseFinalCutProjectPublishRoute("headed-apple-event", true), "headed-apple-event");
+  assert.equal(parseFinalCutProjectPublishRoute("background-document-open", false), "background-document-open");
+  assert.throws(() => parseFinalCutProjectPublishRoute("fallback", true), /FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE_INVALID/);
+});
 
 test("publisher readiness requires live verification, target binding, and canonical readback", () => {
   const liveState = async (): Promise<EditorLiveState> => {
@@ -389,7 +397,7 @@ test("FCPXML publisher does not fallback after an attempted background open", as
     enabled: true,
     sourcePath,
     documentDelivery: failedDelivery,
-    allowHeadedFallback: true,
+    publishRoute: "background-document-open",
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
     targetBinding: async () => ({ projectId: "fallback-project", sequenceId: "fallback-sequence", libraryPath: disabledTargetLibraryPath }),
@@ -418,15 +426,18 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-selected-route-"));
   const sourcePath = join(directory, "selected route.fcpxml");
   const targetLibraryPath = join(directory, "Approved Target.fcpbundle");
+  const publishJobsDirectory = join(directory, "publish-jobs");
   const source = '<fcpxml version="1.11"><library><event><project name="Selected Route"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
 
   let liveStateCalls = 0;
   const appleScripts: string[] = [];
+  let stagedXml = "";
   let backgroundDeliveries = 0;
   const options = {
     enabled: true,
     sourcePath,
+    publishJobsDirectory,
     publishRoute: "headed-apple-event" as const,
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
@@ -438,6 +449,8 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
     },
     executor: async (script: string) => {
       appleScripts.push(script);
+      const stagedPath = /open POSIX file "([^"]+)"/.exec(script)?.[1];
+      if (stagedPath) stagedXml = await readFile(stagedPath, "utf8");
       return "opened";
     },
     targetBinding: async (path: string | undefined) => ({
@@ -469,17 +482,20 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
   });
 
   assert.equal((preview.handoff as { route?: string }).route, "headed-apple-event");
-  assert.match(preview.handoff.reason, /activate Final Cut Pro/i);
-  assert.equal((await publisher.executePublishJob(preview.jobId, true)).state, "verified");
+  assert.match(preview.handoff.reason, /activates Final Cut Pro/i);
+  const restartedPublisher = createPublisherForTest({
+    ...options,
+    publishRoute: "background-document-open",
+  });
+  assert.equal(restartedPublisher.getPublishJob(preview.jobId).handoff.route, "headed-apple-event");
+  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true)).state, "verified");
   assert.equal(backgroundDeliveries, 0);
   assert.equal(appleScripts.length, 1);
   assert.match(appleScripts[0] ?? "", /open POSIX file ".*selected route\.fcpxml"/);
   assert.match(appleScripts[0] ?? "", /tell application "Final Cut Pro"\s+activate/);
   assert.doesNotMatch(appleScripts[0] ?? "", /System Events|Import XML|key code|keystroke/);
-  const published = publisher.getPublishJob(preview.jobId).result!;
-  const stagedXml = await readFile(published.importedPath, "utf8");
   assert.match(stagedXml, new RegExp(`key="library location" value="file://${targetLibraryPath.replaceAll(" ", "%20")}`));
-  assert.equal(published.delivery?.route, "headed-apple-event");
+  assert.equal(restartedPublisher.getPublishJob(preview.jobId).result?.delivery?.route, "headed-apple-event");
 });
 
 test("FCPXML publisher requires exact live identity for a library-bound target", async () => {
