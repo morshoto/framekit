@@ -1,8 +1,8 @@
 # TDD plan: Codex handoff from approved video to Final Cut (#541)
 
-**Type:** Feature and acceptance work  
-**Issue:** https://github.com/morshoto/framekit/issues/541  
-**Complexity:** High  
+- **Type:** Feature and acceptance work
+- **Issue:** [#541](https://github.com/morshoto/framekit/issues/541)
+- **Complexity:** High
 **TDD entry point:** `tests/integration/codex-plugin.test.ts` checks that the packaged Codex runbook records complete handoff provenance.
 
 ## Issue summary
