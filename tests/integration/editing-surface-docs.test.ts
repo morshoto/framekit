@@ -29,6 +29,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*targetLibraryPath[\s\S]*confirm/);
   assert.match(mcpTools, /editor\.native\.handoff\.readiness[\s\S]*native readback/);
   assert.match(mcpTools, /PUBLISH_CONFIRMATION_REQUIRED/);
+  assert.match(mcpTools, /`editor\.projectSelectionMode` identifies whether the provider is\s+`background-capable`, `active-target-only`, `headed-only`, or `unavailable`/);
   assert.match(mcpTools, /## Background FCPXML artifact workflow/);
   assert.match(mcpTools, /FRAMEKIT_FCPXML_PATH/);
   assert.match(mcpTools, /artifact\.edit\.preview[\s\S]*artifact\.edit\.execute[\s\S]*artifact\.edit\.diff[\s\S]*artifact\.edit\.verify[\s\S]*artifact\.edit\.undo/);

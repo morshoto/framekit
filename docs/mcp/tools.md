@@ -386,7 +386,7 @@ fields and adds `requestedTarget`, `observedActiveTarget`, and
 `observedRevision`. The observed target and revision are read back after the
 provider request; an acknowledgement alone is not a successful selection.
 `editor.projectSelectionMode` identifies whether the provider is
-`background-capable`, `headed-only`, or `unavailable`.
+`background-capable`, `active-target-only`, `headed-only`, or `unavailable`.
 
 The headed project-selection acceptance gate is opt-in and never uses project
 names as IDs:
