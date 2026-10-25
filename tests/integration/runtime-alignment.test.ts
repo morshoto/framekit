@@ -705,6 +705,58 @@ test("required local alignment blocks direct native edits when the extension is 
   });
 });
 
+test("publish status remains readable while native handoff rebind stays alignment guarded", async () => {
+  const createdTarget = {
+    kind: "editor.project",
+    projectId: "created-project",
+    sequenceId: "created-sequence",
+    libraryId: "created-library",
+    eventId: "created-event",
+    libraryPath: "/tmp/created-library.fcpbundle",
+    projectName: "Published Project",
+    sequenceName: "Main",
+  };
+  const job = {
+    jobId: "publish-job-stored",
+    state: "verified",
+    createdTarget,
+    result: { verified: true, createdTarget },
+  };
+  let rebindCalls = 0;
+  const projectPublisher = {
+    isAvailable: () => true,
+    inspectReadiness: () => ({ available: true, targetBindingAvailable: true, reasons: [] }),
+    getPublishJob: () => job,
+    loadPublishJob: async () => job,
+    verifyCreatedTarget: async () => {
+      rebindCalls += 1;
+      return createdTarget;
+    },
+  } as unknown as FinalCutProjectPublisher;
+
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const status = await client.callTool({
+      name: "artifact.publish.status",
+      arguments: { jobId: job.jobId },
+    });
+    assert.equal(status.isError ?? false, false, textFrom(status));
+    assert.equal(JSON.parse(textFrom(status)).state, "verified");
+
+    const readiness = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.handoff.readiness",
+      arguments: { publishJobId: job.jobId },
+    })));
+    assert.equal(readiness.status, "blocked");
+    assert.ok(readiness.reasons.some((reason: { code: string }) =>
+      reason.code === "FINAL_CUT_PUBLISH_TARGET_REBIND_FAILED"));
+    assert.equal(rebindCalls, 0);
+  }, {
+    projectPublisher,
+    requireBuildAlignment: true,
+    validationCommit: "intended-commit",
+  });
+});
+
 test("required local alignment blocks native publishing and export providers", async () => {
   let publishCalls = 0;
   let exportCalls = 0;

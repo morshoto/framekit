@@ -1006,7 +1006,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
             projectPublisher: withBuildAlignmentGuard(
               options.projectPublisher,
               assertAlignment,
-              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob"],
+              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob"],
             ),
           }
         : {}),
