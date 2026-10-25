@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type {
-  FinalCutProjectPublisher,
   FinalCutVideoExporter,
   NativeOperationSession,
 } from "@framekit/final-cut";
-import { FinalCutLiveAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
+import {
+  FcpxmlDocumentAdapter,
+  FinalCutLiveAdapter,
+  FinalCutProjectPublisher,
+  FinalCutSessionAdapter,
+} from "@framekit/final-cut";
 import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import type { RuntimeCapabilities } from "@framekit/runtime";
 import { AgentVideoRuntime } from "@framekit/runtime";
@@ -430,6 +438,89 @@ test("native handoff readiness blocks contradictory library or event identity", 
       );
     }
   }, { projectPublisher });
+});
+
+test("serves a verified native target after the publisher restarts", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-rebind-"));
+  const sourcePath = join(directory, "approved.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="source-project" name="Published Project"><sequence uid="source-sequence" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+
+  let liveStateReads = 0;
+  const publisherOptions = {
+    enabled: true,
+    sourcePath,
+    publishJobDirectory: join(directory, "publish-jobs"),
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    executor: async () => "imported",
+    liveState: async () => {
+      const imported = liveStateReads++ > 0;
+      return {
+        project: {
+          id: imported ? "created-project-stable" : "existing-project",
+          name: imported ? "Published Project" : "Existing Project",
+        },
+        sequence: {
+          id: imported ? "created-sequence-stable" : "existing-sequence",
+          name: imported ? "Main" : "Existing Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "10", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateReads}`, sequence: liveStateReads, timestamp: new Date(0).toISOString() },
+      };
+    },
+    targetBinding: async () => ({
+      projectId: "created-project-stable",
+      sequenceId: "created-sequence-stable",
+      libraryId: "created-library-stable",
+      eventId: "created-event-stable",
+    }),
+    readCanonicalSnapshot: async () => new FcpxmlDocumentAdapter(sourcePath, undefined, {
+      allowMissingImmutableIdsForReadback: true,
+    }).readProject(),
+  } as ConstructorParameters<typeof FinalCutProjectPublisher>[0] & { publishJobDirectory: string };
+
+  try {
+    const firstPublisher = new FinalCutProjectPublisher(publisherOptions);
+    const prepared = await firstPublisher.preparePublish({
+      sourceTransactionId: "txn-publish-rebind",
+      artifactPath: sourcePath,
+      artifactDigest: createHash("sha256").update(source).digest("hex"),
+    });
+    const verified = await firstPublisher.executePublishJob(prepared.jobId, true);
+    assert.equal(verified.state, "verified");
+
+    const restartedPublisher = new FinalCutProjectPublisher(publisherOptions);
+    await withClient(metadataOnlyRuntime(), async (client) => {
+      const status = await client.callTool({
+        name: "artifact.publish.status",
+        arguments: { jobId: verified.jobId },
+      });
+      assert.equal(status.isError ?? false, false, textFrom(status));
+      const restored = JSON.parse(textFrom(status));
+      assert.equal(restored.state, "verified");
+      assert.deepEqual(restored.createdTarget, verified.createdTarget);
+
+      const readiness = JSON.parse(textFrom(await client.callTool({
+        name: "editor.native.handoff.readiness",
+        arguments: { publishJobId: verified.jobId },
+      })));
+      assert.equal(readiness.status, "verified");
+      assert.deepEqual(readiness.createdTarget, {
+        kind: "editor.project",
+        projectId: "created-project-stable",
+        sequenceId: "created-sequence-stable",
+        libraryId: "created-library-stable",
+        eventId: "created-event-stable",
+        projectName: "Published Project",
+        sequenceName: "Main",
+      });
+    }, { projectPublisher: restartedPublisher });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("required local alignment fails clearly for a stale extension", async () => {
