@@ -639,8 +639,10 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     };
     const preview = await service.previewRoughCut(request);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
-    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "1", timescale: "4" });
+    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
     assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");
+    assert.deepEqual(preview.provenance[0]?.sourceRange.startTime, { value: "4", timescale: "15" });
+    assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "1", timescale: "1" });
     assert.equal(preview.provenance[0]?.rationale, "contains the approved speech highlight");
     assert.equal(preview.outputIntent.fcpxml.target.projectUid, "project-v017");
     await assert.rejects(

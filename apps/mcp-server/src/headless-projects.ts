@@ -660,9 +660,10 @@ export class HeadlessProjectService {
       const resource = resourceByMediaId.get(shot.sourceIdentity.mediaId);
       if (!resource) throw new Error(`HEADLESS_ROUGH_CUT_SOURCE_NOT_FOUND: ${shot.sourceIdentity.mediaId}`);
       assertSourceIdentity(resource, shot.sourceIdentity);
-      const sourceStartTime = shot.range.startTime ?? secondsToRational(shot.range.start);
-      const durationTime = shot.range.durationTime ?? secondsToRational(shot.range.end - shot.range.start);
-      assertSourceRange(resource, shot.range, sourceStartTime, durationTime);
+      const sourceRange = alignInferredRoughCutRange(resource, shot.range);
+      const sourceStartTime = sourceRange.startTime ?? secondsToRational(sourceRange.start);
+      const durationTime = sourceRange.durationTime ?? secondsToRational(sourceRange.end - sourceRange.start);
+      assertSourceRange(resource, sourceRange, sourceStartTime, durationTime);
       const appendToPrimaryStoryline = hasPrimaryStoryContent || planOperations.length > 0;
       planOperations.push({
         type: "insert-occurrence",
@@ -684,7 +685,7 @@ export class HeadlessProjectService {
         occurrenceId,
         mediaId: resource.id,
         sourceIdentity: structuredClone(shot.sourceIdentity),
-        sourceRange: structuredClone(shot.range),
+        sourceRange: structuredClone(sourceRange),
         confidence: shot.confidence,
         matchedProperties: [...shot.matchedProperties],
         rationale: shot.rationale,
@@ -785,6 +786,75 @@ function assertSourceRange(
     || Math.abs(rationalSeconds(durationTime) - (range.end - range.start)) > 0.001) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: rational source range must be non-negative and non-empty");
   }
+}
+
+function alignInferredRoughCutRange(
+  resource: TimelineIr["resources"][number],
+  range: RoughCutPlan["shots"][number]["range"],
+): RoughCutPlan["shots"][number]["range"] {
+  if (range.startTime !== undefined || range.durationTime !== undefined
+    || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.end <= range.start) {
+    return structuredClone(range);
+  }
+  const frameRate = resource.metadata?.streams.find((stream) => stream.kind === "video" && stream.frameRate)?.frameRate;
+  if (!frameRate || BigInt(frameRate.value) <= 0n || BigInt(frameRate.timescale) <= 0n) {
+    return structuredClone(range);
+  }
+  const frameDuration = { value: frameRate.timescale, timescale: frameRate.value };
+  const startTime = nearestFrameTime(secondsToRational(range.start), frameDuration);
+  const endTime = nearestFrameTime(secondsToRational(range.end), frameDuration);
+  const durationTime = subtractRationalTimes(endTime, startTime);
+  if (BigInt(durationTime.value) <= 0n) {
+    throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: frame alignment produced an empty source range");
+  }
+  return {
+    ...structuredClone(range),
+    start: rationalSeconds(startTime),
+    end: rationalSeconds(endTime),
+    startTime,
+    durationTime,
+  };
+}
+
+function nearestFrameTime(
+  time: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const timeValue = BigInt(time.value);
+  const timeScale = BigInt(time.timescale);
+  const frameValue = BigInt(frameDuration.value);
+  const frameScale = BigInt(frameDuration.timescale);
+  const numerator = timeValue * frameScale;
+  const denominator = timeScale * frameValue;
+  const frameCount = (numerator * 2n + denominator) / (denominator * 2n);
+  return normalizeRationalTime(frameCount * frameValue, frameScale);
+}
+
+function subtractRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRationalTime(leftValue * rightScale - rightValue * leftScale, leftScale * rightScale);
+}
+
+function normalizeRationalTime(value: bigint, timescale: bigint): { value: string; timescale: string } {
+  const divisor = greatestCommonDivisorBigInt(value < 0n ? -value : value, timescale);
+  return { value: String(value / divisor), timescale: String(timescale / divisor) };
+}
+
+function greatestCommonDivisorBigInt(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
 }
 
 function secondsToRational(seconds: number): { value: string; timescale: string } {

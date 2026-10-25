@@ -135,6 +135,7 @@ export function compileTimelineIrToFcpxml(
     : undefined;
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
+    "<!DOCTYPE fcpxml>",
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
     `    <format id="${formatId}"${projectFormatName ? ` name="${projectFormatName}"` : ""} frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
