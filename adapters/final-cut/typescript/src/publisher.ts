@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { constants, createReadStream, realpathSync } from "node:fs";
+import { chmodSync, constants, createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
@@ -159,6 +159,8 @@ export interface FinalCutProjectPublisherOptions {
   };
   /** Explicitly permits the legacy Accessibility import after a native delivery blocker. */
   allowHeadedFallback?: boolean;
+  /** Stores publish jobs so verification can resume after an MCP restart. */
+  publishJobsDirectory?: string;
   verificationTimeoutMs?: number;
   pollIntervalMs?: number;
   /** @deprecated Use pollIntervalMs. */
@@ -181,6 +183,12 @@ interface PublishJobRuntime {
   approvedSourceMediaDigests?: FinalCutPublishSourceMediaDigest[];
 }
 
+interface PersistedPublishJob {
+  version: 1;
+  job: FinalCutProjectPublishJob;
+  runtime?: PublishJobRuntime;
+}
+
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
 export class FinalCutProjectPublisher {
   private readonly enabled: boolean;
@@ -192,6 +200,7 @@ export class FinalCutProjectPublisher {
   private readonly headlessSourceVerifier?: FinalCutProjectPublisherOptions["headlessSourceVerifier"];
   private readonly documentDelivery?: FinalCutProjectPublisherOptions["documentDelivery"];
   private readonly allowHeadedFallback: boolean;
+  private readonly publishJobsDirectory?: string;
   private readonly verificationTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly publishJobs = new Map<string, FinalCutProjectPublishJob>();
@@ -207,8 +216,10 @@ export class FinalCutProjectPublisher {
     this.headlessSourceVerifier = options.headlessSourceVerifier;
     this.documentDelivery = options.documentDelivery;
     this.allowHeadedFallback = options.allowHeadedFallback ?? false;
+    this.publishJobsDirectory = options.publishJobsDirectory;
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
+    this.loadPersistedPublishJobs();
   }
 
   public isAvailable(): boolean {
@@ -280,7 +291,7 @@ export class FinalCutProjectPublisher {
         reason: "After dispatch, Final Cut must expose the new project as the active target. The publisher verifies its native IDs, exports the active timeline through File > Export XML, and compares timeline semantics and source media digests before reporting success.",
       },
     };
-    this.publishJobs.set(job.jobId, job);
+    this.persistPublishJob(job);
     return clonePublishJob(job);
   }
 
@@ -308,6 +319,7 @@ export class FinalCutProjectPublisher {
         code: "CAPABILITY_UNAVAILABLE",
         message: "Final Cut project publishing is unavailable; bring Final Cut Pro to the front and retry this job",
       };
+      this.persistPublishJob(job);
       return clonePublishJob(job);
     }
 
@@ -359,6 +371,7 @@ export class FinalCutProjectPublisher {
     job.state = "verification-pending";
     job.nextAction = "status";
     job.retryable = false;
+    this.persistPublishJob(job);
     try {
       const result = await this.importAndVerify(
         {
@@ -372,6 +385,7 @@ export class FinalCutProjectPublisher {
         validated.identity,
         beforeLive,
         runtime,
+        job,
       );
       return this.markVerified(job, result);
     } catch (error) {
@@ -385,6 +399,7 @@ export class FinalCutProjectPublisher {
       job.nextAction = "retry";
       job.retryable = true;
       job.error = normalized;
+      this.persistPublishJob(job);
       return clonePublishJob(job);
     }
   }
@@ -439,8 +454,8 @@ export class FinalCutProjectPublisher {
         },
         error: normalized,
       };
-      this.publishJobs.set(job.jobId, job);
       this.publishJobRuntime.set(job.jobId, runtime);
+      this.persistPublishJob(job);
       throw new Error(`FINAL_CUT_PUBLISH_VERIFICATION_PENDING: publish job ${job.jobId} retained the target reservation; inspect with artifact.publish.status and resume with artifact.publish.execute (${normalized.message})`);
     }
   }
@@ -489,6 +504,7 @@ export class FinalCutProjectPublisher {
     identity: { projectName: string; sequenceName: string },
     beforeLive: EditorLiveState,
     runtime?: PublishJobRuntime,
+    publishJob?: FinalCutProjectPublishJob,
   ): Promise<FinalCutProjectPublishResult> {
     if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
     if (!this.targetBinding) throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
@@ -526,6 +542,7 @@ export class FinalCutProjectPublisher {
       await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
       if (this.documentDelivery) {
         if (runtime) runtime.importAttempted = true;
+        this.persistRuntimeForJob(publishJob, runtime);
         const dispatched = await this.documentDelivery.deliverFcpxml({
           artifactPath: importedPath,
           ...(targetLibraryPath ? { targetLibraryLocation: targetLibraryPath } : {}),
@@ -533,6 +550,7 @@ export class FinalCutProjectPublisher {
         });
         if (runtime && dispatched.status !== "dispatched" && !dispatched.attempted) {
           runtime.importAttempted = false;
+          this.persistRuntimeForJob(publishJob, runtime);
         }
         if (dispatched.status !== "dispatched" && !this.allowHeadedFallback) {
           const error = dispatched.error ?? {
@@ -552,6 +570,7 @@ export class FinalCutProjectPublisher {
           };
         } else {
           if (runtime) runtime.importAttempted = true;
+          this.persistRuntimeForJob(publishJob, runtime);
           await this.executor(importXmlScript(importedPath));
           delivery = {
             status: "dispatched",
@@ -564,6 +583,7 @@ export class FinalCutProjectPublisher {
         }
       } else {
         if (runtime) runtime.importAttempted = true;
+        this.persistRuntimeForJob(publishJob, runtime);
         await this.executor(importXmlScript(importedPath));
         delivery = {
           status: "dispatched",
@@ -575,6 +595,7 @@ export class FinalCutProjectPublisher {
         };
       }
       if (runtime) runtime.delivery = delivery;
+      this.persistRuntimeForJob(publishJob, runtime);
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
         async (targetPath, targetIdentity) => {
@@ -682,6 +703,7 @@ export class FinalCutProjectPublisher {
       job.nextAction = "retry";
       job.retryable = true;
       job.error = publishError(error);
+      this.persistPublishJob(job);
       return clonePublishJob(job);
     }
   }
@@ -693,6 +715,7 @@ export class FinalCutProjectPublisher {
     job.createdTarget = structuredClone(result.createdTarget);
     job.result = structuredClone(result);
     delete job.error;
+    this.persistPublishJob(job);
     return clonePublishJob(job);
   }
 
@@ -728,6 +751,7 @@ export class FinalCutProjectPublisher {
     job.nextAction = "retry";
     job.retryable = true;
     job.error = { code, message };
+    this.persistPublishJob(job);
     return clonePublishJob(job);
   }
 
@@ -736,7 +760,72 @@ export class FinalCutProjectPublisher {
     job.nextAction = "none";
     job.retryable = false;
     job.error = publishError(error);
+    this.persistPublishJob(job);
     return clonePublishJob(job);
+  }
+
+  private loadPersistedPublishJobs(): void {
+    if (!this.publishJobsDirectory) return;
+    mkdirSync(this.publishJobsDirectory, { recursive: true, mode: 0o700 });
+    chmodSync(this.publishJobsDirectory, 0o700);
+    for (const name of readdirSync(this.publishJobsDirectory)) {
+      if (!name.endsWith(".json")) continue;
+      const path = join(this.publishJobsDirectory, name);
+      let persisted: PersistedPublishJob;
+      try {
+        persisted = JSON.parse(readFileSync(path, "utf8")) as PersistedPublishJob;
+      } catch (error) {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: could not read ${path}`, { cause: error });
+      }
+      const job = persisted?.job;
+      const validStates: FinalCutProjectPublishJobState[] = [
+        "awaiting-confirmation",
+        "awaiting-final-cut",
+        "verification-pending",
+        "verified",
+        "failed",
+      ];
+      if (!persisted || persisted.version !== 1 || !job || typeof job.jobId !== "string"
+        || !/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(job.jobId)
+        || !validStates.includes(job.state) || name !== `${job.jobId}.json`) {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish job record ${path}`);
+      }
+      if (job.state === "verification-pending" && !persisted.runtime) {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: pending job is missing recovery state ${path}`);
+      }
+      this.publishJobs.set(job.jobId, job);
+      if (persisted.runtime) this.publishJobRuntime.set(job.jobId, persisted.runtime);
+    }
+  }
+
+  private persistRuntimeForJob(job: FinalCutProjectPublishJob | undefined, runtime: PublishJobRuntime | undefined): void {
+    if (!job || !runtime) return;
+    this.persistPublishJob(job);
+  }
+
+  private persistPublishJob(job: FinalCutProjectPublishJob): void {
+    this.publishJobs.set(job.jobId, job);
+    if (!this.publishJobsDirectory) return;
+    if (!/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(job.jobId)) {
+      throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish job ID ${job.jobId}`);
+    }
+    mkdirSync(this.publishJobsDirectory, { recursive: true, mode: 0o700 });
+    chmodSync(this.publishJobsDirectory, 0o700);
+    const path = join(this.publishJobsDirectory, `${job.jobId}.json`);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    const record: PersistedPublishJob = {
+      version: 1,
+      job: structuredClone(job),
+      ...(this.publishJobRuntime.has(job.jobId)
+        ? { runtime: structuredClone(this.publishJobRuntime.get(job.jobId)!) }
+        : {}),
+    };
+    try {
+      writeFileSync(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      renameSync(temporary, path);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
   }
 }
 

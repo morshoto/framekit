@@ -1506,6 +1506,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   const source = '<fcpxml version="1.11"><library><event><project uid="project-restart" name="Restart Publish"><sequence uid="sequence-restart" name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
   let deliveryCalls = 0;
+  let persistedJobId = "";
   const beforeState: EditorLiveState = {
     project: { id: "project-before", name: "Existing" },
     sequence: {
@@ -1541,6 +1542,12 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
     documentDelivery: {
       deliverFcpxml: async ({ targetLibraryLocation, activates }: { targetLibraryLocation?: string; activates: boolean }) => {
         deliveryCalls += 1;
+        const persisted = JSON.parse(await readFile(join(publishJobsDirectory, `${persistedJobId}.json`), "utf8")) as {
+          runtime: { importAttempted: boolean; targetLibraryPath: string; reservationId?: string };
+        };
+        assert.equal(persisted.runtime.importAttempted, true, "the no-repeat marker must be durable before native dispatch");
+        assert.equal(persisted.runtime.targetLibraryPath, targetLibraryPath);
+        assert.ok(persisted.runtime.reservationId);
         assert.equal(targetLibraryLocation, targetLibraryPath);
         assert.equal(activates, false);
         return {
@@ -1573,6 +1580,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
     artifactDigest: digest(source),
     targetLibraryPath,
   });
+  persistedJobId = prepared.jobId;
 
   const pending = await firstPublisher.executePublishJob(prepared.jobId, true);
 
