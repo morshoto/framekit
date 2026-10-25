@@ -185,6 +185,40 @@ test("FCPXML marker edits stay inside a DTD-valid story element", async () => {
   }
 });
 
+test("FCPXML markers inside auditions attach to an audition story element", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-audition-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+  <format id="format-audition" frameDuration="1/24s" />
+  <asset id="source" name="Source.mov" src="file:///fixtures/source.mov" hasVideo="1" duration="2s" />
+</resources><library><event name="Event"><project uid="project-audition" name="Audition Project">
+  <sequence format="format-audition" duration="2s"><spine>
+    <audition offset="0s" duration="2s"><asset-clip ref="source" offset="0s" start="0s" duration="2s" /></audition>
+  </spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "audition-marker", start: 1, duration: 0, name: "Audition Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<audition[^>]*>\s*<asset-clip[^>]*>\s*<marker[^>]*value="Audition Marker"/);
+    assert.doesNotMatch(xml, /<audition[^>]*>\s*<marker/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FCPXML titles, transitions, and audio parameters round-trip through one transaction", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);

@@ -465,7 +465,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const markerDuration = parseRational(formatSeconds(operation.marker.duration));
     const markerEnd = addRational(markerStart, markerDuration);
     const host = timelineEntries(spine).find((entry) => {
-      if (!CLIP_KINDS.has(entry.kind) && !["gap", "title", "audition", "live-drawing"].includes(entry.kind)) return false;
+      if (!CLIP_KINDS.has(entry.kind) && !["gap", "title", "live-drawing"].includes(entry.kind)) return false;
       const hostEnd = addRational(entry.startTime, entry.durationTime);
       return compareRational(markerStart, entry.startTime) >= 0
         && compareRational(markerEnd, hostEnd) <= 0;
