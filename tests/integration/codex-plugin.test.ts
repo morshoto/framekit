@@ -149,6 +149,28 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
   assert.doesNotMatch(runbook, /FRAMEKIT_FINAL_CUT_LIBRARY_UID/);
 });
 
+test("Codex video handoff records complete #541 acceptance provenance", async () => {
+  const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
+  const evidenceSection = runbook.match(/## Record the run([\s\S]*?)(?:\n## |$)/)?.[1] ?? "";
+
+  for (const expected of [
+    "canonical revision",
+    "source-media SHA-256",
+    "MP4 and FCPXML SHA-256",
+    "headless preview digest",
+    "native publish preview",
+    "Workflow Extension fingerprint",
+    "sanitized Codex/MCP transcript",
+    "approval records",
+    "created-target readback",
+    "active-project before/after",
+    "recovery evidence",
+    "#517",
+  ]) {
+    assert.ok(evidenceSection.toLowerCase().includes(expected.toLowerCase()), `evidence section includes ${expected}`);
+  }
+});
+
 test("CI runs the clean Codex plugin installation smoke test", async () => {
   const packageManifest = await readJson("package.json") as { scripts?: Record<string, string> };
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
