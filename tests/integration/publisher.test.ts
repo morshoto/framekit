@@ -147,28 +147,9 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
     after: { id: "project-2", name: "Published Edit" },
     changed: true,
   });
-  assert.match(scripts[0], /waitForMenuItem/);
-  assert.match(scripts[0], /waitForImportSheet/);
-  assert.match(scripts[0], /waitForSubmenu\(importMenuItem, "Import"/);
-  assert.match(scripts[0], /my waitForMenuItem/);
-  assert.match(scripts[0], /my waitForSubmenu/);
-  assert.match(scripts[0], /my waitForWindow/);
-  assert.match(scripts[0], /my waitForImportSheet/);
-  assert.match(scripts[0], /my locateImportPathField/);
-  assert.match(scripts[0], /my waitForImportSheetDismissal/);
-  assert.match(scripts[0], /my waitForImportWindowDismissal/);
-  assert.match(scripts[0], /my cancelImportIfOpen/);
-  assert.match(scripts[0], /perform action "AXPress"/);
-  assert.match(scripts[0], /keystroke "g" using \{command down, shift down\}/);
-  assert.match(scripts[0], /text fields of pathSheet/);
-  assert.match(scripts[0], /locateImportPathField/);
-  assert.match(scripts[0], /value of attribute "AXIdentifier"/);
-  assert.match(scripts[0], /description of candidate/);
-  assert.match(scripts[0], /FINAL_CUT_PUBLISH_PATH_CONTROL_AMBIGUOUS/);
-  assert.equal(scripts[0].includes("set pathField to item 1 of pathFields"), false);
-  assert.match(scripts[0], /waitForImportSheetDismissal/);
-  assert.match(scripts[0], /on error/);
-  assert.match(scripts[0], /Cancel/);
+  assert.match(scripts[0], /tell application "Final Cut Pro"\s+activate\s+open POSIX file ".*published project\.fcpxml"\s+end tell/);
+  assert.doesNotMatch(scripts[0], /System Events|Import XML|key code|keystroke/);
+  assert.equal(scripts[0].includes(sourcePath), false);
   assert.equal(scripts[0].includes("delay 0.4"), false);
   assert.match(scripts[0], /published project\.fcpxml/);
   await assert.rejects(readFile(result.importedPath), /ENOENT/);
@@ -460,10 +441,10 @@ test("FCPXML publisher uses headed import only when explicitly enabled", async (
   });
 
   assert.equal(enabledResult.verified, true);
-  assert.equal(enabledResult.delivery?.route, "headed-accessibility");
+  assert.equal(enabledResult.delivery?.route, "headed-apple-event");
   assert.equal(enabledResult.delivery?.status, "dispatched");
-  assert.match(fallbackScripts[0] ?? "", /Import XML/);
-  assert.match(fallbackScripts[0] ?? "", /candidateIdentifier contains "path"/);
+  assert.match(fallbackScripts[0] ?? "", /tell application "Final Cut Pro"\s+activate\s+open POSIX file ".+project\.fcpxml"\s+end tell/);
+  assert.doesNotMatch(fallbackScripts[0] ?? "", /System Events|Import XML|key code|keystroke/);
 });
 
 test("FCPXML publisher requires exact live identity for a library-bound target", async () => {
