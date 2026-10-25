@@ -317,6 +317,16 @@ test('native release verifies the uploaded archive from a clean download before 
 	assert.match(verification, /git rev-parse "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}"/);
 });
 
+test('native release checksum names the portable archive basename', async () => {
+	const packaging = await readFile(
+		resolve(repository, 'scripts/package-final-cut-release.sh'),
+		'utf8',
+	);
+	assert.match(packaging, /cd "\$output_dir"/);
+	assert.match(packaging, /shasum -a 256 "\$archive_name" > "\$archive_name\.sha256"/);
+	assert.doesNotMatch(packaging, /shasum -a 256 "\$output_dir\/\$archive_name"/);
+});
+
 test('native release is an explicit retry without runner preflight', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
