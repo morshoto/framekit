@@ -41,6 +41,7 @@ The publisher contract (#519) and new-project backend (#212) are already merged 
 | B5 | Sanitized run evidence is linked to #517 without exposing private media, credentials, or user-specific paths | Evidence review | `docs/release-evidence/v0.1.18/issue-541-codex-handoff.md` |
 | B6 | Multi-term editorial queries return matching speech ranges across all intended sources | Runtime integration | `tests/integration/semantic-media.test.ts` |
 | B7 | Render verification follows the FFmpeg renderer's normalized audio format when source rates differ | Headless render integration | `tests/integration/render-and-verify.test.ts` |
+| B8 | The delivery route and side effects are bound into the immutable preview; attempted background failures never dispatch a second route | Publisher contract | `tests/integration/publisher.test.ts` |
 
 ## Test-first implementation cycles
 
@@ -76,6 +77,22 @@ The publisher contract (#519) and new-project backend (#212) are already merged 
 **Refactor**
 
 - Rerun the affected MCP and publisher tests before adjusting shared helpers or documentation.
+
+### Cycle 2c: Bind native delivery route before approval
+
+**Red**
+
+- Assert that a preview records the selected background or headed AppleEvent route, activation behavior, and exact staged target.
+- Simulate an attempted background-open failure with headed execution available; expect no second dispatch.
+
+**Green**
+
+- Select the route before preview, persist it with the publish job, and execute only that route.
+- Put the approved library location into staged FCPXML before a headed AppleEvent open; remove fallback after attempted delivery.
+
+**Refactor**
+
+- Reject unknown `FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE` values and document explicit route selection in the headed E2E procedure.
 
 ### Cycle 2a: Preserve multi-source rough-cut query matches
 

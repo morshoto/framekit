@@ -51,8 +51,9 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(liveE2e, /FCPXML publisher headed E2E/);
   assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH/);
   assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH/);
-  assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1/);
-  assert.match(liveE2e, /activated AppleEvent fallback/);
+  assert.match(liveE2e, /FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE=headed-apple-event/);
+  assert.match(liveE2e, /preview records this\s+route and its activation side effect/);
+  assert.match(liveE2e, /does not fall through to AppleEvents after an\s+attempted failure/);
   assert.match(liveE2e, /double-click[\s\S]*imported project/i);
   assert.match(liveE2e, /test:final-cut-publisher-headed/);
   assert.match(liveE2e, /prepared disposable fixture[\s\S]*project/);
