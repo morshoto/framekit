@@ -1,7 +1,7 @@
 # TDD plan: approved rough-cut native creation and readback (#544)
 
-**Type:** QA  
-**Issue:** https://github.com/morshoto/framekit/issues/544  
+**Type:** QA
+**Issue:** https://github.com/morshoto/framekit/issues/544
 **Entry point:** the production MCP publish preview must reject an approved execution if its FCPXML digest changes. The existing test seam is `tests/integration/headless-project-mcp.test.ts`; keep the regression red before any contract repair.
 
 ## Goal and boundary
