@@ -240,11 +240,14 @@ confirmation. The staged FCPXML uses Final Cut's `library location` import
 option. `FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1` explicitly enables the
 activated AppleEvent fallback when background document delivery is rejected.
 The bridge reports dispatch; a read-only library catalog must then confirm the
-exact library, project, and sequence identities. The runner also requires the
-bound target to be active for headed `File > Export XML` semantic readback and
-records source-media SHA-256 digests before and after delivery. Use an FCPXML
-artifact valid for the installed Final Cut version. Paths containing spaces are
-supported.
+exact library, project, and sequence identities. The import may add the project
+without activating its timeline. While publish verification is waiting,
+double-click the imported project in the new library's Event Browser. The runner requires
+that exact target to be active for headed `File > Export XML` semantic readback,
+then records source-media SHA-256 digests before and after delivery. If the target
+is not opened before verification times out, no publish success is reported. Use
+an FCPXML artifact valid for the installed Final Cut version. Paths containing
+spaces are supported.
 
 This runner does not call `editor.native.*`, create a native fixture project, or
 claim that a native timeline edit succeeded. Use the prepared disposable fixture
