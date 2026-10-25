@@ -17,7 +17,7 @@ import { FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/i
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
 
-test("FFmpeg Timeline IR renderer produces a deterministic playable artifact without mutating sources", async () => {
+test("FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-"));
   try {
     await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
@@ -34,7 +34,7 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
       format: "mp4",
       width: 320,
       height: 180,
-      frameRate: { value: "30", timescale: "1" },
+      frameRate: { value: "24", timescale: "1" },
       overwrite: false,
     };
     const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
@@ -62,7 +62,7 @@ test("FFmpeg Timeline IR renderer produces a deterministic playable artifact wit
     const audio = metadata.streams.find((stream) => stream.codec_type === "audio");
     assert.equal(video?.width, 320);
     assert.equal(video?.height, 180);
-    assert.equal(video?.r_frame_rate, "30/1");
+    assert.equal(video?.r_frame_rate, "24/1");
     assert.equal(audio?.sample_rate, "48000");
     assert.equal(audio?.channels, 1);
     assert.ok(Number(metadata.format.duration) > 1.95 && Number(metadata.format.duration) < 2.05);

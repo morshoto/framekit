@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "name": "Framekit Codex video synthetic speech acceptance fixture",
+  "speechOrigin": "Local macOS say text-to-speech; no human recording or personal media",
+  "videoOrigin": "FFmpeg distinct-color cards paired with spoken source labels",
+  "video": {
+    "width": 1280,
+    "height": 720,
+    "frameRate": 24,
+    "sampleRate": 48000
+  },
+  "voice": {
+    "name": "Alex",
+    "rateWordsPerMinute": 190
+  },
+  "clips": [
+    {
+      "id": "A",
+      "filename": "clip-a.mp4",
+      "color": "0x234caa",
+      "durationSeconds": 24,
+      "speechStartSeconds": 9.85,
+      "requestedRange": [10, 22],
+      "speechText": "Source Alpha synthetic speech is generated locally for the Framekit acceptance test and continuously describes the exact requested video interval from ten through twenty two seconds with a clear voice while confirming this recording contains no human speech and exists only for acceptance validation."
+    },
+    {
+      "id": "B",
+      "filename": "clip-b.mp4",
+      "color": "0x187b52",
+      "durationSeconds": 15,
+      "speechStartSeconds": 4.9,
+      "requestedRange": [5, 13],
+      "speechText": "Source Bravo synthetic speech is generated locally for the Framekit acceptance test and continuously describes the exact requested video interval from five through thirteen seconds with a clear voice."
+    },
+    {
+      "id": "C",
+      "filename": "clip-c.mp4",
+      "color": "0xa64b20",
+      "durationSeconds": 14,
+      "speechStartSeconds": 1.85,
+      "requestedRange": [2, 12],
+      "speechText": "Source Charlie synthetic speech is generated locally for the Framekit acceptance test and continuously describes the exact requested video interval from two through twelve seconds with a clear voice while confirming this sample has no human recording."
+    }
+  ],
+  "music": {
+    "filename": "generated-music.wav",
+    "durationSeconds": 30,
+    "sampleRate": 48000,
+    "channels": 2,
+    "frequenciesHz": [220, 330, 440],
+    "origin": "FFmpeg-generated three-tone chord; no third-party music recording"
+  },
+  "analysisRequirement": "Run media.understand on each registered clip and require returned speech/VAD evidence to fully cover the requested source range before planning. This spec does not create or assert VAD results."
+}
