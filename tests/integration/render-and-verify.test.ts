@@ -191,6 +191,36 @@ test("ffprobe verifier requires canonical audio streams", async () => {
   }
 });
 
+test("ffprobe verifier accepts renderer audio resampling", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-resampled-audio-"));
+  try {
+    const outputPath = join(directory, "resampled-audio.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=22050:duration=1",
+      "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000", "-ac", "1", "-shortest", outputPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const timeline = minimalTimeline();
+    timeline.sequence.durationTime = { value: "1", timescale: "1" };
+    timeline.resources[0]!.metadata!.streams[1]!.sampleRate = 22_050;
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, {
+      renderer: { id: "fixture-provider", version: "1" },
+      features: { "local-media": "supported", "structural-edits": "supported" },
+    });
+    const result = createFramekitRenderResult(plan, { path: outputPath, format: plan.parameters.format });
+    const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, result);
+    assert.equal(verification.status, "passed");
+    assert.equal(verification.artifact?.streams.find((stream) => stream.kind === "audio")?.sampleRate, 48_000);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("ffprobe verifier rejects output identity or bytes changing during verification", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-stability-"));
   try {
