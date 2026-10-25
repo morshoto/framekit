@@ -402,6 +402,7 @@ function installMcpSchemaCompatibility(server: McpServer): void {
 
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
+  targetLibraryPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
   confirm: z.boolean(),
 }).strict();
@@ -1840,9 +1841,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Prepare a verified FCPXML publish handoff without opening Final Cut; the configured native route may use non-activating document delivery or an explicit headed fallback.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
+      targetLibraryPath: z.string().trim().min(1),
       transactionId: z.string().min(1),
     },
-  }, async ({ artifactPath, transactionId }) => {
+  }, async ({ artifactPath, targetLibraryPath, transactionId }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
@@ -1857,6 +1859,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sourceTransactionId: transactionId,
       artifactPath,
       artifactDigest: transaction.artifactDigest,
+      targetLibraryPath,
     }));
   });
 
@@ -1883,9 +1886,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish", {
-    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project; requires explicit confirmation.",
+    description: "Import the validated FCPXML artifact into a new Final Cut library at the approved targetLibraryPath; requires explicit confirmation.",
     inputSchema: artifactPublishInputSchema,
-  }, async ({ artifactPath, transactionId, confirm }) => {
+  }, async ({ artifactPath, targetLibraryPath, transactionId, confirm }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
     if (requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
@@ -1903,14 +1906,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sourceTransactionId: transactionId,
       artifactPath,
       artifactDigest: transaction.artifactDigest,
+      targetLibraryPath,
       confirm,
     }));
   });
 
   server.registerTool("timeline.publish.new-project", {
     description: "Publish a verified artifact transaction as a new Final Cut project after explicit confirmation.",
-    inputSchema: { transactionId: z.string().min(1), confirm: z.literal(true) },
-  }, async ({ transactionId, confirm }) => {
+    inputSchema: {
+      transactionId: z.string().min(1),
+      targetLibraryPath: z.string().trim().min(1),
+      confirm: z.literal(true),
+    },
+  }, async ({ transactionId, targetLibraryPath, confirm }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
     if (requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
@@ -1928,6 +1936,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sourceTransactionId: transactionId,
       artifactPath: transaction.target.artifactPath,
       artifactDigest: transaction.artifactDigest,
+      targetLibraryPath,
       confirm,
     }));
   });
