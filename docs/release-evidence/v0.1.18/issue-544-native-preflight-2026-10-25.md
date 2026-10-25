@@ -28,7 +28,7 @@ These hashes identify historical approved e38 inputs. They do not approve a nati
 
 ## Current native gate
 
-The read-only `run-headed-check.sh canonical-read` preflight reported `console_lock_state=unlocked` from `IOConsoleLocked`, then stopped because **Google Chrome was frontmost**. Final Cut was not frontmost with a visible timeline. No headed runner, MCP publish preview, or import ran. The installed extension fingerprint and native target-binding readiness were not established in this preflight. No new disposable library path was selected or approved.
+The read-only `run-headed-check.sh canonical-read` preflight reported `console_lock_state=unlocked` from `IOConsoleLocked`, then stopped because **Google Chrome was frontmost**. Final Cut was not frontmost; timeline visibility was not established. No headed runner, MCP publish preview, or import ran. The installed extension fingerprint and native target-binding readiness were not established in this preflight. No new disposable library path was selected or approved.
 
 Earlier evidence records e38 runtime versus installed extension `1ebd32f262633cb719b0354ffd5e597397820944` as mismatched, with `artifactPublish=false`. That is historical; this preflight makes no current extension identity claim. The prior unrelated-project baseline is likewise historical and cannot substitute for a before/after comparison on this run.
 
