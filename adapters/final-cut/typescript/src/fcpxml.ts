@@ -50,6 +50,7 @@ export interface FcpxmlDocumentAdapterOptions {
 }
 
 const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "mc-clip", "audio", "video"]);
+const MARKER_HOST_KINDS = new Set([...CLIP_KINDS, "gap", "title", "live-drawing"]);
 const MARKER_FOLLOWING_CHILD_KINDS = new Set([
   "audio-channel-source",
   "audio-role-source",
@@ -475,7 +476,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const markerDuration = parseRational(formatSeconds(operation.marker.duration));
     const markerEnd = addRational(markerStart, markerDuration);
     const host = timelineEntries(spine).find((entry) => {
-      if (!CLIP_KINDS.has(entry.kind) && !["gap", "title", "live-drawing"].includes(entry.kind)) return false;
+      if (!MARKER_HOST_KINDS.has(entry.kind)) return false;
       const hostEnd = addRational(entry.startTime, entry.durationTime);
       return compareRational(markerStart, entry.startTime) >= 0
         && compareRational(markerEnd, hostEnd) <= 0;
@@ -483,9 +484,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     if (!host) {
       throw new Error("FCPXML_MARKER_TARGET_UNAVAILABLE: marker must fit inside an existing story element");
     }
-    const sourceStart = host.kind === "asset-clip" || host.kind === "gap"
-      ? parseRational(attribute(host.node, "start") ?? "0s")
-      : { value: "0", timescale: "1" };
+    const sourceStart = parseRational(attribute(host.node, "start") ?? "0s");
     const localStart = addRational(sourceStart, subtractRational(markerStart, host.startTime));
     const marker = elementNode("marker", {
       start: formatRational(localStart),
@@ -1232,9 +1231,12 @@ function timelineEntries(spine: XmlNode): TimelineEntry[] {
           ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
           ?? "0s",
       );
-      const sourceRelativeChild = parentKind === "asset-clip"
-        && (kind === "title" || kind === "caption" || kind === "marker" || kind === "asset-clip" && attribute(child, "audioRole") === "music")
-        || parentKind === "gap" && kind === "marker";
+      const markerInHost = kind === "marker"
+        && parentKind !== undefined
+        && MARKER_HOST_KINDS.has(parentKind);
+      const assetClipRelativeChild = parentKind === "asset-clip"
+        && (kind === "title" || kind === "caption" || kind === "asset-clip" && attribute(child, "audioRole") === "music");
+      const sourceRelativeChild = markerInHost || assetClipRelativeChild;
       const localStart = sourceRelativeChild
         ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
         : localOffset;

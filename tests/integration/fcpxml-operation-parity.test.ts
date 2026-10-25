@@ -248,6 +248,43 @@ test("FCPXML gap markers round-trip from nonzero source time", async () => {
   }
 });
 
+test("FCPXML audio markers round-trip from nonzero source time", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-audio-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+  <format id="format-audio-marker" frameDuration="1/24s" />
+  <asset id="video-source" name="Video.mov" duration="2s" hasVideo="1"><media-rep src="file:///fixtures/video.mov" /></asset>
+  <asset id="audio-source" name="Audio.wav" duration="8s" hasAudio="1"><media-rep src="file:///fixtures/audio.wav" /></asset>
+</resources><library><event name="Event"><project uid="project-audio-marker" name="Audio Marker Project">
+  <sequence format="format-audio-marker" duration="2s"><spine>
+    <asset-clip ref="video-source" offset="0s" start="0s" duration="1/2s">
+      <audio ref="audio-source" lane="1" offset="0s" start="5s" duration="2s" />
+    </asset-clip>
+  </spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "audio-marker", start: 1, duration: 0, name: "Audio Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    assert.equal(transaction.after.timeline.markers[0]?.start, 1);
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<audio[^>]*start="5s"[^>]*>\s*<marker[^>]*start="6\/1s"[^>]*value="Audio Marker"/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FCPXML markers precede ordered filter and metadata children", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-filter-marker-"));
   try {
