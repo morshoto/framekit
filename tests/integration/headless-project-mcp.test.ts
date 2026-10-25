@@ -705,6 +705,84 @@ test("headless rough-cut preview and execution preserve provenance and produce v
   }
 });
 
+test("inferred rough-cut ranges align duration to both frame grids", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-rough-cut-frame-grids-"));
+  const sourcePath = join(directory, "source-24fps.mp4");
+  try {
+    await generateVideoAtFrameRate(sourcePath, 24, 2);
+    const timeline = emptyTimeline();
+    timeline.sequence.frameDuration = { value: "1", timescale: "30" };
+    const service = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+    });
+    const created = await service.create(timeline);
+    const registered = await service.registerMedia(created.timeline.project.id, sourcePath, created.timeline.revision);
+    const source = registered.resource;
+    assert.deepEqual(source.metadata?.streams.find((stream) => stream.kind === "video")?.frameRate, {
+      value: "24",
+      timescale: "1",
+    });
+    const sourceDuration = Number(source.metadata!.durationTime.value) / Number(source.metadata!.durationTime.timescale);
+    const makeRequest = (range: { start: number; end: number }) => ({
+      projectId: created.timeline.project.id,
+      sequenceId: created.timeline.sequence.id,
+      plan: {
+        planner: { id: "framekit.rough-cut", version: 1 },
+        revision: registered.project.timeline.revision,
+        query: { query: "frame grid" },
+        shots: [{
+          order: 1,
+          sourceIdentity: {
+            mediaId: source.id,
+            source: source.source!,
+            sourceDigest: source.sourceDigest!,
+            mediaKind: "video" as const,
+            duration: sourceDuration,
+          },
+          range,
+          confidence: 0.9,
+          matchedProperties: ["query:frame grid"],
+          rationale: "verify common source and sequence frame timing",
+        }],
+        warnings: [],
+      },
+      render: {
+        outputPath: join(directory, "rough-cut.mp4"),
+        format: "mp4" as const,
+        width: 320,
+        height: 180,
+        frameRate: { value: "30", timescale: "1" },
+      },
+      fcpxml: {
+        path: join(directory, "rough-cut.fcpxml"),
+        target: {
+          provider: "final-cut" as const,
+          libraryUid: "library-frame-grid",
+          eventUid: "event-frame-grid",
+          projectUid: "project-frame-grid",
+          sequenceUid: "sequence-frame-grid",
+        },
+      },
+    });
+
+    const preview = await service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }));
+    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "5", timescale: "6" });
+    assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "5", timescale: "6" });
+
+    await assert.rejects(
+      service.previewRoughCut(makeRequest({ start: -0.01, end: 0.75 })),
+      /HEADLESS_ROUGH_CUT_RANGE_INVALID: source range must be finite and non-empty/,
+    );
+    await assert.rejects(
+      service.previewRoughCut(makeRequest({ start: sourceDuration - 0.5, end: sourceDuration + 0.01 })),
+      /HEADLESS_ROUGH_CUT_RANGE_INVALID: source range exceeds/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 function emptyTimeline(): TimelineIr {
   return {
     schemaVersion: 1,
@@ -797,6 +875,15 @@ async function generateSegmentedSource(
     "-c:a", "aac", "-b:a", "128k", path,
   );
   await execFileAsync("ffmpeg", args);
+}
+
+async function generateVideoAtFrameRate(path: string, frameRate: number, duration: number): Promise<void> {
+  await execFileAsync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", `color=c=red:s=320x180:r=${frameRate}:d=${duration}`,
+    "-an", "-t", String(duration), "-c:v", "libx264", "-preset", "ultrafast",
+    "-threads", "1", "-pix_fmt", "yuv420p", path,
+  ]);
 }
 
 async function readVideoFrame(path: string, seconds: number): Promise<Buffer> {
