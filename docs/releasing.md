@@ -53,7 +53,9 @@ works without this secret.
    tag when a trusted Final Cut-capable Mac is available.
 6. The native workflow builds and signs
    `FramekitFinalCutWorkflow-<version>.zip`, uploads it with its checksum to the
-   existing GitHub release, and then runs `verify-release-provenance`.
+   existing GitHub release, downloads those assets into a fresh directory,
+   verifies the checksum and installed app signature and build identity, and
+   then runs `verify-release-provenance`.
 
 The automatic npm/GitHub release therefore does not block on a self-hosted
 macOS runner. A missing or offline native runner can delay the Final Cut binary,
@@ -91,7 +93,13 @@ GitHub release.
 After packaging, the workflow uploads
 `FramekitFinalCutWorkflow-<version>.zip` and
 `FramekitFinalCutWorkflow-<version>.zip.sha256` with `--clobber`, so rerunning
-an exact tag safely replaces a partial or stale native upload. It then runs:
+an exact tag safely replaces a partial or stale native upload. The checksum
+names the archive by basename, so it can be checked outside the runner's build
+directory. A separate step downloads the uploaded assets, checks the checksum,
+installs the app into an isolated temporary `Applications` directory, and
+verifies its code signature and extension version/commit against the tag. A
+failure leaves the native packaging job unsuccessful and the candidate
+`NO_GO`. It then runs:
 
 ```sh
 pnpm run verify-release-provenance
