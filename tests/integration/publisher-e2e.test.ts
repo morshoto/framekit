@@ -32,6 +32,8 @@ test("publisher headed E2E rejects missing post-import identities", () => {
   assert.throws(() => verifyPublishedTarget({
     result: {
       verified: true,
+      semanticReadback: { verified: true, expectedDigest: "approved", observedDigest: "approved", checked: ["clips"] },
+      sourceMediaIntegrity: { unchanged: true, digests: [] },
       createdTarget: { projectName: "Imported", sequenceName: "Main" },
       activeProject: { before: { id: "before-project" }, after: {} },
     },
@@ -41,4 +43,21 @@ test("publisher headed E2E rejects missing post-import identities", () => {
     expectedSequence: "Main",
     sourceSequence: "Main",
   }), /FINAL_CUT_E2E_PUBLISH_TARGET_VERIFICATION_FAILED/);
+});
+
+test("publisher headed E2E rejects mismatched semantic readback", () => {
+  assert.throws(() => verifyPublishedTarget({
+    result: {
+      verified: true,
+      semanticReadback: { verified: true, expectedDigest: "approved", observedDigest: "different", checked: ["clips"] },
+      sourceMediaIntegrity: { unchanged: true, digests: [] },
+      createdTarget: { projectName: "Imported", sequenceName: "Main", projectId: "project", sequenceId: "sequence" },
+      activeProject: { before: { id: "before" }, after: { id: "project" } },
+    },
+    beforeLive: { project: { id: "before" }, sequence: { id: "before-sequence" } },
+    afterLive: { project: { id: "project", name: "Imported" }, sequence: { id: "sequence", name: "Main" } },
+    expectedProject: "Imported",
+    expectedSequence: "Main",
+    sourceSequence: "Main",
+  }), /FINAL_CUT_E2E_PUBLISH_SEMANTIC_READBACK_FAILED/);
 });

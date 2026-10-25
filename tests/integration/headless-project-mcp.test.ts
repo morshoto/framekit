@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { readFile, mkdtemp, rm, stat } from "node:fs/promises";
+import { readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -39,6 +39,9 @@ test("production rough-cut tools expose digest-bound edit operations", async () 
       assert.ok(tool, `${name} is registered`);
       assert.ok((tool.inputSchema as any).properties.operations, `${name} accepts edit operations`);
     }
+    const publishPreview = tools.tools.find((entry) => entry.name === "artifact.publish.preview");
+    assert.ok(publishPreview);
+    assert.ok((publishPreview.inputSchema as any).properties.headlessExecutionId);
   } finally {
     await client?.close();
     await transport?.close();
@@ -57,6 +60,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
     FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
     FRAMEKIT_FCPXML_PATH: join(directory, "missing-project.fcpxml"),
+    FRAMEKIT_FINAL_CUT_LIBRARY_UID: "issue-517-disposable-library",
     FRAMEKIT_STATE_DIR: join(directory, "state"),
   };
   let client: Client | undefined;
@@ -152,7 +156,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
       },
     ];
     const outputPath = join(directory, "issue-517-mvp.mp4");
-    const fcpxmlPath = join(directory, "issue-517-mvp.fcpxml");
+    const fcpxmlPath = environment.FRAMEKIT_FCPXML_PATH!;
     const request = {
       projectId,
       sequenceId,
@@ -239,6 +243,30 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(executed.fcpxml.provenance.revision.id, executed.after.timeline.revision.id);
     assert.equal((await stat(outputPath)).isFile(), true);
     assert.equal((await stat(fcpxmlPath)).isFile(), true);
+
+    const publishPreview = payload(await client.callTool({
+      name: "artifact.publish.preview",
+      arguments: {
+        artifactPath: fcpxmlPath,
+        headlessExecutionId: executed.executionId,
+        targetLibraryPath: join(directory, "Approved Headless Publish.fcpbundle"),
+      },
+    }));
+    assert.equal(publishPreview.sourceTransactionId, `headless-rough-cut:${executed.executionId}`);
+    assert.equal(publishPreview.sourceProof.planDigest, preview.planDigest);
+    assert.equal(publishPreview.sourceProof.renderId, executed.render.renderId);
+    assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml.destination.projectUid);
+    assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    const approvedMediaDigests = Object.values(registrations)
+      .map((resource: any) => ({ source: resource.source, sha256: resource.sourceDigest }))
+      .sort((left: any, right: any) => left.source.localeCompare(right.source));
+    assert.deepEqual(publishPreview.sourceProof.sourceMediaDigests, approvedMediaDigests);
+    assert.equal(publishPreview.targetBinding, undefined);
+    const publishBlocked = payload(await client.callTool({
+      name: "artifact.publish.execute",
+      arguments: { jobId: publishPreview.jobId, confirm: true },
+    }));
+    assert.equal(publishBlocked.state, "awaiting-final-cut");
 
     const outputMetadata = await new FfmpegMediaMetadataProbe().probe(outputPath);
     assert.equal(rationalSeconds(outputMetadata.durationTime), 30);
@@ -501,11 +529,42 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
     );
 
-    const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    const resumedAfterPreview = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer(),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
-    assert.match(await readFile(request.fcpxml.path, "utf8"), /start="1\/4s"/);
+    assert.deepEqual(executed.after.timeline.revision, executed.transaction.after.timeline.revision);
+    assert.deepEqual((executed.render.outcome as any).render.projectRevision, executed.transaction.after.timeline.revision);
+    assert.deepEqual(executed.fcpxml.provenance.revision, executed.transaction.after.timeline.revision);
+    assert.equal(typeof (executed as any).executionId, "string");
+    assert.equal(typeof (resumedAfterPreview as any).verifyPublishableRoughCut, "function");
+    const executionId = (executed as any).executionId as string;
+    const proof = await resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path);
+    assert.equal(proof.sourceRevision.id, plan.revision.id);
+    assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
+    assert.equal(proof.planDigest, preview.planDigest);
+    assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
+    assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
+    const restarted = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer(),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    await writeFile(request.fcpxml.path, "tampered FCPXML");
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
   } finally {
     await rm(directory, { recursive: true, force: true });

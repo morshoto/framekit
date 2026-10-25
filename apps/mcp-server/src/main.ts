@@ -247,11 +247,25 @@ const projectPublisher = liveMode && fcpxmlPath
       documentDelivery: liveAdapter!,
       allowHeadedFallback: process.env.FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT === "1",
       liveState: () => liveAdapter!.readLiveState(),
+      readCanonicalSnapshot: (targetBinding, identity) => new FinalCutCanonicalSnapshotSource({
+        readbackTarget: { ...targetBinding, ...identity },
+      }).readSnapshot(),
       targetBinding: (targetLibraryPath, identity) => {
         if (!targetLibraryPath || !backgroundLibraryProvider) {
           throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: a target library path and Final Cut library catalog are required");
         }
         return backgroundLibraryProvider.resolveProjectBinding(targetLibraryPath, identity);
+      },
+      headlessSourceVerifier: async (request) => {
+        const proof = await headlessProjects.verifyPublishableRoughCutTransaction({
+          sourceTransactionId: request.sourceTransactionId,
+          artifactPath: request.artifactPath,
+          artifactDigest: request.artifactDigest,
+        });
+        return {
+          targetLibraryUid: proof.targetLibraryUid,
+          sourceMediaDigests: proof.sourceMediaDigests,
+        };
       },
     })
   : undefined;

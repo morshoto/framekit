@@ -1,15 +1,22 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { constants, realpathSync } from "node:fs";
-import { access, lstat, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { constants, createReadStream, realpathSync } from "node:fs";
+import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { EditorLiveState } from "@framekit/runtime";
+import type { EditorLiveState, ProjectSnapshot } from "@framekit/runtime";
+import { FcpxmlDocumentAdapter } from "./fcpxml.js";
+import { verifyFinalCutPublishReadback, type FinalCutPublishReadbackEvidence } from "./publish-readback.js";
 import type { FinalCutFcpxmlDelivery } from "./live.js";
 
 const execFile = promisify(execFileCallback);
+
+export interface FinalCutPublishSourceMediaDigest {
+  source: string;
+  sha256: string;
+}
 
 export interface FinalCutProjectPublishDelivery {
   status: "dispatched";
@@ -46,6 +53,11 @@ export interface FinalCutProjectPublishResult {
   };
   verified: boolean;
   importedDigest: string;
+  semanticReadback: FinalCutPublishReadbackEvidence;
+  sourceMediaIntegrity: {
+    unchanged: true;
+    digests: FinalCutPublishSourceMediaDigest[];
+  };
   targetLibraryPath?: string;
   liveProject?: string;
   liveSequence?: string;
@@ -81,6 +93,10 @@ export interface FinalCutProjectPublishReadiness {
   reasons: Array<{ code: string; message: string }>;
 }
 
+export interface FinalCutHeadlessPublishSourceProof {
+  targetLibraryUid: string;
+  sourceMediaDigests: FinalCutPublishSourceMediaDigest[];
+}
 export type FinalCutProjectPublishJobState =
   | "awaiting-confirmation"
   | "awaiting-final-cut"
@@ -130,6 +146,13 @@ export interface FinalCutProjectPublisherOptions {
     targetLibraryPath: string | undefined,
     identity: { projectName: string; sequenceName: string },
   ) => Promise<FinalCutProjectPublishTargetBinding>;
+  /** Exports the active target through Final Cut for semantic verification. */
+  readCanonicalSnapshot?: (
+    targetBinding: FinalCutProjectPublishTargetBinding,
+    identity: { projectName: string; sequenceName: string },
+  ) => Promise<ProjectSnapshot>;
+  /** Validates an approved headless rough-cut execution for external artifact paths. */
+  headlessSourceVerifier?: (request: FinalCutProjectPublishPreparationRequest) => Promise<FinalCutHeadlessPublishSourceProof>;
   /** Opens the staged FCPXML through the native Workflow Extension bridge. */
   documentDelivery?: {
     deliverFcpxml(request: { artifactPath: string; targetLibraryLocation?: string; activates: boolean }): Promise<FinalCutFcpxmlDelivery>;
@@ -146,12 +169,16 @@ interface PublishJobRuntime {
   beforeLive: EditorLiveState;
   identity: { projectName: string; sequenceName: string };
   targetLibraryPath?: string;
+  targetLibraryUid?: string;
   importedPath?: string;
   importedDigest?: string;
   delivery?: FinalCutProjectPublishDelivery;
   reservationPath?: string;
   reservationId?: string;
   importAttempted?: boolean;
+  expectedSnapshot?: ProjectSnapshot;
+  sourceMediaDigests?: FinalCutPublishSourceMediaDigest[];
+  approvedSourceMediaDigests?: FinalCutPublishSourceMediaDigest[];
 }
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
@@ -161,6 +188,8 @@ export class FinalCutProjectPublisher {
   private readonly executor: (script: string) => Promise<string>;
   private readonly liveState?: () => Promise<EditorLiveState>;
   private readonly targetBinding?: FinalCutProjectPublisherOptions["targetBinding"];
+  private readonly readCanonicalSnapshot?: FinalCutProjectPublisherOptions["readCanonicalSnapshot"];
+  private readonly headlessSourceVerifier?: FinalCutProjectPublisherOptions["headlessSourceVerifier"];
   private readonly documentDelivery?: FinalCutProjectPublisherOptions["documentDelivery"];
   private readonly allowHeadedFallback: boolean;
   private readonly verificationTimeoutMs: number;
@@ -174,6 +203,8 @@ export class FinalCutProjectPublisher {
     this.executor = options.executor ?? runAppleScript;
     this.liveState = options.liveState;
     this.targetBinding = options.targetBinding;
+    this.readCanonicalSnapshot = options.readCanonicalSnapshot;
+    this.headlessSourceVerifier = options.headlessSourceVerifier;
     this.documentDelivery = options.documentDelivery;
     this.allowHeadedFallback = options.allowHeadedFallback ?? false;
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
@@ -205,6 +236,12 @@ export class FinalCutProjectPublisher {
         message: "No native provider can bind the imported artifact to a created target",
       });
     }
+    if (!this.readCanonicalSnapshot) {
+      reasons.push({
+        code: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE",
+        message: "Headed canonical timeline readback is unavailable",
+      });
+    }
     return {
       available: reasons.length === 0,
       targetBindingAvailable: Boolean(this.targetBinding),
@@ -213,34 +250,34 @@ export class FinalCutProjectPublisher {
   }
 
   public executionMode(): "background-capable" | "headed-only" {
-    return this.documentDelivery ? "background-capable" : "headed-only";
+    // Dispatch may be background-capable, but native semantic readback uses
+    // Final Cut's headed File > Export XML command.
+    return "headed-only";
   }
 
   public async preparePublish(
     request: FinalCutProjectPublishPreparationRequest,
   ): Promise<FinalCutProjectPublishJob> {
-    const { identity } = await this.readValidatedSource(request);
+    const validated = await this.readValidatedSource(request);
     const targetLibraryPath = await validateTargetLibraryPath(request.targetLibraryPath, Boolean(this.documentDelivery));
     const job: FinalCutProjectPublishJob = {
       jobId: `publish-job-${randomUUID()}`,
       state: "awaiting-confirmation",
       nextAction: "confirm",
       retryable: false,
-      executionMode: this.documentDelivery ? "background-capable" : "headed-only",
+      executionMode: "headed-only",
       sourceTransactionId: request.sourceTransactionId,
-      sourcePath: this.sourcePath,
-      sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
+      sourcePath: request.artifactPath,
+      sourceTarget: { kind: "artifact", artifactPath: request.artifactPath },
       artifactDigest: request.artifactDigest,
       ...(targetLibraryPath ? { targetLibraryPath } : {}),
-      projectName: identity.projectName,
-      sequenceName: identity.sequenceName,
+      projectName: validated.identity.projectName,
+      sequenceName: validated.identity.sequenceName,
       confirmationRequired: true,
       handoff: {
-        mode: this.documentDelivery ? "background-document-open" : "headed-only",
-        backgroundSupported: Boolean(this.documentDelivery),
-        reason: this.documentDelivery
-          ? "Opens the approved FCPXML through the native document-open bridge with an explicit new library location; a separate catalog readback must bind the created project before success."
-          : "Final Cut has no supported non-UI project publishing contract; use the explicit headed handoff and verify the created target.",
+        mode: "headed-only",
+        backgroundSupported: false,
+        reason: "After dispatch, Final Cut must expose the new project as the active target. The publisher verifies its native IDs, exports the active timeline through File > Export XML, and compares timeline semantics and source media digests before reporting success.",
       },
     };
     this.publishJobs.set(job.jobId, job);
@@ -280,6 +317,10 @@ export class FinalCutProjectPublisher {
       "Final Cut project state verification is unavailable; retry this job when the live provider is ready",
     );
 
+    if (!this.readCanonicalSnapshot) {
+      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted"));
+    }
+
     if (job.state === "verification-pending") return this.resumePublishVerification(job);
 
     let validated: Awaited<ReturnType<FinalCutProjectPublisher["readValidatedSource"]>>;
@@ -311,6 +352,8 @@ export class FinalCutProjectPublisher {
       beforeLive,
       identity: validated.identity,
       ...(job.targetLibraryPath ? { targetLibraryPath: job.targetLibraryPath } : {}),
+      ...(validated.sourceProof ? { targetLibraryUid: validated.sourceProof.targetLibraryUid } : {}),
+      ...(validated.sourceProof ? { approvedSourceMediaDigests: structuredClone(validated.sourceProof.sourceMediaDigests) } : {}),
     };
     this.publishJobRuntime.set(job.jobId, runtime);
     job.state = "verification-pending";
@@ -349,6 +392,12 @@ export class FinalCutProjectPublisher {
   public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; configure FRAMEKIT_EDITOR=final-cut-live and FRAMEKIT_FCPXML_PATH, and ensure Final Cut is reachable through FRAMEKIT_FINAL_CUT_SOCKET");
     if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+    if (request.sourceTransactionId.startsWith("headless-rough-cut:")) {
+      throw new Error("HEADLESS_ROUGH_CUT_PUBLISH_JOB_REQUIRED: use artifact.publish.preview and artifact.publish.execute to preserve the approved target binding");
+    }
+    if (!this.readCanonicalSnapshot) {
+      throw new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted");
+    }
     const { source, identity } = await this.readValidatedSource(request);
     if (!this.liveState) {
       throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
@@ -374,7 +423,7 @@ export class FinalCutProjectPublisher {
         state: "verification-pending",
         nextAction: "retry",
         retryable: true,
-        executionMode: this.documentDelivery ? "background-capable" : "headed-only",
+        executionMode: "headed-only",
         sourceTransactionId: request.sourceTransactionId,
         sourcePath: this.sourcePath,
         sourceTarget: { kind: "artifact", artifactPath: this.sourcePath },
@@ -384,8 +433,8 @@ export class FinalCutProjectPublisher {
         sequenceName: identity.sequenceName,
         confirmationRequired: false,
         handoff: {
-          mode: this.documentDelivery ? "background-document-open" : "headed-only",
-          backgroundSupported: Boolean(this.documentDelivery),
+          mode: "headed-only",
+          backgroundSupported: false,
           reason: "A direct publish may have reached Final Cut; verify this job before another import so its target reservation remains protected.",
         },
         error: normalized,
@@ -398,20 +447,40 @@ export class FinalCutProjectPublisher {
 
   private async readValidatedSource(
     request: FinalCutProjectPublishPreparationRequest,
-  ): Promise<{ source: string; identity: { projectName: string; sequenceName: string } }> {
+  ): Promise<{
+    source: string;
+    identity: { projectName: string; sequenceName: string };
+    sourceProof?: FinalCutHeadlessPublishSourceProof;
+  }> {
     if (!request.sourceTransactionId.trim()) throw new Error("INVALID_PUBLISH_REQUEST: sourceTransactionId is required");
     if (!request.artifactDigest.trim()) throw new Error("INVALID_PUBLISH_REQUEST: artifactDigest is required");
-    if (request.artifactPath !== this.sourcePath) {
+    let sourceProof: FinalCutHeadlessPublishSourceProof | undefined;
+    if (request.sourceTransactionId.startsWith("headless-rough-cut:")) {
+      if (!this.headlessSourceVerifier) {
+        throw new Error("HEADLESS_ROUGH_CUT_VERIFICATION_UNAVAILABLE: no approved headless source verifier is configured");
+      }
+      sourceProof = await this.headlessSourceVerifier(request);
+      if (!sourceProof.targetLibraryUid.trim()) {
+        throw new Error("HEADLESS_ROUGH_CUT_TARGET_INVALID: approved FCPXML has no explicit target library identity");
+      }
+      validateApprovedSourceMediaDigests(sourceProof.sourceMediaDigests);
+    } else if (request.artifactPath !== this.sourcePath) {
       throw new Error(`PUBLISH_TARGET_MISMATCH: requested artifact ${request.artifactPath} is not managed by this publisher`);
     }
-    const source = await readFile(this.sourcePath, "utf8");
+    const source = await readFile(request.artifactPath, "utf8");
     if (hash(source) !== request.artifactDigest) {
-      throw new Error("PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed after transaction verification");
+      throw new Error(sourceProof
+        ? "HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML changed after execution verification"
+        : "PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed after transaction verification");
     }
     if (!source.includes("<fcpxml") || !source.includes("<project")) {
       throw new Error("FINAL_CUT_PUBLISH_VALIDATION_FAILED: source is not a valid FCPXML project artifact");
     }
-    return { source, identity: projectIdentityFromXml(source) };
+    return {
+      source,
+      identity: projectIdentityFromXml(source),
+      ...(sourceProof ? { sourceProof } : {}),
+    };
   }
 
   private async importAndVerify(
@@ -423,9 +492,24 @@ export class FinalCutProjectPublisher {
   ): Promise<FinalCutProjectPublishResult> {
     if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
     if (!this.targetBinding) throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
+    if (!this.readCanonicalSnapshot) throw new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted");
     const targetLibraryPath = await validateTargetLibraryPath(request.targetLibraryPath, Boolean(this.documentDelivery));
+    const expectedSnapshot = await new FcpxmlDocumentAdapter(request.artifactPath, undefined, {
+      allowMissingImmutableIdsForReadback: true,
+    }).readProject();
+    const sourceMediaDigests = await captureSourceMediaDigests(expectedSnapshot);
+    if (runtime?.approvedSourceMediaDigests) {
+      assertSourceMediaMatchesApproval(sourceMediaDigests, runtime.approvedSourceMediaDigests);
+    }
+    if (hash(await readFile(request.artifactPath, "utf8")) !== request.artifactDigest) {
+      throw new Error("PUBLISH_SOURCE_CHANGED: managed FCPXML artifact changed before import");
+    }
+    if (runtime) {
+      runtime.expectedSnapshot = structuredClone(expectedSnapshot);
+      runtime.sourceMediaDigests = structuredClone(sourceMediaDigests);
+    }
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-publish-"));
-    const importedPath = join(directory, basename(this.sourcePath));
+    const importedPath = join(directory, basename(request.artifactPath));
     if (runtime) runtime.importedPath = importedPath;
     const importedSource = targetLibraryPath ? withLibraryLocationImportOption(source, targetLibraryPath) : source;
     const importedDigest = hash(importedSource);
@@ -493,13 +577,25 @@ export class FinalCutProjectPublisher {
       if (runtime) runtime.delivery = delivery;
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
-        (targetPath, targetIdentity) => this.targetBinding!(targetPath, targetIdentity),
+        async (targetPath, targetIdentity) => {
+          const binding = await this.targetBinding!(targetPath, targetIdentity);
+          if (runtime?.targetLibraryUid && binding.libraryId !== runtime.targetLibraryUid) {
+            throw new Error("FINAL_CUT_PUBLISH_TARGET_MISMATCH: native library identity does not match the approved headless target");
+          }
+          return binding;
+        },
         targetLibraryPath,
         identity,
         beforeLive,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      const semanticReadback = await this.readAndVerifyCanonicalTarget(
+        expectedSnapshot,
+        verifiedTarget.targetBinding,
+        identity,
+      );
+      await assertSourceMediaUnchanged(sourceMediaDigests);
       const result = publishResult(
         request,
         importedPath,
@@ -509,6 +605,8 @@ export class FinalCutProjectPublisher {
         verifiedTarget.live,
         verifiedTarget.targetBinding,
         delivery,
+        semanticReadback,
+        sourceMediaDigests,
       );
       if (runtime) await releaseTargetLibraryReservation(runtime);
       return result;
@@ -534,16 +632,31 @@ export class FinalCutProjectPublisher {
     if (!this.targetBinding) {
       return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no publish success was reported"));
     }
+    if (!this.readCanonicalSnapshot || !runtime.expectedSnapshot || !runtime.sourceMediaDigests) {
+      return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: retained canonical readback evidence is missing; no publish success was reported"));
+    }
     try {
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
-        (targetPath, identity) => this.targetBinding!(targetPath, identity),
+        async (targetPath, identity) => {
+          const binding = await this.targetBinding!(targetPath, identity);
+          if (runtime.targetLibraryUid && binding.libraryId !== runtime.targetLibraryUid) {
+            throw new Error("FINAL_CUT_PUBLISH_TARGET_MISMATCH: native library identity does not match the approved headless target");
+          }
+          return binding;
+        },
         runtime.targetLibraryPath,
         runtime.identity,
         runtime.beforeLive,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      const semanticReadback = await this.readAndVerifyCanonicalTarget(
+        runtime.expectedSnapshot,
+        verifiedTarget.targetBinding,
+        runtime.identity,
+      );
+      await assertSourceMediaUnchanged(runtime.sourceMediaDigests);
       const result = publishResult(
         {
           sourceTransactionId: job.sourceTransactionId,
@@ -559,6 +672,8 @@ export class FinalCutProjectPublisher {
         verifiedTarget.live,
         verifiedTarget.targetBinding,
         runtime.delivery,
+        semanticReadback,
+        runtime.sourceMediaDigests,
       );
       await releaseTargetLibraryReservation(runtime);
       return this.markVerified(job, result);
@@ -579,6 +694,29 @@ export class FinalCutProjectPublisher {
     job.result = structuredClone(result);
     delete job.error;
     return clonePublishJob(job);
+  }
+
+  private async readAndVerifyCanonicalTarget(
+    expected: ProjectSnapshot,
+    targetBinding: FinalCutProjectPublishTargetBinding,
+    identity: { projectName: string; sequenceName: string },
+  ): Promise<FinalCutPublishReadbackEvidence> {
+    if (!this.liveState || !this.readCanonicalSnapshot) {
+      throw new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured");
+    }
+    const assertActiveTarget = async (phase: string): Promise<void> => {
+      const live = await readLiveState(this.liveState!, phase);
+      if (live.project?.id !== targetBinding.projectId
+        || live.sequence?.id !== targetBinding.sequenceId
+        || live.project.name !== identity.projectName
+        || live.sequence.name !== identity.sequenceName) {
+        throw new Error(`FINAL_CUT_PUBLISH_READBACK_TARGET_MISMATCH: exact created project and sequence are not active ${phase}`);
+      }
+    };
+    await assertActiveTarget("before canonical export");
+    const actual = await this.readCanonicalSnapshot(targetBinding, identity);
+    await assertActiveTarget("after canonical export");
+    return verifyFinalCutPublishReadback(expected, actual);
   }
 
   private markAwaitingFinalCut(
@@ -1128,7 +1266,9 @@ function publishResult(
   beforeLive: EditorLiveState,
   live: EditorLiveState,
   targetBinding: FinalCutProjectPublishTargetBinding,
-  delivery?: FinalCutProjectPublishDelivery,
+  delivery: FinalCutProjectPublishDelivery | undefined,
+  semanticReadback: FinalCutPublishReadbackEvidence,
+  sourceMediaDigests: FinalCutPublishSourceMediaDigest[] = [],
 ): FinalCutProjectPublishResult {
   return {
     sourceTransactionId: request.sourceTransactionId,
@@ -1157,9 +1297,87 @@ function publishResult(
     },
     verified: true,
     ...(delivery ? { delivery } : {}),
+    semanticReadback,
+    sourceMediaIntegrity: {
+      unchanged: true,
+      digests: structuredClone(sourceMediaDigests),
+    },
     ...(live.project?.name ? { liveProject: live.project.name } : {}),
     ...(live.sequence?.name ? { liveSequence: live.sequence.name } : {}),
   };
+}
+
+async function captureSourceMediaDigests(snapshot: ProjectSnapshot): Promise<FinalCutPublishSourceMediaDigest[]> {
+  const referencedMediaIds = new Set([
+    ...snapshot.timeline.clips.map(({ mediaId }) => mediaId),
+    ...snapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
+  ].filter((mediaId): mediaId is string => mediaId !== undefined));
+  const sources = snapshot.media
+    .filter(({ mediaId }) => referencedMediaIds.has(mediaId))
+    .map(({ source }) => source);
+  return captureSourceMediaPaths(sources);
+}
+
+async function captureSourceMediaPaths(sources: string[]): Promise<FinalCutPublishSourceMediaDigest[]> {
+  const normalizedSources = [...new Set(sources.map((source) => resolve(source)))].sort();
+  const digests: FinalCutPublishSourceMediaDigest[] = [];
+  for (const source of normalizedSources) {
+    try {
+      const details = await stat(source);
+      if (!details.isFile()) {
+        throw new Error("source is not a regular file");
+      }
+      const hashStream = createHash("sha256");
+      for await (const chunk of createReadStream(source)) hashStream.update(chunk);
+      digests.push({ source, sha256: hashStream.digest("hex") });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`FINAL_CUT_PUBLISH_SOURCE_MEDIA_UNAVAILABLE: cannot verify ${source}: ${detail}`);
+    }
+  }
+  return digests;
+}
+
+function validateApprovedSourceMediaDigests(digests: FinalCutPublishSourceMediaDigest[]): void {
+  if (!Array.isArray(digests)) {
+    throw new Error("HEADLESS_ROUGH_CUT_SOURCE_MEDIA_DIGEST_UNAVAILABLE: approved source media digests are missing");
+  }
+  const seenSources = new Set<string>();
+  for (const item of digests) {
+    if (!item || !isAbsolute(item.source) || !/^[a-f0-9]{64}$/.test(item.sha256)) {
+      throw new Error("HEADLESS_ROUGH_CUT_SOURCE_MEDIA_DIGEST_INVALID: approved source media digest is malformed");
+    }
+    const source = resolve(item.source);
+    if (seenSources.has(source)) {
+      throw new Error(`HEADLESS_ROUGH_CUT_SOURCE_MEDIA_DIGEST_INVALID: duplicate source ${source}`);
+    }
+    seenSources.add(source);
+  }
+}
+
+function assertSourceMediaMatchesApproval(
+  observed: FinalCutPublishSourceMediaDigest[],
+  approved: FinalCutPublishSourceMediaDigest[],
+): void {
+  const normalized = (digests: FinalCutPublishSourceMediaDigest[]) => digests
+    .map(({ source, sha256 }) => ({ source: resolve(source), sha256 }))
+    .sort((left, right) => left.source < right.source ? -1 : left.source > right.source ? 1 : 0);
+  if (JSON.stringify(normalized(observed)) !== JSON.stringify(normalized(approved))) {
+    throw new Error("HEADLESS_ROUGH_CUT_SOURCE_MEDIA_CHANGED: current source media do not match the approved rough-cut digests");
+  }
+}
+
+async function assertSourceMediaUnchanged(expected: FinalCutPublishSourceMediaDigest[]): Promise<void> {
+  let observed: FinalCutPublishSourceMediaDigest[];
+  try {
+    observed = await captureSourceMediaPaths(expected.map(({ source }) => source));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`FINAL_CUT_PUBLISH_SOURCE_MEDIA_CHANGED: ${detail}`);
+  }
+  if (JSON.stringify(observed) !== JSON.stringify(expected)) {
+    throw new Error("FINAL_CUT_PUBLISH_SOURCE_MEDIA_CHANGED: one or more source media digests changed during native publishing");
+  }
 }
 
 function publishError(error: unknown): { code: string; message: string } {
