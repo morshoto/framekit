@@ -44,6 +44,21 @@ Pass `path: "headed"` to `editing.route` only when the caller explicitly
 chooses the headed/editor-first path. Native operation tools remain explicit
 and are never selected by a headless route.
 
+A single headed-capable MCP registration can also serve headless projects.
+With `FRAMEKIT_AUTO_CONNECT=0`, supported `editing.route` headless selections
+and `headless.*` tools do not connect to or launch Final Cut. An explicit
+`connection.status` call begins headed connection setup; then inspect the
+editor before routing with `path: "headed"`. Native writes additionally require
+`FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`. Selecting the native canonical provider
+requires `FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native` and
+`FRAMEKIT_FINAL_CUT_HEADLESS=0`.
+
+The repository's `.codex/config.toml` adds a `framekit-local` registration
+that runs `pnpm run framekit` from this checkout. Run
+`pnpm install --frozen-lockfile` before using it. Codex loads this project
+config only after the repository is trusted. The user-level `framekit`
+registration continues to run the published npm package in headless mode.
+
 The explicit background artifact workflow is selected with
 `editing.route({ "operation": "artifact.edit" })` when
 `FRAMEKIT_FCPXML_PATH` is configured. Its `artifact.edit.*` preview, execute,
