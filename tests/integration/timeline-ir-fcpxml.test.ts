@@ -97,7 +97,7 @@ test("compiled FCPXML validates against Final Cut's 1.11 DTD", { skip: !existsSy
   }
 });
 
-test("compiles Timeline IR to deterministic versioned FCPXML with exact times", () => {
+test("compiles Timeline IR to deterministic versioned FCPXML on the edit frame grid", () => {
   const first = compileTimelineIrToFcpxml(timeline(), { target });
   const second = compileTimelineIrToFcpxml(timeline(), { target });
 
@@ -106,23 +106,24 @@ test("compiles Timeline IR to deterministic versioned FCPXML with exact times", 
   assert.equal(first.digest, second.digest);
   assert.match(first.xml, /<fcpxml version="1\.11">/);
   assert.match(first.xml, /frameDuration="1001\/24000s"/);
-  assert.match(first.xml, /<format id="format-framekit" frameDuration="1001\/24000s" width="1280" height="720"/);
+  assert.match(first.xml, /<format id="r1" name="FFVideoFormat720p2398" frameDuration="1001\/24000s" width="1280" height="720"/);
+  assert.match(first.xml, /<format id="format-resource-media-1" name="FFVideoFormat720p24" frameDuration="1\/24s" width="1280" height="720"/);
   assert.match(first.xml, /<asset[^>]*start="0s" duration="24s"[^>]*hasAudio="1"[^>]*audioSources="1" audioChannels="2" audioRate="48000"/);
   assert.match(first.xml, /offset="1001\/24000s"/);
-  assert.match(first.xml, /start="1001\/48000s"/);
+  assert.match(first.xml, /start="1001\/24000s"/);
   assert.match(first.xml, /value="Review &amp; approve"/);
   assert.match(first.xml, /<marker[^>]*note="com\.framekit\.id:review-42"/);
   assert.match(first.xml, /<caption[^>]*>\s*<text>Hello &lt;world&gt;<\/text>\s*<note>com\.framekit\.id:subtitle-abc<\/note>\s*<\/caption>/);
   assert.match(first.xml, /<project uid="project-1-framekit-[a-f0-9]{10}" name="Project \(Framekit revision-1-4-[a-f0-9]{10}\)">/);
-  assert.match(first.xml, /<sequence format="format-framekit" duration="10s">/);
+  assert.match(first.xml, /<sequence format="r1" duration="10s">/);
   assert.equal(first.destination.sequenceName, first.destination.projectName);
   assert.equal(first.destination.mode, "versioned");
   assert.notEqual(first.destination.projectUid, target.projectUid);
   assert.deepEqual(first.target, target);
   assert.deepEqual(first.resourceIds, { "media-1": "resource-media-1" });
   assert.deepEqual(first.coverage, {
-    exact: ["artifact", "captions", "connected-elements", "gain", "markers", "primary-storyline-order", "project", "provenance", "resources", "roles", "sequence", "source-ranges", "versioned-destination"],
-    degraded: [],
+    exact: ["artifact", "captions", "connected-elements", "gain", "markers", "primary-storyline-order", "project", "provenance", "resources", "roles", "sequence", "versioned-destination"],
+    degraded: ["video-edit-frame-rounding"],
     unsupported: [],
   });
   assert.deepEqual(first.provenance, {
@@ -157,7 +158,7 @@ test("uses the first video stream with dimensions for the FCPXML sequence format
 
   const artifact = compileTimelineIrToFcpxml(value, { target });
 
-  assert.match(artifact.xml, /<format id="format-framekit" frameDuration="1001\/24000s" width="1920" height="1080"/);
+  assert.match(artifact.xml, /<format id="r1" name="FFVideoFormat1080p2398" frameDuration="1001\/24000s" width="1920" height="1080"/);
 });
 
 test("emits a named Final Cut sequence format and frame-aligned video edits", () => {
@@ -210,7 +211,7 @@ test("emits a named Final Cut sequence format and frame-aligned video edits", ()
   const xml = compileTimelineIrToFcpxml(value, { target }).xml;
 
   assert.match(xml, /<format id="r1" name="FFVideoFormat720p30" frameDuration="1\/30s" width="1280" height="720" \/>/);
-  assert.match(xml, /<sequence format="r1" duration="151\/5s">/);
+  assert.match(xml, /<sequence format="r1" duration="3021\/100s">/);
   assert.doesNotMatch(xml, /format="format-framekit"/);
   assert.match(xml, /name="First video" offset="0s" start="149\/30s" duration="127\/15s"/);
   assert.match(xml, /name="Second video" offset="127\/15s" start="10s" duration="23\/2s"/);
@@ -240,10 +241,10 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
   try {
     const artifact = compileTimelineIrToFcpxml(value, { target });
     assert.match(artifact.xml, /<effect id="effect-basic-title" name="Basic Title" uid="\.\.\.\/Titles\.localized\/Bumper:Opener\.localized\/Basic Title\.localized\/Basic Title\.moti" \/>/);
-    assert.match(artifact.xml, /<title ref="effect-basic-title" name="opening-title" offset="0s" duration="6s" lane="1">\s*<text>FrameKit MVP Test<\/text>/);
+    assert.match(artifact.xml, /<title ref="effect-basic-title" name="opening-title" offset="0s" duration="3003\/500s" lane="1">\s*<text>FrameKit MVP Test<\/text>/);
     assert.match(artifact.xml, /<md key="com\.framekit\.id" value="opening-title" \/>/);
     assert.equal(artifact.coverage.exact.includes("connected-elements"), true);
-    assert.deepEqual(artifact.coverage.degraded, []);
+    assert.deepEqual(artifact.coverage.degraded, ["video-edit-frame-rounding"]);
     assert.deepEqual(artifact.coverage.unsupported, []);
 
     await writeFile(path, artifact.xml, "utf8");
@@ -251,7 +252,7 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
     const readback = await new FcpxmlDocumentAdapter(path).readProject();
     assert.deepEqual(
       readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ text, start, duration, lane }) => ({ text, start, duration, lane })),
-      [{ text: "FrameKit MVP Test", start: 0, duration: 6, lane: 1 }],
+      [{ text: "FrameKit MVP Test", start: 0, duration: 6.006, lane: 1 }],
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -277,7 +278,7 @@ test("anchors titles after a primary clip source in-point", async () => {
 
   const artifact = compileTimelineIrToFcpxml(value, { target });
 
-  assert.match(artifact.xml, /<asset-clip [^>]*name="Opening"[^>]*start="5s"[^>]*>[\s\S]*?<title [^>]*name="trimmed-opening-title"[^>]*offset="5s"/);
+  assert.match(artifact.xml, /<asset-clip [^>]*name="Opening"[^>]*start="1001\/200s"[^>]*>[\s\S]*?<title [^>]*name="trimmed-opening-title"[^>]*offset="1001\/200s"/);
 
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-trimmed-title-"));
   const path = join(directory, "trimmed-title.fcpxml");
@@ -287,7 +288,7 @@ test("anchors titles after a primary clip source in-point", async () => {
     const readback = await new FcpxmlDocumentAdapter(path).readProject();
     assert.deepEqual(
       readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ start, duration }) => ({ start, duration })),
-      [{ start: 0, duration: 6 }],
+      [{ start: 0, duration: 6.006 }],
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -338,7 +339,7 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
   assert.match(artifact.xml, /<asset[^>]*name="opening\.mov"[^>]*hasVideo="1"[^>]*hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/opening\.mov" \/><\/asset>/);
   assert.match(artifact.xml, /<asset[^>]*name="licensed-music\.wav"[^>]*hasVideo="0" format="format-audio" hasAudio="1"[^>]*><media-rep kind="original-media" src="file:\/\/\/media\/licensed-music\.wav" \/><\/asset>/);
   assert.match(artifact.xml, /<asset-clip [^>]+audioRole="music">/);
-  assert.match(artifact.xml, /<asset-clip [^>]*name="Opening"[^>]*>[\s\S]*?<asset-clip [^>]*offset="5s"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music">/);
+  assert.match(artifact.xml, /<asset-clip [^>]*name="Opening"[^>]*>[\s\S]*?<asset-clip [^>]*offset="1001\/200s"[^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music">/);
   assert.doesNotMatch(artifact.xml, /<spine>\s*<asset-clip [^>]*audioRole="music"/);
   assert.doesNotMatch(artifact.xml, /<asset-clip [^>]+\srole="music"/);
   assert.match(artifact.xml, /<adjust-volume amount="-12dB" \/>/);
@@ -493,7 +494,7 @@ test("requires explicit opt-in before reusing the supplied project identity", ()
 
   assert.equal(artifact.destination.mode, "reuse-existing");
   assert.match(artifact.xml, /<project uid="project-1" name="Project">/);
-  assert.match(artifact.xml, /<sequence format="format-framekit"/);
+  assert.match(artifact.xml, /<sequence format="r1"/);
 });
 
 test("round-trips compiled FCPXML through the existing document adapter", async () => {
@@ -510,7 +511,7 @@ test("round-trips compiled FCPXML through the existing document adapter", async 
     assert.deepEqual(snapshot.timeline.frameDuration, { value: "1001", timescale: "24000" });
     assert.deepEqual(snapshot.timeline.clips[0]?.startTime, { value: "1001", timescale: "24000" });
     assert.deepEqual(snapshot.timeline.clips[0]?.durationTime, { value: "1001", timescale: "12000" });
-    assert.deepEqual(snapshot.timeline.clips[0]?.sourceStartTime, { value: "1001", timescale: "48000" });
+    assert.deepEqual(snapshot.timeline.clips[0]?.sourceStartTime, { value: "1001", timescale: "24000" });
     assert.equal(snapshot.timeline.clips[0]?.mediaId, "resource-media-1");
     assert.equal(snapshot.timeline.clips[0]?.gainDb, -3);
     assert.equal(snapshot.timeline.markers[0]?.name, "Review & approve");
