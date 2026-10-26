@@ -1953,6 +1953,70 @@ test("headless FCPXML destination UIDs cannot substitute for native target bindi
   assert.equal(executorCalled, false);
 });
 
+test("headless library UID may differ from a new native library identity", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-headless-library-identity-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "New Native Library.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project uid="fcpxml-project" name="Headless Publish"><sequence uid="fcpxml-sequence" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let executorCalls = 0;
+  let liveStateCalls = 0;
+  const publisher = createPublisherForTest({
+    enabled: true,
+    sourcePath,
+    verificationTimeoutMs: 0,
+    pollIntervalMs: 0,
+    headlessSourceVerifier: async () => ({
+      targetLibraryUid: "logical-fcpxml-library-uid",
+      sourceMediaDigests: [],
+    }),
+    targetBinding: async () => ({
+      projectId: "native-project",
+      sequenceId: "native-sequence",
+      libraryId: "generated-native-library-uuid",
+      eventId: "native-event",
+      libraryPath: targetLibraryPath,
+    }),
+    liveState: async () => {
+      const imported = liveStateCalls++ > 0;
+      return {
+        project: { id: imported ? "native-project" : "existing-project", name: imported ? "Headless Publish" : "Existing" },
+        sequence: {
+          id: imported ? "native-sequence" : "existing-sequence",
+          name: imported ? "Main" : "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+      };
+    },
+    executor: async () => {
+      executorCalls += 1;
+      return "opened";
+    },
+  });
+  const job = await publisher.preparePublish({
+    sourceTransactionId: "headless-rough-cut:execution-1",
+    artifactPath: sourcePath,
+    artifactDigest: digest(source),
+    targetLibraryPath,
+  });
+
+  const result = await publisher.executePublishJob(job.jobId, true);
+
+  assert.equal(result.state, "verified");
+  assert.equal(result.createdTarget?.libraryId, "generated-native-library-uuid");
+  assert.equal(result.createdTarget?.projectId, "native-project");
+  assert.equal(result.createdTarget?.sequenceId, "native-sequence");
+  assert.deepEqual(result.result?.activeProject, {
+    before: { id: "existing-project", name: "Existing" },
+    after: { id: "native-project", name: "Headless Publish" },
+    changed: true,
+  });
+  assert.equal(executorCalls, 1);
+});
+
 test("headless publish rejects media that differs from its approved source digest", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-headless-media-"));
   const sourcePath = join(directory, "project.fcpxml");
