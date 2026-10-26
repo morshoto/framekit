@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { Clip, ProjectSnapshot, RationalTime, StoryElement } from "@framekit/runtime";
 
 export const FINAL_CUT_PUBLISH_READBACK_CHECKS = [
@@ -83,22 +83,22 @@ function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSig
       sequenceName: snapshot.timeline.name,
     },
     "timeline-duration-and-frame-rate": {
-      durationTime: rationalSignature(snapshot.timeline.durationTime),
+      durationTime: frameRoundedSignature(snapshot.timeline.durationTime, snapshot.timeline.frameDuration),
       frameDuration: rationalSignature(snapshot.timeline.frameDuration),
     },
     "clip-order-and-source-ranges": clips
       .filter((clip) => !isAudioClip(clip, audioMediaIds))
-      .map((clip) => clipSignature(clip, mediaSource)),
-    "editable-title-content-and-timing": titles.map((title) => storyElementSignature(title, mediaSource)),
+      .map((clip) => clipSignature(clip, mediaSource, audioMediaIds)),
+    "editable-title-content-and-timing": titles.map((title) => storyElementSignature(title, mediaSource, audioMediaIds)),
     "connected-audio-source-role-gain-and-timing": {
-      clips: audioClips.map((clip) => clipSignature(clip, mediaSource)),
+      clips: audioClips.map((clip) => clipSignature(clip, mediaSource, audioMediaIds)),
       elements: snapshot.timeline.storyElements
         .filter((element) => element.kind === "audio" || audioMediaIds.has(element.mediaId ?? ""))
-        .map((element) => storyElementSignature(element, mediaSource)),
+        .map((element) => storyElementSignature(element, mediaSource, audioMediaIds)),
     },
     "other-timeline-elements": snapshot.timeline.storyElements
       .filter((element) => !representedStoryKinds.has(element.kind))
-      .map((element) => storyElementSignature(element, mediaSource)),
+      .map((element) => storyElementSignature(element, mediaSource, audioMediaIds)),
     "markers-and-captions": {
       markers: snapshot.timeline.markers.map((marker) => ({
         name: marker.name,
@@ -115,14 +115,18 @@ function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSig
   };
 }
 
-function clipSignature(clip: Clip, mediaSource: (mediaId: string | undefined) => string | undefined) {
+function clipSignature(
+  clip: Clip,
+  mediaSource: (mediaId: string | undefined) => string | undefined,
+  audioMediaIds: Set<string>,
+) {
   return {
     source: mediaSource(clip.mediaId),
     name: clip.name,
     startTime: rationalSignature(clip.startTime),
     durationTime: rationalSignature(clip.durationTime),
     sourceStartTime: rationalSignature(clip.sourceStartTime ?? zeroRational()),
-    track: clip.track,
+    track: isAudioClip(clip, audioMediaIds) ? Math.abs(clip.track) : clip.track,
     gainDb: clip.gainDb,
     noiseReductionDb: clip.noiseReductionDb,
     colorCorrection: clip.colorCorrection,
@@ -138,12 +142,17 @@ function clipSignature(clip: Clip, mediaSource: (mediaId: string | undefined) =>
   };
 }
 
-function storyElementSignature(element: StoryElement, mediaSource: (mediaId: string | undefined) => string | undefined) {
+function storyElementSignature(
+  element: StoryElement,
+  mediaSource: (mediaId: string | undefined) => string | undefined,
+  audioMediaIds: Set<string>,
+) {
+  const audio = element.kind === "audio" || audioMediaIds.has(element.mediaId ?? "");
   return {
     kind: element.kind,
     startTime: rationalSignature(element.startTime),
     durationTime: rationalSignature(element.durationTime),
-    lane: element.lane,
+    lane: element.lane === undefined ? undefined : audio ? Math.abs(element.lane) : element.lane,
     source: mediaSource(element.mediaId),
     text: element.text,
     assetId: element.assetId,
@@ -161,7 +170,22 @@ function isAudioClip(clip: Clip, audioMediaIds: Set<string>): boolean {
 }
 
 function normalizeSource(source: string): string {
-  return resolve(source).normalize("NFC");
+  return basename(resolve(source)).normalize("NFC");
+}
+
+function frameRoundedSignature(duration: RationalTime | undefined, frameDuration: RationalTime | undefined): string | undefined {
+  if (!duration || !frameDuration) return rationalSignature(duration);
+  const frameNumerator = BigInt(frameDuration.value);
+  const frameDenominator = BigInt(frameDuration.timescale);
+  const durationNumerator = BigInt(duration.value);
+  const durationDenominator = BigInt(duration.timescale);
+  const denominator = durationDenominator * frameNumerator;
+  const numerator = durationNumerator * frameDenominator;
+  if (denominator <= 0n || frameNumerator <= 0n || numerator < 0n) {
+    throw new Error("FINAL_CUT_PUBLISH_READBACK_INVALID: timeline duration or frame duration is invalid");
+  }
+  const roundedFrames = (numerator * 2n + denominator) / (denominator * 2n);
+  return `${roundedFrames} frames`;
 }
 
 function rationalSignature(value: RationalTime | undefined): string | undefined {

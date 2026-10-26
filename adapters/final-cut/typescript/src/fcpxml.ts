@@ -1202,10 +1202,29 @@ function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "mus
 function textChildValue(node: XmlNode, kind: string): string | undefined {
   const text = firstChild(node, kind);
   if (!text) return undefined;
-  const value = Array.isArray(text[kind]) ? text[kind][0]?.["#text"] : undefined;
-  if (Array.isArray(value) && value.length > 0) return String(value[0]);
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  return undefined;
+  const value = xmlTextContent(text);
+  return value.length > 0 ? value : undefined;
+}
+
+function xmlTextContent(node: XmlNode): string {
+  return Object.entries(node)
+    .filter(([kind]) => kind !== ":@")
+    .map(([kind, value]) => {
+      if (kind === "#text") {
+        const text = (Array.isArray(value) ? value : [value])
+          .filter((part) => typeof part === "string" || typeof part === "number")
+          .map(String)
+          .filter((part) => part.trim().length > 0)
+          .join("");
+        return text;
+      }
+      if (!Array.isArray(value)) return "";
+      return value
+        .filter((child): child is XmlNode => typeof child === "object" && child !== null)
+        .map(xmlTextContent)
+        .join("");
+    })
+    .join("");
 }
 
 function framekitNoteId(value: unknown): string | undefined {
@@ -1453,7 +1472,7 @@ function mediaKindFromResource(node: XmlNode): "video" | "audio" | undefined {
   const hasVideo = attribute(node, "hasVideo");
   const hasAudio = attribute(node, "hasAudio");
   if (hasVideo === "1" || hasVideo === "true") return "video";
-  if ((hasVideo === "0" || hasVideo === "false") && (hasAudio === "1" || hasAudio === "true")) return "audio";
+  if (hasAudio === "1" || hasAudio === "true") return "audio";
   return undefined;
 }
 

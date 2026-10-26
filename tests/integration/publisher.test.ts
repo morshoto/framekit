@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -2057,6 +2057,82 @@ test("headless publish rejects media that differs from its approved source diges
   assert.equal(result.state, "awaiting-final-cut");
   assert.equal(result.error?.code, "HEADLESS_ROUGH_CUT_SOURCE_MEDIA_CHANGED");
   assert.equal(executorCalled, false);
+});
+
+test("native publish verifies copied media against approved source digests", async () => {
+  const publishWithCopy = async (copyContent: string) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-native-media-"));
+    const sourcePath = join(directory, "project.fcpxml");
+    const sourceMediaPath = join(directory, "source", "clip.mp4");
+    const nativeMediaPath = join(directory, "native-original-media", "clip.mp4");
+    const targetLibraryPath = join(directory, "Target.fcpbundle");
+    const sourceBytes = "approved clip bytes";
+    await mkdir(dirname(sourceMediaPath), { recursive: true });
+    await mkdir(dirname(nativeMediaPath), { recursive: true });
+    await writeFile(sourceMediaPath, sourceBytes);
+    await writeFile(nativeMediaPath, copyContent);
+    const source = `<fcpxml version="1.11"><resources><asset id="r1" name="clip.mp4" src="${pathToFileURL(sourceMediaPath).href}" duration="1s" hasVideo="1" /></resources><library><event><project uid="native-media-project" name="Native Media"><sequence uid="native-media-sequence" name="Main" duration="1s"><spine><asset-clip id="clip" ref="r1" name="clip.mp4" offset="0s" duration="1s" /></spine></sequence></project></event></library></fcpxml>`;
+    await writeFile(sourcePath, source);
+    const importedSnapshot = await new FcpxmlDocumentAdapter(sourcePath, undefined, {
+      allowMissingImmutableIdsForReadback: true,
+    }).readProject();
+    importedSnapshot.media[0]!.source = nativeMediaPath;
+    let liveStateCalls = 0;
+    let executorCalls = 0;
+    const publisher = createPublisherForTest({
+      enabled: true,
+      sourcePath,
+      verificationTimeoutMs: 0,
+      pollIntervalMs: 0,
+      headlessSourceVerifier: async () => ({
+        targetLibraryUid: "logical-library",
+        sourceMediaDigests: [{ source: sourceMediaPath, sha256: digest(sourceBytes) }],
+      }),
+      targetBinding: async () => ({
+        projectId: "native-project",
+        sequenceId: "native-sequence",
+        libraryId: "native-library",
+        libraryPath: targetLibraryPath,
+      }),
+      liveState: async () => {
+        const imported = liveStateCalls++ > 0;
+        return {
+          project: { id: imported ? "native-project" : "before-project", name: "Native Media" },
+          sequence: {
+            id: imported ? "native-sequence" : "before-sequence",
+            name: imported ? "Main" : "Existing",
+            startTime: { value: "0", timescale: "1" },
+            duration: { value: "1", timescale: "1" },
+            frameDuration: { value: "1", timescale: "24" },
+          },
+          revision: { id: `revision-${liveStateCalls}`, sequence: liveStateCalls, timestamp: new Date(0).toISOString() },
+        };
+      },
+      executor: async () => {
+        executorCalls += 1;
+        return "imported";
+      },
+      readCanonicalSnapshot: async () => structuredClone(importedSnapshot),
+    });
+    const prepared = await publisher.preparePublish({
+      sourceTransactionId: "headless-rough-cut:native-media",
+      artifactPath: sourcePath,
+      artifactDigest: digest(source),
+      targetLibraryPath,
+    });
+    const result = await publisher.executePublishJob(prepared.jobId, true);
+    assert.equal(executorCalls, 1);
+    await rm(directory, { recursive: true, force: true });
+    return result;
+  };
+
+  const verified = await publishWithCopy("approved clip bytes");
+  assert.equal(verified.state, "verified");
+  assert.equal(verified.result?.sourceMediaIntegrity.unchanged, true);
+
+  const changed = await publishWithCopy("different copied bytes");
+  assert.equal(changed.state, "verification-pending");
+  assert.equal(changed.error?.code, "FINAL_CUT_PUBLISH_SOURCE_MEDIA_BINDING_MISMATCH");
 });
 
 test("FCPXML publisher rejects native IDs that disagree with catalog readback", async () => {
