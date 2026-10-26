@@ -185,6 +185,7 @@ interface PublishJobRuntime {
   beforeLive: EditorLiveState;
   identity: { projectName: string; sequenceName: string };
   targetLibraryPath?: string;
+  /** Logical UID from the source FCPXML; Final Cut assigns the native library ID on import. */
   targetLibraryUid?: string;
   importedPath?: string;
   importedDigest?: string;
@@ -625,11 +626,7 @@ export class FinalCutProjectPublisher {
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
         async (targetPath, targetIdentity) => {
-          const binding = await this.targetBinding!(targetPath, targetIdentity);
-          if (runtime?.targetLibraryUid && binding.libraryId !== runtime.targetLibraryUid) {
-            throw new Error("FINAL_CUT_PUBLISH_TARGET_MISMATCH: native library identity does not match the approved headless target");
-          }
-          return binding;
+          return this.targetBinding!(targetPath, targetIdentity);
         },
         targetLibraryPath,
         identity,
@@ -685,13 +682,7 @@ export class FinalCutProjectPublisher {
     try {
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
-        async (targetPath, identity) => {
-          const binding = await this.targetBinding!(targetPath, identity);
-          if (runtime.targetLibraryUid && binding.libraryId !== runtime.targetLibraryUid) {
-            throw new Error("FINAL_CUT_PUBLISH_TARGET_MISMATCH: native library identity does not match the approved headless target");
-          }
-          return binding;
-        },
+        (targetPath, identity) => this.targetBinding!(targetPath, identity),
         runtime.targetLibraryPath,
         runtime.identity,
         runtime.beforeLive,
