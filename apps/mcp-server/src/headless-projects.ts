@@ -646,6 +646,8 @@ export class HeadlessProjectService {
     const inputDigest = digestRoughCutPlan(request.plan, operations, outputIntent);
     const existingOccurrenceIds = new Set(project.timeline.sequence.occurrences.map(({ id }) => id));
     const resourceByMediaId = new Map(project.timeline.resources.map((resource) => [resource.id, resource]));
+    const hasPrimaryStoryContent = project.timeline.sequence.occurrences.some(({ track }) => track === 0)
+      || project.timeline.sequence.storyElements.length > 0;
     const provenance: HeadlessRoughCutShotProvenance[] = [];
     const planOperations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
@@ -661,9 +663,10 @@ export class HeadlessProjectService {
       const sourceStartTime = shot.range.startTime ?? secondsToRational(shot.range.start);
       const durationTime = shot.range.durationTime ?? secondsToRational(shot.range.end - shot.range.start);
       assertSourceRange(resource, shot.range, sourceStartTime, durationTime);
+      const appendToPrimaryStoryline = hasPrimaryStoryContent || planOperations.length > 0;
       planOperations.push({
         type: "insert-occurrence",
-        placement: "append",
+        ...(appendToPrimaryStoryline ? { placement: "append" as const } : {}),
         occurrence: {
           id: occurrenceId,
           name: `Rough cut ${shot.order}: ${shot.rationale}`,
