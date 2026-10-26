@@ -214,6 +214,8 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     timeline.project.name = "Issue 517 MVP QA";
     timeline.sequence.id = "issue-517-mvp-sequence";
     timeline.sequence.name = "B-A-C MVP";
+    // An empty project may still carry a positive placeholder sequence duration.
+    timeline.sequence.durationTime = { value: "1", timescale: "1" };
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
     const projectId = timeline.project.id;
     const sequenceId = timeline.sequence.id;
