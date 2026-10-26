@@ -160,6 +160,64 @@ test("uses the first video stream with dimensions for the FCPXML sequence format
   assert.match(artifact.xml, /<format id="format-framekit" frameDuration="1001\/24000s" width="1920" height="1080"/);
 });
 
+test("emits a named Final Cut sequence format and frame-aligned video edits", () => {
+  const value = timeline();
+  value.sequence.frameDuration = { value: "1", timescale: "30" };
+  value.sequence.durationTime = { value: "3021", timescale: "100" };
+  value.sequence.occurrences = [
+    {
+      ...value.sequence.occurrences[0]!,
+      id: "first-video",
+      name: "First video",
+      startTime: { value: "0", timescale: "1" },
+      durationTime: { value: "423", timescale: "50" },
+      sourceStartTime: { value: "249", timescale: "50" },
+    },
+    {
+      ...value.sequence.occurrences[0]!,
+      id: "second-video",
+      name: "Second video",
+      startTime: { value: "423", timescale: "50" },
+      durationTime: { value: "1149", timescale: "100" },
+      sourceStartTime: { value: "999", timescale: "100" },
+    },
+    {
+      ...value.sequence.occurrences[0]!,
+      id: "third-video",
+      name: "Third video",
+      startTime: { value: "1995", timescale: "100" },
+      durationTime: { value: "513", timescale: "50" },
+      sourceStartTime: { value: "99", timescale: "50" },
+    },
+  ];
+  value.sequence.storyElements = [];
+  value.sequence.markers = [];
+  value.sequence.captions = [];
+  value.sequence.titles = [{
+    id: "opening-title",
+    text: "Opening",
+    startTime: { value: "0", timescale: "1" },
+    durationTime: { value: "6", timescale: "1" },
+    lane: 1,
+  }];
+  value.resources[0]!.metadata!.streams[0] = {
+    kind: "video",
+    width: 1280,
+    height: 720,
+    frameRate: { value: "30", timescale: "1" },
+  };
+
+  const xml = compileTimelineIrToFcpxml(value, { target }).xml;
+
+  assert.match(xml, /<format id="r1" name="FFVideoFormat720p30" frameDuration="1\/30s" width="1280" height="720" \/>/);
+  assert.match(xml, /<sequence format="r1" duration="151\/5s">/);
+  assert.doesNotMatch(xml, /format="format-framekit"/);
+  assert.match(xml, /name="First video" offset="0s" start="149\/30s" duration="127\/15s"/);
+  assert.match(xml, /name="Second video" offset="127\/15s" start="10s" duration="23\/2s"/);
+  assert.match(xml, /name="Third video" offset="599\/30s" start="59\/30s" duration="307\/30s"/);
+  assert.match(xml, /name="opening-title" offset="149\/30s" duration="6s" lane="1"/);
+});
+
 test("compiles an opening Timeline IR title as editable Final Cut text", async () => {
   const value = timeline();
   value.sequence.occurrences = [{
