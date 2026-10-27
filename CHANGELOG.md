@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-25
+## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-27
 
 ### New Features
 - chore: add local checkout validation workflow by @morshoto in https://github.com/morshoto/framekit/pull/522
@@ -25,6 +25,7 @@
 - chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/540
 - chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/533
 - fix(deps): update dependency zod to v4 [security] - abandoned by @renovate[bot] in https://github.com/morshoto/framekit/pull/548
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/575
 ### Other changes
 - chore: sync linked issue milestones by @morshoto in https://github.com/morshoto/framekit/pull/529
 - chore: CodeQL as push only change by @morshoto in https://github.com/morshoto/framekit/pull/549
