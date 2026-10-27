@@ -759,8 +759,12 @@ export class FinalCutProjectPublisher {
     await assertActiveTarget("before canonical export");
     const actual = await this.readCanonicalSnapshot(targetBinding, identity);
     await assertActiveTarget("after canonical export");
-    const semanticReadback = verifyFinalCutPublishReadback(expected, actual);
-    await assertPublishedMediaBindings(expectedMediaDigests, actual);
+    const actualMediaDigests = await captureSourceMediaDigests(actual);
+    assertPublishedMediaBindings(expectedMediaDigests, actualMediaDigests);
+    const semanticReadback = verifyFinalCutPublishReadback(expected, actual, {
+      expectedSourceMediaDigests: expectedMediaDigests,
+      actualSourceMediaDigests: actualMediaDigests,
+    });
     return semanticReadback;
   }
 
@@ -1380,11 +1384,10 @@ async function assertSourceMediaUnchanged(expected: FinalCutPublishSourceMediaDi
   }
 }
 
-async function assertPublishedMediaBindings(
+function assertPublishedMediaBindings(
   expected: FinalCutPublishSourceMediaDigest[],
-  actualSnapshot: ProjectSnapshot,
-): Promise<void> {
-  const actual = await captureSourceMediaDigests(actualSnapshot);
+  actual: FinalCutPublishSourceMediaDigest[],
+): void {
   const signature = (digests: FinalCutPublishSourceMediaDigest[]) => digests
     .map(({ source, sha256 }) => ({ name: basename(resolve(source)).normalize("NFC"), sha256 }))
     .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1

@@ -33,13 +33,21 @@ export class FinalCutPublishSemanticMismatchError extends Error {
   }
 }
 
+type SourceMediaDigest = Readonly<{ source: string; sha256: string }>;
+
+type PublishReadbackOptions = Readonly<{
+  expectedSourceMediaDigests: readonly SourceMediaDigest[];
+  actualSourceMediaDigests: readonly SourceMediaDigest[];
+}>;
+
 /** Compare supported native timeline semantics while ignoring generated native IDs and revisions. */
 export function verifyFinalCutPublishReadback(
   expected: ProjectSnapshot,
   actual: ProjectSnapshot,
+  options?: PublishReadbackOptions,
 ): FinalCutPublishReadbackEvidence {
-  const expectedSignature = publishTimelineSignature(expected);
-  const actualSignature = publishTimelineSignature(actual);
+  const expectedSignature = publishTimelineSignature(expected, options?.expectedSourceMediaDigests);
+  const actualSignature = publishTimelineSignature(actual, options?.actualSourceMediaDigests);
   const expectedJson = stableJson(expectedSignature);
   const actualJson = stableJson(actualSignature);
   const expectedDigest = digest(expectedJson);
@@ -62,9 +70,28 @@ export function verifyFinalCutPublishReadback(
 
 type PublishTimelineSignature = Record<typeof FINAL_CUT_PUBLISH_READBACK_CHECKS[number], unknown>;
 
-function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSignature {
-  const sourceByMediaId = new Map(snapshot.media.map(({ mediaId, source }) => [mediaId, normalizeSource(source)]));
-  const audioMediaIds = new Set(snapshot.media.filter(({ mediaKind }) => mediaKind === "audio").map(({ mediaId }) => mediaId));
+function publishTimelineSignature(
+  snapshot: ProjectSnapshot,
+  sourceMediaDigests?: readonly SourceMediaDigest[],
+): PublishTimelineSignature {
+  const referencedMediaIds = new Set([
+    ...snapshot.timeline.clips.map(({ mediaId }) => mediaId),
+    ...snapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
+  ].filter((mediaId): mediaId is string => mediaId !== undefined));
+  const referencedMedia = snapshot.media.filter(({ mediaId }) => referencedMediaIds.has(mediaId));
+  const digestBySource = sourceMediaDigests === undefined
+    ? undefined
+    : new Map(sourceMediaDigests.map(({ source, sha256 }) => [resolve(source), sha256]));
+  const sourceIdentity = (source: string): string => {
+    if (digestBySource === undefined) return normalizeSource(source);
+    const sha256 = digestBySource.get(resolve(source));
+    if (sha256 === undefined) {
+      throw new Error(`FINAL_CUT_PUBLISH_SOURCE_MEDIA_BINDING_MISMATCH: no verified digest for ${source}`);
+    }
+    return `sha256:${sha256}`;
+  };
+  const sourceByMediaId = new Map(referencedMedia.map(({ mediaId, source }) => [mediaId, sourceIdentity(source)]));
+  const audioMediaIds = new Set(referencedMedia.filter(({ mediaKind }) => mediaKind === "audio").map(({ mediaId }) => mediaId));
   const mediaSource = (mediaId: string | undefined): string | undefined => {
     if (mediaId === undefined) return undefined;
     return sourceByMediaId.get(mediaId) ?? `unresolved-media:${mediaId}`;
@@ -72,8 +99,8 @@ function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSig
   const clips = snapshot.timeline.clips;
   const titles = snapshot.timeline.storyElements.filter(({ kind }) => kind === "title");
   const audioClips = clips.filter((clip) => isAudioClip(clip, audioMediaIds));
-  const mediaBindings = snapshot.media
-    .map(({ source, mediaKind, duration }) => ({ source: normalizeSource(source), mediaKind, duration }))
+  const mediaBindings = referencedMedia
+    .map(({ source, mediaKind, duration }) => ({ source: sourceIdentity(source), mediaKind, duration }))
     .sort((left, right) => compareText(stableJson(left), stableJson(right)));
   const representedStoryKinds = new Set(["asset-clip", "audio", "clip", "mc-clip", "ref-clip", "sync-clip", "title", "video"]);
 

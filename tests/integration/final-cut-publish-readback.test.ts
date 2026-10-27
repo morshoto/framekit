@@ -76,6 +76,46 @@ test("native publish readback accepts the exact approved edit across native-gene
   assert.equal(evidence.expectedDigest, evidence.observedDigest);
 });
 
+test("native publish readback binds same-named sources by verified content", () => {
+  const approved = makeSnapshot("approved", { a: "r1", b: "r2", c: "r3", music: "r4" });
+  const native = makeSnapshot("native", { a: "asset-8", b: "asset-3", c: "asset-9", music: "asset-6" });
+  const approvedA = "/approved/left/clip.mp4";
+  const approvedB = "/approved/right/clip.mp4";
+  const nativeA = "/library/left/clip.mp4";
+  const nativeB = "/library/right/clip.mp4";
+  approved.media.find(({ mediaId }) => mediaId === "r1")!.source = approvedA;
+  approved.media.find(({ mediaId }) => mediaId === "r2")!.source = approvedB;
+  native.media.find(({ mediaId }) => mediaId === "asset-8")!.source = nativeA;
+  native.media.find(({ mediaId }) => mediaId === "asset-3")!.source = nativeB;
+
+  const approvedSourceMediaDigests = [
+    { source: approvedA, sha256: "a".repeat(64) },
+    { source: approvedB, sha256: "b".repeat(64) },
+    { source: "/tmp/clip-c.mp4", sha256: "c".repeat(64) },
+    { source: "/tmp/generated-music.wav", sha256: "d".repeat(64) },
+  ];
+  const nativeSourceMediaDigests = [
+    { source: nativeA, sha256: "a".repeat(64) },
+    { source: nativeB, sha256: "b".repeat(64) },
+    { source: "/tmp/clip-c.mp4", sha256: "c".repeat(64) },
+    { source: "/tmp/generated-music.wav", sha256: "d".repeat(64) },
+  ];
+  const options = { expectedSourceMediaDigests: approvedSourceMediaDigests, actualSourceMediaDigests: nativeSourceMediaDigests };
+  assert.equal(verifyFinalCutPublishReadback(approved, native, options).verified, true);
+
+  const swappedNativeDigests = nativeSourceMediaDigests.map(({ source, sha256 }) => ({
+    source,
+    sha256: source === nativeA ? "b".repeat(64) : source === nativeB ? "a".repeat(64) : sha256,
+  }));
+  assert.throws(
+    () => verifyFinalCutPublishReadback(approved, native, {
+      expectedSourceMediaDigests: approvedSourceMediaDigests,
+      actualSourceMediaDigests: swappedNativeDigests,
+    }),
+    /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*clip-order-and-source-ranges/,
+  );
+});
+
 test("native publish readback rejects a changed trim", () => {
   const approved = makeSnapshot("approved", { a: "r1", b: "r2", c: "r3", music: "r4" });
   const native = makeSnapshot("native", { a: "asset-8", b: "asset-3", c: "asset-9", music: "asset-6" });
