@@ -148,6 +148,74 @@ test("FFmpeg Timeline IR renderer honors explicit output frame rate without muta
   }
 });
 
+test("FFmpeg renderer fills a trailing video gap with black while music continues", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-tail-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const musicPath = join(directory, "music-tail.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=1760:sample_rate=48000:duration=2.5",
+      "-c:a", "pcm_s16le", "-y", musicPath,
+    ], { cwd: repositoryRoot, env: process.env });
+
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.durationTime = { value: "5", timescale: "2" };
+    const music = audioResource("music-tail", musicPath, await digest(musicPath));
+    music.metadata.durationTime = { value: "5", timescale: "2" };
+    source.resources.push(music);
+    source.sequence.occurrences.push({
+      id: "music-tail",
+      name: "Music through trailing gap",
+      startTime: { value: "0", timescale: "1" },
+      durationTime: { value: "5", timescale: "2" },
+      sourceStartTime: { value: "0", timescale: "1" },
+      track: 1,
+      role: "music",
+      mediaId: "music-tail",
+      gainDb: -6,
+    });
+    const outputPath = join(directory, "trailing-gap.mp4");
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+
+    await renderer.render(plan);
+
+    const probe = await execFileAsync(process.env.FFPROBE_BIN || "ffprobe", [
+      "-v", "error",
+      "-show_entries", "stream=codec_type,width,height,r_frame_rate,sample_rate,channels",
+      "-show_entries", "format=duration",
+      "-of", "json",
+      outputPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const metadata = JSON.parse(probe.stdout) as {
+      streams: Array<Record<string, string | number>>;
+      format: { duration: string };
+    };
+    assert.ok(Number(metadata.format.duration) > 2.45 && Number(metadata.format.duration) < 2.55);
+
+    const tailFrame = await frameAt(outputPath, 2.25, directory, "black-tail");
+    const tailPixel = ppmPixel(tailFrame, 160, 90);
+    assert.ok(tailPixel.r < 20 && tailPixel.g < 20 && tailPixel.b < 20, `expected black video after the final clip, got ${JSON.stringify(tailPixel)}`);
+
+    const tailAudio = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-ss", "2", "-t", "0.4", "-i", outputPath,
+      "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
+    ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+    assert.ok(frequencyAmplitude(tailAudio.stdout as unknown as Buffer, 1_760, 48_000) > 0.002, "independent music should continue through the black video tail");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg mixes independent music with source audio at the requested gain", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-music-mix-"));
   try {
