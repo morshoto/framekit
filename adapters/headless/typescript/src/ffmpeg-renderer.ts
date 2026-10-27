@@ -146,6 +146,7 @@ interface RenderModel {
   resources: Map<string, TimelineIrResource>;
   sourcePaths: string[];
   duration: number;
+  tailDuration: number;
   frameRate: { value: string; timescale: string };
   width: number;
   height: number;
@@ -234,8 +235,9 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
   if (audioAvailability.size > 1) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "all primary occurrences must agree on audio availability");
   }
-  if (Math.abs(previousEnd - duration) > 1e-7) {
-    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "occurrences do not cover the sequence duration");
+  const tailDuration = duration - previousEnd;
+  if (tailDuration < -1e-7) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "primary occurrences exceed the sequence duration");
   }
   const transitions = timeline.sequence.transitions ?? [];
   if (transitions.length > 1) {
@@ -248,6 +250,7 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
     resources,
     sourcePaths,
     duration,
+    tailDuration: Math.max(0, tailDuration),
     frameRate: structuredClone(plan.parameters.frameRate),
     width: plan.parameters.width,
     height: plan.parameters.height,
@@ -383,7 +386,8 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
 
   const transition = model.timeline.sequence.transitions?.[0];
   const videoBase = addVideoComposition(filters, videoLabels, model, transition);
-  const videoOutput = addTitleOverlays(filters, videoBase, model, fontFile);
+  const videoWithTail = addBlackVideoTail(filters, videoBase, model.tailDuration);
+  const videoOutput = addTitleOverlays(filters, videoWithTail, model, fontFile);
   let audioOutput: string | undefined;
   if (audioLabels.length > 0) audioOutput = addAudioComposition(filters, audioLabels, model, transition);
   if (musicLabels.length > 0) {
@@ -403,6 +407,13 @@ function addAudioMix(filters: string[], labels: string[], duration: number): str
   if (labels.length === 1) return labels[0]!.slice(1, -1);
   const output = "audio-mix";
   filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS[${output}]`);
+  return output;
+}
+
+function addBlackVideoTail(filters: string[], input: string, duration: number): string {
+  if (duration <= 1e-7) return input;
+  const output = "video-black-tail";
+  filters.push(`[${input}]tpad=stop_mode=add:stop_duration=${formatNumber(duration)}:color=black[${output}]`);
   return output;
 }
 

@@ -185,6 +185,7 @@ interface PublishJobRuntime {
   beforeLive: EditorLiveState;
   identity: { projectName: string; sequenceName: string };
   targetLibraryPath?: string;
+  /** Logical UID from the source FCPXML; Final Cut assigns the native library ID on import. */
   targetLibraryUid?: string;
   importedPath?: string;
   importedDigest?: string;
@@ -625,11 +626,7 @@ export class FinalCutProjectPublisher {
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
         async (targetPath, targetIdentity) => {
-          const binding = await this.targetBinding!(targetPath, targetIdentity);
-          if (runtime?.targetLibraryUid && binding.libraryId !== runtime.targetLibraryUid) {
-            throw new Error("FINAL_CUT_PUBLISH_TARGET_MISMATCH: native library identity does not match the approved headless target");
-          }
-          return binding;
+          return this.targetBinding!(targetPath, targetIdentity);
         },
         targetLibraryPath,
         identity,
@@ -637,12 +634,13 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      await assertSourceMediaUnchanged(sourceMediaDigests);
       const semanticReadback = await this.readAndVerifyCanonicalTarget(
         expectedSnapshot,
+        sourceMediaDigests,
         verifiedTarget.targetBinding,
         identity,
       );
-      await assertSourceMediaUnchanged(sourceMediaDigests);
       const result = publishResult(
         request,
         importedPath,
@@ -685,25 +683,20 @@ export class FinalCutProjectPublisher {
     try {
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
-        async (targetPath, identity) => {
-          const binding = await this.targetBinding!(targetPath, identity);
-          if (runtime.targetLibraryUid && binding.libraryId !== runtime.targetLibraryUid) {
-            throw new Error("FINAL_CUT_PUBLISH_TARGET_MISMATCH: native library identity does not match the approved headless target");
-          }
-          return binding;
-        },
+        (targetPath, identity) => this.targetBinding!(targetPath, identity),
         runtime.targetLibraryPath,
         runtime.identity,
         runtime.beforeLive,
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      await assertSourceMediaUnchanged(runtime.sourceMediaDigests);
       const semanticReadback = await this.readAndVerifyCanonicalTarget(
         runtime.expectedSnapshot,
+        runtime.sourceMediaDigests,
         verifiedTarget.targetBinding,
         runtime.identity,
       );
-      await assertSourceMediaUnchanged(runtime.sourceMediaDigests);
       const result = publishResult(
         {
           sourceTransactionId: job.sourceTransactionId,
@@ -747,6 +740,7 @@ export class FinalCutProjectPublisher {
 
   private async readAndVerifyCanonicalTarget(
     expected: ProjectSnapshot,
+    expectedMediaDigests: FinalCutPublishSourceMediaDigest[],
     targetBinding: FinalCutProjectPublishTargetBinding,
     identity: { projectName: string; sequenceName: string },
   ): Promise<FinalCutPublishReadbackEvidence> {
@@ -765,7 +759,13 @@ export class FinalCutProjectPublisher {
     await assertActiveTarget("before canonical export");
     const actual = await this.readCanonicalSnapshot(targetBinding, identity);
     await assertActiveTarget("after canonical export");
-    return verifyFinalCutPublishReadback(expected, actual);
+    const actualMediaDigests = await captureSourceMediaDigests(actual);
+    assertPublishedMediaBindings(expectedMediaDigests, actualMediaDigests);
+    const semanticReadback = verifyFinalCutPublishReadback(expected, actual, {
+      expectedSourceMediaDigests: expectedMediaDigests,
+      actualSourceMediaDigests: actualMediaDigests,
+    });
+    return semanticReadback;
   }
 
   private markAwaitingFinalCut(
@@ -1381,6 +1381,19 @@ async function assertSourceMediaUnchanged(expected: FinalCutPublishSourceMediaDi
   }
   if (JSON.stringify(observed) !== JSON.stringify(expected)) {
     throw new Error("FINAL_CUT_PUBLISH_SOURCE_MEDIA_CHANGED: one or more source media digests changed during native publishing");
+  }
+}
+
+function assertPublishedMediaBindings(
+  expected: FinalCutPublishSourceMediaDigest[],
+  actual: FinalCutPublishSourceMediaDigest[],
+): void {
+  const signature = (digests: FinalCutPublishSourceMediaDigest[]) => digests
+    .map(({ source, sha256 }) => ({ name: basename(resolve(source)).normalize("NFC"), sha256 }))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1
+      : left.sha256 < right.sha256 ? -1 : left.sha256 > right.sha256 ? 1 : 0);
+  if (JSON.stringify(signature(expected)) !== JSON.stringify(signature(actual))) {
+    throw new Error("FINAL_CUT_PUBLISH_SOURCE_MEDIA_BINDING_MISMATCH: native library media do not match the approved source files");
   }
 }
 

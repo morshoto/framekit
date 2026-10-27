@@ -86,6 +86,8 @@ interface RenderableElement {
   gainDb?: number;
   enabled?: boolean;
   text?: string;
+  frameAlignmentAdjusted?: boolean;
+  sourceRangeAdjusted?: boolean;
 }
 
 /**
@@ -112,23 +114,30 @@ export function compileTimelineIrToFcpxml(
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
   const resources = [...timeline.resources].sort((left, right) => left.id.localeCompare(right.id));
-  const elements = renderableElements(timeline, resourceIds);
+  const elements = alignRenderableElements(
+    renderableElements(timeline, resourceIds),
+    timeline.sequence.frameDuration,
+    new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
+  );
   const elementIds = new Set<string>();
   for (const element of elements) {
     if (elementIds.has(element.id)) throw new Error(`FCPXML_DUPLICATE_ELEMENT_ID: ${element.id}`);
     elementIds.add(element.id);
   }
-  const formatId = "format-framekit";
+  const formatId = "r1";
   const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) =>
     stream.kind === "video" && stream.width !== undefined && stream.height !== undefined) ?? [])[0];
   const projectDimensions = projectVideo?.width && projectVideo.height
     ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
     : "";
+  const projectFormatName = projectVideo?.width && projectVideo.height
+    ? predefinedVideoFormatName(projectVideo.width, projectVideo.height, timeline.sequence.frameDuration)
+    : undefined;
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
-    `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
+    `    <format id="${formatId}"${projectFormatName ? ` name="${projectFormatName}"` : ""} frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
     ...(resources.some((resource) => resource.mediaKind === "audio")
       ? [`    <format id="${AUDIO_FORMAT_ID}" name="FFFrameRateUndefined" />`]
       : []),
@@ -215,6 +224,11 @@ function materializationCoverage(
     "primary-storyline-order",
     "provenance",
   ]);
+  const degraded = new Set<string>();
+  if (elements.some(({ frameAlignmentAdjusted }) => frameAlignmentAdjusted)) {
+    degraded.add("video-edit-frame-rounding");
+  }
+  if (elements.some(({ sourceRangeAdjusted }) => sourceRangeAdjusted)) exact.delete("source-ranges");
   if (elements.some(({ parentId }) => parentId !== undefined)) exact.add("connected-elements");
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
@@ -225,7 +239,91 @@ function materializationCoverage(
   if (destinationMode === "versioned") exact.add("versioned-destination");
   if (timeline.sequence.markers.length > 0) exact.add("markers");
   if (timeline.sequence.captions.length > 0) exact.add("captions");
-  return { exact: [...exact].sort(), degraded: [], unsupported: [] };
+  return { exact: [...exact].sort(), degraded: [...degraded].sort(), unsupported: [] };
+}
+
+function alignRenderableElements(
+  elements: RenderableElement[],
+  frameDuration: { value: string; timescale: string },
+  audioResourceIds: ReadonlySet<string>,
+): RenderableElement[] {
+  return elements.map((element) => {
+    if (element.kind === "asset-clip" && element.resourceId !== undefined && audioResourceIds.has(element.resourceId)) {
+      return element;
+    }
+    const endTime = addExactTimes(element.startTime, element.durationTime);
+    const startTime = snapTimeToFrame(element.startTime, frameDuration);
+    const alignedEndTime = snapTimeToFrame(endTime, frameDuration);
+    const durationTime = subtractRational(alignedEndTime, startTime, `${element.id}.durationTime`);
+    const zero = { value: "0", timescale: "1" };
+    if (compareExactTimes(element.durationTime, zero) > 0 && compareExactTimes(durationTime, zero) === 0) {
+      throw new Error(`FCPXML_EDIT_BELOW_FRAME_RESOLUTION: ${element.id}`);
+    }
+    const sourceStartTime = element.sourceStartTime
+      ? snapTimeToFrame(element.sourceStartTime, frameDuration)
+      : undefined;
+    const adjusted = compareExactTimes(startTime, element.startTime) !== 0
+      || compareExactTimes(durationTime, element.durationTime) !== 0
+      || sourceStartTime !== undefined && compareExactTimes(sourceStartTime, element.sourceStartTime!) !== 0;
+    const sourceRangeAdjusted = element.kind === "asset-clip"
+      && (compareExactTimes(durationTime, element.durationTime) !== 0
+        || sourceStartTime !== undefined && compareExactTimes(sourceStartTime, element.sourceStartTime!) !== 0);
+    return {
+      ...element,
+      startTime,
+      durationTime,
+      ...(sourceStartTime ? { sourceStartTime } : {}),
+      ...(adjusted ? { frameAlignmentAdjusted: true } : {}),
+      ...(sourceRangeAdjusted ? { sourceRangeAdjusted: true } : {}),
+    };
+  });
+}
+
+function snapTimeToFrame(
+  value: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const time = parseExactRational(value);
+  const frame = parseExactRational(frameDuration);
+  if (time.value < 0n || frame.value <= 0n) throw new Error("FCPXML_INVALID_TIME: frame alignment requires non-negative time and positive frame duration");
+  const frameNumerator = time.value * frame.timescale;
+  const frameDenominator = time.timescale * frame.value;
+  let frames = frameNumerator / frameDenominator;
+  if ((frameNumerator % frameDenominator) * 2n >= frameDenominator) frames += 1n;
+  const numerator = frames * frame.value;
+  const denominator = frame.timescale;
+  const divisor = greatestCommonDivisor(numerator, denominator);
+  return { value: String(numerator / divisor), timescale: String(denominator / divisor) };
+}
+
+function predefinedVideoFormatName(
+  width: number,
+  height: number,
+  frameDuration: { value: string; timescale: string },
+): string | undefined {
+  const raster = width === 1280 && height === 720
+    ? "720p"
+    : width === 1920 && height === 1080
+      ? "1080p"
+      : width === 3840 && height === 2160 || width === 4096 && height === 2160
+        ? `${width}x${height}p`
+        : undefined;
+  if (!raster) return undefined;
+  const parts = parseExactRational(frameDuration);
+  const divisor = greatestCommonDivisor(parts.value, parts.timescale);
+  const rate = `${parts.value / divisor}/${parts.timescale / divisor}`;
+  const suffix: Record<string, string> = {
+    "1001/24000": "2398",
+    "1/24": "24",
+    "1/25": "25",
+    "1001/30000": "2997",
+    "1/30": "30",
+    "1/50": "50",
+    "1001/60000": "5994",
+    "1/60": "60",
+  };
+  const frameRate = suffix[rate];
+  return frameRate ? `FFVideoFormat${raster}${frameRate}` : undefined;
 }
 
 function validateTarget(target: TimelineIrToFcpxmlTarget): void {
@@ -339,7 +437,9 @@ function renderResource(
 function renderResourceFormat(resource: TimelineIr["resources"][number], id: string): string[] {
   const video = resource.metadata?.streams.find((stream) => stream.kind === "video");
   if (!video?.width || !video.height || !video.frameRate) return [];
-  return [`    <format id="format-${id}" frameDuration="${formatRational({ value: video.frameRate.timescale, timescale: video.frameRate.value }, `resource ${resource.id}.frameRate`)}" width="${video.width}" height="${video.height}" />`];
+  const frameDuration = { value: video.frameRate.timescale, timescale: video.frameRate.value };
+  const formatName = predefinedVideoFormatName(video.width, video.height, frameDuration);
+  return [`    <format id="format-${id}"${formatName ? ` name="${formatName}"` : ""} frameDuration="${formatRational(frameDuration, `resource ${resource.id}.frameRate`)}" width="${video.width}" height="${video.height}" />`];
 }
 
 function renderableElements(timeline: TimelineIr, resourceIds: Map<string, string>): RenderableElement[] {
