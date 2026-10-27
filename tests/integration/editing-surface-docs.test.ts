@@ -17,6 +17,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   const roughCutConstruction = await readFile(join(repositoryRoot, "docs/architecture/rough-cut-construction.md"), "utf8");
   const artifactPublishing = await readFile(join(repositoryRoot, "docs/architecture/artifact-publishing.md"), "utf8");
   const mcpQaPrompt = await readFile(join(repositoryRoot, "docs/tests/mcp-qa-prompt.md"), "utf8");
+  const publishedProjectRebindQa = await readFile(join(repositoryRoot, "docs/tests/final-cut-published-project-rebind-e2e.md"), "utf8");
 
   assert.match(compatibility, /## Editing surface semantics/);
   assert.match(compatibility, /Target[\s\S]*Revision[\s\S]*Read-after-write[\s\S]*Undo[\s\S]*Resulting project state/);
@@ -29,6 +30,7 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(mcpTools, /artifact\.publish[\s\S]*artifactPath[\s\S]*targetLibraryPath[\s\S]*confirm/);
   assert.match(mcpTools, /editor\.native\.handoff\.readiness[\s\S]*native readback/);
   assert.match(mcpTools, /PUBLISH_CONFIRMATION_REQUIRED/);
+  assert.match(mcpTools, /`editor\.projectSelectionMode` identifies whether the provider is\s+`background-capable`, `active-target-only`, `headed-only`, or `unavailable`/);
   assert.match(mcpTools, /## Background FCPXML artifact workflow/);
   assert.match(mcpTools, /FRAMEKIT_FCPXML_PATH/);
   assert.match(mcpTools, /artifact\.edit\.preview[\s\S]*artifact\.edit\.execute[\s\S]*artifact\.edit\.diff[\s\S]*artifact\.edit\.verify[\s\S]*artifact\.edit\.undo/);
@@ -71,4 +73,6 @@ test("editing surface docs distinguish artifact, publish, and live targets", asy
   assert.match(artifactPublishing, /editor\.native\.handoff\.readiness/);
   assert.match(mcpQaPrompt, /editor\.native\.handoff\.readiness[\s\S]*#517 acceptance evidence/);
   assert.match(mcpQaPrompt, /native target identity/);
+  assert.match(publishedProjectRebindQa, /user or an authorized operator[\s\S]*not the\s+agent/i);
+  assert.match(publishedProjectRebindQa, /native\s+timeline mutation by the agent is out of scope/i);
 });

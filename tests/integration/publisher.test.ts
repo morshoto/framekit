@@ -13,6 +13,28 @@ function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+test("headless publish preparation does not require a managed FCPXML path", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-headless-source-"));
+  const artifactPath = join(directory, "approved.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="source-project" name="Published Project"><sequence uid="source-sequence" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(artifactPath, source);
+  try {
+    const publisher = new FinalCutProjectPublisher({
+      headlessSourceVerifier: async () => ({ targetLibraryUid: "artifact-library", sourceMediaDigests: [] }),
+    });
+    const job = await publisher.preparePublish({
+      sourceTransactionId: "headless-rough-cut:run-1",
+      artifactPath,
+      artifactDigest: digest(source),
+      targetLibraryPath: join(directory, "New Library.fcpbundle"),
+    });
+    assert.equal(job.state, "awaiting-confirmation");
+    assert.equal(job.sourcePath, artifactPath);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("publish route configuration is explicit and rejects unknown routes", () => {
   assert.equal(parseFinalCutProjectPublishRoute(undefined, true), "background-document-open");
   assert.equal(parseFinalCutProjectPublishRoute(undefined, false), "headed-apple-event");
@@ -88,12 +110,13 @@ test("publisher readiness requires live verification, target binding, and canoni
 });
 
 function createPublisherForTest(options: ConstructorParameters<typeof FinalCutProjectPublisher>[0]) {
+  const sourcePath = options.sourcePath;
   return new FinalCutProjectPublisher({
     ...options,
     readCanonicalSnapshot: options.readCanonicalSnapshot
-      ?? (() => new FcpxmlDocumentAdapter(options.sourcePath, undefined, {
+      ?? (sourcePath ? () => new FcpxmlDocumentAdapter(sourcePath, undefined, {
         allowMissingImmutableIdsForReadback: true,
-      }).readProject()),
+      }).readProject() : undefined),
   });
 }
 

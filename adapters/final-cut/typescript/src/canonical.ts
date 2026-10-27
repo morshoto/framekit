@@ -174,6 +174,7 @@ export function assessCanonicalLiveReadiness(capabilities: RuntimeCapabilities):
     ...(mode === "canonical-write" ? [] : ["canonical-write"]),
     ...(!editor.projectCatalogRead ? ["projectCatalogRead"] : []),
     ...(!editor.projectSelection ? ["projectSelection"] : []),
+    ...(editor.projectSelectionMode === "active-target-only" ? ["projectSelectionTransition"] : []),
     ...(!editor.timelineSnapshotRead ? ["timelineSnapshotRead"] : []),
     ...(!editor.timelineWrite ? ["timelineWrite"] : []),
     ...(!editor.readAfterWrite ? ["readAfterWrite"] : []),
@@ -749,6 +750,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private readonly readSnapshotSource: () => Promise<ProjectSnapshot>;
   private readonly resolveTarget: CanonicalNativeTargetResolver;
   private readonly backgroundCatalog?: FinalCutBackgroundCatalogProvider;
+  private canonicalSnapshotAvailable = false;
   private lastDigest?: string;
   private lastSnapshot?: ProjectSnapshot;
   private revisionSequence = 0;
@@ -796,8 +798,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         frameCapture: false,
         playbackControl: false,
         projectCatalogRead: Boolean(backgroundCatalog),
-        projectSelection: false,
-        projectSelectionMode: "unavailable",
+        projectSelection: Boolean(backgroundCatalog && snapshotProbe.available),
+        projectSelectionMode: backgroundCatalog && snapshotProbe.available ? "active-target-only" : "unavailable",
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
@@ -876,8 +878,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {
     try {
       await this.readSnapshotSource();
+      this.canonicalSnapshotAvailable = true;
       return { available: true };
     } catch (error) {
+      this.canonicalSnapshotAvailable = false;
       const detail = error instanceof Error ? error.message : String(error);
       return {
         available: false,
@@ -1084,7 +1088,37 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
-    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider");
+    if (!this.canonicalSnapshotAvailable) await this.probeCanonicalSnapshot();
+    if (!this.canonicalSnapshotAvailable) {
+      throw new Error("CAPABILITY_UNAVAILABLE: active-target-only rebind requires a complete canonical snapshot");
+    }
+    const catalog = await this.listProjects();
+    if (catalog.activeProjectId !== selection.projectId) {
+      throw new Error(
+        `TARGET_MISMATCH: active-only rebind requires requested target ${selection.projectId}/${selection.sequenceId ?? "<any>"}; observed ${catalog.activeProjectId ?? "<unavailable>"}/${catalog.activeSequenceId ?? "<unavailable>"}`,
+      );
+    }
+    const selectedProject = catalog.projects.find(({ id }) => id === selection.projectId);
+    if (!selectedProject) {
+      throw new Error(`TARGET_MISMATCH: active project ${selection.projectId} is missing from the background catalog`);
+    }
+    if (selection.sequenceId === undefined && selectedProject.sequences.length !== 1) {
+      throw new Error("AMBIGUOUS_PROJECT_TARGET: sequenceId is required unless the project has exactly one sequence");
+    }
+    const selectedSequenceId = selection.sequenceId ?? selectedProject.sequences[0]!.id;
+    if (catalog.activeSequenceId !== selectedSequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: active-only rebind requires requested target ${selection.projectId}/${selectedSequenceId}; observed ${catalog.activeProjectId ?? "<unavailable>"}/${catalog.activeSequenceId ?? "<unavailable>"}`,
+      );
+    }
+    const snapshot = await this.readProject();
+    if (snapshot.projectId !== selection.projectId
+      || snapshot.timeline.id !== selectedSequenceId) {
+      throw new Error(
+        `TARGET_MISMATCH: canonical snapshot does not match active-only rebind target ${selection.projectId}/${selectedSequenceId}`,
+      );
+    }
+    return createProjectSelectionResult(catalog, selection, snapshot.revision);
   }
 
   public async readLiveState(): Promise<EditorLiveState> {
@@ -1149,9 +1183,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           },
         } : {}),
         selection: {
-          available: false,
-          mode: "unavailable",
-          unavailableReason: "project selection is not exposed by the background provider",
+          available: this.canonicalSnapshotAvailable,
+          mode: this.canonicalSnapshotAvailable ? "active-target-only" : "unavailable",
+          ...(!this.canonicalSnapshotAvailable ? {
+            unavailableReason: "active-target-only rebind requires a complete canonical snapshot; the provider does not activate projects",
+          } : {}),
         },
       },
     });

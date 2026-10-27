@@ -22,9 +22,10 @@ substitutes seconds, zero, or a guessed frame rate.
 
 The existing `project.list` contract receives the safely discoverable project
 and sequence IDs. The richer provider result remains available to callers that
-need library or event context. Catalog data is observed metadata only, and
-project selection remains unavailable until a separate supported provider can
-prove it without changing application focus.
+need library or event context. Catalog data is observed metadata only. The
+canonical native provider can use the catalog together with a headed canonical
+snapshot to rebind only the already active target by stable IDs; it does not
+switch projects or change application focus.
 This provider is therefore reported as a metadata-only observation surface,
 never as canonical timeline evidence.
 

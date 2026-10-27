@@ -40,6 +40,15 @@ return all of the following independently:
 that requires a headed surface. It does not upgrade canonical timeline
 mutation capability and is not a fallback for the bundled bridge.
 
+The native canonical provider may also advertise
+`projectSelectionMode: "active-target-only"` when it has both a stable
+background catalog and a canonical snapshot source. This mode does not activate
+or switch projects. `project.select` succeeds only when the requested stable
+project and sequence IDs already match both the observed active target and the
+canonical snapshot; otherwise it fails with `TARGET_MISMATCH`. The result uses
+the canonical snapshot revision, supporting safe fresh-session rebind without
+changing application focus.
+
 ## Current API evidence
 
 Apple's public Workflow Extension surface provides an `FCPXHost` timeline

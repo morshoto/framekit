@@ -104,6 +104,7 @@ test("compiles Timeline IR to deterministic versioned FCPXML on the edit frame g
   assert.equal(first.version, "1.11");
   assert.equal(first.xml, second.xml);
   assert.equal(first.digest, second.digest);
+  assert.match(first.xml, /<!DOCTYPE fcpxml>\s*<fcpxml version="1\.11">/);
   assert.match(first.xml, /<fcpxml version="1\.11">/);
   assert.match(first.xml, /frameDuration="1001\/24000s"/);
   assert.match(first.xml, /<format id="r1" name="FFVideoFormat720p2398" frameDuration="1001\/24000s" width="1280" height="720"/);

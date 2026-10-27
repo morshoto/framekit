@@ -95,11 +95,12 @@ created target until verification succeeds.
   fail-closed `failed` state when target-binding proof is unavailable.
 - `artifact.publish.status` reads a job without retrying it or opening Final
   Cut.
-- `editor.native.handoff.readiness` passively combines target-binding provider
-  availability with runtime/extension build alignment. An optional
-  `publishJobId` includes a created target only after the job's native readback
-  is verified. The tool never launches, activates, imports, or mutates Final
-  Cut and does not authorize the separate native import.
+- `editor.native.handoff.readiness` combines target-binding provider
+  availability with runtime/extension build alignment. With `publishJobId`, it
+  rechecks the recorded library, event, project, and sequence IDs against the
+  live catalog and active target before exposing the created target. The tool
+  never launches, activates, imports, or mutates Final Cut and does not
+  authorize the separate native import.
 
 The existing `artifact.publish` tool remains an explicit compatibility path for
 managed artifacts. Its confirmation, artifact target, digest, native semantic

@@ -1006,7 +1006,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
             projectPublisher: withBuildAlignmentGuard(
               options.projectPublisher,
               assertAlignment,
-              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob"],
+              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob"],
             ),
           }
         : {}),
@@ -1933,7 +1933,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().trim().min(1) },
   }, async ({ jobId }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    return jsonResult(options.projectPublisher.getPublishJob(jobId));
+    return jsonResult(await options.projectPublisher.loadPublishJob(jobId));
   });
 
   server.registerTool("artifact.publish", {
@@ -2776,7 +2776,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       }),
       fingerprint,
       buildAlignment,
-      nativeHandoffReadiness: createNativeHandoffReadiness(options.projectPublisher, buildAlignment),
+      nativeHandoffReadiness: await createNativeHandoffReadiness(options.projectPublisher, buildAlignment),
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
@@ -2803,11 +2803,11 @@ async function inspectNativeHandoffReadiness(
   return createNativeHandoffReadiness(options.projectPublisher, buildAlignment, publishJobId);
 }
 
-function createNativeHandoffReadiness(
+async function createNativeHandoffReadiness(
   publisher: FinalCutProjectPublisher | undefined,
   buildAlignment: BuildAlignmentReport,
   publishJobId?: string,
-): NativeHandoffReadiness {
+): Promise<NativeHandoffReadiness> {
   const publisherReadiness = inspectProjectPublisherReadiness(publisher);
   const reasons = [...publisherReadiness.reasons];
   if (buildAlignment.status !== "matched") {
@@ -2829,15 +2829,34 @@ function createNativeHandoffReadiness(
       });
     } else {
       try {
-        const job = publisher.getPublishJob(publishJobId);
+        const job = typeof publisher.loadPublishJob === "function"
+          ? await publisher.loadPublishJob(publishJobId)
+          : publisher.getPublishJob(publishJobId);
         publish = { jobId: job.jobId, state: job.state };
         const resultTarget = job.result?.createdTarget;
         const targetMatches = job.createdTarget
           && resultTarget
-          && job.createdTarget.projectId === resultTarget.projectId
-          && job.createdTarget.sequenceId === resultTarget.sequenceId;
+          && nativeTargetIdentityMatches(job.createdTarget, resultTarget);
         if (job.state === "verified" && job.result?.verified === true && targetMatches) {
-          verifiedTarget = resultTarget;
+          if (typeof publisher.verifyCreatedTarget === "function") {
+            try {
+              const reboundTarget = await publisher.verifyCreatedTarget(job.jobId);
+              if (!nativeTargetIdentityMatches(resultTarget, reboundTarget)) {
+                throw new Error("persisted target identity changed during live rebind");
+              }
+              verifiedTarget = reboundTarget;
+            } catch (error) {
+              reasons.push({
+                code: "FINAL_CUT_PUBLISH_TARGET_REBIND_FAILED",
+                message: `Publish job ${job.jobId} no longer matches the live native target: ${error instanceof Error ? error.message : String(error)}`,
+              });
+            }
+          } else {
+            reasons.push({
+              code: "FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE",
+              message: `Publish job ${job.jobId} cannot be rebound because the publisher cannot revalidate the native library and active target`,
+            });
+          }
         } else {
           reasons.push({
             code: "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED",
@@ -2868,6 +2887,29 @@ function createNativeHandoffReadiness(
     ...(publish ? { publish } : {}),
     ...(ready && verifiedTarget ? { createdTarget: verifiedTarget } : {}),
   };
+}
+
+function nativeTargetIdentityMatches(
+  left: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+  },
+  right: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+  },
+): boolean {
+  return left.kind === right.kind
+    && left.projectId === right.projectId
+    && left.sequenceId === right.sequenceId
+    && left.libraryId === right.libraryId
+    && left.eventId === right.eventId;
 }
 
 function inspectProjectPublisherReadiness(

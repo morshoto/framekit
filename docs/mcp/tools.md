@@ -369,8 +369,11 @@ rational timing values, the stable-ID/name-only reconciliation method, and the
 selection capability. Stable IDs are required before active IDs are returned;
 name-only matches and changing revisions remain unresolved or stale and clear
 the active IDs. Background catalog discovery never upgrades metadata-only data
-to canonical timeline evidence, and project selection remains unavailable until
-a provider can prove a supported non-UI selection transition.
+to canonical timeline evidence. The canonical native provider supports
+`active-target-only` rebind when the requested stable IDs match the observed
+active project, sequence, and canonical snapshot; it never activates a project
+or changes focus. The bundled Workflow Extension alone continues to report
+project selection unavailable.
 
 The canonical native provider does not synthesize `project.list` from its
 headed canonical snapshot. If no background catalog provider is available,
@@ -383,7 +386,7 @@ fields and adds `requestedTarget`, `observedActiveTarget`, and
 `observedRevision`. The observed target and revision are read back after the
 provider request; an acknowledgement alone is not a successful selection.
 `editor.projectSelectionMode` identifies whether the provider is
-`background-capable`, `headed-only`, or `unavailable`.
+`background-capable`, `active-target-only`, `headed-only`, or `unavailable`.
 
 The headed project-selection acceptance gate is opt-in and never uses project
 names as IDs:

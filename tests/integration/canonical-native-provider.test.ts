@@ -248,7 +248,8 @@ test("canonical native provider exposes one explicit active project and sequence
   const capabilities = await provider.getCapabilities();
   assert.equal(capabilities.editor.canonicalTimelineMode, "canonical-read");
   assert.equal(capabilities.editor.projectCatalogRead, true);
-  assert.equal(capabilities.editor.projectSelection, false);
+  assert.equal(capabilities.editor.projectSelection, true);
+  assert.equal(capabilities.editor.projectSelectionMode, "active-target-only");
   assert.equal(capabilities.editor.projectRead, true);
   assert.equal(capabilities.editor.timelineSnapshotRead, true);
   assert.equal(capabilities.editor.timelineWrite, false);
