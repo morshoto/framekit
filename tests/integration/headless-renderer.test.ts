@@ -17,6 +17,48 @@ import { FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/i
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
 
+test("FFmpeg renderer preserves apostrophes in title text", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const sourceWithApostrophe = await timeline(
+      join(directory, "fixture-red-440hz.mp4"),
+      join(directory, "fixture-blue-880hz.mp4"),
+    );
+    sourceWithApostrophe.sequence.titles![0]!.text = "Framekit's";
+    const sourceWithoutApostrophe = structuredClone(sourceWithApostrophe);
+    sourceWithoutApostrophe.sequence.titles![0]!.text = "Framekits";
+
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const render = async (source: TimelineIr, outputPath: string) => {
+      const request = createFramekitRenderRequest({
+        timeline: source,
+        target: { projectId: source.project.id, sequenceId: source.sequence.id },
+        parameters: parameters(outputPath),
+      });
+      const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+      return renderer.render(plan);
+    };
+    const withApostrophePath = join(directory, "with-apostrophe.mp4");
+    const withoutApostrophePath = join(directory, "without-apostrophe.mp4");
+    await render(sourceWithApostrophe, withApostrophePath);
+    await render(sourceWithoutApostrophe, withoutApostrophePath);
+
+    const withApostropheFrame = await frameAt(withApostrophePath, 0.25, directory, "with-apostrophe");
+    const withoutApostropheFrame = await frameAt(withoutApostrophePath, 0.25, directory, "without-apostrophe");
+    assert.notEqual(
+      frameDigest(withApostropheFrame),
+      frameDigest(withoutApostropheFrame),
+      "rendered frame should include the apostrophe glyph",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-"));
   try {
