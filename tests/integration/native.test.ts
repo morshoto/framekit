@@ -2927,7 +2927,7 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
 });
 
 test("native Final Cut expands a user-home path before validating and importing it", async () => {
-  const homeDirectory = await mkdtemp(join(os.homedir(), ".framekit-native-media-home-"));
+  const homeDirectory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-home-"));
   const sourcePath = join(homeDirectory, "home-import.mov");
   await writeFile(sourcePath, "video fixture");
 
@@ -2937,6 +2937,7 @@ test("native Final Cut expands a user-home path before validating and importing 
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    homeDirectory,
     executor: async (script) => {
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
@@ -2952,7 +2953,7 @@ test("native Final Cut expands a user-home path before validating and importing 
   });
 
   try {
-    const requestedPath = `~/${relative(os.homedir(), sourcePath)}`;
+    const requestedPath = "~/home-import.mov";
     const imported = await adapter.importMedia(requestedPath);
 
     assert.equal(imported.sourcePath, sourcePath);
