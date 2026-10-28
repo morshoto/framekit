@@ -54,7 +54,7 @@ changed.
 | Surface | Target | Revision | Read-after-write | Undo | Resulting project state |
 | --- | --- | --- | --- | --- | --- |
 | `artifact.edit` | Managed FCPXML artifact ID and path | Artifact snapshot revision | Reads the same artifact after the write | Restores the artifact transaction | Updates the FCPXML artifact; it does not claim to change the open Final Cut project |
-| `artifact.publish` | Verified managed artifact or approved headless rough-cut artifact, source proof, and new `.fcpbundle` path | Verified source plus `confirm: true` | Binds native project/sequence IDs, exports the active project through Final Cut, compares supported timeline semantics, and confirms source-media hashes are unchanged | Does not undo the imported project through artifact undo | Creates/imports into the requested new library; reports activation and semantic readback evidence |
+| `artifact.publish` | Experimental opt-in: verified managed artifact or approved headless rough-cut artifact, source proof, and new `.fcpbundle` path | Verified source plus `confirm: true` | Binds native project/sequence IDs, exports the active project through Final Cut, compares supported timeline semantics, and confirms source-media hashes are unchanged | Does not undo the imported project through artifact undo | Dispatch alone is unverified; reports verified native delivery only after matching target readback; not guaranteed in v0.1.18 |
 | `editor.timeline.edit` | Explicit active project ID and sequence ID | Required live base revision | Reads the identified live timeline after the write | Restores the identified live timeline transaction | Changes the selected live project only when canonical live-write capability is available |
 
 An artifact edit and a live timeline edit are not interchangeable, even when
@@ -119,14 +119,16 @@ exact property readback, and native Undo. Neither native placement operation
 upgrades the live Workflow Extension's canonical timeline capabilities, and
 person cutout remains unavailable.
 
-When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
+The v0.1.18 native publish route is experimental and opt-in, not a release
+guarantee. When both `FRAMEKIT_FCPXML_PATH` and native writes are configured,
 `artifact.publish.preview` accepts either a verified artifact transaction or an
 approved headless rough-cut execution for its exact `artifactPath`, plus a new
 absolute `.fcpbundle` `targetLibraryPath`. `artifact.publish.execute` requires
-literal `confirm: true` before importing a new Final Cut project. The staged XML
-binds the import to that library; the approved artifact remains unchanged. The
-publisher reports the created project target and active project before/after,
-including any activation Final Cut performs while opening the document.
+literal `confirm: true` before requesting import into a new Final Cut project.
+The staged XML binds the request to that library; the approved artifact remains
+unchanged. A document-open acknowledgment proves dispatch only. Native delivery
+is verified only after the publisher observes the created project target and
+active project and completes semantic readback.
 
 The publisher uses the Workflow Extension's FCPXML document-open route with the
 requested library path embedded in the staged import options. That route

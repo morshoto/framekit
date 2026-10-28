@@ -1,5 +1,42 @@
 # Changelog
 
+## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-28
+
+### Release scope
+- **Supported:** Production Codex MCP workflow, independently verified MP4, editable FCPXML, and canonical provenance/source-integrity checks.
+- **Not guaranteed:** Native Final Cut library creation, successful import, active-project binding, or authoritative native semantic readback. Optional native publishing is experimental; an FCPXML dispatch acknowledgment is not proof of project creation.
+
+### New Features
+- chore: add local checkout validation workflow by @morshoto in https://github.com/morshoto/framekit/pull/522
+- feat: guard new-project publishing by @morshoto in https://github.com/morshoto/framekit/pull/523
+- feat: bind native publish to a new library by @morshoto in https://github.com/morshoto/framekit/pull/537
+- feat: report native handoff readiness by @morshoto in https://github.com/morshoto/framekit/pull/539
+- feat: bind approved rough cuts to project publishing by @morshoto in https://github.com/morshoto/framekit/pull/525
+- feat: route Codex video workflow through headless projects by @morshoto in https://github.com/morshoto/framekit/pull/526
+- feat: verify headed Final Cut project publishing by @morshoto in https://github.com/morshoto/framekit/pull/552
+- feat: sync status labels to project by @morshoto in https://github.com/morshoto/framekit/pull/600
+### Documentation
+- chore: align GitHub release notes by @morshoto in https://github.com/morshoto/framekit/pull/530
+- chore: validate pretag release artifacts by @morshoto in https://github.com/morshoto/framekit/pull/528
+- test: record blocked MVP QA readiness by @morshoto in https://github.com/morshoto/framekit/pull/531
+- feat: add local Framekit MCP setup by @morshoto in https://github.com/morshoto/framekit/pull/546
+- test: record issue 544 native acceptance preflight by @morshoto in https://github.com/morshoto/framekit/pull/550
+- chore: verify downloaded signed native release by @morshoto in https://github.com/morshoto/framekit/pull/553
+### Chores
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/524
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/534
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/536
+- chore(deps): update pnpm to v12.14.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/535
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/540
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/533
+- fix(deps): update dependency zod to v4 [security] - abandoned by @renovate[bot] in https://github.com/morshoto/framekit/pull/548
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/575
+### Other changes
+- chore: sync linked issue milestones by @morshoto in https://github.com/morshoto/framekit/pull/529
+- chore: CodeQL as push only change by @morshoto in https://github.com/morshoto/framekit/pull/549
+- chore(deps): bump zod from 3.25.76 to 4.6.6 by @dependabot[bot] in https://github.com/morshoto/framekit/pull/547
+- Update labels.json by @morshoto in https://github.com/morshoto/framekit/pull/596
+
 ## [v0.1.17](https://github.com/morshoto/framekit/compare/v0.1.16...v0.1.17) - 2026-10-11
 
 ### Feature changes

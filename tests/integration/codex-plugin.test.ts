@@ -110,6 +110,8 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     "projectId",
     "media.understand",
     "rough-cut.plan",
+    "matches individual query terms",
+    "every intended source appears",
     "headless.rough-cut.preview",
     "headless.rough-cut.execute",
     "artifact.publish.preview",
@@ -147,6 +149,30 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     assert.ok(runbook.toLowerCase().includes(expected.toLowerCase()), `runbook includes ${expected}`);
   }
   assert.doesNotMatch(runbook, /FRAMEKIT_FINAL_CUT_LIBRARY_UID/);
+});
+
+test("Codex video handoff records artifact-only and native follow-up provenance", async () => {
+  const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
+  const evidenceSection = runbook.match(/## Record the run([\s\S]*?)(?:\n## |$)/)?.[1] ?? "";
+  const normalizedEvidenceSection = evidenceSection.replace(/\s+/g, " ").toLowerCase();
+
+  for (const expected of [
+    "canonical revision",
+    "source-media SHA-256",
+    "MP4 and FCPXML SHA-256",
+    "headless preview digest",
+    "native publish preview",
+    "Workflow Extension version and fingerprint",
+    "sanitized Codex/MCP transcript",
+    "approval records",
+    "created-target readback",
+    "active-project before/after",
+    "recovery evidence",
+    "#597",
+    "#599",
+  ]) {
+    assert.ok(normalizedEvidenceSection.includes(expected.toLowerCase()), `evidence section includes ${expected}`);
+  }
 });
 
 test("CI runs the clean Codex plugin installation smoke test", async () => {

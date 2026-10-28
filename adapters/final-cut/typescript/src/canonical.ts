@@ -240,10 +240,7 @@ export class FinalCutCanonicalSnapshotSource {
 export function buildFinalCutCanonicalExportScript(exportPath: string): string {
   const exportDirectory = dirname(exportPath);
   const exportName = basename(exportPath);
-  const defaultDesktop = join(homedir(), "Desktop");
-  const chooseExportDirectory = exportDirectory === defaultDesktop
-    ? ""
-    : `          keystroke "g" using {command down, shift down}
+  const chooseExportDirectory = `          keystroke "g" using {command down, shift down}
           delay 1
           try
             set pathField to text field 1 of sheet 1 of window "Export XML"

@@ -1872,7 +1872,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.preview", {
-    description: "Prepare a verified managed-artifact or approved headless-rough-cut publish handoff without opening Final Cut.",
+    description: "Prepare an experimental, opt-in native handoff from a verified artifact without opening Final Cut.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
       targetLibraryPath: z.string().trim().min(1),
@@ -1915,7 +1915,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.execute", {
-    description: "Execute a prepared artifact publish job after explicit confirmation and return only a verified or resumable state.",
+    description: "Execute an experimental native handoff after explicit confirmation; dispatch alone is not project-creation proof, and success requires target readback.",
     inputSchema: {
       jobId: z.string().trim().min(1),
       confirm: z.literal(true),
@@ -1937,7 +1937,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish", {
-    description: "Import the validated FCPXML artifact into a new Final Cut library at the approved targetLibraryPath; requires explicit confirmation.",
+    description: "Experimental, opt-in native import of validated FCPXML. Dispatch alone does not prove project creation; success requires matching created-target readback and explicit confirmation.",
     inputSchema: artifactPublishInputSchema,
   }, async ({ artifactPath, targetLibraryPath, transactionId, confirm }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
@@ -1963,7 +1963,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("timeline.publish.new-project", {
-    description: "Publish a verified artifact transaction as a new Final Cut project after explicit confirmation.",
+    description: "Experimental, opt-in native import of a verified artifact transaction; reports verified delivery only after matching created-target readback and explicit confirmation.",
     inputSchema: {
       transactionId: z.string().min(1),
       targetLibraryPath: z.string().trim().min(1),

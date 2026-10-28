@@ -229,17 +229,20 @@ then run:
 FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH="/absolute/path/to/disposable publisher.fcpxml" \
 FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH="/absolute/path/to/new publisher library.fcpbundle" \
 FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT="Imported Publisher E2E" \
-FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1 \
+FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE=headed-apple-event \
 pnpm run test:final-cut-publisher-headed \
   > docs/tests/evidence/$(date +%F)-publisher-live.json
 ```
 
 The runner checks the managed artifact, prepares it through a verified artifact
 transaction, and calls `artifact.publish` with the explicit new library path and
-confirmation. The staged FCPXML uses Final Cut's `library location` import
-option. `FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT=1` explicitly enables the
-activated AppleEvent fallback when background document delivery is rejected.
-The bridge reports dispatch; a read-only library catalog must then confirm the
+confirmation. Select `FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE=headed-apple-event`
+before preview to use the activated AppleEvent route. The preview records this
+route and its activation side effect. The staged FCPXML uses Final Cut's
+`library location` import option for the approved destination. The default
+`background-document-open` route does not fall through to AppleEvents after an
+attempted failure; prepare a fresh preview and obtain new approval to change
+routes. The delivery provider reports dispatch; a read-only library catalog must then confirm the
 exact library, project, and sequence identities. The import may add the project
 without activating its timeline. While publish verification is waiting,
 double-click the imported project in the new library's Event Browser. The runner requires

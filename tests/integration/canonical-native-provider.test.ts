@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -831,6 +832,14 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   assert.match(script, /set timelineArea to my findTimelineArea\(frontWindow, 0\)/);
   assert.match(script, /perform action "AXPress" of timelineArea/);
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
+});
+
+test("canonical Final Cut export overrides a remembered save folder for Desktop targets", () => {
+  const exportPath = join(homedir(), "Desktop", "framekit-canonical.fcpxml");
+  const script = buildFinalCutCanonicalExportScript(exportPath);
+
+  assert.match(script, /keystroke "g" using \{command down, shift down\}/);
+  assert.match(script, new RegExp(`set value of pathField to "${join(homedir(), "Desktop")}"`));
 });
 
 test("canonical Final Cut export discovers nested save controls", () => {
