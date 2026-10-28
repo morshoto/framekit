@@ -80,7 +80,7 @@ test("the local MCP launcher provisions development mode and requires alignment"
 });
 
 test("the validation guide documents exact local Codex registration and checks", async () => {
-  const installation = await readFile(resolve(repository, "docs/final-cut/installation.md"), "utf8");
+  const installation = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
 
   for (const expected of [
     "pnpm install --frozen-lockfile",

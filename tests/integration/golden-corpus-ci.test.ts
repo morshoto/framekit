@@ -7,7 +7,7 @@ test("the CI test command runs the versioned golden workflow corpus", async () =
   const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
     scripts?: { test?: string };
   };
-  const documentation = await readFile(resolve("docs/tests/golden-corpus.md"), "utf8").catch(() => "");
+  const documentation = await readFile(resolve("docs/testing.md"), "utf8");
 
   assert.match(packageJson.scripts?.test ?? "", /tests\/golden\/\*\.test\.ts/);
   assert.match(documentation, /pnpm run test:golden/);

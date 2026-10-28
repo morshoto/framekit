@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -45,9 +47,21 @@ test("internal link checks report missing files and fragments", () => {
   ]);
 
   assert.deepEqual(findBrokenMarkdownLinks(files), [
-    "README.md:1 links to missing docs/retired.md",
+    "README.md:1 links to missing target docs/retired.md",
     "README.md:2 links to missing heading #missing in docs/architecture.md",
   ]);
+});
+
+test("internal links can target tracked assets and directories", () => {
+  const files = new Map([[
+    "README.md",
+    "[Image](assets/framekit.png)\n[Examples](docs/examples/)",
+  ]]);
+
+  assert.deepEqual(
+    findBrokenMarkdownLinks(files, ["README.md", "assets/framekit.png", "docs/examples/demo.md"]),
+    [],
+  );
 });
 
 test("link checks ignore code examples and external URLs", () => {
@@ -65,4 +79,52 @@ test("link checks ignore code examples and external URLs", () => {
   ]);
 
   assert.deepEqual(findBrokenMarkdownLinks(files), []);
+});
+
+test("canonical docs retain architecture and safety boundaries", async () => {
+  const architecture = await readFile(resolve("docs/architecture.md"), "utf8");
+
+  for (const requirement of [
+    "packages/runtime",
+    "apps/mcp-server",
+    "Timeline IR",
+    "TimelineTarget",
+    "frameDuration",
+    "read-after-write",
+    "provider and backend provenance",
+    "metadata-only",
+    "canonical timeline",
+    "fail closed",
+    "EditingSession",
+    "headed-native fallback",
+    "exact-target readback",
+    "Undo",
+    "FCPXML editing is an explicit artifact operation",
+  ]) {
+    const pattern = requirement
+      .split(/\s+/)
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("\\s+");
+    assert.match(architecture, new RegExp(pattern, "i"));
+  }
+});
+
+test("canonical docs keep setup, test, and release commands discoverable", async () => {
+  const [gettingStarted, testing, release] = await Promise.all([
+    readFile(resolve("docs/getting-started.md"), "utf8"),
+    readFile(resolve("docs/testing.md"), "utf8"),
+    readFile(resolve("docs/release.md"), "utf8"),
+  ]);
+
+  assert.match(gettingStarted, /codex plugin marketplace add morshoto\/framekit/);
+  assert.match(gettingStarted, /FRAMEKIT_EDITOR/);
+  assert.match(gettingStarted, /FRAMEKIT_FCPXML_PATH/);
+  assert.match(gettingStarted, /FRAMEKIT_FINAL_CUT_SOCKET/);
+  assert.match(gettingStarted, /^### Optional analysis providers$/m);
+  assert.match(testing, /pnpm run check:docs/);
+  assert.match(testing, /deterministic[\s\S]*FCPXML artifact[\s\S]*metadata-only[\s\S]*canonical-live[\s\S]*headed-native/i);
+  assert.match(testing, /does not run headed UI mutations by default/i);
+  assert.match(release, /Trusted Publishing/);
+  assert.match(release, /checksum/);
+  assert.match(release, /verify-release-provenance/);
 });

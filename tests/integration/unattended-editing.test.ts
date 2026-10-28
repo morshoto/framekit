@@ -158,13 +158,3 @@ test("stops before materialization when SQLite changes without a fresh provider 
   assert.equal(result.experiment, undefined);
   assert.equal(result.overwritten, false);
 });
-
-test("documents the unattended evidence boundaries", async () => {
-  const documentation = await readFile("docs/architecture/unattended-editing.md", "utf8");
-
-  assert.match(documentation, /SQLite observation -> Timeline IR session/);
-  assert.match(documentation, /canonical: false/);
-  assert.match(documentation, /nativeImportVerified: false/);
-  assert.match(documentation, /mutationAttempted: false/);
-  assert.match(documentation, /conflicted/);
-});

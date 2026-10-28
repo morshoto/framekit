@@ -999,42 +999,6 @@ test("MCP does not advertise headed publishing in headless mode", async () => {
   }
 });
 
-test("MCP documentation describes one consistent editor-first policy", async () => {
-  const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const [overview, tools, errors] = await Promise.all([
-    readFile(resolve(repository, "docs/mcp/README.md"), "utf8"),
-    readFile(resolve(repository, "docs/mcp/tools.md"), "utf8"),
-    readFile(resolve(repository, "docs/mcp/capabilities-and-errors.md"), "utf8"),
-  ]);
-
-  for (const content of [overview, tools, errors]) {
-    assert.match(content, /editor-first/i);
-    assert.match(content, /editing\.route/);
-    assert.match(content, /external-renderer/);
-    assert.match(content, /CAPABILITY_UNAVAILABLE/);
-  }
-  assert.match(tools, /project\.list/);
-  assert.match(tools, /observation\.library/);
-  assert.match(errors, /background API support/);
-  assert.match(errors, /canonical snapshot support/);
-  assert.match(errors, /native UI access/);
-  const explicitHeadedDocs = [overview, tools].map((content) => {
-    const marker = content.indexOf("Explicit headed/editor-first");
-    return marker >= 0 ? content.slice(marker) : content;
-  });
-  for (const [before, after] of [
-    ["connection.status", "editor.inspect"],
-    ["editor.inspect", "project.inspect"],
-    ["project.inspect", "editing.route"],
-    ["editing.route", "preview"],
-    ["preview", "execute"],
-    ["execute", "edit.diff"],
-    ["edit.diff", "edit.verify"],
-  ]) {
-    assert.ok(explicitHeadedDocs.every((content) => content.indexOf(before) < content.indexOf(after)), `${before} must precede ${after}`);
-  }
-});
-
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
