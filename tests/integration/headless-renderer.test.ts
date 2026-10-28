@@ -435,6 +435,59 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
   }
 });
 
+test("FFmpeg renders both occurrences that reuse one music resource", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-reused-music-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const musicPath = join(directory, "reused-music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
+      "-c:a", "pcm_s16le", "-y", musicPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.titles = [];
+    source.sequence.transitions = [];
+    source.resources.push(audioResource("reused-music", musicPath, await digest(musicPath)));
+    for (const [index, start] of [0, 1].entries()) {
+      source.sequence.occurrences.push({
+        id: `music-${index}`,
+        name: `Music ${index}`,
+        startTime: { value: String(start), timescale: "1" },
+        durationTime: { value: "1", timescale: "1" },
+        sourceStartTime: { value: String(start), timescale: "1" },
+        track: 1,
+        role: "music",
+        mediaId: "reused-music",
+        gainDb: -6,
+      });
+    }
+    const outputPath = join(directory, "reused-music.mp4");
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const pcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-i", outputPath, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
+    ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+    const samples = pcm.stdout as unknown as Buffer;
+    const window = (start: number) => samples.subarray(start * 48_000 * 4, (start + 1) * 48_000 * 4);
+    const firstAmplitude = frequencyAmplitude(window(0), 1_760, 48_000);
+    const secondAmplitude = frequencyAmplitude(window(1), 1_760, 48_000);
+    assert.ok(firstAmplitude > 0.002, `first occurrence should be audible, got ${firstAmplitude}`);
+    assert.ok(secondAmplitude > 0.002, `reused second occurrence should be audible, got first=${firstAmplitude}, second=${secondAmplitude}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer reports unsupported required semantics before rendering", () => {
   const source = timelineWithoutMedia();
   source.sequence.captions.push({
