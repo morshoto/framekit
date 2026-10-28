@@ -589,7 +589,7 @@ test('release workflow validates the built MCP server version before publishing'
 	assert.ok(validation < publication, 'MCP validation must run before npm publish');
 
 	const documentation = await readFile(
-		resolve(repository, 'docs/releasing.md'),
+		resolve(repository, 'docs/release.md'),
 		'utf8',
 	);
 	assert.match(
@@ -600,7 +600,7 @@ test('release workflow validates the built MCP server version before publishing'
 
 test('release documentation provides the exact npm trust command', async () => {
 	const documentation = await readFile(
-		resolve(repository, 'docs/releasing.md'),
+		resolve(repository, 'docs/release.md'),
 		'utf8',
 	);
 	assert.match(documentation, /npm trust github @morshoto\/framekit/);
@@ -612,19 +612,19 @@ test('release documentation provides the exact npm trust command', async () => {
 
 test('release documentation explains npm lifecycle verification fallback', async () => {
 	const documentation = await readFile(
-		resolve(repository, 'docs/releasing.md'),
+		resolve(repository, 'docs/release.md'),
 		'utf8',
 	);
 
 	assert.match(documentation, /NPM_LIFECYCLE_TOKEN/);
 	assert.match(documentation, /validating/i);
 	assert.match(documentation, /public registry/i);
-	assert.match(documentation, /16 minutes/i);
+	assert.match(documentation, /16\s+minutes/i);
 });
 
 test('release documentation explains manual native asset recovery', async () => {
 	const documentation = await readFile(
-		resolve(repository, 'docs/releasing.md'),
+		resolve(repository, 'docs/release.md'),
 		'utf8',
 	);
 

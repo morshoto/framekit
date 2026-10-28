@@ -75,7 +75,6 @@ test("rejects invalid artifact observations before environment classification", 
 
 test("read-only experiment runner records artifact and environment evidence without mutation", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-fcpxml-console-experiment.mjs"), "utf8");
-  const documentation = await readFile(join(process.cwd(), "docs/architecture/locked-console-fcpxml-experiment.md"), "utf8");
   const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
 
   assert.equal(packageJson.scripts["test:final-cut-fcpxml-console-experiment"], "node --import tsx scripts/final-cut-fcpxml-console-experiment.mjs");
@@ -93,9 +92,6 @@ test("read-only experiment runner records artifact and environment evidence with
   assert.doesNotMatch(runner, /\b(?:writeFile|rename|unlink)\b/);
   assert.match(runner, /classifyFinalCutFcpxmlExperiment/);
   assert.match(runner, /artifactReadback/);
-  assert.match(documentation, /FINAL_CUT_NATIVE_CONSOLE_LOCKED/);
-  assert.match(documentation, /targetBoundReadback: unavailable/);
-  assert.match(documentation, /safeToOverwrite: false/);
 });
 
 test("native FCPXML delivery is an explicit non-activating bridge with a target gate", async () => {

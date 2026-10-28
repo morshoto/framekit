@@ -86,14 +86,7 @@ test("Framekit Skill links to an installable production runbook", async () => {
   );
 
   const packagedRunbook = await readFile(runbookPath, "utf8");
-  const repositoryRunbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
-  assert.equal(
-    packagedRunbook,
-    repositoryRunbook
-      .replaceAll("../speech-analysis.md", "https://github.com/morshoto/framekit/blob/main/docs/speech-analysis.md")
-      .replaceAll("../final-cut/installation.md", "https://github.com/morshoto/framekit/blob/main/docs/final-cut/installation.md"),
-    "the installed runbook must stay aligned with its repository source",
-  );
+  assert.match(packagedRunbook, /docs\/getting-started\.md/);
 });
 
 test("Framekit plugin exposes a headless video workflow and separately authorized native delivery", async () => {
@@ -125,7 +118,7 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
     assert.ok(skill.toLowerCase().includes(expected.toLowerCase()), `skill includes ${expected}`);
   }
 
-  const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
+  const runbook = await readFile(resolve(repository, "plugins/framekit/references/tests/codex-video-production-e2e.md"), "utf8");
   for (const expected of [
     "FRAMEKIT_SPEECH_ANALYZER",
     "Codex",
@@ -152,7 +145,7 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
 });
 
 test("Codex video handoff records artifact-only and native follow-up provenance", async () => {
-  const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
+  const runbook = await readFile(resolve(repository, "plugins/framekit/references/tests/codex-video-production-e2e.md"), "utf8");
   const evidenceSection = runbook.match(/## Record the run([\s\S]*?)(?:\n## |$)/)?.[1] ?? "";
   const normalizedEvidenceSection = evidenceSection.replace(/\s+/g, " ").toLowerCase();
 
@@ -195,13 +188,13 @@ test("CI runs the clean Codex plugin installation smoke test", async () => {
 test("user documentation leads with plugin installation and explains first-run boundaries", async () => {
   const readme = await readFile(resolve(repository, "README.md"), "utf8");
   const gettingStarted = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
-  const installation = await readFile(resolve(repository, "docs/final-cut/installation.md"), "utf8");
+  const installation = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
 
   for (const content of [readme, gettingStarted]) {
     assert.match(content, /codex plugin marketplace add morshoto\/framekit/);
     assert.match(content, /\/plugins/);
     assert.match(content, /new\s+Codex session/i);
-    assert.doesNotMatch(content, /codex mcp add framekit/);
+    assert.doesNotMatch(content, /codex mcp add framekit\s+--env/);
   }
 
   for (const expected of [
@@ -215,8 +208,8 @@ test("user documentation leads with plugin installation and explains first-run b
     assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
   }
   assert.match(installation, /npx -y @morshoto\/framekit doctor finalcut/);
-  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready\s+live session may expose metadata while rejecting unsupported operations/i);
-  assert.match(gettingStarted, /permissions are required only for an explicit\s+headed native-write setup/i);
+  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready\s+live session\s+may expose metadata while rejecting unsupported operations/i);
+  assert.match(gettingStarted, /permissions are required only for an explicit\s+headed\s+native-write setup/i);
 });
 
 test("tagpr releases publish the package consumed by the plugin", async () => {

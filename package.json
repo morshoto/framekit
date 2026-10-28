@@ -22,7 +22,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:package": "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json && tsx scripts/write-package-build-identity.ts",
-    "test": "tsx --test tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/speech/*.test.ts tests/golden/*.test.ts tests/release-gate/*.test.ts tests/release-report/*.test.ts",
+    "test": "pnpm run test:documentation && tsx --test tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/speech/*.test.ts tests/golden/*.test.ts tests/release-gate/*.test.ts tests/release-report/*.test.ts",
+    "test:documentation": "node --test tests/documentation/*.test.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "test:coverage": "c8 --reporter=json-summary --reporter=text --reports-dir=\"${C8_REPORTS_DIR:-coverage}\" pnpm test",
     "test:filler-removal": "tsx --test tests/filler-removal/*.test.ts",
     "benchmark:filler-removal": "tsx scripts/run-filler-removal-benchmark.ts",

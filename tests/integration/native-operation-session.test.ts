@@ -500,29 +500,6 @@ test("disposable native execution rejects a missing observed identity", async ()
   assert.equal(state.nativeEditCalls, 0);
 });
 
-test("native operation session documentation names the contract and safety boundary", async () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const tools = await readFile(join(here, "../../docs/mcp/tools.md"), "utf8");
-  const live = await readFile(join(here, "../../docs/mcp/final-cut-live.md"), "utf8");
-  const adr = await readFile(join(here, "../../docs/adr/0010-resumable-native-operation-session.md"), "utf8");
-  const adrIndex = await readFile(join(here, "../../docs/project/adr/README.md"), "utf8");
-
-  for (const tool of [
-    "editor.native.operation.submit",
-    "editor.native.operation.status",
-    "editor.native.operation.retry",
-    "editor.native.operation.cancel",
-  ]) assert.ok(tools.includes(`| \`${tool}\` |`), `${tool} is not documented in docs/mcp/tools.md`);
-  assert.match(live, /waiting_for_final_cut/);
-  assert.match(live, /idempotencyKey/);
-  assert.match(live, /five minutes after\s+their\s+`expiresAt`/);
-  assert.match(live, /do not survive MCP process restart/);
-  assert.match(live, /`completed`, `rolled_back`, `failed`, or\s+`cancelled`/);
-  assert.match(adr, /five minutes after\s+their\s+`expiresAt`/);
-  assert.match(adr, /\+--> cancelled/);
-  assert.match(adrIndex, /ADR 0009: Non-UI project selection/);
-});
-
 interface DisposableState {
   snapshot: ReturnType<typeof disposableSnapshot>;
   nativeReady: boolean;

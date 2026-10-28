@@ -533,37 +533,7 @@ test("editor inspection preserves each configured analyzer provider backend", as
   });
 });
 
-test("capability documentation describes the versioned operation contract", async () => {
-  const architecture = await readFile(join(process.cwd(), "docs/architecture/capability-model.md"), "utf8");
-  const mcp = await readFile(join(process.cwd(), "docs/mcp/capabilities-and-errors.md"), "utf8");
-  const documentation = `${architecture}\n${mcp}`;
 
-  assert.match(documentation, /schemaVersion/);
-  assert.match(documentation, /families/);
-  assert.match(documentation, /unavailableReason/);
-  assert.match(documentation, /canonicalDocument/);
-  assert.match(documentation, /editing/);
-  assert.match(documentation, /pictureInPicture/);
-  assert.match(documentation, /masking/);
-  assert.match(documentation, /preflight/);
-  assert.match(documentation, /documentMode/);
-  assert.match(documentation, /processMode/);
-  assert.match(documentation, /native-write/);
-  assert.match(documentation, /projectCreation/);
-  assert.match(documentation, /clipInsertion/);
-  assert.match(documentation, /clipMovement/);
-  assert.match(documentation, /backgroundMediaDiscovery/);
-  assert.match(documentation, /backgroundTemplateDiscovery/);
-  assert.match(documentation, /backgroundLibraryInspection/);
-  assert.match(documentation, /observation\.library/);
-  assert.match(documentation, /final-cut-background-library/);
-  assert.match(documentation, /metadata-only/);
-  assert.match(documentation, /canonical timeline evidence/);
-  assert.match(mcp, /FRAMEKIT_FINAL_CUT_MEDIA_ROOTS/);
-  assert.match(mcp, /discovery: \"native\"/);
-  assert.match(architecture, /`editor\.projectRead` is disabled/);
-  assert.match(mcp, /"projectRead": false/);
-});
 
 test("MCP connection status normalizes injected capability payloads", async () => {
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
@@ -712,20 +682,7 @@ test("Workflow Extension rejects unsupported project catalog methods", async () 
   assert.doesNotMatch(swift, /private func selectProject\(/);
 });
 
-test("project selection decision records API and runtime evidence", async () => {
-  const decision = await readFile(join(
-    process.cwd(),
-    "docs/adr/0009-non-ui-project-selection.md",
-  ), "utf8");
 
-  assert.match(decision, /FCPXHost/);
-  assert.match(decision, /FCPXTimeline\.activeSequence/);
-  assert.match(decision, /projectCatalogRead: false/);
-  assert.match(decision, /projectSelection: false/);
-  assert.match(decision, /select-project/);
-  assert.match(decision, /CAPABILITY_UNAVAILABLE/);
-  assert.match(decision, /projectSelectionMode/);
-});
 
 test("headed project selection gate verifies transition evidence", async () => {
   const runner = await readFile(join(
