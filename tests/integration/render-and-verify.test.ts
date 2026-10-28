@@ -96,6 +96,42 @@ test("render-and-verify returns verified provenance and independent artifact met
   }
 });
 
+test("render-and-verify accepts 44.1 kHz source audio normalized to 48 kHz", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-44100-"));
+  try {
+    const sourcePath = join(directory, "source-44100.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=2",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2",
+      "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", sourcePath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const timeline = minimalTimeline();
+    timeline.sequence.occurrences[0]!.durationTime = { value: "2", timescale: "1" };
+    timeline.resources = [fixtureResource("media-source", sourcePath, await digest(sourcePath), 44_100)];
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(join(directory, "rendered.mp4")),
+    });
+    const outcome = await renderAndVerifyFramekitProject(
+      request,
+      new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" }),
+      new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }),
+    );
+    assert.equal(outcome.status, "passed", JSON.stringify(outcome.verification?.checks));
+    const audio = outcome.verification?.artifact?.streams.find((stream) => stream.kind === "audio");
+    assert.equal(audio?.sampleRate, 48_000);
+    assert.equal(audio?.channels, 1);
+    assert.deepEqual(outcome.verification?.checks.find((check) => check.name === "audio-stream")?.expected, {
+      sampleRate: 48_000,
+      channels: 1,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("render-and-verify does not report provider success when independent verification fails", async () => {
   const timeline = minimalTimeline();
   const request = createFramekitRenderRequest({
@@ -326,7 +362,7 @@ function minimalTimeline(): TimelineIr {
   };
 }
 
-function fixtureResource(id: string, source: string, sourceDigest: string) {
+function fixtureResource(id: string, source: string, sourceDigest: string, sampleRate = 48_000) {
   return {
     id,
     name: id,
@@ -338,7 +374,7 @@ function fixtureResource(id: string, source: string, sourceDigest: string) {
       durationTime: { value: "2", timescale: "1" },
       streams: [
         { kind: "video" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
-        { kind: "audio" as const, sampleRate: 48000, channels: 1 },
+        { kind: "audio" as const, sampleRate, channels: 1 },
       ],
     },
   };
