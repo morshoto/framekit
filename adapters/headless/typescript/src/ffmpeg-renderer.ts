@@ -492,8 +492,11 @@ function addTitleOverlays(
   fontFile: string | undefined,
   titleTextFiles: readonly string[],
 ): string {
-  let current = input;
-  for (const [index, title] of (model.timeline.sequence.titles ?? []).entries()) {
+  const titles = model.timeline.sequence.titles ?? [];
+  if (titles.length === 0) return input;
+  filters.push(`[${input}]format=yuv420p[video-titles-base]`);
+  let current = "video-titles-base";
+  for (const [index, title] of titles.entries()) {
     const start = rationalSeconds(title.startTime, `${title.id}.startTime`);
     const end = start + rationalSeconds(title.durationTime, `${title.id}.durationTime`);
     const style = title.style;
