@@ -191,6 +191,9 @@ importers:
       c8:
         specifier: 12.0.0
         version: 12.0.0
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       tsc-alias:
         specifier: 1.9.8
         version: 1.9.8
