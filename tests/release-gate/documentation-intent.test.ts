@@ -231,6 +231,17 @@ test('lets code-only PRs use the template without filling a docs declaration', a
 	assert.equal(validateDocumentationIntent(['CONTRIBUTING.md'], template).valid, false);
 });
 
+test('does not accept declarations left inside an unfinished HTML comment', () => {
+	const body = [
+		'<!-- Documentation example left open',
+		'Documentation intent: intentional',
+		'Documentation paths: README.md',
+		'Documentation purpose: Clarify the changed setup.',
+		'Documentation minimality: Update the smallest relevant section.',
+	].join('\n');
+	assert.equal(validateDocumentationIntent(['README.md'], body).valid, false);
+});
+
 test('contributor guidance limits docs changes to the four stated triggers', async () => {
 	const [agents, contributing] = await Promise.all([
 		readFile(resolve(repositoryRoot, 'AGENTS.md'), 'utf8'),

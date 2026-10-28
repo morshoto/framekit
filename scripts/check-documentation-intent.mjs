@@ -142,7 +142,12 @@ function extensionOf(path) {
 
 function parseDeclarationFields(body) {
 	const fields = new Map();
-	const lines = body.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
+	let insideHtmlComment = false;
+	const lines = body.split(/\r?\n/).map((line) => {
+		const visible = textOutsideHtmlComments(line, insideHtmlComment);
+		insideHtmlComment = visible.insideHtmlComment;
+		return visible.text;
+	});
 	for (let index = 0; index < lines.length; index += 1) {
 		const match = lines[index].match(/^\s*Documentation (intent|paths|purpose|minimality):\s*(.*?)\s*$/i);
 		if (!match) continue;
@@ -164,6 +169,30 @@ function parseDeclarationFields(body) {
 		fields.set(field, [...(fields.get(field) ?? []), ...values]);
 	}
 	return fields;
+}
+
+function textOutsideHtmlComments(line, insideHtmlComment) {
+	const visibleParts = [];
+	let offset = 0;
+	while (offset < line.length) {
+		if (insideHtmlComment) {
+			const closingMarker = line.indexOf('-->', offset);
+			if (closingMarker < 0) return { text: visibleParts.join(''), insideHtmlComment: true };
+			offset = closingMarker + 3;
+			insideHtmlComment = false;
+			continue;
+		}
+
+		const openingMarker = line.indexOf('<!--', offset);
+		if (openingMarker < 0) {
+			visibleParts.push(line.slice(offset));
+			break;
+		}
+		visibleParts.push(line.slice(offset, openingMarker));
+		offset = openingMarker + 4;
+		insideHtmlComment = true;
+	}
+	return { text: visibleParts.join(''), insideHtmlComment };
 }
 
 function isMeaningful(value) {
