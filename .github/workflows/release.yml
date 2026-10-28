@@ -96,13 +96,15 @@ jobs:
                   payload="${RUNNER_TEMP}/draft-release-body.json"
                   release_json="${RUNNER_TEMP}/draft-release.json"
 
-                  gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${release_json}"
-                  release_id="$(jq -r 'select(.draft == true) | .id // empty' "${release_json}")"
+                  release_id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                    | jq -sr --arg tag "${RELEASE_TAG}" \
+                      '[.[][] | select(.draft == true and (.name == $tag or .tag_name == $tag)) | .id][0] // empty')"
                   if [ -z "${release_id}" ]; then
                     echo "No draft release for ${RELEASE_TAG}; nothing to format."
                     exit 0
                   fi
 
+                  gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > "${release_json}"
                   jq -r '.body // ""' "${release_json}" > "${original}"
                   if ! grep -Fq '<!-- Release notes generated' "${original}"; then
                     echo "Draft body is not GitHub-generated; preserving it without edits."
