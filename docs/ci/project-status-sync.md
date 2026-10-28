@@ -5,7 +5,8 @@ Status field in [the Framekit project](https://github.com/users/morshoto/project
 The `Sync project status from issue labels` workflow applies a status label to
 the matching project field when an issue is opened, reopened, closed, or has a
 status label added or removed. New issues start in Backlog. Closing an issue
-sets Done; reopening it resets it to Backlog.
+sets Done; reopening it resets it to Backlog. Removing an issue's only status
+label restores `Status: Backlog` and sets the project Status field to Backlog.
 
 The workflow only synchronizes issues from `morshoto/framekit` that belong to
 the project. Pull request cards are ignored. The project auto-add workflow may
