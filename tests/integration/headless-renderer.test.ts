@@ -12,7 +12,7 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
+import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
@@ -445,8 +445,10 @@ test("FFmpeg renders both occurrences that reuse one music resource", async () =
     const musicPath = join(directory, "reused-music.wav");
     await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
       "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-      "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
-      "-c:a", "pcm_s16le", "-y", musicPath,
+      "-i", "sine=frequency=1760:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=2200:sample_rate=48000:duration=1",
+      "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[music]",
+      "-map", "[music]", "-c:a", "pcm_s16le", "-y", musicPath,
     ], { cwd: repositoryRoot, env: process.env });
     const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
     delete source.sequence.occurrences[0]!.transform;
@@ -473,14 +475,17 @@ test("FFmpeg renders both occurrences that reuse one music resource", async () =
       target: { projectId: source.project.id, sequenceId: source.sequence.id },
       parameters: parameters(outputPath),
     });
-    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    const render = await renderer.render(plan);
+    const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, render);
+    assert.equal(verification.status, "passed");
     const pcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
       "-v", "error", "-i", outputPath, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
     ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
     const samples = pcm.stdout as unknown as Buffer;
     const window = (start: number) => samples.subarray(start * 48_000 * 4, (start + 1) * 48_000 * 4);
     const firstAmplitude = frequencyAmplitude(window(0), 1_760, 48_000);
-    const secondAmplitude = frequencyAmplitude(window(1), 1_760, 48_000);
+    const secondAmplitude = frequencyAmplitude(window(1), 2_200, 48_000);
     assert.ok(firstAmplitude > 0.002, `first occurrence should be audible, got ${firstAmplitude}`);
     assert.ok(secondAmplitude > 0.002, `reused second occurrence should be audible, got first=${firstAmplitude}, second=${secondAmplitude}`);
   } finally {
