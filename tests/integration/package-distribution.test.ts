@@ -86,6 +86,7 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
       command: executable,
       args: ["mcp", "--editor", "final-cut-live", "--headless"],
       cwd: directory,
+      env: { ...process.env, FRAMEKIT_STATE_DIR: join(directory, "framekit-state"), FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
       stderr: "pipe",
     });
     client = new Client({ name: "framekit-package-smoke", version: "0.1.0" });
