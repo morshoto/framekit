@@ -230,6 +230,7 @@ export function createProjectStatusClient({
 }
 
 export async function syncIssueEvent({ client, issue, action, eventLabel }) {
+	if (issue.pull_request) return { action: 'skipped', reason: 'issue-not-in-project' };
 	let project = await client.getProject();
 	let item = client.projectItemForIssue(project, issue.node_id);
 	if (!item && issue.state === 'open' && action === 'opened') {

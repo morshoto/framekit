@@ -32,6 +32,25 @@ test('issue lifecycle assigns the documented default status', () => {
 	assert.equal(chooseIssueStatus({ action: 'closed', labels: ['Status: In progress'] }), 'Done');
 });
 
+test('opened pull request events do not add pull request cards to the project', async () => {
+	let addCalls = 0;
+	const project = { id: 'project-3', statusField: { id: 'status-field' }, options: new Map(), items: [] };
+	const client = {
+		getProject: async () => project,
+		projectItemForIssue: () => undefined,
+		addIssueToProject: async () => { addCalls += 1; return 'item-pr-8'; },
+	};
+
+	const result = await syncIssueEvent({
+		client: client as unknown as Parameters<typeof syncIssueEvent>[0]['client'],
+		issue: { node_id: 'pull-request-node-8', number: 8, state: 'open', pull_request: {} },
+		action: 'opened',
+	});
+
+	assert.deepEqual(result, { action: 'skipped', reason: 'issue-not-in-project' });
+	assert.equal(addCalls, 0);
+});
+
 test('status label events use the newly added label while it remains on the issue', () => {
 	assert.equal(chooseIssueStatus({
 		action: 'labeled',
