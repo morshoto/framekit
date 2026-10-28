@@ -1,0 +1,2 @@
+export const HEADLESS_AUDIO_SAMPLE_RATE = 48_000;
+export const HEADLESS_AUDIO_CHANNELS = 1;

@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
+import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import type {
   FramekitRenderArtifactMetadata,
   FramekitRenderArtifactStream,
@@ -100,7 +101,7 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
       && (expectedAudio.sampleRate === undefined || Number(audio.sample_rate) === expectedAudio.sampleRate)
       && (expectedAudio.channels === undefined || audio.channels === expectedAudio.channels)
     );
-    checks.push({ name: "audio-stream", passed: audioPassed, detail: "timeline audio is present in the renderer's normalized format", expected: expectedAudio ?? { kind: "none" }, observed: audio ?? { kind: "none" } });
+    checks.push({ name: "audio-stream", passed: audioPassed, detail: "audio stream matches the expected output contract", expected: expectedAudio ?? { kind: "none" }, observed: audio ?? { kind: "none" } });
     checks.push({ name: "duration", passed: durationPassed, detail: `output duration is within ${tolerance} seconds of the canonical sequence`, expected: expectedDuration, observed: probe.format.duration });
     const artifact: FramekitRenderArtifactMetadata = {
       path: result.output.path,
@@ -156,7 +157,11 @@ function expectedAudioStream(plan: FramekitRenderPlan): { sampleRate?: number; c
   for (const occurrence of plan.timeline.sequence.occurrences) {
     const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
     const stream = resource?.metadata?.streams.find((candidate) => candidate.kind === "audio");
-    if (stream) return { sampleRate: 48_000, channels: 1 };
+    if (stream) {
+      return plan.renderer.id === "ffmpeg-headless"
+        ? { sampleRate: HEADLESS_AUDIO_SAMPLE_RATE, channels: HEADLESS_AUDIO_CHANNELS }
+        : { sampleRate: stream.sampleRate, channels: stream.channels };
+    }
   }
   return undefined;
 }

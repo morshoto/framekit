@@ -114,11 +114,9 @@ test("render-and-verify accepts 44.1 kHz source audio normalized to 48 kHz", asy
       target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
       parameters: renderParameters(join(directory, "rendered.mp4")),
     });
-    const outcome = await renderAndVerifyFramekitProject(
-      request,
-      new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" }),
-      new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }),
-    );
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const verifier = new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" });
+    const outcome = await renderAndVerifyFramekitProject(request, renderer, verifier);
     assert.equal(outcome.status, "passed", JSON.stringify(outcome.verification?.checks));
     const audio = outcome.verification?.artifact?.streams.find((stream) => stream.kind === "audio");
     assert.equal(audio?.sampleRate, 48_000);
@@ -127,6 +125,18 @@ test("render-and-verify accepts 44.1 kHz source audio normalized to 48 kHz", asy
       sampleRate: 48_000,
       channels: 1,
     });
+    const sourceRequest = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(sourcePath),
+    });
+    const sourcePlan = createFramekitRenderPlan(sourceRequest, renderer.capabilities(sourceRequest));
+    const sourceAsOutput = createFramekitRenderResult(sourcePlan, { path: sourcePath, format: "mp4" });
+    const wrongRate = await verifier.verify(sourcePlan, sourceAsOutput);
+    const wrongRateAudio = wrongRate.checks.find((check) => check.name === "audio-stream");
+    assert.equal(wrongRate.status, "failed", "an actual 44.1 kHz output must still fail verification");
+    assert.equal(wrongRateAudio?.passed, false);
+    assert.equal((wrongRateAudio?.observed as { sample_rate?: string }).sample_rate, "44100");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
