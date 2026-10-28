@@ -336,7 +336,7 @@ function resolveTsPathAlias(specifier, tsconfig) {
     const capture = matchPathPattern(mapping.pattern, specifier);
     if (capture === undefined) continue;
     for (const target of mapping.targets) {
-      const substituted = target.replace("*", capture);
+      const substituted = target.replaceAll("*", () => capture);
       const candidate = resolveSourcePath(resolve(mapping.baseUrl, substituted));
       if (candidate) return candidate;
     }
@@ -369,7 +369,7 @@ function findExportTarget(exportsMap, requestedSubpath) {
       const capture = matchPathPattern(key, requestedSubpath);
       if (capture !== undefined && key.includes("*")) {
         const target = firstConditionTarget(value);
-        return typeof target === "string" ? target.replace("*", capture) : undefined;
+        return typeof target === "string" ? target.replaceAll("*", () => capture) : undefined;
       }
     }
     return undefined;
