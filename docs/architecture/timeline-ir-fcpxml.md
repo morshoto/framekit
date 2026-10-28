@@ -25,18 +25,23 @@ reported sequence display name matches the project name. The logical sequence
 UID remains in the result and provenance for target matching after native
 readback.
 
-Timeline and source coordinates remain exact rational values. The compiler
-normalizes equivalent fractions only when writing FCPXML, never through a
-floating-point conversion. A local absolute path or `file://` URL is required
-for each referenced resource.
+Timing calculations remain rational and do not pass through floating point.
+Video clip boundaries, source in-points, and connected visual elements are
+rounded half up to the nearest sequence edit frame for Final Cut. Audio-only
+items retain their exact times. If rounding changes a video edit or trim, the
+artifact reports `video-edit-frame-rounding` in degraded coverage and omits
+`source-ranges` from exact coverage when a clip range changed. A local absolute
+path or `file://` URL is required for each referenced resource.
 
 When probed media metadata is available, video formats include dimensions and
 frame duration, and assets include their source duration, stream counts,
 channels, and sample rate. Audio-only assets use Final Cut's
 `FFFrameRateUndefined` format. These attributes let Final Cut interpret the media
 before it resolves the referenced local files. The sequence format uses the
-sequence frame duration and the first video resource's dimensions; a native
-import and readback are still required to establish compatibility.
+sequence frame duration and the first video resource's dimensions. Known
+dimensions and frame rates use Final Cut's predefined format names; other
+combinations use a custom format definition. A native import and readback are
+still required to establish compatibility.
 
 Media resources use `asset` with an `original-media` representation. The spine
 contains media occurrences (`asset-clip`) and `gap` story elements. Basic text

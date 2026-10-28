@@ -290,7 +290,11 @@ target identity around canonical export, and matching source-media hashes.
 The job tools remain available when a managed artifact is configured so callers
 can prepare and inspect a bounded handoff. `artifactPublish` is separate from both
 `timelineArtifactWrite` and `timelineWrite` because importing an artifact as a
-new project is neither an artifact edit nor an edit of the open timeline.
+new project is neither an artifact edit nor an edit of the open timeline. This
+capability reports that an opt-in route is configured; it does not prove an
+FCPXML was imported or a native project exists. Native publishing is unavailable
+in the default headless Codex configuration, and only a `verified` job with
+matching target readback proves delivery.
 
 `frameCapture` is true only when the selected editor backend has an actual
 frame-image provider. `timeline.frame.capture` never fabricates an image: it

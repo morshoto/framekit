@@ -71,8 +71,9 @@ capabilities, it connects only to an existing Workflow Extension bridge and
 does not launch, activate, focus, or edit Final Cut through macOS UI automation.
 Framekit-owned video projects can register local media, analyze it, create an
 approved rough-cut plan, and render a verified MP4 plus editable FCPXML without
-a connected Final Cut session. Importing that FCPXML requires a separately
-configured headed server and explicit user authorization. See the
+a connected Final Cut session. Optional native publishing is experimental and
+is not guaranteed in v0.1.18: a document-open dispatch does not prove that
+Final Cut completed an import or created a native project. See the
 [Codex video production runbook](./docs/tests/codex-video-production-e2e.md)
 and [first-run setup and capability boundaries](./docs/final-cut/installation.md).
 

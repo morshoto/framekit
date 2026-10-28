@@ -18,6 +18,7 @@ import {
   DisposableNativeEditWorkflow,
   FinalCutBackgroundMaterializationPublisher,
   FinalCutProjectPublisher,
+  parseFinalCutProjectPublishRoute,
   FinalCutSqliteInspectionProvider,
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
@@ -244,8 +245,12 @@ const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
+      publishJobsDirectory: join(framekitStateDirectory, "publish-jobs"),
       documentDelivery: liveAdapter!,
-      allowHeadedFallback: process.env.FRAMEKIT_FINAL_CUT_ALLOW_HEADED_IMPORT === "1",
+      publishRoute: parseFinalCutProjectPublishRoute(
+        process.env.FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE,
+        Boolean(liveAdapter),
+      ),
       liveState: () => liveAdapter!.readLiveState(),
       readCanonicalSnapshot: (targetBinding, identity) => new FinalCutCanonicalSnapshotSource({
         readbackTarget: { ...targetBinding, ...identity },

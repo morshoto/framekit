@@ -412,6 +412,46 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.match(shot?.rationale ?? "", /subject "person"/);
 });
 
+test("rough-cut planning matches individual terms across media", async () => {
+  const labels = [
+    { id: "media-river", source: "/fixtures/river.mov", transcript: "river hiker" },
+    { id: "media-coast", source: "/fixtures/coast.mov", transcript: "cyclist coast lighthouse" },
+    { id: "media-bay", source: "/fixtures/bay.mov", transcript: "sailboat bay" },
+  ];
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-multi-term-plan",
+    projectName: "Multi-term Plan",
+    timelineId: "timeline-multi-term-plan",
+    timelineName: "Main Edit",
+    clips: [],
+    media: labels.map(({ id, source, transcript }) => ({
+      mediaId: id,
+      source,
+      sourceDigest: `sha256:${id}`,
+      mediaKind: "video",
+      duration: 5,
+      semantic: {
+        subjects: [],
+        scenes: [],
+        environments: [],
+        timeOfDay: [],
+        moods: [],
+        usableRanges: [{ start: 0, end: 5 }],
+        transcript,
+      },
+    })),
+  });
+  const runtime = new AgentVideoRuntime(adapter);
+
+  const plan = await runtime.planRoughCut({
+    query: "river hiker cyclist coast lighthouse sailboat bay",
+    maxShots: 3,
+  });
+
+  assert.equal(plan.shots.length, 3);
+  assert.deepEqual(new Set(plan.shots.map(({ sourceIdentity }) => sourceIdentity.mediaId)), new Set(labels.map(({ id }) => id)));
+});
+
 test("rough-cut planning selects speech-first ranges and excludes silence", async () => {
   const fixture = semanticFixture();
   fixture.adapter.replaceMedia({
