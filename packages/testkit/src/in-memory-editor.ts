@@ -781,10 +781,12 @@ export class InMemoryEditorAdapter implements EditorPort {
 
   private applyRippleDelete(snapshot: ProjectSnapshot, timelineId: string, start: number, end: number): ProjectSnapshot {
     if (timelineId !== snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${timelineId}`);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
-      throw new Error("INVALID_OPERATION: ripple delete range must be positive");
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      throw new Error(
+        `INVALID_OPERATION: ripple delete range [${start}, ${end}) must be increasing within timeline bounds [0, ${snapshot.timeline.duration})`,
+      );
     }
-    if (end > snapshot.timeline.duration) {
+    if (start < 0 || end > snapshot.timeline.duration) {
       throw new Error(
         `INVALID_OPERATION: ripple delete range [${start}, ${end}) must fit timeline bounds [0, ${snapshot.timeline.duration})`,
       );
