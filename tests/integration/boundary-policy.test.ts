@@ -128,6 +128,54 @@ test("rejects imports outside a workspace package public export map", async (t) 
   assertViolation(result, "unexported-entrypoint");
 });
 
+test("rejects private subpaths referenced only by types", async (t) => {
+  const fixture = await createFixture({
+    "adapters/native/src/private.ts": "export interface Secret { value: string }",
+    "apps/server/src/index.ts": [
+      'import type { Secret } from "@fixture/adapter/private.js";',
+      'export type { Secret as ExportedSecret } from "@fixture/adapter/private.js";',
+      'export type ImportedSecret = import("@fixture/adapter/private.js").Secret;',
+      "export type ServerSecret = Secret;",
+    ].join("\n"),
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assertViolation(result, "unexported-entrypoint");
+});
+
+test("rejects forbidden dependencies referenced only by types", async (t) => {
+  const fixture = await createFixture({
+    "packages/runtime/src/index.ts": 'import type { NativeShape } from "@fixture/adapter"; export type RuntimeShape = NativeShape; export const runtimeValue = 1;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assertViolation(result, "forbidden-dependency");
+});
+
+test("type-only edges do not become production runtime reachability", async (t) => {
+  const fixture = await createFixture({
+    "adapters/native/package.json": JSON.stringify({
+      name: "@fixture/adapter",
+      private: true,
+      type: "module",
+      exports: { ".": "./src/index.ts", "./experimental": "./src/experimental.ts" },
+      dependencies: { "@fixture/runtime": "workspace:*" },
+    }),
+    "adapters/native/src/experimental.ts": "export interface ExperimentalShape { value: string }",
+    "apps/server/src/index.ts": 'import type { ExperimentalShape } from "@fixture/adapter/experimental"; export type ServerShape = ExperimentalShape;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.edges.some((edge) => edge.target === "adapters/native/src/experimental.ts"));
+});
+
 test("resolves every wildcard in a package export target", async (t) => {
   const fixture = await createFixture({
     "packages/runtime/package.json": JSON.stringify({
