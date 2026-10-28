@@ -52,13 +52,18 @@ and project revision. `CAPABILITY_UNAVAILABLE` or an unavailable analyzer is a
 real limitation; do not fill in missing analysis. Headless rendering and
 FCPXML generation do not contact Final Cut.
 
-## Separate native delivery
+## Optional native handoff (experimental; not guaranteed in v0.1.18)
 
 The plugin's server cannot import into Final Cut because it starts with native
-writes disabled. A native handoff requires a separately configured headed
-Framekit server, a ready Final Cut session, and `artifactPublish` capability.
-Follow the native setup in the runbook. If readiness or capability is missing,
-report the specific blocker and keep the verified local artifacts available.
+writes disabled. The separate native publishing path is experimental and is
+not a v0.1.18 release guarantee. A native handoff requires a separately
+configured headed Framekit server, a ready Final Cut session, and
+`artifactPublish` capability. A non-activating document-open acknowledgment
+means only that dispatch was accepted; do not claim a native project was
+created unless the same job reaches `verified` with matching created-target
+readback. Follow the native setup in the runbook. If readiness or capability is
+missing, report the specific blocker and keep the verified local artifacts
+available.
 
 Call `artifact.publish.preview` with the exact FCPXML `artifactPath`,
 `headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`

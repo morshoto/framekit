@@ -151,7 +151,7 @@ test("Framekit plugin exposes a headless video workflow and separately authorize
   assert.doesNotMatch(runbook, /FRAMEKIT_FINAL_CUT_LIBRARY_UID/);
 });
 
-test("Codex video handoff records complete #541 acceptance provenance", async () => {
+test("Codex video handoff records artifact-only and native follow-up provenance", async () => {
   const runbook = await readFile(resolve(repository, "docs/tests/codex-video-production-e2e.md"), "utf8");
   const evidenceSection = runbook.match(/## Record the run([\s\S]*?)(?:\n## |$)/)?.[1] ?? "";
   const normalizedEvidenceSection = evidenceSection.replace(/\s+/g, " ").toLowerCase();
@@ -168,7 +168,8 @@ test("Codex video handoff records complete #541 acceptance provenance", async ()
     "created-target readback",
     "active-project before/after",
     "recovery evidence",
-    "#517",
+    "#597",
+    "#599",
   ]) {
     assert.ok(normalizedEvidenceSection.includes(expected.toLowerCase()), `evidence section includes ${expected}`);
   }

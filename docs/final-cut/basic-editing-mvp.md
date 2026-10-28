@@ -137,13 +137,14 @@ containing the source project revision, transaction ID, timeline duration,
 referenced media digests, output format, and output digest. Export is allowed
 only after structural verification passes.
 
-`artifact.publish` is a different capability: it imports a verified FCPXML
-artifact as a new Final Cut project after receiving the matching `artifactPath`
-explicit `confirm: true`, and a native provider that reserves the created
-project and sequence IDs. An FCPXML destination UID alone does not establish
-the native target. Publishing remains unavailable without that binding. It is
-not an export and does not mean that the currently open Final Cut timeline is
-directly writable.
+`artifact.publish` is an experimental, opt-in native handoff and is not
+guaranteed in v0.1.18. It can request import of a verified FCPXML artifact as a
+new Final Cut project after matching `artifactPath`, explicit `confirm: true`,
+and a native provider that reserves the created project and sequence IDs. A
+document-open dispatch acknowledgment does not prove import or project
+creation; only matching native target readback verifies delivery. An FCPXML
+destination UID alone does not establish the native target. This path does not
+mean that the currently open Final Cut timeline is directly writable.
 The current live MCP implementation exposes `timeline.export` with explicit
 `outputPath` and `preset` values, and verifies the rendered file with `ffprobe`.
 When `transactionId` is supplied, the MCP export path requires that the
@@ -201,7 +202,7 @@ rollback before returning a failed result.
 | `artifact.edit` | Existing | Edit the managed FCPXML artifact with an explicit artifact target. |
 | `editor.timeline.edit` | Existing | Edit the explicitly identified live project and sequence. |
 | `editor.timeline.edit.preview` / `editor.timeline.edit.execute` | Implemented for deterministic fixture | Provide non-mutating preview and guarded, single-use execution for the live target. |
-| `artifact.publish` | Existing | Create/import a new project from a verified artifact with explicit confirmation. |
+| `artifact.publish` | Experimental, opt-in | Request native import from a verified artifact; report verified delivery only after target readback. |
 | `editor.assets` | Existing | Select a real installed title asset. |
 | `timeline.export` | Required extension | Render/export a verified result and manifest. |
 | `edit.diff` | Existing | Return the deterministic transaction diff. |
