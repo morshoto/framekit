@@ -28,10 +28,13 @@ live project state or silently switch to UI automation.
 4. Call `rough-cut.plan` with `projectId` and the user's editorial query. Review
    each proposed source, range, confidence, rationale, and evidence. Ask for
    clarification when the plan has no supported shots or misses the user's
-   intent. Follow the user's requested source order, ranges, title, music, and
-   audio policy. Reorder returned shots only when requested, preserving their
-   source identities, ranges, and evidence. Do not create speech/VAD evidence
-   or unsupported shot ranges. Get approval for the exact plan before execution.
+  intent. The planner matches individual query terms and ranks supported
+  speech ranges by term hits; include terms for each intended source, then
+  confirm every intended source appears in the result. Follow the user's
+  requested source order, ranges, title, music, and audio policy. Reorder
+  returned shots only when requested, preserving their source identities,
+  ranges, and evidence. Do not create speech/VAD evidence or unsupported shot
+  ranges. Get approval for the exact plan before execution.
 5. Call `headless.rough-cut.preview` with that plan and explicit output paths.
    Put requested title and music edits in its `operations`, and set
    `sourceAudioPolicy: "preserve-and-mix"` when requested. Review its plan
@@ -49,13 +52,18 @@ and project revision. `CAPABILITY_UNAVAILABLE` or an unavailable analyzer is a
 real limitation; do not fill in missing analysis. Headless rendering and
 FCPXML generation do not contact Final Cut.
 
-## Separate native delivery
+## Optional native handoff (experimental; not guaranteed in v0.1.18)
 
 The plugin's server cannot import into Final Cut because it starts with native
-writes disabled. A native handoff requires a separately configured headed
-Framekit server, a ready Final Cut session, and `artifactPublish` capability.
-Follow the native setup in the runbook. If readiness or capability is missing,
-report the specific blocker and keep the verified local artifacts available.
+writes disabled. The separate native publishing path is experimental and is
+not a v0.1.18 release guarantee. A native handoff requires a separately
+configured headed Framekit server, a ready Final Cut session, and
+`artifactPublish` capability. A non-activating document-open acknowledgment
+means only that dispatch was accepted; do not claim a native project was
+created unless the same job reaches `verified` with matching created-target
+readback. Follow the native setup in the runbook. If readiness or capability is
+missing, report the specific blocker and keep the verified local artifacts
+available.
 
 Call `artifact.publish.preview` with the exact FCPXML `artifactPath`,
 `headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`

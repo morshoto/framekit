@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { Clip, ProjectSnapshot, RationalTime, StoryElement } from "@framekit/runtime";
 
 export const FINAL_CUT_PUBLISH_READBACK_CHECKS = [
@@ -33,13 +33,21 @@ export class FinalCutPublishSemanticMismatchError extends Error {
   }
 }
 
+type SourceMediaDigest = Readonly<{ source: string; sha256: string }>;
+
+type PublishReadbackOptions = Readonly<{
+  expectedSourceMediaDigests: readonly SourceMediaDigest[];
+  actualSourceMediaDigests: readonly SourceMediaDigest[];
+}>;
+
 /** Compare supported native timeline semantics while ignoring generated native IDs and revisions. */
 export function verifyFinalCutPublishReadback(
   expected: ProjectSnapshot,
   actual: ProjectSnapshot,
+  options?: PublishReadbackOptions,
 ): FinalCutPublishReadbackEvidence {
-  const expectedSignature = publishTimelineSignature(expected);
-  const actualSignature = publishTimelineSignature(actual);
+  const expectedSignature = publishTimelineSignature(expected, options?.expectedSourceMediaDigests);
+  const actualSignature = publishTimelineSignature(actual, options?.actualSourceMediaDigests);
   const expectedJson = stableJson(expectedSignature);
   const actualJson = stableJson(actualSignature);
   const expectedDigest = digest(expectedJson);
@@ -62,9 +70,28 @@ export function verifyFinalCutPublishReadback(
 
 type PublishTimelineSignature = Record<typeof FINAL_CUT_PUBLISH_READBACK_CHECKS[number], unknown>;
 
-function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSignature {
-  const sourceByMediaId = new Map(snapshot.media.map(({ mediaId, source }) => [mediaId, normalizeSource(source)]));
-  const audioMediaIds = new Set(snapshot.media.filter(({ mediaKind }) => mediaKind === "audio").map(({ mediaId }) => mediaId));
+function publishTimelineSignature(
+  snapshot: ProjectSnapshot,
+  sourceMediaDigests?: readonly SourceMediaDigest[],
+): PublishTimelineSignature {
+  const referencedMediaIds = new Set([
+    ...snapshot.timeline.clips.map(({ mediaId }) => mediaId),
+    ...snapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
+  ].filter((mediaId): mediaId is string => mediaId !== undefined));
+  const referencedMedia = snapshot.media.filter(({ mediaId }) => referencedMediaIds.has(mediaId));
+  const digestBySource = sourceMediaDigests === undefined
+    ? undefined
+    : new Map(sourceMediaDigests.map(({ source, sha256 }) => [resolve(source), sha256]));
+  const sourceIdentity = (source: string): string => {
+    if (digestBySource === undefined) return normalizeSource(source);
+    const sha256 = digestBySource.get(resolve(source));
+    if (sha256 === undefined) {
+      throw new Error(`FINAL_CUT_PUBLISH_SOURCE_MEDIA_BINDING_MISMATCH: no verified digest for ${source}`);
+    }
+    return `sha256:${sha256}`;
+  };
+  const sourceByMediaId = new Map(referencedMedia.map(({ mediaId, source }) => [mediaId, sourceIdentity(source)]));
+  const audioMediaIds = new Set(referencedMedia.filter(({ mediaKind }) => mediaKind === "audio").map(({ mediaId }) => mediaId));
   const mediaSource = (mediaId: string | undefined): string | undefined => {
     if (mediaId === undefined) return undefined;
     return sourceByMediaId.get(mediaId) ?? `unresolved-media:${mediaId}`;
@@ -72,8 +99,8 @@ function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSig
   const clips = snapshot.timeline.clips;
   const titles = snapshot.timeline.storyElements.filter(({ kind }) => kind === "title");
   const audioClips = clips.filter((clip) => isAudioClip(clip, audioMediaIds));
-  const mediaBindings = snapshot.media
-    .map(({ source, mediaKind, duration }) => ({ source: normalizeSource(source), mediaKind, duration }))
+  const mediaBindings = referencedMedia
+    .map(({ source, mediaKind, duration }) => ({ source: sourceIdentity(source), mediaKind, duration }))
     .sort((left, right) => compareText(stableJson(left), stableJson(right)));
   const representedStoryKinds = new Set(["asset-clip", "audio", "clip", "mc-clip", "ref-clip", "sync-clip", "title", "video"]);
 
@@ -83,22 +110,22 @@ function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSig
       sequenceName: snapshot.timeline.name,
     },
     "timeline-duration-and-frame-rate": {
-      durationTime: rationalSignature(snapshot.timeline.durationTime),
+      durationTime: frameRoundedSignature(snapshot.timeline.durationTime, snapshot.timeline.frameDuration),
       frameDuration: rationalSignature(snapshot.timeline.frameDuration),
     },
     "clip-order-and-source-ranges": clips
       .filter((clip) => !isAudioClip(clip, audioMediaIds))
-      .map((clip) => clipSignature(clip, mediaSource)),
-    "editable-title-content-and-timing": titles.map((title) => storyElementSignature(title, mediaSource)),
+      .map((clip) => clipSignature(clip, mediaSource, audioMediaIds)),
+    "editable-title-content-and-timing": titles.map((title) => storyElementSignature(title, mediaSource, audioMediaIds)),
     "connected-audio-source-role-gain-and-timing": {
-      clips: audioClips.map((clip) => clipSignature(clip, mediaSource)),
+      clips: audioClips.map((clip) => clipSignature(clip, mediaSource, audioMediaIds)),
       elements: snapshot.timeline.storyElements
         .filter((element) => element.kind === "audio" || audioMediaIds.has(element.mediaId ?? ""))
-        .map((element) => storyElementSignature(element, mediaSource)),
+        .map((element) => storyElementSignature(element, mediaSource, audioMediaIds)),
     },
     "other-timeline-elements": snapshot.timeline.storyElements
       .filter((element) => !representedStoryKinds.has(element.kind))
-      .map((element) => storyElementSignature(element, mediaSource)),
+      .map((element) => storyElementSignature(element, mediaSource, audioMediaIds)),
     "markers-and-captions": {
       markers: snapshot.timeline.markers.map((marker) => ({
         name: marker.name,
@@ -115,14 +142,18 @@ function publishTimelineSignature(snapshot: ProjectSnapshot): PublishTimelineSig
   };
 }
 
-function clipSignature(clip: Clip, mediaSource: (mediaId: string | undefined) => string | undefined) {
+function clipSignature(
+  clip: Clip,
+  mediaSource: (mediaId: string | undefined) => string | undefined,
+  audioMediaIds: Set<string>,
+) {
   return {
     source: mediaSource(clip.mediaId),
     name: clip.name,
     startTime: rationalSignature(clip.startTime),
     durationTime: rationalSignature(clip.durationTime),
     sourceStartTime: rationalSignature(clip.sourceStartTime ?? zeroRational()),
-    track: clip.track,
+    track: isAudioClip(clip, audioMediaIds) ? Math.abs(clip.track) : clip.track,
     gainDb: clip.gainDb,
     noiseReductionDb: clip.noiseReductionDb,
     colorCorrection: clip.colorCorrection,
@@ -138,12 +169,17 @@ function clipSignature(clip: Clip, mediaSource: (mediaId: string | undefined) =>
   };
 }
 
-function storyElementSignature(element: StoryElement, mediaSource: (mediaId: string | undefined) => string | undefined) {
+function storyElementSignature(
+  element: StoryElement,
+  mediaSource: (mediaId: string | undefined) => string | undefined,
+  audioMediaIds: Set<string>,
+) {
+  const audio = element.kind === "audio" || audioMediaIds.has(element.mediaId ?? "");
   return {
     kind: element.kind,
     startTime: rationalSignature(element.startTime),
     durationTime: rationalSignature(element.durationTime),
-    lane: element.lane,
+    lane: element.lane === undefined ? undefined : audio ? Math.abs(element.lane) : element.lane,
     source: mediaSource(element.mediaId),
     text: element.text,
     assetId: element.assetId,
@@ -161,7 +197,22 @@ function isAudioClip(clip: Clip, audioMediaIds: Set<string>): boolean {
 }
 
 function normalizeSource(source: string): string {
-  return resolve(source).normalize("NFC");
+  return basename(resolve(source)).normalize("NFC");
+}
+
+function frameRoundedSignature(duration: RationalTime | undefined, frameDuration: RationalTime | undefined): string | undefined {
+  if (!duration || !frameDuration) return rationalSignature(duration);
+  const frameNumerator = BigInt(frameDuration.value);
+  const frameDenominator = BigInt(frameDuration.timescale);
+  const durationNumerator = BigInt(duration.value);
+  const durationDenominator = BigInt(duration.timescale);
+  const denominator = durationDenominator * frameNumerator;
+  const numerator = durationNumerator * frameDenominator;
+  if (denominator <= 0n || frameNumerator <= 0n || numerator < 0n) {
+    throw new Error("FINAL_CUT_PUBLISH_READBACK_INVALID: timeline duration or frame duration is invalid");
+  }
+  const roundedFrames = (numerator * 2n + denominator) / (denominator * 2n);
+  return `${roundedFrames} frames`;
 }
 
 function rationalSignature(value: RationalTime | undefined): string | undefined {

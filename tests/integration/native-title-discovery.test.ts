@@ -46,7 +46,7 @@ test("native Final Cut adapter discovers stable title assets without a timeline"
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    nativePreflightTimeoutMs: 1,
+    nativePreflightTimeoutMs: 1_000,
     sleep: async () => {},
     executor: async (script) => {
       scripts.push(script);

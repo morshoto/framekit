@@ -2,6 +2,10 @@
 
 ## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-28
 
+### Release scope
+- **Supported:** Production Codex MCP workflow, independently verified MP4, editable FCPXML, and canonical provenance/source-integrity checks.
+- **Not guaranteed:** Native Final Cut library creation, successful import, active-project binding, or authoritative native semantic readback. Optional native publishing is experimental; an FCPXML dispatch acknowledgment is not proof of project creation.
+
 ### New Features
 - chore: add local checkout validation workflow by @morshoto in https://github.com/morshoto/framekit/pull/522
 - feat: guard new-project publishing by @morshoto in https://github.com/morshoto/framekit/pull/523
