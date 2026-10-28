@@ -11,7 +11,7 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { HeadlessProjectService } from "../../apps/mcp-server/src/headless-projects.js";
+import { HeadlessProjectService } from "@framekit/headless-application";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
   EDITOR_FIRST_WORKFLOW,

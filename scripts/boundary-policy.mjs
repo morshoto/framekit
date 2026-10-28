@@ -9,6 +9,7 @@ const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs",
 
 export const FRAMEKIT_PACKAGES = [
   { id: "runtime", name: "@framekit/runtime", root: "packages/runtime", manifest: "packages/runtime/package.json" },
+  { id: "headless-application", name: "@framekit/headless-application", root: "packages/headless-application", manifest: "packages/headless-application/package.json" },
   { id: "testkit", name: "@framekit/testkit", root: "packages/testkit", manifest: "packages/testkit/package.json" },
   { id: "final-cut", name: "@framekit/final-cut", root: "adapters/final-cut/typescript", manifest: "adapters/final-cut/typescript/package.json" },
   { id: "headless-renderer", name: "@framekit/headless-renderer", root: "adapters/headless/typescript", manifest: "adapters/headless/typescript/package.json" },
@@ -21,14 +22,16 @@ export const FRAMEKIT_PACKAGES = [
 export const FRAMEKIT_BOUNDARY_POLICY = {
   allowedDependencies: {
     runtime: [],
+    "headless-application": ["runtime", "final-cut"],
     testkit: ["runtime"],
     "final-cut": ["runtime"],
     "headless-renderer": ["runtime"],
-    "mcp-server": ["runtime", "final-cut", "headless-renderer"],
-    cli: ["final-cut"],
+    "mcp-server": ["runtime", "final-cut", "headless-application", "headless-renderer"],
+    cli: ["final-cut", "headless-application"],
   },
   allowedExternalDependencies: {
     runtime: [],
+    "headless-application": [],
     testkit: [],
     "final-cut": ["fast-xml-parser"],
     "headless-renderer": [],
@@ -57,6 +60,13 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
       source: "apps/cli/src/main.ts",
       specifier: "@framekit/final-cut",
       target: "final-cut",
+      reason: "The CLI remains root-owned until workspace identity and published entrypoints land in #569.",
+    },
+    {
+      kind: "undeclared-workspace-dependency",
+      source: "apps/cli/src/headless-projects.ts",
+      specifier: "@framekit/headless-application",
+      target: "headless-application",
       reason: "The CLI remains root-owned until workspace identity and published entrypoints land in #569.",
     },
     {

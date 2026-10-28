@@ -11,9 +11,9 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
+import { HeadlessProjectService } from "@framekit/headless-application";
 import { type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
-import { HeadlessProjectService } from "../../apps/mcp-server/src/headless-projects.js";
 
 const execFileAsync = promisify(execFile);
 
