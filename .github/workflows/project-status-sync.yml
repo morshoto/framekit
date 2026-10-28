@@ -1,0 +1,48 @@
+name: Sync project status from issue labels
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-status-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check project token
+        id: token
+        run: |
+          if [ -z "$FRAMEKIT_PROJECT_TOKEN" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Set the FRAMEKIT_PROJECT_TOKEN repository secret to enable project status sync."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          FRAMEKIT_PROJECT_TOKEN: ${{ secrets.FRAMEKIT_PROJECT_TOKEN }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.token.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.token.outputs.ready == 'true'
+        with:
+          node-version: '24.22.1'
+      - name: Sync project status
+        if: steps.token.outputs.ready == 'true'
+        run: node scripts/sync-project-status.mjs
+        env:
+          FRAMEKIT_PROJECT_OWNER: morshoto
+          FRAMEKIT_PROJECT_NUMBER: '3'
+          FRAMEKIT_PROJECT_TOKEN: ${{ secrets.FRAMEKIT_PROJECT_TOKEN }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
