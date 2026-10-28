@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-27
+## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-28
 
 ### Release scope
 - **Supported:** Production Codex MCP workflow, independently verified MP4, editable FCPXML, and canonical provenance/source-integrity checks.
@@ -34,6 +34,7 @@
 - chore: sync linked issue milestones by @morshoto in https://github.com/morshoto/framekit/pull/529
 - chore: CodeQL as push only change by @morshoto in https://github.com/morshoto/framekit/pull/549
 - chore(deps): bump zod from 3.25.76 to 4.6.6 by @dependabot[bot] in https://github.com/morshoto/framekit/pull/547
+- Update labels.json by @morshoto in https://github.com/morshoto/framekit/pull/596
 
 ## [v0.1.17](https://github.com/morshoto/framekit/compare/v0.1.16...v0.1.17) - 2026-10-11
 
