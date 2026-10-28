@@ -61,7 +61,7 @@ function extractMarkdownLinks(source) {
   return links;
 }
 
-function stripIgnoredMarkdown(source) {
+function stripIgnoredMarkdown(source, { preserveInlineCode = false } = {}) {
   const withoutComments = source.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => comment.replace(/[^\n]/g, " "));
   const lines = withoutComments.split("\n");
   let fence;
@@ -84,9 +84,9 @@ function stripIgnoredMarkdown(source) {
       for (let index = 0; index < line.length; index += 1) {
         if (line[index] === "`" && line[index - 1] !== "\\") {
           inInlineCode = !inInlineCode;
-          stripped += " ";
+          stripped += preserveInlineCode ? line[index] : " ";
         } else {
-          stripped += inInlineCode ? " " : line[index];
+          stripped += inInlineCode && !preserveInlineCode ? " " : line[index];
         }
       }
       inInlineCode = false;
@@ -140,7 +140,7 @@ function hasHeading(markdown, fragment) {
   const headings = new Set();
   const counts = new Map();
 
-  for (const line of stripIgnoredMarkdown(markdown).split("\n")) {
+  for (const line of stripIgnoredMarkdown(markdown, { preserveInlineCode: true }).split("\n")) {
     const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
     if (!heading) continue;
     const slug = slugifyHeading(heading[1]);
