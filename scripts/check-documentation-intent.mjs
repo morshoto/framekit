@@ -25,8 +25,10 @@ export function validateDocumentationIntent(changedFiles, pullRequestBody) {
 	const fields = parseDeclarationFields(pullRequestBody);
 	const errors = [];
 	for (const field of DECLARATION_FIELDS) {
-		if (!fields.has(field)) errors.push(`Add a "Documentation ${field}:" declaration.`);
-		else if (field !== 'paths' && fields.get(field).length > 1) {
+		const values = fields.get(field);
+		if (!values || values.length === 0) {
+			errors.push(`Provide a non-empty "Documentation ${field}:" declaration.`);
+		} else if (field !== 'paths' && values.length > 1) {
 			errors.push(`Use only one "Documentation ${field}:" declaration.`);
 		}
 	}
@@ -148,7 +150,7 @@ function parseDeclarationFields(body) {
 		const field = match[1].toLowerCase();
 		const values = field === 'paths'
 			? match[2].split(',').map((value) => value.trim().replace(/^`(.*)`$/, '$1')).filter(Boolean)
-			: [match[2]].filter(Boolean);
+			: match[2].trim() ? [match[2].trim()] : [];
 		if (field === 'paths') {
 			for (index += 1; index < lines.length; index += 1) {
 				if (/^\s*Documentation (?:intent|paths|purpose|minimality):/i.test(lines[index])) {

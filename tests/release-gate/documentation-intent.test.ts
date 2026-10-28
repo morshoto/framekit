@@ -84,6 +84,31 @@ test('rejects declarations that omit changed docs or name unchanged docs', () =>
 	assert.match(unchanged.message, /CONTRIBUTING\.md/);
 });
 
+test('rejects empty and whitespace-only intent, purpose, and minimality values', () => {
+	for (const field of ['intent', 'purpose', 'minimality']) {
+		for (const value of ['', '   ']) {
+			const declaration = {
+				intent: 'intentional',
+				paths: 'README.md',
+				purpose: 'Clarify the changed user-facing setup.',
+				minimality: 'Update only the existing setup section.',
+				[field]: value,
+			};
+			const body = [
+				`Documentation intent: ${declaration.intent}`,
+				`Documentation paths: ${declaration.paths}`,
+				`Documentation purpose: ${declaration.purpose}`,
+				`Documentation minimality: ${declaration.minimality}`,
+			].join('\n');
+			assert.equal(
+				validateDocumentationIntent(['README.md'], body).valid,
+				false,
+				`${field} must not be empty or whitespace-only`,
+			);
+		}
+	}
+});
+
 test('allows the one-time multi-file docs migration with a linked issue', () => {
 	const body = [
 		'Documentation intent: intentional',
