@@ -40,6 +40,17 @@ test("internal links resolve paths, directories, and heading fragments", () => {
   assert.deepEqual(findBrokenMarkdownLinks(files), []);
 });
 
+test("heading fragments retain inline code but ignore fenced examples", () => {
+  const files = new Map([
+    ["README.md", "[Tests](docs/testing.md#run-pnpm-run-test)\n[Example](docs/testing.md#hidden-example)"],
+    ["docs/testing.md", "# Run `pnpm run test`\n\n```md\n# Hidden example\n```\n"],
+  ]);
+
+  assert.deepEqual(findBrokenMarkdownLinks(files), [
+    "README.md:2 links to missing heading #hidden-example in docs/testing.md",
+  ]);
+});
+
 test("internal link checks report missing files and fragments", () => {
   const files = new Map([
     ["README.md", "[Missing](docs/retired.md)\n[Anchor](docs/architecture.md#missing)"],
