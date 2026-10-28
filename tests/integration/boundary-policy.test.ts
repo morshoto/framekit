@@ -129,20 +129,20 @@ test("rejects imports outside a workspace package public export map", async (t) 
 });
 
 test("rejects private subpaths referenced only by types", async (t) => {
-  const fixture = await createFixture({
-    "adapters/native/src/private.ts": "export interface Secret { value: string }",
-    "apps/server/src/index.ts": [
-      'import type { Secret } from "@fixture/adapter/private.js";',
-      'export type { Secret as ExportedSecret } from "@fixture/adapter/private.js";',
-      'export type ImportedSecret = import("@fixture/adapter/private.js").Secret;',
-      "export type ServerSecret = Secret;",
-    ].join("\n"),
-  });
-  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
-
-  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
-
-  assertViolation(result, "unexported-entrypoint");
+  for (const source of [
+    'import type { InternalType } from "@fixture/adapter/private.js"; export type ServerInternalType = InternalType;',
+    'export type { InternalType } from "@fixture/adapter/private.js";',
+    'export type InternalType = import("@fixture/adapter/private.js").InternalType;',
+    'import { type InternalType } from "@fixture/adapter/private.js"; export type ServerInternalType = InternalType;',
+  ]) {
+    const fixture = await createFixture({
+      "adapters/native/src/private.ts": "export interface InternalType { value: string }",
+      "apps/server/src/index.ts": source,
+    });
+    t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+    const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+    assertViolation(result, "unexported-entrypoint");
+  }
 });
 
 test("rejects forbidden dependencies referenced only by types", async (t) => {
@@ -153,6 +153,18 @@ test("rejects forbidden dependencies referenced only by types", async (t) => {
 
   const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
 
+  assertViolation(result, "forbidden-dependency");
+});
+
+test("rejects type-only relative imports across package boundaries", async (t) => {
+  const fixture = await createFixture({
+    "packages/runtime/src/index.ts": 'import type { NativeShape } from "../../../adapters/native/src/index.js"; export type RuntimeShape = NativeShape; export const runtimeValue = 1;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assertViolation(result, "relative-cross-package");
   assertViolation(result, "forbidden-dependency");
 });
 

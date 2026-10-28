@@ -2,6 +2,7 @@ import { builtinModules } from "node:module";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { parse } from "@babel/parser";
 import { build } from "esbuild";
 
 const NODE_BUILTINS = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
@@ -84,13 +85,27 @@ export async function analyzeWorkspaceBoundaries({ rootDir, packages, policy }) 
   const edges = [];
   const sourceOwners = new Map(sourceFiles.map((file) => [file.path, file.owner]));
   const importEdgesBySource = new Map(sourceFiles.map((file) => [file.path, []]));
+  const importsBySource = new Map(sourceFiles.map((file) => [file.path, []]));
 
   for (const [inputPath, input] of Object.entries(result.metafile.inputs)) {
     const sourcePath = toRootRelative(absoluteRoot, inputPath);
-    const sourceOwner = sourceOwners.get(sourcePath);
-    if (!sourceOwner) continue;
+    if (importsBySource.has(sourcePath)) importsBySource.get(sourcePath).push(...input.imports);
+  }
 
-    for (const imported of input.imports) {
+  for (const file of sourceFiles) {
+    const imports = importsBySource.get(file.path);
+    const knownSpecifiers = new Set(imports.map((imported) => imported.original ?? imported.path));
+    const source = await readFile(resolve(absoluteRoot, file.path), "utf8");
+    for (const specifier of collectStaticModuleSpecifiers(file.path, source)) {
+      if (knownSpecifiers.has(specifier)) continue;
+      knownSpecifiers.add(specifier);
+      imports.push({ path: specifier, external: true, boundaryOnly: true });
+    }
+  }
+
+  for (const [sourcePath, imports] of importsBySource) {
+    const sourceOwner = sourceOwners.get(sourcePath);
+    for (const imported of imports) {
       const specifier = imported.original ?? imported.path;
       const sourceAbsolute = resolve(absoluteRoot, sourcePath);
       const resolved = resolveImport({
@@ -123,7 +138,7 @@ export async function analyzeWorkspaceBoundaries({ rootDir, packages, policy }) 
           kind: resolved.kind,
         };
         edges.push(edge);
-        importEdgesBySource.get(sourcePath).push(edge);
+        if (!imported.boundaryOnly) importEdgesBySource.get(sourcePath).push(edge);
 
         if (sourceOwner.id !== targetOwner.id) {
           if (resolved.kind === "relative") {
@@ -177,6 +192,34 @@ export async function analyzeWorkspaceBoundaries({ rootDir, packages, policy }) 
     || left.specifier.localeCompare(right.specifier)
     || left.target.localeCompare(right.target));
   return { violations, edges };
+}
+
+function collectStaticModuleSpecifiers(filePath, source) {
+  const extension = extname(filePath);
+  const plugins = [".ts", ".tsx", ".mts", ".cts"].includes(extension) ? ["typescript"] : [];
+  if ([".tsx", ".jsx"].includes(extension)) plugins.push("jsx");
+  const file = parse(source, { sourceType: "unambiguous", plugins, attachComment: false });
+  const specifiers = new Set();
+
+  const visit = (node) => {
+    if (["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(node.type)
+        && node.source?.type === "StringLiteral") {
+      specifiers.add(node.source.value);
+    } else if (node.type === "TSImportEqualsDeclaration"
+        && node.moduleReference?.type === "TSExternalModuleReference"
+        && node.moduleReference.expression?.type === "StringLiteral") {
+      specifiers.add(node.moduleReference.expression.value);
+    } else if (node.type === "TSImportType" && node.argument?.type === "StringLiteral") {
+      specifiers.add(node.argument.value);
+    }
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) {
+        for (const item of child) if (item?.type) visit(item);
+      } else if (child?.type) visit(child);
+    }
+  };
+  visit(file);
+  return specifiers;
 }
 
 async function buildImportMetadata(rootDir, sourceFiles, tsconfig) {
