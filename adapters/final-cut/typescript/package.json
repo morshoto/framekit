@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./experimental": {
+      "types": "./src/experimental.ts",
+      "import": "./src/experimental.ts"
     }
   },
   "dependencies": {

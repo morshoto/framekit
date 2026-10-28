@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   runUnattendedEditingWorkflow,
   type UnattendedEditingEnvironment,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/experimental";
 import {
   parseFinalCutSqliteInspectionResponse,
   type FinalCutSqliteObservation,
