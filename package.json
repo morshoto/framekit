@@ -23,6 +23,8 @@
     "build": "tsc -p tsconfig.json",
     "build:package": "tsc -p tsconfig.package.json && tsc-alias -p tsconfig.package.json && tsx scripts/write-package-build-identity.ts",
     "test": "node scripts/run-tests-with-isolated-home.mjs",
+    "test:documentation": "node --test tests/documentation/*.test.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "test:coverage": "c8 --reporter=json-summary --reporter=text --reports-dir=\"${C8_REPORTS_DIR:-coverage}\" pnpm test",
     "test:filler-removal": "tsx --test tests/filler-removal/*.test.ts",
     "benchmark:filler-removal": "tsx scripts/run-filler-removal-benchmark.ts",

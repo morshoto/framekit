@@ -82,6 +82,17 @@ const testFiles = (await Promise.all(testDirectories.map(async (directory) =>
 ))).flat().sort();
 
 try {
+  const documentationFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
+    .filter((file) => file.endsWith(".test.mjs"))
+    .map((file) => path.join("tests/documentation", file)).sort();
+  const documentationExitCode = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--test", ...documentationFiles], {
+      cwd: repositoryRoot, env: environment, stdio: "inherit",
+    });
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 1));
+  });
+  if (documentationExitCode !== 0) throw new Error(`Documentation tests failed with exit code ${documentationExitCode}`);
   const exitCode = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx", "--test", ...testFiles], {
       cwd: repositoryRoot,
