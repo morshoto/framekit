@@ -28,6 +28,40 @@ Project persistence uses atomic persisted state updates and revision-guarded
 edits. A project revision is separate from a history commit; Git-like commits
 are deferred and must not be inferred from revision identifiers.
 
+## Dependency rules
+
+Workspace imports flow toward the runtime contracts. Imports between packages
+must use a package's declared public export and the consumer must declare that
+workspace dependency directly in its manifest. Relative imports are for files
+inside one package. TypeScript path aliases are resolved by the boundary check
+and do not grant access to another package's private files. These boundary
+rules also apply to type-only imports and exports; production reachability and
+cycle checks follow runtime edges.
+
+| Source layer | Allowed workspace dependencies | External packages |
+| --- | --- | --- |
+| `packages/runtime` (domain and application) | None | Node built-ins only. |
+| `packages/testkit` | `packages/runtime` | Node built-ins only. |
+| TypeScript adapters | `packages/runtime` | `adapters/final-cut/typescript`: `fast-xml-parser`; headless adapter: Node built-ins only. |
+| `apps/mcp-server` | Runtime and both TypeScript adapters | `@modelcontextprotocol/sdk`, `zod`, and Node built-ins. |
+| `apps/cli` | Final Cut adapter | Node built-ins only. |
+
+The MCP bootstrap's fixture fallback is the sole `apps/mcp-server` import of
+`packages/testkit`; keep it in `apps/mcp-server/src/main.ts`. The CLI remains
+root-manifest-owned until #569 creates its workspace identity, so its direct
+Final Cut workspace dependency is the only undeclared-workspace migration
+exception. Each exception is exact-file and exact-package scoped; the checker
+does not permit sibling application imports or private adapter paths.
+
+`@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
+shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
+are available only from `@framekit/final-cut/experimental`; default CLI and MCP
+entrypoints must not reach those modules. The boundary checker also rejects
+new runtime source dependency cycles. The existing Timeline IR edit/reconcile cycle
+between `editing-session.ts` and `drift-reconciliation.ts` is the only
+temporary cycle exception; removing it would require extracting shared
+validation and reconciliation contracts beyond this gate's scope.
+
 ## State, identity, and revisions
 
 Operations bind to stable project and sequence identities,

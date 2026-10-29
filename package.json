@@ -81,9 +81,11 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@babel/parser": "7.29.7",
     "@openai/codex": "0.163.0",
     "@types/node": "24.19.2",
     "c8": "12.0.0",
+    "esbuild": "0.28.2",
     "tsc-alias": "1.9.8",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
