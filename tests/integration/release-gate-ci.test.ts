@@ -8,8 +8,10 @@ test("release gate is wired into local and CI validation", async () => {
   };
   const workflow = await readFile(".github/workflows/typescript.yml", "utf8");
   const runner = await readFile("scripts/run-release-gate.ts", "utf8");
+  const testRunner = await readFile("scripts/run-tests-with-isolated-home.mjs", "utf8");
 
-  assert.match(packageJson.scripts?.test ?? "", /tests\/release-gate\/\*\.test\.ts/);
+  assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
+  assert.match(testRunner, /"tests\/release-gate"/);
   assert.equal(packageJson.scripts?.["test:release-gate"], "tsx --test tests/release-gate/*.test.ts");
   assert.equal(packageJson.scripts?.["release-gate"], "tsx scripts/run-release-gate.ts");
   assert.equal(packageJson.scripts?.["verify-release-provenance"], "tsx scripts/verify-release-provenance.ts");
