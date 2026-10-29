@@ -26,7 +26,8 @@ export async function checkScriptReferences(rootDirectory = repositoryRoot) {
   for (const workflow of await listFiles(path.join(rootDirectory, ".github/workflows"))) {
     if (!/\.ya?ml$/i.test(workflow)) continue;
     const content = await readFile(workflow, "utf8");
-    await checkCommandReferences(content, path.relative(rootDirectory, workflow), rootDirectory, issues);
+    const relativeWorkflow = path.relative(rootDirectory, workflow).split(path.sep).join("/");
+    await checkCommandReferences(content, relativeWorkflow, rootDirectory, issues);
   }
 
   const documents = await listFiles(path.join(rootDirectory, "docs"));

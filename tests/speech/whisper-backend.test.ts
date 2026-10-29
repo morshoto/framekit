@@ -29,6 +29,7 @@ async function createFakeMlxBackend(directory: string, segments: unknown[] = [
     { word: "instant", start: 1.5, end: 1.5, probability: 0.5 },
     { word: "inside", start: 1.25, end: 1.75, probability: 0.8 },
   ] },
+  { start: 1.9, end: 1.9, text: "", words: [] },
   { start: 2, end: 2.5, text: "timestamp fallback" },
   { start: 3, end: 3.5, words: [{ word: "last", start: 3, end: 3.5, probability: 0.7 }] },
 ]): Promise<string> {
@@ -46,7 +47,7 @@ async function createFakeMlxBackend(directory: string, segments: unknown[] = [
   return packageDirectory;
 }
 
-test("local Whisper backend skips zero-duration words and normalizes source ranges", async () => {
+test("local Whisper backend skips empty zero-duration segments and words and normalizes source ranges", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-whisper-backend-"));
   const mediaPath = join(directory, "interview.wav");
   await writeFile(mediaPath, "fixture media");
@@ -118,6 +119,36 @@ test("local Whisper backend rejects negative and reversed word timestamps", asyn
 
       assert.equal(result.code, 65);
       assert.match(result.stderr, /WHISPER_OUTPUT_INVALID: word boundaries are invalid/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("local Whisper backend rejects negative, reversed, and non-empty zero-duration segments", async () => {
+  for (const segment of [
+    { start: -0.1, end: 0, text: "negative", words: [] },
+    { start: 0.5, end: 0.4, text: "reversed", words: [] },
+    { start: 0.5, end: 0.5, text: "instant", words: [] },
+  ]) {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-whisper-invalid-segment-"));
+    try {
+      const mediaPath = join(directory, "interview.wav");
+      await writeFile(mediaPath, "fixture media");
+      const pythonPath = await createFakeMlxBackend(directory, [segment]);
+      const result = await runBackend({
+        schemaVersion: 1,
+        media: { mediaId: "media-1", source: mediaPath, duration: 1 },
+      }, {
+        ...process.env,
+        PYTHONPATH: pythonPath,
+        FRAMEKIT_WHISPER_BACKEND: "mlx-whisper",
+        FRAMEKIT_WHISPER_MODEL: "fake/model",
+        FRAMEKIT_WHISPER_LANGUAGE: "en",
+      });
+
+      assert.equal(result.code, 65);
+      assert.match(result.stderr, /WHISPER_OUTPUT_INVALID: segment boundaries are invalid/);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

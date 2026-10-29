@@ -111,11 +111,15 @@ def normalized_words(result: dict[str, Any], requested: dict[str, Any] | None) -
         segment_record = required_record(segment, "segment")
         segment_start = finite_number(segment_record.get("start"), "segment start")
         segment_end = finite_number(segment_record.get("end"), "segment end")
-        if segment_start < 0 or segment_end <= segment_start:
+        if segment_start < 0 or segment_end < segment_start:
             fail(65, "WHISPER_OUTPUT_INVALID: segment boundaries are invalid")
         words = segment_record.get("words")
+        text = str(segment_record.get("text", "")).strip()
+        if segment_start == segment_end:
+            if not text and (words is None or words == []):
+                continue
+            fail(65, "WHISPER_OUTPUT_INVALID: segment boundaries are invalid")
         if not isinstance(words, list) or not words:
-            text = str(segment_record.get("text", "")).strip()
             words = [{"word": text, "start": segment_start, "end": segment_end}]
         for word in words:
             word_record = required_record(word, "word")
