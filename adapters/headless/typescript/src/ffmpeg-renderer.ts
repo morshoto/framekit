@@ -387,7 +387,7 @@ function buildFfmpegArguments(
     const gain = occurrence.gainDb ?? 0;
     const delaySamples = Math.round(start * HEADLESS_AUDIO_SAMPLE_RATE);
     const audioLabel = `bed-audio${index}`;
-    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
+    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad=whole_dur=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
     musicLabels.push(`[${audioLabel}]`);
   }
 
