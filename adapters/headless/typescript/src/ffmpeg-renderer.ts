@@ -5,7 +5,7 @@ import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "nod
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
+import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
   type FramekitRenderCapabilityReport,
@@ -404,7 +404,7 @@ function buildFfmpegArguments(
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
   if (audioOutput) {
-    args.push("-map", `[${audioOutput}]`, "-c:a", "aac", "-b:a", "128k", "-ar", String(HEADLESS_AUDIO_SAMPLE_RATE), "-ac", String(HEADLESS_AUDIO_CHANNELS));
+    args.push("-map", `[${audioOutput}]`, "-c:a", HEADLESS_AUDIO_CODEC, "-b:a", "128k", "-ar", String(HEADLESS_AUDIO_SAMPLE_RATE), "-ac", String(HEADLESS_AUDIO_CHANNELS));
   }
   args.push("-map_metadata", "-1", "-t", formatNumber(model.duration), "-movflags", "+faststart", stagingPath);
   return args;
