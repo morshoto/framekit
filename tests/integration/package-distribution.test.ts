@@ -39,17 +39,26 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.match(manifest.scripts?.["build:package"] ?? "", /write-package-build-identity\.ts/);
 
   const { stdout } = await exec("npm", ["pack", "--dry-run", "--json"], { cwd: repository });
-  const [packed] = JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>;
+  const [packed] = JSON.parse(stdout) as Array<{ files: Array<{ path: string; mode: number }> }>;
   const paths = packed.files.map((file) => file.path);
   for (const requiredPath of [
     "bin/framekit.mjs",
     "dist-package/apps/cli/src/main.js",
     "dist-package/apps/mcp-server/src/main.js",
     "dist-package/apps/mcp-server/src/build-identity.json",
+    "dist-package/apps/mcp-server/runtime/speech-analyzer-wrapper.mjs",
+    "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
     "dist-package/packages/runtime/src/index.js",
     "dist-package/adapters/final-cut/typescript/src/index.js",
   ]) {
     assert.ok(paths.includes(requiredPath), `${requiredPath} must be included in the npm package`);
+  }
+  for (const executable of [
+    "dist-package/apps/mcp-server/runtime/speech-analyzer-wrapper.mjs",
+    "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
+  ]) {
+    const packedFile = packed.files.find(({ path }) => path === executable);
+    assert.ok(packedFile && (packedFile.mode & 0o111) !== 0, `${executable} must remain executable in the package`);
   }
   assert.equal(paths.some((path) => path.startsWith("tests/")), false);
   assert.equal(paths.some((path) => path.startsWith("adapters/final-cut/swift-bridge/")), false);
@@ -79,8 +88,25 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
     ) as { version?: string };
 
     const executable = join(directory, "node_modules", ".bin", "framekit");
+    const speechAnalyzer = join(
+      directory,
+      "node_modules",
+      "@morshoto",
+      "framekit",
+      "dist-package",
+      "apps",
+      "mcp-server",
+      "runtime",
+      "speech-analyzer-wrapper.mjs",
+    );
     const help = await exec(executable, ["help"], { cwd: directory });
     assert.match(help.stdout, /framekit mcp --editor final-cut-live \[--headless\]/);
+    await assert.rejects(
+      exec(speechAnalyzer, [], { cwd: directory, env: { ...process.env, FRAMEKIT_SPEECH_BACKEND: "" } }),
+      (error: unknown) => error instanceof Error
+        && (error as Error & { code?: number }).code === 78
+        && /SPEECH_ANALYZER_SETUP_REQUIRED/.test((error as Error & { stderr?: string }).stderr ?? ""),
+    );
 
     transport = new StdioClientTransport({
       command: executable,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { join } from "node:path";
@@ -23,7 +23,16 @@ function runBackend(input: unknown, environment: NodeJS.ProcessEnv): Promise<{ c
   });
 }
 
-async function createFakeMlxBackend(directory: string): Promise<string> {
+async function createFakeMlxBackend(directory: string, segments: unknown[] = [
+  { start: 0, end: 1, text: "outside", words: [{ word: "outside", start: 0, end: 1, probability: 0.9 }] },
+  { start: 1.25, end: 1.75, words: [
+    { word: "instant", start: 1.5, end: 1.5, probability: 0.5 },
+    { word: "inside", start: 1.25, end: 1.75, probability: 0.8 },
+  ] },
+  { start: 1.9, end: 1.9, text: "", words: [] },
+  { start: 2, end: 2.5, text: "timestamp fallback" },
+  { start: 3, end: 3.5, words: [{ word: "last", start: 3, end: 3.5, probability: 0.7 }] },
+]): Promise<string> {
   const packageDirectory = join(directory, "fake-packages");
   const moduleDirectory = join(packageDirectory, "mlx_whisper");
   await mkdir(moduleDirectory, { recursive: true });
@@ -33,17 +42,12 @@ async function createFakeMlxBackend(directory: string): Promise<string> {
     "    assert path_or_hf_repo == 'fake/model'",
     "    assert word_timestamps is True",
     "    assert language == 'en'",
-    "    return {'segments': [",
-    "        {'start': 0, 'end': 1, 'text': 'outside', 'words': [{'word': 'outside', 'start': 0, 'end': 1, 'probability': 0.9}]},",
-    "        {'start': 1.25, 'end': 1.75, 'words': [{'word': 'inside', 'start': 1.25, 'end': 1.75, 'probability': 0.8}]},",
-    "        {'start': 2, 'end': 2.5, 'text': 'timestamp fallback'},",
-    "        {'start': 3, 'end': 3.5, 'words': [{'word': 'last', 'start': 3, 'end': 3.5, 'probability': 0.7}]},",
-    "    ]}",
+    `    return ${JSON.stringify({ segments })}`,
   ].join("\n"));
   return packageDirectory;
 }
 
-test("local Whisper backend normalizes word timestamps and source ranges", async () => {
+test("local Whisper backend skips empty zero-duration segments and words and normalizes source ranges", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-whisper-backend-"));
   const mediaPath = join(directory, "interview.wav");
   await writeFile(mediaPath, "fixture media");
@@ -90,4 +94,63 @@ test("local Whisper backend reports missing model configuration", async () => {
 
   assert.equal(result.code, 78);
   assert.match(result.stderr, /WHISPER_SETUP_REQUIRED: set FRAMEKIT_WHISPER_MODEL/);
+});
+
+test("local Whisper backend rejects negative and reversed word timestamps", async () => {
+  for (const word of [
+    { word: "negative", start: -0.1, end: 0.1 },
+    { word: "reversed", start: 0.5, end: 0.4 },
+  ]) {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-whisper-invalid-"));
+    try {
+      const mediaPath = join(directory, "interview.wav");
+      await writeFile(mediaPath, "fixture media");
+      const pythonPath = await createFakeMlxBackend(directory, [{ start: 0, end: 1, words: [word] }]);
+      const result = await runBackend({
+        schemaVersion: 1,
+        media: { mediaId: "media-1", source: mediaPath, duration: 1 },
+      }, {
+        ...process.env,
+        PYTHONPATH: pythonPath,
+        FRAMEKIT_WHISPER_BACKEND: "mlx-whisper",
+        FRAMEKIT_WHISPER_MODEL: "fake/model",
+        FRAMEKIT_WHISPER_LANGUAGE: "en",
+      });
+
+      assert.equal(result.code, 65);
+      assert.match(result.stderr, /WHISPER_OUTPUT_INVALID: word boundaries are invalid/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("local Whisper backend rejects negative, reversed, and non-empty zero-duration segments", async () => {
+  for (const segment of [
+    { start: -0.1, end: 0, text: "negative", words: [] },
+    { start: 0.5, end: 0.4, text: "reversed", words: [] },
+    { start: 0.5, end: 0.5, text: "instant", words: [] },
+  ]) {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-whisper-invalid-segment-"));
+    try {
+      const mediaPath = join(directory, "interview.wav");
+      await writeFile(mediaPath, "fixture media");
+      const pythonPath = await createFakeMlxBackend(directory, [segment]);
+      const result = await runBackend({
+        schemaVersion: 1,
+        media: { mediaId: "media-1", source: mediaPath, duration: 1 },
+      }, {
+        ...process.env,
+        PYTHONPATH: pythonPath,
+        FRAMEKIT_WHISPER_BACKEND: "mlx-whisper",
+        FRAMEKIT_WHISPER_MODEL: "fake/model",
+        FRAMEKIT_WHISPER_LANGUAGE: "en",
+      });
+
+      assert.equal(result.code, 65);
+      assert.match(result.stderr, /WHISPER_OUTPUT_INVALID: segment boundaries are invalid/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 });
