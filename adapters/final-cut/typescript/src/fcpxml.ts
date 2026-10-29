@@ -427,7 +427,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       }
       case "ripple-delete":
         if (operation.timelineId !== timelineId) throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
-        this.applyRippleDelete(spine, operation.range.start, operation.range.end);
+        this.applyRippleDelete(
+          spine,
+          operation.range.start,
+          operation.range.end,
+          attribute(sequence, "duration") === undefined
+            ? rationalSeconds(timelineDuration(timelineEntries(spine)))
+            : rationalSeconds(parseRational(attribute(sequence, "duration"))),
+        );
         break;
       case "add-marker": {
         this.applyMarker(spine, timelineId, operation);
@@ -794,9 +801,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     }
   }
 
-  private applyRippleDelete(spine: XmlNode, start: number, end: number): void {
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+  private applyRippleDelete(spine: XmlNode, start: number, end: number, sequenceDuration: number): void {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
       throw new Error("INVALID_OPERATION: ripple-delete range must be finite and increasing");
+    }
+    if (start < 0 || end > sequenceDuration) {
+      throw new Error(
+        `INVALID_OPERATION: ripple-delete range [${start}, ${end}) must fit timeline bounds [0, ${sequenceDuration})`,
+      );
     }
     const direct = storyEntries(spine)
       .map(({ kind, node }) => timelineEntries(spine).find((entry) => entry.node === node && entry.kind === kind))

@@ -519,6 +519,30 @@ test("canonical native provider rejects middle-of-clip ripple deletes", async ()
   assert.deepEqual(calls, []);
 });
 
+test("canonical native provider reports timeline bounds for out-of-range ripple deletes", async () => {
+  const { before: original } = rippleSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original, original, original], calls);
+  const before = await provider.readProject();
+
+  for (const range of [{ start: -1, end: 1 }, { start: 5, end: 7 }]) {
+    const operation = {
+      type: "ripple-delete" as const,
+      timelineId: before.timeline.id,
+      range,
+      candidateId: "out-of-bounds",
+      reason: "reject invalid range",
+    };
+    await assert.rejects(
+      provider.previewTransaction([operation], before.revision),
+      new RegExp(`ripple-delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 6\\)`),
+    );
+    assert.deepEqual(await provider.readProject(), before);
+  }
+
+  assert.deepEqual(calls, []);
+});
+
 test("canonical native provider rejects collateral ripple-delete readback changes", async () => {
   const { before: original, after: deleted } = rippleSnapshots();
   const collateral = structuredClone(deleted);
