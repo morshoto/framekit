@@ -10,10 +10,15 @@ test("filler-removal benchmark is wired into local and CI validation", async () 
   const workflow = await readFile(resolve(".github/workflows/typescript.yml"), "utf8");
   const documentation = await readFile(resolve("docs/testing.md"), "utf8");
   const testRunner = await readFile(resolve("scripts/run-tests-with-isolated-home.mjs"), "utf8");
+  const suiteManifest = JSON.parse(await readFile(resolve("scripts/test-suite-manifest.json"), "utf8")) as {
+    tests: Array<{ path: string; tags: string[] }>;
+  };
 
   assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
-  assert.match(testRunner, /"tests\/filler-removal"/);
-  assert.match(testRunner, /"tests\/speech"/);
+  assert.match(testRunner, /selectTestFiles/);
+  for (const file of suiteManifest.tests.filter(({ path }) => path.startsWith("tests/filler-removal/") || path.startsWith("tests/speech/"))) {
+    assert.ok(file.tags.includes("unit"), `${file.path} is included in the unit suite`);
+  }
   assert.equal(packageJson.scripts?.["test:filler-removal"], "tsx --test tests/filler-removal/*.test.ts");
   assert.equal(packageJson.scripts?.["benchmark:filler-removal"], "tsx scripts/run-filler-removal-benchmark.ts");
   assert.match(workflow, /pnpm run benchmark:filler-removal --output-dir artifacts\/filler-removal\/\$\{\{ github\.run_id \}\}/);

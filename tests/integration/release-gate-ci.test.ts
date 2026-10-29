@@ -9,10 +9,14 @@ test("release gate is wired into local and CI validation", async () => {
   const workflow = await readFile(".github/workflows/typescript.yml", "utf8");
   const runner = await readFile("scripts/run-release-gate.ts", "utf8");
   const testRunner = await readFile("scripts/run-tests-with-isolated-home.mjs", "utf8");
+  const suiteManifest = JSON.parse(await readFile("scripts/test-suite-manifest.json", "utf8")) as {
+    tests: Array<{ path: string; tags: string[] }>;
+  };
 
   assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
-  assert.match(testRunner, /"tests\/release-gate"/);
-  assert.equal(packageJson.scripts?.["test:release-gate"], "tsx --test tests/release-gate/*.test.ts");
+  assert.match(testRunner, /selectTestFiles/);
+  assert.ok(suiteManifest.tests.some(({ path, tags }) => path.startsWith("tests/release-gate/") && tags.includes("release-gate")));
+  assert.equal(packageJson.scripts?.["test:release-gate"], "node scripts/run-tests-with-isolated-home.mjs release-gate");
   assert.equal(packageJson.scripts?.["release-gate"], "tsx scripts/run-release-gate.ts");
   assert.equal(packageJson.scripts?.["verify-release-provenance"], "tsx scripts/verify-release-provenance.ts");
   assert.match(workflow, /name: Run v0\.1\.6 native-editing release gate/);
