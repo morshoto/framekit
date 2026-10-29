@@ -28,7 +28,12 @@ export async function checkScriptReferences(rootDirectory = repositoryRoot) {
     await checkCommandReferences(content, path.relative(rootDirectory, workflow), rootDirectory, issues);
   }
 
-  for (const document of await listFiles(path.join(rootDirectory, "docs"))) {
+  const documents = await listFiles(path.join(rootDirectory, "docs"));
+  for (const readme of ["README.md", "tests/README.md"]) {
+    const file = path.join(rootDirectory, readme);
+    if (await isFile(file)) documents.push(file);
+  }
+  for (const document of documents) {
     if (!document.endsWith(".md")) continue;
     const content = await readFile(document, "utf8");
     const relativeDocument = path.relative(rootDirectory, document).split(path.sep).join("/");

@@ -23,12 +23,14 @@ test("reports missing package commands, workflow commands, links, and executable
   try {
     await mkdir(join(root, ".github/workflows"), { recursive: true });
     await mkdir(join(root, "docs"), { recursive: true });
+    await mkdir(join(root, "tests"), { recursive: true });
     await writeFile(join(root, "package.json"), JSON.stringify({
       scripts: { broken: "node scripts/missing-command.mjs" },
       bin: { framekit: "./bin/missing-executable.mjs" },
     }));
     await writeFile(join(root, ".github/workflows/ci.yml"), "steps:\n  - run: node scripts/missing-workflow.mjs\n");
     await writeFile(join(root, "docs/testing.md"), "[missing](../scripts/missing-link.mjs)\n\nRun `node scripts/missing-doc-command.mjs`.\n");
+    await writeFile(join(root, "tests/README.md"), "Run `node scripts/missing-test-command.mjs`.\n");
 
     assert.deepEqual(await checkScriptReferences(root), [
       ".github/workflows/ci.yml runs missing script scripts/missing-workflow.mjs",
@@ -36,6 +38,7 @@ test("reports missing package commands, workflow commands, links, and executable
       "docs/testing.md runs missing script scripts/missing-doc-command.mjs",
       "package.json bin.framekit points to missing executable bin/missing-executable.mjs",
       "package.json scripts.broken runs missing script scripts/missing-command.mjs",
+      "tests/README.md runs missing script scripts/missing-test-command.mjs",
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
