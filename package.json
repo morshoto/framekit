@@ -16,6 +16,9 @@
   "bin": {
     "framekit": "./bin/framekit.mjs"
   },
+  "exports": {
+    "./bin/framekit.mjs": "./bin/framekit.mjs"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -51,12 +51,9 @@ cycle checks follow runtime edges.
 | `apps/cli` | Final Cut adapter and headless application | Node built-ins only. |
 
 The MCP bootstrap's fixture fallback is the sole `apps/mcp-server` import of
-`packages/testkit`; keep it in `apps/mcp-server/src/main.ts`. The CLI remains
-root-manifest-owned until #569 creates its workspace identity, so its direct
-Final Cut and headless-application workspace dependencies are exact-file
-migration exceptions. Each exception is exact-file and exact-package scoped;
-the checker does not permit sibling application imports or private adapter
-paths.
+`packages/testkit`; keep it in `apps/mcp-server/src/main.ts`. The CLI declares
+its workspace dependencies in `apps/cli/package.json`. The checker does not
+permit sibling application imports or private adapter paths.
 
 `@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs

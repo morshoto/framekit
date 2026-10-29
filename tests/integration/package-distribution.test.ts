@@ -25,6 +25,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
     version?: string;
     private?: boolean;
     bin?: Record<string, string>;
+    exports?: Record<string, unknown>;
     dependencies?: Record<string, string>;
     files?: string[];
     scripts?: Record<string, string>;
@@ -33,6 +34,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.equal(manifest.name, "@morshoto/framekit");
   assert.equal(manifest.private, false);
   assert.equal(manifest.bin?.framekit, "./bin/framekit.mjs");
+  assert.deepEqual(manifest.exports, { "./bin/framekit.mjs": "./bin/framekit.mjs" });
   assert.equal(manifest.dependencies?.tsx, undefined, "published CLI must not depend on the development loader");
   assert.deepEqual(manifest.files, ["bin", "dist-package"]);
   assert.equal(manifest.scripts?.prepack, "pnpm run build:package");
@@ -71,7 +73,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.match(identity.commit ?? "", /^[0-9a-f]{40}$/);
 });
 
-test("clean install of the packed package starts the headless Final Cut MCP server", { timeout: 120_000 }, async () => {
+test("clean local and global installs expose the supported CLI and MCP entrypoints", { timeout: 180_000 }, async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-package-smoke-"));
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
@@ -107,6 +109,29 @@ test("clean install of the packed package starts the headless Final Cut MCP serv
         && (error as Error & { code?: number }).code === 78
         && /SPEECH_ANALYZER_SETUP_REQUIRED/.test((error as Error & { stderr?: string }).stderr ?? ""),
     );
+
+    const globalPrefix = join(directory, "global");
+    await exec("npm", ["install", "--global", "--prefix", globalPrefix, "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
+    const globalExecutable = join(globalPrefix, "bin", process.platform === "win32" ? "framekit.cmd" : "framekit");
+    const globalHelp = await exec(globalExecutable, ["help"], { cwd: directory });
+    assert.match(globalHelp.stdout, /framekit mcp --editor final-cut-live \[--headless\]/);
+
+    await exec(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      "await import('@morshoto/framekit/bin/framekit.mjs')",
+    ], { cwd: directory });
+
+    const privateSubpath = await exec(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      "await import('@morshoto/framekit/dist-package/apps/cli/src/main.js')",
+    ], { cwd: directory }).then(
+      () => undefined,
+      (error: unknown) => error as { stderr?: string; code?: number },
+    );
+    assert.ok(privateSubpath);
+    assert.match(privateSubpath.stderr ?? "", /ERR_PACKAGE_PATH_NOT_EXPORTED/);
 
     transport = new StdioClientTransport({
       command: executable,
