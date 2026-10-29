@@ -17,6 +17,104 @@ import { FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/i
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
 
+test("FFmpeg renderer preserves apostrophes in title text", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const sourceWithApostrophe = await timeline(
+      join(directory, "fixture-red-440hz.mp4"),
+      join(directory, "fixture-blue-880hz.mp4"),
+    );
+    sourceWithApostrophe.sequence.titles![0]!.text = "Framekit's";
+    const sourceWithoutApostrophe = structuredClone(sourceWithApostrophe);
+    sourceWithoutApostrophe.sequence.titles![0]!.text = "Framekits";
+
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const render = async (source: TimelineIr, outputPath: string) => {
+      const request = createFramekitRenderRequest({
+        timeline: source,
+        target: { projectId: source.project.id, sequenceId: source.sequence.id },
+        parameters: parameters(outputPath),
+      });
+      const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+      return renderer.render(plan);
+    };
+    const withApostrophePath = join(directory, "with-apostrophe.mp4");
+    const withoutApostrophePath = join(directory, "without-apostrophe.mp4");
+    await render(sourceWithApostrophe, withApostrophePath);
+    await render(sourceWithoutApostrophe, withoutApostrophePath);
+
+    const withApostropheFrame = await frameAt(withApostrophePath, 0.25, directory, "with-apostrophe");
+    const withoutApostropheFrame = await frameAt(withoutApostrophePath, 0.25, directory, "without-apostrophe");
+    assert.notEqual(
+      frameDigest(withApostropheFrame),
+      frameDigest(withoutApostropheFrame),
+      "rendered frame should include the apostrophe glyph",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FFmpeg renderer keeps title text separate from drawtext options", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-title-textfile-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const source = await timeline(
+      join(directory, "fixture-red-440hz.mp4"),
+      join(directory, "fixture-blue-880hz.mp4"),
+    );
+    source.sequence.titles = [source.sequence.titles![0]!];
+    source.sequence.titles[0]!.text = "Framekit's";
+
+    const capturePath = join(directory, "captured-render.json");
+    const fakeFfmpegPath = join(directory, "fake-ffmpeg.mjs");
+    await writeFile(fakeFfmpegPath, `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const args = process.argv.slice(2);
+const filterGraph = args[args.indexOf("-filter_complex") + 1];
+const titleFile = filterGraph.match(/textfile='([^']+)'/)?.[1];
+if (!titleFile) throw new Error("drawtext title did not use a text file");
+writeFileSync(process.env.FRAMEKIT_FAKE_CAPTURE, JSON.stringify({
+  filterGraph,
+  titleText: readFileSync(join(process.cwd(), titleFile), "utf8"),
+}));
+writeFileSync(args.at(-1), "fake render output");
+`);
+    await chmod(fakeFfmpegPath, 0o755);
+
+    const renderer = new FfmpegTimelineRenderer({
+      ffmpegPath: fakeFfmpegPath,
+      env: { FRAMEKIT_FAKE_CAPTURE: capturePath },
+    });
+    const outputPath = join(directory, "captured-output.mp4");
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+
+    const captured = JSON.parse(await readFile(capturePath, "utf8")) as {
+      filterGraph: string;
+      titleText: string;
+    };
+    assert.equal(captured.titleText, "Framekit's");
+    assert.match(captured.filterGraph, /textfile='title-0\.txt':expansion=none:fontcolor=white:fontsize=24/);
+    assert.doesNotMatch(captured.filterGraph, /Framekit's/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-"));
   try {
@@ -211,6 +309,69 @@ test("FFmpeg renderer fills a trailing video gap with black while music continue
       "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
     ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
     assert.ok(frequencyAmplitude(tailAudio.stdout as unknown as Buffer, 1_760, 48_000) > 0.002, "independent music should continue through the black video tail");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FFmpeg renders a title during a cross-dissolve", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-transition-title-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.titles = [{
+      id: "transition-title",
+      text: "FADE",
+      startTime: { value: "3", timescale: "4" },
+      durationTime: { value: "1", timescale: "2" },
+      lane: 1,
+      style: { fontSize: 32, color: "white", alignment: "center" },
+    }];
+    const wrapperPath = join(directory, "capture-ffmpeg.mjs");
+    const filterArgsPath = join(directory, "filter-args.json");
+    await writeFile(wrapperPath, [
+      "#!/usr/bin/env node",
+      "import { writeFileSync } from \"node:fs\";",
+      "import { spawnSync } from \"node:child_process\";",
+      "writeFileSync(process.env.FRAMEKIT_TEST_FILTER_ARGS, JSON.stringify(process.argv.slice(2)));",
+      "const result = spawnSync(process.env.FFMPEG_REAL_BIN, process.argv.slice(2), { stdio: \"inherit\" });",
+      "process.exit(result.status ?? 1);",
+    ].join("\n"));
+    await chmod(wrapperPath, 0o755);
+    const renderer = new FfmpegTimelineRenderer({
+      ffmpegPath: wrapperPath,
+      env: { FRAMEKIT_TEST_FILTER_ARGS: filterArgsPath, FFMPEG_REAL_BIN: process.env.FFMPEG_BIN || "ffmpeg" },
+    });
+    const outputPath = join(directory, "transition-title.mp4");
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    await renderer.render(plan);
+    const ffmpegArgs = JSON.parse(await readFile(filterArgsPath, "utf8")) as string[];
+    const filterGraph = ffmpegArgs[ffmpegArgs.indexOf("-filter_complex") + 1];
+    assert.match(filterGraph!, /\[video-xfade-padded\]format=yuv420p\[video-titles-base\];\[video-titles-base\]drawtext=/);
+
+    const withoutTitle = structuredClone(source);
+    withoutTitle.sequence.titles = [];
+    const plainPath = join(directory, "transition-plain.mp4");
+    const plainRequest = createFramekitRenderRequest({
+      timeline: withoutTitle,
+      target: { projectId: withoutTitle.project.id, sequenceId: withoutTitle.sequence.id },
+      parameters: parameters(plainPath),
+    });
+    await renderer.render(createFramekitRenderPlan(plainRequest, renderer.capabilities(plainRequest)));
+    const titleFrame = await frameAt(outputPath, 0.9, directory, "transition-title-frame");
+    const plainFrame = await frameAt(plainPath, 0.9, directory, "transition-plain-frame");
+    assert.ok(
+      countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(plainFrame, 80, 240, 40, 140) + 5,
+      "title should be visible over the cross-dissolve",
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -111,6 +111,10 @@ closed or when Final Cut Pro is not installed. The bundled Workflow Extension pr
 only unless a configured provider advertises more. A failed headless operation
 has no implicit headed-native fallback or foreground activation.
 
+For `ripple-delete`, preview rejects ranges outside the active sequence bounds
+before issuing a preview token. The structured error reports the requested
+range and observed timeline bounds, including for a negative start.
+
 Native UI edits require an explicit headed path and a separately approved
 operation. Bind the preview to the exact project, sequence, occurrence, and
 revision; verify the intended target and foreground state before execution;
