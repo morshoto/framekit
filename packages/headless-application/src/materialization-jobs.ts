@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
+import {
+  timelineIrDigest,
+  validateTimelineIr,
+  type EditingSession,
+  type EditingSessionDocument,
+  type TimelineIr,
+  type TimelineIrProvider,
+} from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
   type TimelineIrMaterializationCoverage,
@@ -9,7 +16,17 @@ import {
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut";
-import { EditingSessionRepository } from "./headless-sessions.js";
+
+export interface MaterializationSessionRepositoryPort {
+  loadForMaterialization(sessionId: string): Promise<EditingSession>;
+  hasChangeSource(): boolean;
+  checkpoint(sessionId: string, session: EditingSession): Promise<unknown>;
+  create(input: {
+    sessionId: string;
+    base: TimelineIr;
+    provider?: TimelineIrProvider;
+  }): Promise<{ document: EditingSessionDocument }>;
+}
 
 export interface SessionMaterializationPublishRequest {
   jobId: string;
@@ -113,7 +130,7 @@ export interface SessionMaterializationJob {
 export class SessionMaterializationJobs {
   public constructor(
     private readonly directory: string,
-    private readonly sessions: EditingSessionRepository,
+    private readonly sessions: MaterializationSessionRepositoryPort,
     private readonly publisher?: SessionMaterializationPublisher,
   ) {}
 
@@ -568,6 +585,11 @@ export class SessionMaterializationJobs {
     }
   }
 }
+
+export type SessionMaterializationServicePort = Pick<
+  SessionMaterializationJobs,
+  "preview" | "execute" | "status" | "retry" | "resync"
+>;
 
 interface MaterializationFailure {
   code: string;

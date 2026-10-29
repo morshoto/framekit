@@ -6,6 +6,8 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
+import { EditingSessionRepository } from "../../apps/mcp-server/src/headless-sessions.js";
+import { SessionMaterializationJobs } from "@framekit/headless-application";
 import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -84,6 +86,38 @@ const target = {
   sequenceUid: "sequence-1",
   eventName: "Framekit",
 };
+
+test("MCP delegates materialization tools to an injected application service", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-injected-"));
+  const sessions = new EditingSessionRepository(join(directory, "sessions"));
+  await sessions.create({
+    sessionId: "session-injected",
+    base: timeline(),
+    provider: { id: "final-cut" },
+  });
+  const applicationJobs = new SessionMaterializationJobs(
+    join(directory, "materializations"),
+    sessions,
+  );
+  const server = createMcpServer(runtime(), { materializationJobs: applicationJobs });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "materialization-injection-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const preview = payload(await client.callTool({
+      name: "session.materialize.preview",
+      arguments: { sessionId: "session-injected", target },
+    }));
+    assert.equal(preview.mutating, false);
+    assert.equal(preview.destination.mode, "versioned");
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 function canonicalTarget(request: {
   target: Pick<typeof target, "libraryUid" | "eventUid" | "projectUid" | "sequenceUid">;
@@ -309,6 +343,38 @@ test("requires canonical readback to identify the created target", async () => {
     assert.equal(failed.evidence.canonicalReadback, false);
     await connected.client.close();
     await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when a publisher returns a partial materialization result", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-partial-"));
+  let publishCount = 0;
+  const publisher: SessionMaterializationPublisher = {
+    publish: async () => {
+      publishCount += 1;
+      return { state: "partial" } as never;
+    },
+  };
+  try {
+    const connected = await connect(directory, publisher);
+    await connected.client.callTool({
+      name: "session.create",
+      arguments: { sessionId: "session-partial", provider: { id: "final-cut" }, base: timeline() },
+    });
+    const failed = payload(await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-partial", target, confirm: true },
+    }));
+
+    assert.equal(publishCount, 1);
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.nextAction, "none");
+    assert.equal(failed.evidence.providerRequested, true);
+    assert.equal(failed.evidence.canonicalReadback, false);
+    assert.equal(failed.evidence.headedNative, false);
+    assert.equal(failed.error.retryable, false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

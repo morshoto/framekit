@@ -61,8 +61,7 @@ import { EditingSessionRepository, type EditingSessionChangeSource } from "./hea
 import {
   SessionMaterializationJobs,
   type SessionMaterializationPublisher,
-} from "./materialization-jobs.js";
-import {
+  type SessionMaterializationServicePort,
   type HeadlessProjectWorkflow,
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
@@ -70,7 +69,7 @@ import {
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 
-export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
+export type { SessionMaterializationPublisher } from "@framekit/headless-application";
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -983,6 +982,8 @@ export interface McpServerOptions {
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
+  materializationJobs?: SessionMaterializationServicePort;
+
   headlessProjects?: HeadlessProjectWorkflow;
 }
 
@@ -1023,15 +1024,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   const sessions = options.sessionDirectory
     ? new EditingSessionRepository(options.sessionDirectory, options.sessionChangeSource)
     : undefined;
-  const materializations = sessions && options.materializationDirectory
-    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
-    : undefined;
+  const materializations = options.materializationJobs
+    ?? (sessions && options.materializationDirectory
+      ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+      : undefined);
 
   const requireSessions = (): EditingSessionRepository => {
     if (!sessions) throw new Error("SESSION_STORAGE_UNAVAILABLE: configure a session directory");
     return sessions;
   };
-  const requireMaterializations = (): SessionMaterializationJobs => {
+  const requireMaterializations = (): SessionMaterializationServicePort => {
     if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
     return materializations;
   };
