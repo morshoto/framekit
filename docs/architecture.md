@@ -114,6 +114,10 @@ closed or when Final Cut Pro is not installed. The bundled Workflow Extension pr
 only unless a configured provider advertises more. A failed headless operation
 has no implicit headed-native fallback or foreground activation.
 
+FFmpeg headless renders normalize audio to AAC at 48 kHz mono. Verification
+checks this emitted format while preserving registered source metadata; other
+renderer backends are checked against their source audio metadata.
+
 For `ripple-delete`, preview rejects ranges outside the active sequence bounds
 before issuing a preview token. The structured error reports the requested
 range and observed timeline bounds, including for a negative start.

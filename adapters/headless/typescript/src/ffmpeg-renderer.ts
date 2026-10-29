@@ -5,6 +5,7 @@ import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "nod
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
   type FramekitRenderCapabilityReport,
@@ -373,7 +374,7 @@ function buildFfmpegArguments(
     if (hasAudio) {
       const audioLabel = `clipa${index}`;
       const gain = occurrence.gainDb ?? 0;
-      filters.push(`${`[${index}:a]`}atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=48000,volume=${formatNumber(Math.pow(10, gain / 20))}[${audioLabel}]`);
+      filters.push(`${`[${index}:a]`}atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},volume=${formatNumber(Math.pow(10, gain / 20))}[${audioLabel}]`);
       audioLabels.push(`[${audioLabel}]`);
     }
   }
@@ -384,9 +385,9 @@ function buildFfmpegArguments(
     const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
     const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
     const gain = occurrence.gainDb ?? 0;
-    const delaySamples = Math.round(start * 48_000);
+    const delaySamples = Math.round(start * HEADLESS_AUDIO_SAMPLE_RATE);
     const audioLabel = `bed-audio${index}`;
-    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
+    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
     musicLabels.push(`[${audioLabel}]`);
   }
 
@@ -403,7 +404,7 @@ function buildFfmpegArguments(
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
   if (audioOutput) {
-    args.push("-map", `[${audioOutput}]`, "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "1");
+    args.push("-map", `[${audioOutput}]`, "-c:a", HEADLESS_AUDIO_CODEC, "-b:a", "128k", "-ar", String(HEADLESS_AUDIO_SAMPLE_RATE), "-ac", String(HEADLESS_AUDIO_CHANNELS));
   }
   args.push("-map_metadata", "-1", "-t", formatNumber(model.duration), "-movflags", "+faststart", stagingPath);
   return args;
