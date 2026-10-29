@@ -132,6 +132,9 @@ test("canonical docs keep setup, test, and release commands discoverable", async
   assert.match(gettingStarted, /FRAMEKIT_FCPXML_PATH/);
   assert.match(gettingStarted, /FRAMEKIT_FINAL_CUT_SOCKET/);
   assert.match(gettingStarted, /^### Optional analysis providers$/m);
+  assert.match(gettingStarted, /^### CLI entrypoint resolution$/m);
+  assert.match(gettingStarted, /bin\/framekit\.mjs[\s\S]*apps\/cli\/src\/main\.ts[\s\S]*dist-package\/apps\/cli\/src\/main\.js/);
+  assert.ok(gettingStarted.includes("private\nimplementation subpaths"));
   assert.match(testing, /pnpm run check:docs/);
   assert.match(testing, /deterministic[\s\S]*FCPXML artifact[\s\S]*metadata-only[\s\S]*canonical-live[\s\S]*headed-native/i);
   assert.match(testing, /does not run headed UI mutations by default/i);

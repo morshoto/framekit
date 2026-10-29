@@ -236,6 +236,25 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  apps/cli:
+    dependencies:
+      '@framekit/final-cut':
+        specifier: workspace:*
+        version: link:../../adapters/final-cut/typescript
+      '@framekit/headless-application':
+        specifier: workspace:*
+        version: link:../../packages/headless-application
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   apps/mcp-server:
     dependencies:
       '@framekit/final-cut':

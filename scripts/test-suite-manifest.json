@@ -243,6 +243,15 @@
       ]
     },
     {
+      "path": "tests/integration/cli-workspace-identity.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/codeql-workflow.test.ts",
       "owner": "shared",
       "tags": [
