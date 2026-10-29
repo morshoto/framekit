@@ -59,6 +59,62 @@ test("FFmpeg renderer preserves apostrophes in title text", async () => {
   }
 });
 
+test("FFmpeg renderer keeps title text separate from drawtext options", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-title-textfile-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const source = await timeline(
+      join(directory, "fixture-red-440hz.mp4"),
+      join(directory, "fixture-blue-880hz.mp4"),
+    );
+    source.sequence.titles = [source.sequence.titles![0]!];
+    source.sequence.titles[0]!.text = "Framekit's";
+
+    const capturePath = join(directory, "captured-render.json");
+    const fakeFfmpegPath = join(directory, "fake-ffmpeg.mjs");
+    await writeFile(fakeFfmpegPath, `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const args = process.argv.slice(2);
+const filterGraph = args[args.indexOf("-filter_complex") + 1];
+const titleFile = filterGraph.match(/textfile='([^']+)'/)?.[1];
+if (!titleFile) throw new Error("drawtext title did not use a text file");
+writeFileSync(process.env.FRAMEKIT_FAKE_CAPTURE, JSON.stringify({
+  filterGraph,
+  titleText: readFileSync(join(process.cwd(), titleFile), "utf8"),
+}));
+writeFileSync(args.at(-1), "fake render output");
+`);
+    await chmod(fakeFfmpegPath, 0o755);
+
+    const renderer = new FfmpegTimelineRenderer({
+      ffmpegPath: fakeFfmpegPath,
+      env: { FRAMEKIT_FAKE_CAPTURE: capturePath },
+    });
+    const outputPath = join(directory, "captured-output.mp4");
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+
+    const captured = JSON.parse(await readFile(capturePath, "utf8")) as {
+      filterGraph: string;
+      titleText: string;
+    };
+    assert.equal(captured.titleText, "Framekit's");
+    assert.match(captured.filterGraph, /textfile='title-0\.txt':expansion=none:fontcolor=white:fontsize=24/);
+    assert.doesNotMatch(captured.filterGraph, /Framekit's/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-"));
   try {
