@@ -210,7 +210,14 @@ const colorCorrectionSchema = z.object({
   }),
   baseRevision: revisionSchema,
 });
-const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
+const rippleDeleteSchema = z.object({
+  type: z.literal("ripple-delete"),
+  timelineId: z.string().min(1),
+  // The editor validates this range against the active timeline and reports its actual bounds.
+  range: z.object({ start: z.number().finite(), end: z.number().finite() }),
+  reason: z.string().optional(),
+  baseRevision: revisionSchema,
+});
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
 const roughCutImportSchema = z.object({
   type: z.literal("media.import"),
