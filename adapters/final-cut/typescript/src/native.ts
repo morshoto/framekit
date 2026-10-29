@@ -681,6 +681,8 @@ interface NativeOperationRecord {
 
 export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
+  /** Home directory used to expand ~/ media paths; defaults to the process home. */
+  homeDirectory?: string;
   executor?: NativeFinalCutExecutor;
   nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   liveState?: () => Promise<EditorLiveState>;
@@ -760,6 +762,7 @@ export interface NativeFinalCutTransitionRequest {
 
 export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly enabled: boolean;
+  private readonly homeDirectory: string;
   private titleDiscoveryAvailable: boolean;
   private readonly executor: NativeFinalCutExecutor;
   private readonly nativeMouseExecutor?: NativeFinalCutMouseExecutor;
@@ -850,6 +853,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public constructor(options: NativeFinalCutAutomationOptions = {}) {
     this.enabled = options.enabled ?? process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1";
+    this.homeDirectory = options.homeDirectory ?? homedir();
     this.titleDiscoveryAvailable = this.enabled;
     this.executor = options.executor ?? runAppleScript;
     this.nativeMouseExecutor = options.nativeMouseExecutor;
@@ -1157,7 +1161,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertEnabled();
     const trimmedPath = directoryPath.trim();
     if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
-    const normalizedPath = resolveLocalPath(trimmedPath);
+    const normalizedPath = resolveLocalPath(trimmedPath, this.homeDirectory);
     const snapshot = await snapshotSupportedVideoFiles(normalizedPath);
     const expiresAt = this.now() + 30_000;
     const previewToken = opaqueHandle("media-directory-preview");
@@ -1203,7 +1207,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         ...(diagnostics ? { diagnostics } : {}),
       });
     };
-    const normalizedPath = resolveLocalPath(sourcePath);
+    const normalizedPath = resolveLocalPath(sourcePath, this.homeDirectory);
     const name = basename(normalizedPath);
     if (!sourcePath.trim()) throw new Error("INVALID_OPERATION: local media path cannot be empty");
     try {
@@ -6988,10 +6992,10 @@ function opaqueHandle(kind: string, suffix?: number): string {
   return `${kind}-${Date.now().toString(36)}-${suffix ?? Math.random().toString(36).slice(2, 8)}`;
 }
 
-function resolveLocalPath(sourcePath: string): string {
+function resolveLocalPath(sourcePath: string, homeDirectory = homedir()): string {
   const trimmed = sourcePath.trim();
-  if (trimmed === "~") return homedir();
-  if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  if (trimmed === "~") return homeDirectory;
+  if (trimmed.startsWith("~/")) return resolve(homeDirectory, trimmed.slice(2));
   if (trimmed.startsWith("~")) throw new Error(`INVALID_OPERATION: local media path must be absolute or start with ~/`);
   return resolve(trimmed);
 }

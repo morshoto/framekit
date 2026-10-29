@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -16,9 +18,11 @@ function textFrom(result: unknown): string {
 
 test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-stdio-state-"));
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0" },
     stderr: "pipe",
   });
   const client = new Client({ name: "phase-0-test-client", version: "0.1.0" });
@@ -377,6 +381,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
   } finally {
     await client.close();
     await transport.close();
+    await rm(stateDirectory, { recursive: true, force: true });
     if (serverPid !== null) {
       assert.throws(() => process.kill(serverPid as number, 0), /ESRCH/);
     }

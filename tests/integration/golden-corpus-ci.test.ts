@@ -8,8 +8,10 @@ test("the CI test command runs the versioned golden workflow corpus", async () =
     scripts?: { test?: string };
   };
   const documentation = await readFile(resolve("docs/testing.md"), "utf8");
+  const testRunner = await readFile(resolve("scripts/run-tests-with-isolated-home.mjs"), "utf8");
 
-  assert.match(packageJson.scripts?.test ?? "", /tests\/golden\/\*\.test\.ts/);
+  assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
+  assert.match(testRunner, /"tests\/golden"/);
   assert.match(documentation, /pnpm run test:golden/);
   assert.match(documentation, /zero silent corruption/);
 });

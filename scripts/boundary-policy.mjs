@@ -308,7 +308,7 @@ async function loadTsconfig(rootDir, fileName) {
   const config = JSON.parse(await readFile(configPath, "utf8"));
   const inherited = config.extends
     ? await loadTsconfig(dirname(configPath), config.extends)
-    : { baseUrl: rootDir, paths: [] };
+    : { baseUrl: undefined, paths: [] };
   const options = config.compilerOptions ?? {};
   const baseUrl = options.baseUrl === undefined
     ? inherited.baseUrl
@@ -318,7 +318,7 @@ async function loadTsconfig(rootDir, fileName) {
     paths: options.paths === undefined ? inherited.paths : Object.entries(options.paths).map(([pattern, targets]) => ({
       pattern,
       targets: Array.isArray(targets) ? targets : [targets],
-      baseUrl,
+      baseUrl: baseUrl ?? dirname(configPath),
     })),
   };
 }

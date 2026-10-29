@@ -9,9 +9,11 @@ test("filler-removal benchmark is wired into local and CI validation", async () 
   };
   const workflow = await readFile(resolve(".github/workflows/typescript.yml"), "utf8");
   const documentation = await readFile(resolve("docs/testing.md"), "utf8");
+  const testRunner = await readFile(resolve("scripts/run-tests-with-isolated-home.mjs"), "utf8");
 
-  assert.match(packageJson.scripts?.test ?? "", /tests\/filler-removal\/\*\.test\.ts/);
-  assert.match(packageJson.scripts?.test ?? "", /tests\/speech\/\*\.test\.ts/);
+  assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
+  assert.match(testRunner, /"tests\/filler-removal"/);
+  assert.match(testRunner, /"tests\/speech"/);
   assert.equal(packageJson.scripts?.["test:filler-removal"], "tsx --test tests/filler-removal/*.test.ts");
   assert.equal(packageJson.scripts?.["benchmark:filler-removal"], "tsx scripts/run-filler-removal-benchmark.ts");
   assert.match(workflow, /pnpm run benchmark:filler-removal --output-dir artifacts\/filler-removal\/\$\{\{ github\.run_id \}\}/);
