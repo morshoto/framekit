@@ -5,9 +5,11 @@ project and timeline model. MCP and editor integrations are adapters around
 that model:
 
 ```text
-MCP clients → MCP server → runtime contracts → Framekit Project / Timeline IR
-                                        ├── headless renderer → verified video
-                                        └── explicit NLE synchronization adapter
+MCP clients → MCP server ─┐
+                           ├→ headless application → runtime contracts → Framekit Project / Timeline IR
+CLI ──────────────────────┘          ├── FCPXML document adapter
+                                      └── injected headless renderer → verified video
+runtime contracts ←────────────── explicit NLE synchronization adapter
 ```
 
 ## Component responsibilities
@@ -15,6 +17,7 @@ MCP clients → MCP server → runtime contracts → Framekit Project / Timeline
 | Component | Responsibility |
 | --- | --- |
 | `packages/runtime` | Domain contracts, context, edits, transactions, diffs, and verification. |
+| `packages/headless-application` | Transport-neutral headless project, edit, rough-cut, render, and approval workflows. |
 | `apps/mcp-server` | MCP transport, schemas, and tool registration. |
 | `adapters/final-cut/typescript` | Node-side Final Cut, FCPXML, and provider adapters. |
 | `adapters/final-cut/swift-bridge` | The macOS Workflow Extension and native Final Cut boundary. |
@@ -41,17 +44,19 @@ cycle checks follow runtime edges.
 | Source layer | Allowed workspace dependencies | External packages |
 | --- | --- | --- |
 | `packages/runtime` (domain and application) | None | Node built-ins only. |
+| `packages/headless-application` | Runtime and Final Cut document adapter | Node built-ins only. |
 | `packages/testkit` | `packages/runtime` | Node built-ins only. |
 | TypeScript adapters | `packages/runtime` | `adapters/final-cut/typescript`: `fast-xml-parser`; headless adapter: Node built-ins only. |
-| `apps/mcp-server` | Runtime and both TypeScript adapters | `@modelcontextprotocol/sdk`, `zod`, and Node built-ins. |
-| `apps/cli` | Final Cut adapter | Node built-ins only. |
+| `apps/mcp-server` | Runtime, headless application, and both TypeScript adapters | `@modelcontextprotocol/sdk`, `zod`, and Node built-ins. |
+| `apps/cli` | Final Cut adapter and headless application | Node built-ins only. |
 
 The MCP bootstrap's fixture fallback is the sole `apps/mcp-server` import of
 `packages/testkit`; keep it in `apps/mcp-server/src/main.ts`. The CLI remains
 root-manifest-owned until #569 creates its workspace identity, so its direct
-Final Cut workspace dependency is the only undeclared-workspace migration
-exception. Each exception is exact-file and exact-package scoped; the checker
-does not permit sibling application imports or private adapter paths.
+Final Cut and headless-application workspace dependencies are exact-file
+migration exceptions. Each exception is exact-file and exact-package scoped;
+the checker does not permit sibling application imports or private adapter
+paths.
 
 `@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
