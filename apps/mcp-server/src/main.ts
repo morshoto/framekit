@@ -30,7 +30,7 @@ import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, F
 import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
 import { HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
-import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
+import { createCanonicalSessionChangeSource } from "@framekit/headless-application";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "@framekit/headless-renderer";
 
 const fixture = new InMemoryEditorAdapter({

@@ -1246,6 +1246,15 @@
       ]
     },
     {
+      "path": "tests/integration/session-persistence-port.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/skill-conformance.test.ts",
       "owner": "shared",
       "tags": [
