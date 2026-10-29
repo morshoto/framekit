@@ -12,7 +12,7 @@ import {
 } from "./test-suites.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const suiteName = process.argv[2] ?? "all";
+const suiteName = process.argv[2]?.startsWith("--") ? "all" : (process.argv[2] ?? "all");
 const manifest = await loadTestSuiteManifest(repositoryRoot);
 const discoveredFiles = await discoverTestFiles(repositoryRoot);
 const inventory = compareTestInventory(manifest.tests.map(({ path: file }) => file), discoveredFiles);
@@ -104,22 +104,17 @@ const environment = {
 
 try {
   if (suiteName === "all") {
-    let documentationTestFiles = [];
-    try {
-      documentationTestFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
-        .filter((file) => file.endsWith(".test.mjs"))
-        .map((file) => path.join("tests/documentation", file));
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    const documentationTestFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
+      .filter((file) => file.endsWith(".test.mjs"))
+      .map((file) => path.join("tests/documentation", file)).sort();
     if (documentationTestFiles.length > 0) {
       const documentationExitCode = await runCommand(process.execPath, ["--test", ...documentationTestFiles], environment);
-      if (documentationExitCode !== 0) {
-        process.exitCode = documentationExitCode;
-        process.exit(documentationExitCode);
-      }
+      if (documentationExitCode !== 0) throw new Error(`Documentation tests failed with exit code ${documentationExitCode}`);
+    } else {
+      throw new Error("TEST_INVENTORY_DRIFT: documentation test files are missing");
     }
   }
+
   const exitCode = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx", "--test", ...testFiles], {
       cwd: repositoryRoot,

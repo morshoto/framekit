@@ -22,7 +22,12 @@ pnpm install --frozen-lockfile
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
+pnpm run check:docs
 ```
+
+The maintained documentation is [indexed in `docs/README.md`](docs/README.md):
+[architecture](docs/architecture.md), [getting started](docs/getting-started.md),
+[testing](docs/testing.md), and [release](docs/release.md).
 
 For native changes, also run:
 

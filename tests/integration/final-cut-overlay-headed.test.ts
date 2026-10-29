@@ -5,7 +5,6 @@ import { join } from "node:path";
 
 const runnerPath = join(process.cwd(), "scripts/final-cut-overlay-headed-e2e.mjs");
 const mediaInsertRunnerPath = join(process.cwd(), "scripts/final-cut-headed-e2e.mjs");
-const e2eDocsPath = join(process.cwd(), "docs/tests/final-cut-live-e2e.md");
 const accessibilityModulePath = "../../scripts/final-cut-overlay-accessibility.mjs";
 
 test("headed overlay probe discovers Framekit windows owned by Final Cut", async () => {
@@ -95,15 +94,4 @@ test("media-insert runner recovers the overlay before native preflight", async (
   assert.ok(visibilityCall >= 0);
   assert.ok(readinessCall >= 0);
   assert.ok(visibilityCall < readinessCall);
-});
-
-test("headed overlay documentation explains Accessibility recovery diagnostics", async () => {
-  const documentation = await readFile(e2eDocsPath, "utf8");
-
-  assert.match(documentation, /FINAL_CUT_E2E_ACCESSIBILITY_PERMISSION_REQUIRED/);
-  assert.match(documentation, /FINAL_CUT_E2E_FINAL_CUT_PROCESS_MISSING/);
-  assert.match(documentation, /FINAL_CUT_E2E_OVERLAY_WRONG_PROCESS/);
-  assert.match(documentation, /FINAL_CUT_E2E_OVERLAY_WINDOW_MISSING/);
-  assert.match(documentation, /FINAL_CUT_E2E_OVERLAY_NOT_VISIBLE/);
-  assert.match(documentation, /do not expose private paths\s+or media/i);
 });

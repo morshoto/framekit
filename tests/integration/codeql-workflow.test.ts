@@ -105,30 +105,6 @@ test('Swift CodeQL publishes its required analysis when unchanged', async () => 
 	);
 });
 
-test('CodeQL default-branch concurrency is documented for operators', async () => {
-	const documentation = await readRepositoryFile('docs/ci/codeql.md');
-
-	assert.match(documentation, /default-branch.*queue/i);
-	assert.match(documentation, /one.*running.*one.*pending/i);
-	assert.match(documentation, /code-scanning analyses API/i);
-});
-
-test('CodeQL verification documentation records operational metadata', async () => {
-	const documentation = await readRepositoryFile('docs/ci/codeql.md');
-
-	for (const expected of [
-		/^Status:\s+.+$/im,
-		/^Last verified:\s+\d{4}-\d{2}-\d{2}/im,
-		/^Environment:\s+.+$/im,
-		/^Scope:\s+.+$/im,
-		/^Expected result:\s+.+$/im,
-		/^Actual evidence:\s+.+$/im,
-		/^Limitations:\s+.+$/im,
-	]) {
-		assert.match(documentation, expected);
-	}
-});
-
 test('CodeQL preserves JavaScript analysis and adds a bounded Swift job', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 

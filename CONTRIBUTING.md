@@ -31,7 +31,12 @@ pnpm run hooks:install
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
+pnpm run check:docs
 ```
+
+The maintained documentation set is [indexed here](docs/README.md):
+[architecture](docs/architecture.md), [getting started](docs/getting-started.md),
+[testing](docs/testing.md), and [release](docs/release.md).
 
 The deterministic MCP fixture is available with:
 

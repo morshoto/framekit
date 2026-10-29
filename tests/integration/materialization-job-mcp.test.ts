@@ -662,29 +662,3 @@ test("rejects a tampered persisted desired snapshot before retry publication", a
     await rm(directory, { recursive: true, force: true });
   }
 });
-
-test("documents session tools persistence and materialization evidence boundaries", async () => {
-  const tools = await readFile("docs/mcp/tools.md", "utf8");
-  const architecture = await readFile("docs/architecture/headless-editing-sessions.md", "utf8");
-
-  for (const tool of [
-    "session.create",
-    "session.observe",
-    "session.reconcile",
-    "session.materialize.preview",
-    "session.materialize.execute",
-    "session.materialize.status",
-    "session.materialize.retry",
-  ]) {
-    assert.match(tools, new RegExp(tool.replaceAll(".", "\\.")));
-  }
-  assert.match(architecture, /FRAMEKIT_STATE_DIR/);
-  assert.match(architecture, /canonical: false/);
-  assert.match(architecture, /artifact.*provider-requested.*canonical-readback.*headed-native/s);
-  assert.match(architecture, /does not write.*SQLite/i);
-  assert.match(architecture, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
-  assert.match(architecture, /publishing/);
-  assert.match(architecture, /provider change stream/i);
-  assert.match(architecture, /possibly_stale/);
-  assert.match(tools, /libraryUid.*eventUid.*projectUid.*sequenceUid/s);
-});

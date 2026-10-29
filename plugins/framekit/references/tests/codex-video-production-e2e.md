@@ -21,7 +21,7 @@ session. Confirm the plugin manifest version and MCP build fingerprint so the
 session's provenance identifies the code under test.
 
 Before starting Codex, configure an executable local speech analyzer and its
-version. Use the [local speech setup](https://github.com/morshoto/framekit/blob/main/docs/speech-analysis.md) if needed. A
+version. Use the [local speech setup](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md#optional-analysis-providers) if needed. A
 configured audio analyzer is optional; the workflow must report it as
 unavailable when absent. Set an isolated state directory for this run if you
 want a disposable project:
@@ -135,7 +135,7 @@ guarded contract; artifact-only acceptance in #597 does not claim that native
 import or readback ran.
 
 Native delivery uses a separate headed MCP server. Follow
-[Final Cut installation](https://github.com/morshoto/framekit/blob/main/docs/final-cut/installation.md) to configure a headed
+[Final Cut installation](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md#connect-codex) to configure a headed
 server with `FRAMEKIT_EDITOR=final-cut-live`,
 `FRAMEKIT_FINAL_CUT_HEADLESS=0`, `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, the exact
 `FRAMEKIT_FCPXML_PATH`, and the intended new `targetLibraryPath` for the

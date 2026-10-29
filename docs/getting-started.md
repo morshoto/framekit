@@ -1,167 +1,159 @@
-# Getting Started
+# Getting started
 
-Framekit is an agentic video editing runtime. Phase 2 extends the Phase 0
-read → write → read-after-write → diff loop with incremental context
-synchronization, visual analysis, combined media understanding, native asset
-discovery, and the Phase 1 Final Cut runtime.
+Framekit can run as a local MCP server for deterministic headless editing or
+connect to an explicitly configured Final Cut provider. Start with the
+headless fixture; it does not launch or activate Final Cut Pro.
 
 ## Development setup
 
-Requirements:
-
-- Node.js 20 or newer;
-- pnpm 12.3.4;
-- Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
-
-For the pinned Node and shell toolchain, enter the optional Nix shell first:
+Requirements are Node.js 20 or newer and the repository-pinned pnpm version.
+Xcode 16.4 with the macOS 15.5 SDK is required only for native extension work.
+For the pinned shell toolchain, enter the optional Nix environment first:
 
 ```sh
 nix develop ./nix
 ```
 
-Then install the JavaScript dependencies and run the deterministic checks from
-the repository root:
+Install and validate from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm run hooks:install
-pnpm run test
 pnpm run build
+pnpm run test
 pnpm run check:boundaries
+pnpm run check:docs
 ```
 
-For native work, validate the host Xcode installation:
+The test and native evidence levels are described in [Testing](./testing.md).
+Repository responsibilities and dependency direction are described in
+[Architecture](./architecture.md).
 
-```sh
-pnpm run xcode:check
-```
+## Run Framekit locally
 
-See [Contributing](../CONTRIBUTING.md) for repository layout, native build
-checks, and commit-hook behavior.
-
-## Run the local MCP server
-
-The default server uses the deterministic in-memory Phase 2 fixture and
-exposes the runtime over stdio:
+Start the deterministic in-memory MCP server from the repository root:
 
 ```sh
 pnpm run mcp
 ```
 
-The complete tool inventory, including canonical timeline tools, analysis,
-context, verification, and native Final Cut tools, is documented in
-[MCP tools](./mcp/tools.md). The runtime core remains editor-independent; MCP
-is an adapter around it.
-
-For a live Final Cut session, select the live backend explicitly:
+For a development Final Cut connection, set the editor explicitly:
 
 ```sh
 FRAMEKIT_EDITOR=final-cut-live pnpm run mcp
 ```
 
-The live backend reports its capabilities separately. Live Workflow Extension
-state includes project/sequence metadata, playhead, selected range, and change
-events, but it is not a complete canonical timeline snapshot. Unsupported
-operations fail closed with an explicit capability error. See the
-[compatibility matrix](./COMPATIBILITY.md) and [live Final Cut guide](./mcp/final-cut-live.md).
+`FRAMEKIT_EDITOR` selects the configured backend. `FRAMEKIT_FCPXML_PATH` names
+an explicit FCPXML artifact; it does not enable mutation of the open Final Cut
+project. `FRAMEKIT_FINAL_CUT_SOCKET` selects the local Workflow Extension
+socket. Inspect the reported capabilities before choosing an operation. A
+ready metadata-only bridge does not imply canonical timeline read or write.
 
-## Canonical documents and analysis providers
+### Optional analysis providers
 
-Set `FRAMEKIT_FCPXML_PATH` with `FRAMEKIT_EDITOR=final-cut-live` to enable
-canonical project and timeline reads, FCPXML artifact edits,
-read-after-write, diffs, verification, and undo. The FCPXML artifact is
-managed explicitly; Framekit does not silently replace the open Final Cut
-project.
+Optional local analysis commands are selected with
+`FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`,
+`FRAMEKIT_VISUAL_ANALYZER`, and `FRAMEKIT_METADATA_ANALYZER`. Each provider
+receives one JSON request on standard input and returns a typed JSON result on
+standard output. `FRAMEKIT_ANALYZER_TIMEOUT_MS` changes the bounded provider
+timeout. Missing providers report unavailable analysis; they do not invent
+media descriptions.
 
-For publishing, `artifact.publish.preview` requires a new absolute
-`targetLibraryPath` ending in `.fcpbundle`. Its parent directory must already
-exist and be writable, and the destination must not exist. Review the source
-artifact and destination in the preview before calling `artifact.publish.execute`
-with `confirm: true`. The staged FCPXML carries that library location in its
-import options. The bridge reports dispatch only; success requires exact
-library, project, and sequence readback from Final Cut.
-
-Optional local JSON analysis providers are configured with:
-
-- `FRAMEKIT_SPEECH_ANALYZER`
-- `FRAMEKIT_AUDIO_ANALYZER`
-- `FRAMEKIT_VISUAL_ANALYZER`
-- `FRAMEKIT_METADATA_ANALYZER`
-
-Each command receives one JSON request on stdin and returns one typed JSON
-result on stdout. Set `FRAMEKIT_ANALYZER_TIMEOUT_MS` to change the default
-timeout. The metadata provider supplies semantic labels such as environment,
-time of day, mood, and usable source ranges. Analyzer availability is exposed
-through `editor.inspect`; missing providers produce explicit unavailable
-statuses instead of fabricated descriptions. Motion templates are discovered
-from standard locations; restrict those locations with the colon-separated
-`FRAMEKIT_FINAL_CUT_ASSET_ROOTS` variable. Local media discovery is opt-in and
-read-only; configure its colon-separated roots with
-`FRAMEKIT_FINAL_CUT_MEDIA_ROOTS`. It never activates or focuses Final Cut.
-Speech wrapper setup and its
-revision-bound schema are documented in the [local speech analysis guide](./speech-analysis.md).
-The complete Final Cut provider setup is documented in the [Final Cut installation guide](./final-cut/installation.md).
-
-Successful source-media understanding is cached in the versioned local index
-`$FRAMEKIT_STATE_DIR/semantic-media-index.json` (default:
-`~/.framekit/semantic-media-index.json`). Entries are keyed by source identity,
-source digest, and analyzer provenance; a changed source or analyzer version
-causes a fresh analysis. The index is provider-neutral and does not launch
+Use `connection.status` for connection diagnostics, `editor.inspect` for
+backend and capability details, and `editing.route` for the requested
+operation's selected path. Unsupported operations return a structured
+unavailable result. The headless path does not launch, activate, or focus
 Final Cut Pro.
 
-## Connect Codex to Final Cut
+## Connect Codex
 
-Install the signed Framekit Workflow Extension from a
-[Framekit GitHub release](https://github.com/morshoto/framekit/releases) when a
-release asset is available. If a release has no extension asset, follow the
-development build steps below. Then add the Framekit marketplace once without
-cloning the repository:
+The Codex plugin starts the published Framekit package; it does not install the
+Final Cut Workflow Extension. Add the marketplace once:
 
 ```sh
 codex plugin marketplace add morshoto/framekit
 ```
 
-Open `/plugins` in Codex, install **Framekit**, and start a new Codex session.
-The plugin automatically registers the published package as the Framekit MCP
-server; no repository checkout or manual `codex mcp add` is required.
+Then open `/plugins`, install **Framekit**, and start a new Codex session. The
+published MCP server runs through `npx` and needs no repository checkout or
+manual `codex mcp add` command. The plugin can also be installed from its
+marketplace with `codex plugin add framekit@framekit`. The signed Workflow
+Extension is a separate release asset; install it from the matching
+[GitHub release](https://github.com/morshoto/framekit/releases) when a live
+Final Cut connection is required.
 
-The plugin starts Framekit with `--editor final-cut-live --headless`. Headless
-mode probes an already-running Workflow Extension socket and does not launch,
-activate, focus, or edit Final Cut through Accessibility. Start with
-`connection.status`, then inspect the live capability flags before choosing
-other live tools. Missing Final Cut, extension, or socket prerequisites remain
-actionable failures for live operations. They do not block a Framekit-owned
-headless video project: register local media, call `media.understand` and
-`rough-cut.plan` with its `projectId`, review the plan, and preview/execute the
-approved render. The
-[Codex video production runbook](./tests/codex-video-production-e2e.md)
-covers a three-source edit and a separately authorized native handoff.
-
-Accessibility and Automation permissions are required only for an explicit
-headed native-write setup; they are not prerequisites for headless read-only
-access.
-
-For normal repository development mode, build and connect the native extension
-with:
+Check connection readiness without starting MCP with:
 
 ```sh
+npx -y @morshoto/framekit doctor finalcut
+```
+
+For more detail, use `connection.status` and `editor.inspect`.
+`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic: a ready live session
+may expose metadata while rejecting unsupported operations. Inspect the
+operation's capability before use.
+
+## Connect Claude Code
+
+Register the published package as a user-scoped stdio server:
+
+```sh
+claude mcp add --env FRAMEKIT_EDITOR=final-cut-live \
+  --scope user --transport stdio framekit -- \
+  npx -y @morshoto/framekit mcp --headless
+claude mcp list
+claude mcp get framekit
+```
+
+Headless mode does not launch, focus, or mutate Final Cut through UI
+automation. Accessibility and Automation permissions are required only for an
+explicit headed native-write workflow. Start a new client session after
+changing its server registration.
+
+For a development extension, build it from the checkout:
+
+```sh
+pnpm run xcode:check
+bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 pnpm run framekit -- connect finalcut --development
 ```
 
-To launch headed MCP directly from the latest checkout with an explicit
-runtime/extension alignment preflight, follow the [local latest-checkout
-validation guide](./final-cut/installation.md#local-latest-checkout-validation).
+The explicit development connect command may gracefully reload Final Cut so
+it loads the selected extension. Native editing remains a separate, explicitly
+headed workflow with target binding, preview, readback, and Undo requirements.
+See [Architecture](./architecture.md#headless-and-native-editing) before using
+native capabilities.
 
-Inspect automatic setup and reconnect progress with:
+For explicit local native validation, bind both processes to the same checkout
+commit and require their build fingerprints to match:
 
 ```sh
-pnpm run framekit -- doctor finalcut --json
+FRAMEKIT_EDITOR=final-cut-live \
+FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+FRAMEKIT_VALIDATION_COMMIT="$(git rev-parse HEAD)" \
+pnpm run framekit -- mcp --editor final-cut-live --development
 ```
 
-The live bridge uses the per-user socket at
-`~/Library/Containers/com.framekit.finalcut.workflow.extension/Data/framekit.sock`.
-Use `FRAMEKIT_FINAL_CUT_SOCKET` to provide the same explicit socket path to
-both processes. The Workflow Extension remains read-only for canonical
-timeline operations. Selection-scoped native UI edits require
-`FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1` plus macOS Accessibility and Automation
-permission; see [live Final Cut operations](./mcp/final-cut-live.md).
+Register that development server as a separate Codex entry when testing a
+clean client session:
+
+```sh
+codex mcp add framekit-local \
+  --env FRAMEKIT_EDITOR=final-cut-live \
+  --env FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER=native \
+  --env FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1 \
+  --env FRAMEKIT_FINAL_CUT_HEADLESS=0 \
+  --env FRAMEKIT_VALIDATION_COMMIT="$(git rev-parse HEAD)" \
+  -- pnpm run framekit -- mcp --editor final-cut-live --development
+```
+
+Continue only when `preflight.buildAlignment.status` is `matched`. The MCP
+process may use `FRAMEKIT_BUILD_COMMIT` for a reproducible external target;
+the extension records its checkout commit in its bundle metadata. Accessibility
+and Automation permissions are required only for an explicit headed
+native-write setup.
+
+For safe validation commands and the distinction between fixture, artifact,
+metadata, canonical-live, and headed-native proof, see [Testing](./testing.md).
