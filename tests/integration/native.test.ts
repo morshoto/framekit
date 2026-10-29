@@ -2082,6 +2082,21 @@ test("native Final Cut literal Browser search does not fall back to arbitrary au
   assert.deepEqual(nonmatching, []);
 });
 
+test("native Final Cut rejects wildcard Browser queries before accessing the UI", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.searchMedia("*"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  await assert.rejects(adapter.searchMedia("Interview?"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  assert.deepEqual(scripts, []);
+});
+
 test("native Final Cut search includes selected Browser media with an alternate AX role", async () => {
   const separator = String.fromCharCode(31);
   const recordSeparator = String.fromCharCode(30);

@@ -1177,6 +1177,37 @@ test("canonical target resolver requires one exact native occurrence", async () 
   await resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original"));
 });
 
+test("canonical target resolver searches literal source basenames outside the public wildcard contract", async () => {
+  const project = snapshot("Original");
+  project.media[0]!.source = "/tmp/interview?.mov";
+  const seenQueries: string[] = [];
+  const native = {
+    searchMedia: async () => {
+      throw new Error("FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED: wildcard input is rejected");
+    },
+    searchMediaForCanonicalTarget: async (query: string) => {
+      seenQueries.push(query);
+      return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1" }];
+    },
+    locateOccurrence: async () => ({
+      status: "unique" as const,
+      occurrences: [{
+        handle: "occurrence-handle",
+        mediaHandle: "media-handle",
+        name: "Original",
+        identity: "native-occurrence-1",
+        start: "0/24",
+        duration: "96/24",
+        sequenceId: "final-cut:sequence:sequence-1",
+      }],
+    }),
+  };
+
+  const resolver = createFinalCutNativeTargetResolver(native);
+  await resolver(project.timeline.clips[0]!, project);
+  assert.deepEqual(seenQueries, ["interview?.mov"]);
+});
+
 test("canonical target resolver selects the coordinate-matching occurrence from duplicate media", async () => {
   const selected: string[] = [];
   const native = {

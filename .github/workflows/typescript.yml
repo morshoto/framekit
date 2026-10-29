@@ -43,6 +43,9 @@ jobs:
       - name: Package boundary checks
         run: pnpm run check:boundaries
 
+      - name: Script references and package entrypoints
+        run: pnpm run check:scripts
+
       - name: Documentation structure and links
         run: pnpm run check:docs
 

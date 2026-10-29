@@ -15,9 +15,7 @@ export const FRAMEKIT_PACKAGES = [
   { id: "final-cut", name: "@framekit/final-cut", root: "adapters/final-cut/typescript", manifest: "adapters/final-cut/typescript/package.json" },
   { id: "headless-renderer", name: "@framekit/headless-renderer", root: "adapters/headless/typescript", manifest: "adapters/headless/typescript/package.json" },
   { id: "mcp-server", name: "@framekit/mcp-server", root: "apps/mcp-server", manifest: "apps/mcp-server/package.json" },
-  // #569 adds this CLI source tree as a workspace package. Until then the root
-  // package manifest owns its external dependencies and one workspace edge is exempted below.
-  { id: "cli", name: null, root: "apps/cli", manifest: "package.json", sourceRoot: "apps/cli/src" },
+  { id: "cli", name: "@framekit/cli", root: "apps/cli", manifest: "apps/cli/package.json", sourceRoot: "apps/cli/src" },
 ];
 
 export const FRAMEKIT_BOUNDARY_POLICY = {
@@ -55,20 +53,6 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
       specifier: "@framekit/testkit",
       target: "testkit",
       reason: "The MCP bootstrap retains its deterministic fixture fallback while editor selection is established.",
-    },
-    {
-      kind: "undeclared-workspace-dependency",
-      source: "apps/cli/src/main.ts",
-      specifier: "@framekit/final-cut",
-      target: "final-cut",
-      reason: "The CLI remains root-owned until workspace identity and published entrypoints land in #569.",
-    },
-    {
-      kind: "undeclared-workspace-dependency",
-      source: "apps/cli/src/headless-projects.ts",
-      specifier: "@framekit/headless-application",
-      target: "headless-application",
-      reason: "The CLI remains root-owned until workspace identity and published entrypoints land in #569.",
     },
     {
       kind: "dependency-cycle",

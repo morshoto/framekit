@@ -12,7 +12,7 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
+import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
@@ -430,6 +430,64 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
     assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
     assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FFmpeg renders both occurrences that reuse one music resource", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-reused-music-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const musicPath = join(directory, "reused-music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=1760:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=2200:sample_rate=48000:duration=1",
+      "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[music]",
+      "-map", "[music]", "-c:a", "pcm_s16le", "-y", musicPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.titles = [];
+    source.sequence.transitions = [];
+    source.resources.push(audioResource("reused-music", musicPath, await digest(musicPath)));
+    for (const [index, start] of [0, 1].entries()) {
+      source.sequence.occurrences.push({
+        id: `music-${index}`,
+        name: `Music ${index}`,
+        startTime: { value: String(start), timescale: "1" },
+        durationTime: { value: "1", timescale: "1" },
+        sourceStartTime: { value: String(start), timescale: "1" },
+        track: 1,
+        role: "music",
+        mediaId: "reused-music",
+        gainDb: -6,
+      });
+    }
+    const outputPath = join(directory, "reused-music.mp4");
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    const render = await renderer.render(plan);
+    const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, render);
+    assert.equal(verification.status, "passed");
+    const pcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-i", outputPath, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
+    ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+    const samples = pcm.stdout as unknown as Buffer;
+    const window = (start: number) => samples.subarray(start * 48_000 * 4, (start + 1) * 48_000 * 4);
+    const firstAmplitude = frequencyAmplitude(window(0), 1_760, 48_000);
+    const secondAmplitude = frequencyAmplitude(window(1), 2_200, 48_000);
+    assert.ok(firstAmplitude > 0.002, `first occurrence should be audible, got ${firstAmplitude}`);
+    assert.ok(secondAmplitude > 0.002, `reused second occurrence should be audible, got first=${firstAmplitude}, second=${secondAmplitude}`);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
