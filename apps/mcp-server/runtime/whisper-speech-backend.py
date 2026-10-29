@@ -124,8 +124,10 @@ def normalized_words(result: dict[str, Any], requested: dict[str, Any] | None) -
                 continue
             start = finite_number(word_record.get("start"), "word start")
             end = finite_number(word_record.get("end"), "word end")
-            if start < 0 or end <= start:
+            if start < 0 or end < start:
                 fail(65, "WHISPER_OUTPUT_INVALID: word boundaries are invalid")
+            if start == end:
+                continue
             if requested is not None:
                 request_start = finite_number(requested.get("start"), "request start")
                 request_end = finite_number(requested.get("end"), "request end")

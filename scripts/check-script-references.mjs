@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPathPattern = /(?:^|[\s"'`])((?:\.\/)?scripts\/[A-Za-z0-9_./-]+\.(?:mjs|cjs|js|ts|py|sh))(?![A-Za-z0-9_./-])/g;
 const commandPattern = /\b(?:node|tsx|ts-node|python3?|bash|sh)\b([^\r\n;&|]*)/g;
+const directScriptCommandPattern = /(?:^|[\r\n;&|]|\brun\s*:\s*|\bcommand\s*:)\s*((?:\.\/)?scripts\/[A-Za-z0-9_./-]+\.(?:mjs|cjs|js|ts|py|sh))(?![A-Za-z0-9_./-])/gm;
 const markdownLinkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
 export async function checkScriptReferences(rootDirectory = repositoryRoot) {
@@ -59,6 +60,12 @@ async function checkCommandReferences(content, source, rootDirectory, issues) {
       if (!(await isFile(path.resolve(rootDirectory, normalizedPath)))) {
         issues.push(`${source} runs missing script ${normalizedPath}`);
       }
+    }
+  }
+  for (const [, scriptPath] of content.matchAll(directScriptCommandPattern)) {
+    const normalizedPath = scriptPath.replace(/^\.\//, "");
+    if (!(await isFile(path.resolve(rootDirectory, normalizedPath)))) {
+      issues.push(`${source} runs missing script ${normalizedPath}`);
     }
   }
 }
