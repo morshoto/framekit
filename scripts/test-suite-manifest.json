@@ -90,6 +90,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/boundary-policy.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/canonical-evidence.test.ts",
       "owner": "shared",
       "tags": [
