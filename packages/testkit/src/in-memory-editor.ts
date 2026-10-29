@@ -783,7 +783,7 @@ export class InMemoryEditorAdapter implements EditorPort {
     if (timelineId !== snapshot.timeline.id) throw new Error(`TIMELINE_NOT_FOUND: ${timelineId}`);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
       throw new Error(
-        `INVALID_OPERATION: ripple delete range [${start}, ${end}) must be increasing within timeline bounds [0, ${snapshot.timeline.duration})`,
+        `INVALID_OPERATION: ripple delete range [${start}, ${end}) must be increasing`,
       );
     }
     if (start < 0 || end > snapshot.timeline.duration) {
