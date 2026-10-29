@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { access, link, lstat, mkdtemp, rename, rm, unlink } from "node:fs/promises";
+import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -101,10 +101,11 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     const stagingDirectory = await mkdtemp(join(outputDirectory, ".framekit-render-"));
     const stagingPath = join(stagingDirectory, `render.${plan.parameters.format}`);
     try {
-      const args = buildFfmpegArguments(model, stagingPath, this.fontFile);
+      const titleTextFiles = await writeTitleTextFiles(model.timeline.sequence.titles ?? [], stagingDirectory);
+      const args = buildFfmpegArguments(model, stagingPath, this.fontFile, titleTextFiles);
       try {
         await execFileAsync(this.ffmpegPath, args, {
-          cwd: process.cwd(),
+          cwd: stagingDirectory,
           env: this.environment,
           maxBuffer: 8 * 1024 * 1024,
         });
@@ -338,7 +339,12 @@ async function assertSourcesUnchanged(model: RenderModel): Promise<void> {
   }
 }
 
-function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?: string): string[] {
+function buildFfmpegArguments(
+  model: RenderModel,
+  stagingPath: string,
+  fontFile: string | undefined,
+  titleTextFiles: readonly string[],
+): string[] {
   const filters: string[] = [];
   const inputArguments: string[] = [];
   const videoLabels: string[] = [];
@@ -387,7 +393,7 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
   const transition = model.timeline.sequence.transitions?.[0];
   const videoBase = addVideoComposition(filters, videoLabels, model, transition);
   const videoWithTail = addBlackVideoTail(filters, videoBase, model.tailDuration);
-  const videoOutput = addTitleOverlays(filters, videoWithTail, model, fontFile);
+  const videoOutput = addTitleOverlays(filters, videoWithTail, model, fontFile, titleTextFiles);
   let audioOutput: string | undefined;
   if (audioLabels.length > 0) audioOutput = addAudioComposition(filters, audioLabels, model, transition);
   if (musicLabels.length > 0) {
@@ -466,7 +472,26 @@ function addAudioComposition(
   return output;
 }
 
-function addTitleOverlays(filters: string[], input: string, model: RenderModel, fontFile?: string): string {
+async function writeTitleTextFiles(
+  titles: readonly { text: string }[],
+  stagingDirectory: string,
+): Promise<string[]> {
+  const files: string[] = [];
+  for (const [index, title] of titles.entries()) {
+    const filename = `title-${index}.txt`;
+    await writeFile(join(stagingDirectory, filename), title.text, "utf8");
+    files.push(filename);
+  }
+  return files;
+}
+
+function addTitleOverlays(
+  filters: string[],
+  input: string,
+  model: RenderModel,
+  fontFile: string | undefined,
+  titleTextFiles: readonly string[],
+): string {
   let current = input;
   for (const [index, title] of (model.timeline.sequence.titles ?? []).entries()) {
     const start = rationalSeconds(title.startTime, `${title.id}.startTime`);
@@ -482,7 +507,9 @@ function addTitleOverlays(filters: string[], input: string, model: RenderModel, 
       : "(h-text_h)/2";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
-    filters.push(`[${current}]drawtext=${font}text='${escapeFilterValue(title.text)}':fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
+    const textFile = titleTextFiles[index];
+    if (!textFile) throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", `title text file is missing: ${index}`);
+    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
     current = output;
   }
   return current;
@@ -628,7 +655,7 @@ function formatNumber(value: number): string {
 }
 
 function escapeFilterValue(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
+  return value.replaceAll("\\", "\\\\").replaceAll("'", "'\\''").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
 }
 
 function resolveFontFile(preferred?: string): string | undefined {
