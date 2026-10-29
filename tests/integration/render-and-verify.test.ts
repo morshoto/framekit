@@ -255,13 +255,25 @@ test("ffprobe verifier accepts renderer audio resampling", async () => {
       parameters: renderParameters(outputPath),
     });
     const plan = createFramekitRenderPlan(request, {
-      renderer: { id: "fixture-provider", version: "1" },
+      renderer: { id: "ffmpeg-headless", version: "1" },
       features: { "local-media": "supported", "structural-edits": "supported" },
     });
     const result = createFramekitRenderResult(plan, { path: outputPath, format: plan.parameters.format });
     const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, result);
     assert.equal(verification.status, "passed");
     assert.equal(verification.artifact?.streams.find((stream) => stream.kind === "audio")?.sampleRate, 48_000);
+
+    const otherProviderPlan = createFramekitRenderPlan(request, {
+      renderer: { id: "fixture-provider", version: "1" },
+      features: { "local-media": "supported", "structural-edits": "supported" },
+    });
+    const otherProviderResult = createFramekitRenderResult(otherProviderPlan, { path: outputPath, format: otherProviderPlan.parameters.format });
+    const otherProviderVerification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(otherProviderPlan, otherProviderResult);
+    assert.equal(otherProviderVerification.status, "failed", "other renderers retain the source metadata expectation");
+    assert.deepEqual(otherProviderVerification.checks.find((check) => check.name === "audio-stream")?.expected, {
+      sampleRate: 22_050,
+      channels: 1,
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
