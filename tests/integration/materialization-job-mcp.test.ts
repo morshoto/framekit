@@ -6,8 +6,11 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
-import { EditingSessionRepository } from "../../apps/mcp-server/src/headless-sessions.js";
-import { SessionMaterializationJobs } from "@framekit/headless-application";
+import {
+  EditingSessionRepository,
+  JsonFileEditingSessionPersistence,
+  SessionMaterializationJobs,
+} from "@framekit/headless-application";
 import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
@@ -89,7 +92,7 @@ const target = {
 
 test("MCP delegates materialization tools to an injected application service", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-injected-"));
-  const sessions = new EditingSessionRepository(join(directory, "sessions"));
+  const sessions = new EditingSessionRepository(new JsonFileEditingSessionPersistence(join(directory, "sessions")));
   await sessions.create({
     sessionId: "session-injected",
     base: timeline(),
