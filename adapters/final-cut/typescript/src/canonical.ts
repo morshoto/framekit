@@ -1420,12 +1420,14 @@ function canonicalRippleRange(snapshot: ProjectSnapshot, range: TimeRange): { st
     throw new Error("INVALID_OPERATION: ripple-delete range must have positive duration");
   }
   const end = addRational(start, duration);
-  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
-  }
   const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
   if (compareRational(start, zeroRational()) < 0 || compareRational(end, timelineDuration) > 0) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must fit inside the active timeline");
+    throw new Error(
+      `INVALID_OPERATION: ripple-delete range [${range.start}, ${range.end}) must fit timeline bounds [0, ${rationalSeconds(timelineDuration)})`,
+    );
+  }
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
+    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
   }
   return { start, end };
 }

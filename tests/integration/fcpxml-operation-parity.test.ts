@@ -408,6 +408,22 @@ test("FCPXML ripple delete preserves source ranges and rational timing", async (
   assert.match(await readFile(path, "utf8"), /offset="3\/1s"/);
 });
 
+test("FCPXML ripple delete rejects ranges outside sequence bounds before preview", async () => {
+  const { path, adapter } = await artifact();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const original = await readFile(path, "utf8");
+
+  for (const range of [{ start: -1, end: 1 }, { start: 7, end: 9 }]) {
+    await assert.rejects(runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{ type: "ripple-delete", timelineId: before.timeline.id, range }],
+    }), new RegExp(`ripple-delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 8\\)`));
+    assert.deepEqual(await runtime.inspectProject(), before);
+    assert.equal(await readFile(path, "utf8"), original);
+  }
+});
+
 test("FCPXML preview and transaction failures leave bytes unchanged", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);
