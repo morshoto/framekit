@@ -101,6 +101,9 @@ with an explicit `CAPABILITY_UNAVAILABLE` result. Framekit does not silently fal
 Cut, an external renderer, or a weaker observation and describe it as stronger
 evidence.
 
+`editor.native.media.search` treats query text literally. Queries containing
+`*` or `?` return a structured unsupported error before Browser UI access.
+
 MCP Skills use the generic `skill.list`, `skill.inspect`, `skill.preview`, and
 `skill.execute` lifecycle. An execution must use the selected candidate and
 the exact preview target and revision; verification and rollback status remain
