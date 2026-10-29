@@ -243,6 +243,15 @@
       ]
     },
     {
+      "path": "tests/integration/cli-workspace-identity.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/codeql-workflow.test.ts",
       "owner": "shared",
       "tags": [
@@ -1225,6 +1234,15 @@
     },
     {
       "path": "tests/integration/runtime.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/script-organization.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",

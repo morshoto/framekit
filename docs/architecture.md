@@ -51,12 +51,9 @@ cycle checks follow runtime edges.
 | `apps/cli` | Final Cut adapter and headless application | Node built-ins only. |
 
 The MCP bootstrap's fixture fallback is the sole `apps/mcp-server` import of
-`packages/testkit`; keep it in `apps/mcp-server/src/main.ts`. The CLI remains
-root-manifest-owned until #569 creates its workspace identity, so its direct
-Final Cut and headless-application workspace dependencies are exact-file
-migration exceptions. Each exception is exact-file and exact-package scoped;
-the checker does not permit sibling application imports or private adapter
-paths.
+`packages/testkit`; keep it in `apps/mcp-server/src/main.ts`. The CLI declares
+its workspace dependencies in `apps/cli/package.json`. The checker does not
+permit sibling application imports or private adapter paths.
 
 `@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
@@ -101,6 +98,9 @@ with an explicit `CAPABILITY_UNAVAILABLE` result. Framekit does not silently fal
 Cut, an external renderer, or a weaker observation and describe it as stronger
 evidence.
 
+`editor.native.media.search` treats query text literally. Queries containing
+`*` or `?` return a structured unsupported error before Browser UI access.
+
 MCP Skills use the generic `skill.list`, `skill.inspect`, `skill.preview`, and
 `skill.execute` lifecycle. An execution must use the selected candidate and
 the exact preview target and revision; verification and rollback status remain
@@ -113,6 +113,14 @@ Cut Pro to be installed, open, or frontmost. It works when Final Cut Pro is
 closed or when Final Cut Pro is not installed. The bundled Workflow Extension provides metadata
 only unless a configured provider advertises more. A failed headless operation
 has no implicit headed-native fallback or foreground activation.
+
+FFmpeg headless renders normalize audio to AAC at 48 kHz mono. Verification
+checks this emitted format while preserving registered source metadata; other
+renderer backends are checked against their source audio metadata.
+
+For `ripple-delete`, preview rejects ranges outside the active sequence bounds
+before issuing a preview token. The structured error reports the requested
+range and observed timeline bounds, including for a negative start.
 
 Native UI edits require an explicit headed path and a separately approved
 operation. Bind the preview to the exact project, sequence, occurrence, and

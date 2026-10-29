@@ -29,6 +29,15 @@ The test and native evidence levels are described in [Testing](./testing.md).
 Repository responsibilities and dependency direction are described in
 [Architecture](./architecture.md).
 
+### CLI entrypoint resolution
+
+`bin/framekit.mjs` is the supported public CLI entrypoint. In a development
+checkout it launches `apps/cli/src/main.ts` with the workspace TypeScript
+loader; in a packed installation it launches
+`dist-package/apps/cli/src/main.js`. Use the `framekit` command or the
+`./bin/framekit.mjs` package export. Compiled app files and other private
+implementation subpaths are not stable package APIs.
+
 ## Run Framekit locally
 
 Start the deterministic in-memory MCP server from the repository root:

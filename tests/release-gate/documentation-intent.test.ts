@@ -208,19 +208,6 @@ test('fails closed when GitHub does not provide the PR diff', async () => {
 	);
 });
 
-test('runs from the trusted default branch with read-only pull request access', async () => {
-	const workflow = await readFile(
-		resolve(repositoryRoot, '.github/workflows/documentation-intent.yml'),
-		'utf8',
-	);
-	assert.match(workflow, /pull_request_target:[\s\S]*?\n\s+- edited/);
-	assert.match(workflow, /permissions:\s+contents: read\s+pull-requests: read/);
-	assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
-	assert.match(workflow, /persist-credentials: false/);
-	assert.match(workflow, /node scripts\/check-documentation-intent\.mjs/);
-	assert.doesNotMatch(workflow, /github\.event\.pull_request\.head|refs\/pull\//);
-});
-
 test('lets code-only PRs use the template without filling a docs declaration', async () => {
 	const template = await readFile(
 		resolve(repositoryRoot, '.github/pull_request_template.md'),

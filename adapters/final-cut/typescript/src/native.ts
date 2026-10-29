@@ -48,6 +48,23 @@ export interface NativeFinalCutMediaMatch {
   uiIndex?: number;
 }
 
+export interface NativeFinalCutMediaSearchQueryError {
+  code: "FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED";
+  message: string;
+  querySemantics: "literal";
+  unsupportedSyntax: "wildcard";
+}
+
+export function nativeMediaSearchQueryError(query: string): NativeFinalCutMediaSearchQueryError | undefined {
+  if (!/[*?]/.test(query)) return undefined;
+  return {
+    code: "FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED",
+    message: "Final Cut Browser search accepts literal text; wildcard operators * and ? are unsupported",
+    querySemantics: "literal",
+    unsupportedSyntax: "wildcard",
+  };
+}
+
 export type NativeFinalCutMediaImportStage =
   | "pre-import-browser-discovery"
   | "native-import-ui"
@@ -724,6 +741,8 @@ export interface NativeFinalCutEditor {
   previewImportMediaDirectory(directoryPath: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportDirectoryPreview>;
   executeImportMediaDirectory(previewToken: string, confirm: boolean, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaImportDirectoryResult>;
   searchMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaMatch[]>;
+  /** Searches a known canonical source basename for internal target binding, outside the public wildcard-query contract. */
+  searchMediaForCanonicalTarget?(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   selectOccurrence(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
@@ -1364,6 +1383,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async searchMedia(query: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaMatch[]> {
+    const queryError = nativeMediaSearchQueryError(query);
+    if (queryError) throw new Error(`${queryError.code}: ${queryError.message}`);
+    return this.withNativeUi(() => this.searchMediaNative(query), options.signal);
+  }
+
+  public async searchMediaForCanonicalTarget(
+    query: string,
+    options: NativeFinalCutRequestOptions = {},
+  ): Promise<NativeFinalCutMediaMatch[]> {
     return this.withNativeUi(() => this.searchMediaNative(query), options.signal);
   }
 

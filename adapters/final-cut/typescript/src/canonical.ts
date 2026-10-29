@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import {
   canonicalSnapshotDigest,
   canonicalTimelineMode,
@@ -675,7 +676,7 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence">>,
+    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "searchMediaForCanonicalTarget">>,
 ): CanonicalNativeTargetResolver {
   return async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
@@ -684,7 +685,9 @@ export function createFinalCutNativeTargetResolver(
     const query = sourceBasename(media.source);
     if (!query) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no searchable source basename`);
 
-    const matches = (await native.searchMedia(query)).filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
+    const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;
+    const matches = (await searchMedia.call(native, query))
+      .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
     if (matches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple exact media matches for ${query}`);
     const match = matches[0]!;
@@ -1420,12 +1423,14 @@ function canonicalRippleRange(snapshot: ProjectSnapshot, range: TimeRange): { st
     throw new Error("INVALID_OPERATION: ripple-delete range must have positive duration");
   }
   const end = addRational(start, duration);
-  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
-  }
   const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
   if (compareRational(start, zeroRational()) < 0 || compareRational(end, timelineDuration) > 0) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must fit inside the active timeline");
+    throw new Error(
+      `INVALID_OPERATION: ripple-delete range [${range.start}, ${range.end}) must fit timeline bounds [0, ${rationalSeconds(timelineDuration)})`,
+    );
+  }
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
+    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
   }
   return { start, end };
 }
@@ -1781,12 +1786,11 @@ async function readCanonicalExport(
 }
 
 function sourceBasename(source: string): string {
-  const withoutQuery = source.split(/[?#]/, 1)[0] ?? source;
   try {
-    const url = new URL(withoutQuery);
-    return basename(decodeURIComponent(url.pathname));
+    const url = new URL(source);
+    return basename(url.protocol === "file:" ? fileURLToPath(url) : decodeURIComponent(url.pathname));
   } catch {
-    return basename(withoutQuery.replace(/^file:\/\//, ""));
+    return basename(source);
   }
 }
 

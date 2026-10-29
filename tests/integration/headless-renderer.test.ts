@@ -12,10 +12,108 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
+import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
+
+test("FFmpeg renderer preserves apostrophes in title text", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const sourceWithApostrophe = await timeline(
+      join(directory, "fixture-red-440hz.mp4"),
+      join(directory, "fixture-blue-880hz.mp4"),
+    );
+    sourceWithApostrophe.sequence.titles![0]!.text = "Framekit's";
+    const sourceWithoutApostrophe = structuredClone(sourceWithApostrophe);
+    sourceWithoutApostrophe.sequence.titles![0]!.text = "Framekits";
+
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const render = async (source: TimelineIr, outputPath: string) => {
+      const request = createFramekitRenderRequest({
+        timeline: source,
+        target: { projectId: source.project.id, sequenceId: source.sequence.id },
+        parameters: parameters(outputPath),
+      });
+      const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+      return renderer.render(plan);
+    };
+    const withApostrophePath = join(directory, "with-apostrophe.mp4");
+    const withoutApostrophePath = join(directory, "without-apostrophe.mp4");
+    await render(sourceWithApostrophe, withApostrophePath);
+    await render(sourceWithoutApostrophe, withoutApostrophePath);
+
+    const withApostropheFrame = await frameAt(withApostrophePath, 0.25, directory, "with-apostrophe");
+    const withoutApostropheFrame = await frameAt(withoutApostrophePath, 0.25, directory, "without-apostrophe");
+    assert.notEqual(
+      frameDigest(withApostropheFrame),
+      frameDigest(withoutApostropheFrame),
+      "rendered frame should include the apostrophe glyph",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FFmpeg renderer keeps title text separate from drawtext options", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-title-textfile-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const source = await timeline(
+      join(directory, "fixture-red-440hz.mp4"),
+      join(directory, "fixture-blue-880hz.mp4"),
+    );
+    source.sequence.titles = [source.sequence.titles![0]!];
+    source.sequence.titles[0]!.text = "Framekit's";
+
+    const capturePath = join(directory, "captured-render.json");
+    const fakeFfmpegPath = join(directory, "fake-ffmpeg.mjs");
+    await writeFile(fakeFfmpegPath, `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const args = process.argv.slice(2);
+const filterGraph = args[args.indexOf("-filter_complex") + 1];
+const titleFile = filterGraph.match(/textfile='([^']+)'/)?.[1];
+if (!titleFile) throw new Error("drawtext title did not use a text file");
+writeFileSync(process.env.FRAMEKIT_FAKE_CAPTURE, JSON.stringify({
+  filterGraph,
+  titleText: readFileSync(join(process.cwd(), titleFile), "utf8"),
+}));
+writeFileSync(args.at(-1), "fake render output");
+`);
+    await chmod(fakeFfmpegPath, 0o755);
+
+    const renderer = new FfmpegTimelineRenderer({
+      ffmpegPath: fakeFfmpegPath,
+      env: { FRAMEKIT_FAKE_CAPTURE: capturePath },
+    });
+    const outputPath = join(directory, "captured-output.mp4");
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+
+    const captured = JSON.parse(await readFile(capturePath, "utf8")) as {
+      filterGraph: string;
+      titleText: string;
+    };
+    assert.equal(captured.titleText, "Framekit's");
+    assert.match(captured.filterGraph, /textfile='title-0\.txt':expansion=none:fontcolor=white:fontsize=24/);
+    assert.doesNotMatch(captured.filterGraph, /Framekit's/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-"));
@@ -216,6 +314,69 @@ test("FFmpeg renderer fills a trailing video gap with black while music continue
   }
 });
 
+test("FFmpeg renders a title during a cross-dissolve", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-transition-title-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.titles = [{
+      id: "transition-title",
+      text: "FADE",
+      startTime: { value: "3", timescale: "4" },
+      durationTime: { value: "1", timescale: "2" },
+      lane: 1,
+      style: { fontSize: 32, color: "white", alignment: "center" },
+    }];
+    const wrapperPath = join(directory, "capture-ffmpeg.mjs");
+    const filterArgsPath = join(directory, "filter-args.json");
+    await writeFile(wrapperPath, [
+      "#!/usr/bin/env node",
+      "import { writeFileSync } from \"node:fs\";",
+      "import { spawnSync } from \"node:child_process\";",
+      "writeFileSync(process.env.FRAMEKIT_TEST_FILTER_ARGS, JSON.stringify(process.argv.slice(2)));",
+      "const result = spawnSync(process.env.FFMPEG_REAL_BIN, process.argv.slice(2), { stdio: \"inherit\" });",
+      "process.exit(result.status ?? 1);",
+    ].join("\n"));
+    await chmod(wrapperPath, 0o755);
+    const renderer = new FfmpegTimelineRenderer({
+      ffmpegPath: wrapperPath,
+      env: { FRAMEKIT_TEST_FILTER_ARGS: filterArgsPath, FFMPEG_REAL_BIN: process.env.FFMPEG_BIN || "ffmpeg" },
+    });
+    const outputPath = join(directory, "transition-title.mp4");
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    await renderer.render(plan);
+    const ffmpegArgs = JSON.parse(await readFile(filterArgsPath, "utf8")) as string[];
+    const filterGraph = ffmpegArgs[ffmpegArgs.indexOf("-filter_complex") + 1];
+    assert.match(filterGraph!, /\[video-xfade-padded\]format=yuv420p\[video-titles-base\];\[video-titles-base\]drawtext=/);
+
+    const withoutTitle = structuredClone(source);
+    withoutTitle.sequence.titles = [];
+    const plainPath = join(directory, "transition-plain.mp4");
+    const plainRequest = createFramekitRenderRequest({
+      timeline: withoutTitle,
+      target: { projectId: withoutTitle.project.id, sequenceId: withoutTitle.sequence.id },
+      parameters: parameters(plainPath),
+    });
+    await renderer.render(createFramekitRenderPlan(plainRequest, renderer.capabilities(plainRequest)));
+    const titleFrame = await frameAt(outputPath, 0.9, directory, "transition-title-frame");
+    const plainFrame = await frameAt(plainPath, 0.9, directory, "transition-plain-frame");
+    assert.ok(
+      countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(plainFrame, 80, 240, 40, 140) + 5,
+      "title should be visible over the cross-dissolve",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg mixes independent music with source audio at the requested gain", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-music-mix-"));
   try {
@@ -269,6 +430,64 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
     assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
     assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FFmpeg renders both occurrences that reuse one music resource", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-reused-music-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
+      cwd: repositoryRoot,
+      env: process.env,
+    });
+    const musicPath = join(directory, "reused-music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=1760:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=2200:sample_rate=48000:duration=1",
+      "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[music]",
+      "-map", "[music]", "-c:a", "pcm_s16le", "-y", musicPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.titles = [];
+    source.sequence.transitions = [];
+    source.resources.push(audioResource("reused-music", musicPath, await digest(musicPath)));
+    for (const [index, start] of [0, 1].entries()) {
+      source.sequence.occurrences.push({
+        id: `music-${index}`,
+        name: `Music ${index}`,
+        startTime: { value: String(start), timescale: "1" },
+        durationTime: { value: "1", timescale: "1" },
+        sourceStartTime: { value: String(start), timescale: "1" },
+        track: 1,
+        role: "music",
+        mediaId: "reused-music",
+        gainDb: -6,
+      });
+    }
+    const outputPath = join(directory, "reused-music.mp4");
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    const render = await renderer.render(plan);
+    const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, render);
+    assert.equal(verification.status, "passed");
+    const pcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-i", outputPath, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1",
+    ], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+    const samples = pcm.stdout as unknown as Buffer;
+    const window = (start: number) => samples.subarray(start * 48_000 * 4, (start + 1) * 48_000 * 4);
+    const firstAmplitude = frequencyAmplitude(window(0), 1_760, 48_000);
+    const secondAmplitude = frequencyAmplitude(window(1), 2_200, 48_000);
+    assert.ok(firstAmplitude > 0.002, `first occurrence should be audible, got ${firstAmplitude}`);
+    assert.ok(secondAmplitude > 0.002, `reused second occurrence should be audible, got first=${firstAmplitude}, second=${secondAmplitude}`);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

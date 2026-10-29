@@ -29,6 +29,7 @@ import {
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
   serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
+  nativeMediaSearchQueryError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublishJobState,
   type FinalCutProjectPublishReadiness,
@@ -212,7 +213,14 @@ const colorCorrectionSchema = z.object({
   }),
   baseRevision: revisionSchema,
 });
-const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
+const rippleDeleteSchema = z.object({
+  type: z.literal("ripple-delete"),
+  timelineId: z.string().min(1),
+  // The editor validates this range against the active timeline and reports its actual bounds.
+  range: z.object({ start: z.number().finite(), end: z.number().finite() }),
+  reason: z.string().optional(),
+  baseRevision: revisionSchema,
+});
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
 const roughCutImportSchema = z.object({
   type: z.literal("media.import"),
@@ -1755,10 +1763,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("editor.native.media.search", {
-    description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
+    description: "Search the active Final Cut Browser by literal text and return short-lived media handles; wildcard operators are unsupported.",
     inputSchema: { query: z.string().min(1) },
   }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
+    const queryError = nativeMediaSearchQueryError(query);
+    if (queryError) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: JSON.stringify(queryError) }],
+      };
+    }
     return jsonResult(await options.nativeEditor.searchMedia(query, { signal: extra.signal }));
   });
 
