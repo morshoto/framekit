@@ -37,7 +37,9 @@ Workspace imports flow toward the runtime contracts. Imports between packages
 must use a package's declared public export and the consumer must declare that
 workspace dependency directly in its manifest. Relative imports are for files
 inside one package. TypeScript path aliases are resolved by the boundary check
-and do not grant access to another package's private files.
+and do not grant access to another package's private files. These boundary
+rules also apply to type-only imports and exports; production reachability and
+cycle checks follow runtime edges.
 
 | Source layer | Allowed workspace dependencies | External packages |
 | --- | --- | --- |
@@ -60,7 +62,7 @@ paths.
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
 are available only from `@framekit/final-cut/experimental`; default CLI and MCP
 entrypoints must not reach those modules. The boundary checker also rejects
-new source dependency cycles. The existing Timeline IR edit/reconcile cycle
+new runtime source dependency cycles. The existing Timeline IR edit/reconcile cycle
 between `editing-session.ts` and `drift-reconciliation.ts` is the only
 temporary cycle exception; removing it would require extracting shared
 validation and reconciliation contracts beyond this gate's scope.

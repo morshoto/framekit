@@ -43,6 +43,40 @@ test("resolves TypeScript aliases and relative imports into package-owned graph 
     && edge.specifier === "./value.js"));
 });
 
+test("resolves inherited TypeScript aliases for type-only imports", async (t) => {
+  const paths = {
+    "@fixture/runtime": ["./packages/runtime/src/index.ts"],
+    "@fixture/adapter": ["./adapters/native/src/index.ts"],
+    "@fixture/server": ["./apps/server/src/index.ts"],
+    "@private/*": ["./adapters/native/src/*"],
+  };
+  const fixture = await createFixture({
+    "tsconfig.json": JSON.stringify({ extends: "./tsconfig.base.json" }),
+    "tsconfig.base.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths } }),
+    "packages/runtime/src/index.ts": 'import type { Secret } from "@private/private"; export type RuntimeShape = Secret; export const runtimeValue = 1;',
+    "adapters/native/src/private.ts": "export interface Secret { value: string }",
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+  assertViolation(result, "unexported-entrypoint");
+});
+
+test("child TypeScript paths replace inherited mappings", async (t) => {
+  const fixture = await createFixture({
+    "tsconfig.json": JSON.stringify({ extends: "./tsconfig.base.json", compilerOptions: { baseUrl: ".", paths: {
+      "@fixture/runtime": ["./packages/runtime/src/index.ts"],
+      "@fixture/adapter": ["./adapters/native/src/index.ts"],
+      "@fixture/server": ["./apps/server/src/index.ts"],
+    } } }),
+    "tsconfig.base.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@old/*": ["./adapters/native/src/*"] } } }),
+    "packages/runtime/src/index.ts": 'import type { Secret } from "@old/private"; export type RuntimeShape = Secret; export const runtimeValue = 1;',
+    "adapters/native/src/private.ts": "export interface Secret { value: string }",
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+  assertViolation(result, "forbidden-external-dependency");
+});
+
 test("rejects relative imports that cross package boundaries", async (t) => {
   const fixture = await createFixture({
     "packages/runtime/src/index.ts": 'import { nativeValue } from "../../../adapters/native/src/index.js"; export const runtimeValue = nativeValue;',
@@ -126,6 +160,111 @@ test("rejects imports outside a workspace package public export map", async (t) 
   const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
 
   assertViolation(result, "unexported-entrypoint");
+});
+
+test("rejects private subpaths referenced only by types", async (t) => {
+  for (const source of [
+    'import type { InternalType } from "@fixture/adapter/private.js"; export type ServerInternalType = InternalType;',
+    'export type { InternalType } from "@fixture/adapter/private.js";',
+    'export type InternalType = import("@fixture/adapter/private.js").InternalType;',
+    'import { type InternalType } from "@fixture/adapter/private.js"; export type ServerInternalType = InternalType;',
+  ]) {
+    const fixture = await createFixture({
+      "adapters/native/src/private.ts": "export interface InternalType { value: string }",
+      "apps/server/src/index.ts": source,
+    });
+    t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+    const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+    assertViolation(result, "unexported-entrypoint");
+  }
+});
+
+test("rejects forbidden dependencies referenced only by types", async (t) => {
+  const fixture = await createFixture({
+    "packages/runtime/src/index.ts": 'import type { NativeShape } from "@fixture/adapter"; export type RuntimeShape = NativeShape; export const runtimeValue = 1;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assertViolation(result, "forbidden-dependency");
+});
+
+test("rejects type-only relative imports across package boundaries", async (t) => {
+  const fixture = await createFixture({
+    "packages/runtime/src/index.ts": 'import type { NativeShape } from "../../../adapters/native/src/index.js"; export type RuntimeShape = NativeShape; export const runtimeValue = 1;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assertViolation(result, "relative-cross-package");
+  assertViolation(result, "forbidden-dependency");
+});
+
+test("type-only edges do not become production runtime reachability", async (t) => {
+  const fixture = await createFixture({
+    "adapters/native/package.json": JSON.stringify({
+      name: "@fixture/adapter",
+      private: true,
+      type: "module",
+      exports: { ".": "./src/index.ts", "./experimental": "./src/experimental.ts" },
+      dependencies: { "@fixture/runtime": "workspace:*" },
+    }),
+    "adapters/native/src/experimental.ts": "export interface ExperimentalShape { value: string }",
+    "apps/server/src/index.ts": 'import type { ExperimentalShape } from "@fixture/adapter/experimental"; export type ServerShape = ExperimentalShape;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.edges.some((edge) => edge.target === "adapters/native/src/experimental.ts"));
+});
+
+test("resolves every wildcard in a package export target", async (t) => {
+  const fixture = await createFixture({
+    "packages/runtime/package.json": JSON.stringify({
+      name: "@fixture/runtime",
+      private: true,
+      type: "module",
+      exports: { ".": "./src/index.ts", "./features/*": "./src/features/*/index-*.ts" },
+    }),
+    "packages/runtime/src/features/example/index-example.ts": "export const feature = 1;",
+    "apps/server/src/index.ts": 'import { feature } from "@fixture/runtime/features/example"; export const serverValue = feature;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.edges.some((edge) => edge.target === "packages/runtime/src/features/example/index-example.ts"));
+});
+
+test("treats dollar sequences in wildcard captures as literal paths", async (t) => {
+  const fixture = await createFixture({
+    "tsconfig.json": JSON.stringify({
+      compilerOptions: { baseUrl: ".", paths: {
+        "@fixture/runtime": ["./packages/runtime/src/index.ts"],
+        "@fixture/runtime/features/*": ["./packages/runtime/src/features/*/index.ts"],
+        "@fixture/adapter": ["./adapters/native/src/index.ts"],
+      } },
+    }),
+    "packages/runtime/package.json": JSON.stringify({
+      name: "@fixture/runtime",
+      private: true,
+      type: "module",
+      exports: { ".": "./src/index.ts", "./features/*": "./src/features/*/index.ts" },
+    }),
+    "packages/runtime/src/features/name$&/index.ts": "export const feature = 1;",
+    "apps/server/src/index.ts": 'import { feature } from "@fixture/runtime/features/name$&"; export const serverValue = feature;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.edges.some((edge) => edge.target === "packages/runtime/src/features/name$&/index.ts"));
 });
 
 test("rejects experimental native modules in default production reachability", async (t) => {
