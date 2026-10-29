@@ -77,6 +77,22 @@ test("child TypeScript paths replace inherited mappings", async (t) => {
   assertViolation(result, "forbidden-external-dependency");
 });
 
+test("resolves paths without baseUrl relative to their nested declaring config", async (t) => {
+  const fixture = await createFixture({
+    "tsconfig.json": JSON.stringify({ extends: "./config/paths.json" }),
+    "config/paths.json": JSON.stringify({ compilerOptions: { paths: {
+      "@fixture/runtime": ["../packages/runtime/src/index.ts"],
+      "@fixture/adapter": ["../adapters/native/src/private.ts"],
+      "@fixture/server": ["../apps/server/src/index.ts"],
+    } } }),
+    "adapters/native/src/private.ts": "export interface Secret { value: string }",
+    "apps/server/src/index.ts": 'import type { Secret } from "@fixture/adapter"; export type ServerShape = Secret;',
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+  assertViolation(result, "unexported-entrypoint");
+});
+
 test("rejects relative imports that cross package boundaries", async (t) => {
   const fixture = await createFixture({
     "packages/runtime/src/index.ts": 'import { nativeValue } from "../../../adapters/native/src/index.js"; export const runtimeValue = nativeValue;',
