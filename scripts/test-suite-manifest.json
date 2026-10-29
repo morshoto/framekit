@@ -1242,6 +1242,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/script-organization.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/semantic-media.test.ts",
       "owner": "shared",
       "tags": [

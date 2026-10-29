@@ -29,6 +29,7 @@ import {
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
   serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
+  nativeMediaSearchQueryError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublishJobState,
   type FinalCutProjectPublishReadiness,
@@ -1751,10 +1752,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("editor.native.media.search", {
-    description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
+    description: "Search the active Final Cut Browser by literal text and return short-lived media handles; wildcard operators are unsupported.",
     inputSchema: { query: z.string().min(1) },
   }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
+    const queryError = nativeMediaSearchQueryError(query);
+    if (queryError) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: JSON.stringify(queryError) }],
+      };
+    }
     return jsonResult(await options.nativeEditor.searchMedia(query, { signal: extra.signal }));
   });
 
