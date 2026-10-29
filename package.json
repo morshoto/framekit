@@ -31,6 +31,9 @@
     "test:native": "node scripts/run-tests-with-isolated-home.mjs native",
     "test:package": "node scripts/run-tests-with-isolated-home.mjs package --check-only && pnpm run build:package && node scripts/run-tests-with-isolated-home.mjs package",
     "test:inventory:update": "node scripts/test-suites.mjs --update-inventory",
+    "test:documentation": "node --test tests/documentation/*.test.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+
     "test:coverage": "c8 --reporter=json-summary --reporter=text --reports-dir=\"${C8_REPORTS_DIR:-coverage}\" pnpm test",
     "test:filler-removal": "tsx --test tests/filler-removal/*.test.ts",
     "benchmark:filler-removal": "tsx scripts/run-filler-removal-benchmark.ts",

@@ -30,11 +30,13 @@ test("aggregate tests run with a read-only home and isolated writable state", {
   assert.equal(homeMode & 0o222, 0, "sentinel HOME must be read-only");
 
   const blockedWrite = join(homeDirectory, "framekit-test-home-write-blocked");
-  await assert.rejects(writeFile(blockedWrite, "must not persist"), (error: unknown) => {
-    assert.ok(error instanceof Error);
-    assert.ok("code" in error && (error.code === "EACCES" || error.code === "EPERM"));
-    return true;
-  });
+  if (process.getuid?.() !== 0) {
+    await assert.rejects(writeFile(blockedWrite, "must not persist"), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok("code" in error && (error.code === "EACCES" || error.code === "EPERM"));
+      return true;
+    });
+  }
 
   const safeWrite = join(framekitStateDirectory, "isolated-state-write.txt");
   try {

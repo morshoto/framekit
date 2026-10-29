@@ -81,28 +81,6 @@
       "requires": []
     },
     {
-      "path": "tests/integration/background-handoff-docs.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": []
-    },
-    {
-      "path": "tests/integration/background-render-investigation-docs.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration"
-      ],
-      "requires": [
-        "ffmpeg",
-        "ffprobe"
-      ]
-    },
-    {
       "path": "tests/integration/basic-editing-mvp.test.ts",
       "owner": "shared",
       "tags": [
@@ -375,15 +353,6 @@
     },
     {
       "path": "tests/integration/editing-session.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": []
-    },
-    {
-      "path": "tests/integration/editing-surface-docs.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",
@@ -752,15 +721,6 @@
       "requires": []
     },
     {
-      "path": "tests/integration/layered-readback-docs.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": []
-    },
-    {
       "path": "tests/integration/live-protocol.test.ts",
       "owner": "shared",
       "tags": [
@@ -897,16 +857,6 @@
     },
     {
       "path": "tests/integration/native-transition.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "native"
-      ],
-      "requires": []
-    },
-    {
-      "path": "tests/integration/native-write-investigation-docs.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",
@@ -1075,15 +1025,6 @@
     },
     {
       "path": "tests/integration/project-transactions.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": []
-    },
-    {
-      "path": "tests/integration/provider-boundaries-docs.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",
@@ -1368,15 +1309,6 @@
     },
     {
       "path": "tests/integration/timeline-semantic-context.test.ts",
-      "owner": "shared",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": []
-    },
-    {
-      "path": "tests/integration/timeline-target-docs.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",

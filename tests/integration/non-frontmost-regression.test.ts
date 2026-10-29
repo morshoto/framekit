@@ -347,7 +347,7 @@ function textFrom(result: unknown): string {
 
 test("non-frontmost regression gate is documented and separately runnable", async () => {
   const [documentation, packageJson, runner] = await Promise.all([
-    readFile(join(process.cwd(), "docs/tests/non-frontmost-regression.md"), "utf8"),
+    readFile(join(process.cwd(), "docs/testing.md"), "utf8"),
     readFile(join(process.cwd(), "package.json"), "utf8").then(JSON.parse) as Promise<{ scripts?: Record<string, string> }>,
     readFile(join(process.cwd(), "scripts/final-cut-background-regression-headed-e2e.mjs"), "utf8"),
   ]);

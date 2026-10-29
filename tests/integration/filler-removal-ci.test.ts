@@ -8,7 +8,7 @@ test("filler-removal benchmark is wired into local and CI validation", async () 
     scripts?: Record<string, string>;
   };
   const workflow = await readFile(resolve(".github/workflows/typescript.yml"), "utf8");
-  const documentation = await readFile(resolve("docs/tests/filler-removal-benchmark.md"), "utf8");
+  const documentation = await readFile(resolve("docs/testing.md"), "utf8");
   const testRunner = await readFile(resolve("scripts/run-tests-with-isolated-home.mjs"), "utf8");
   const suiteManifest = JSON.parse(await readFile(resolve("scripts/test-suite-manifest.json"), "utf8")) as {
     tests: Array<{ path: string; tags: string[] }>;

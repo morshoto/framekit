@@ -7,7 +7,7 @@ test("the CI test command runs the versioned golden workflow corpus", async () =
   const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
     scripts?: { test?: string };
   };
-  const documentation = await readFile(resolve("docs/tests/golden-corpus.md"), "utf8").catch(() => "");
+  const documentation = await readFile(resolve("docs/testing.md"), "utf8");
   const testRunner = await readFile(resolve("scripts/run-tests-with-isolated-home.mjs"), "utf8");
   const suiteManifest = JSON.parse(await readFile(resolve("scripts/test-suite-manifest.json"), "utf8")) as {
     tests: Array<{ path: string; tags: string[] }>;
