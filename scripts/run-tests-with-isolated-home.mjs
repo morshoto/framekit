@@ -1,10 +1,46 @@
 import { chmod, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  compareTestInventory,
+  discoverTestFiles,
+  evaluateSuitePrerequisites,
+  loadTestSuiteManifest,
+  selectTestFiles,
+} from "./test-suites.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const suiteName = process.argv[2]?.startsWith("--") ? "all" : (process.argv[2] ?? "all");
+const manifest = await loadTestSuiteManifest(repositoryRoot);
+const discoveredFiles = await discoverTestFiles(repositoryRoot);
+const inventory = compareTestInventory(manifest.tests.map(({ path: file }) => file), discoveredFiles);
+if (inventory.missing.length || inventory.unregistered.length) {
+  process.stderr.write([
+    "TEST_INVENTORY_DRIFT: aggregate collection differs from the reviewed inventory.",
+    `Missing: ${inventory.missing.join(", ") || "none"}`,
+    `Unregistered: ${inventory.unregistered.join(", ") || "none"}`,
+    "Review tags and update it with `pnpm run test:inventory:update`.",
+    "",
+  ].join("\n"));
+  process.exit(1);
+}
+const prerequisites = evaluateSuitePrerequisites(suiteName, {
+  availableExecutables: new Set(["node", ...["ffmpeg", "ffprobe", "npm"].filter(executableAvailable)]),
+  manifest,
+  nodeVersion: process.versions.node,
+});
+if (!prerequisites.ready) {
+  process.stderr.write(`TEST_SUITE_BLOCKED: ${suiteName} requires ${prerequisites.missing.join(" and ")}; install the listed toolchain and retry.\n`);
+  process.exit(2);
+}
+if (process.argv.includes("--check-only")) {
+  process.stdout.write(`TEST_SUITE_PREREQUISITES_READY: ${suiteName}\n`);
+  process.exit(0);
+}
+const testFiles = selectTestFiles(manifest, suiteName);
+process.stdout.write(`TEST_SUITE_SELECTED: ${suiteName} (${testFiles.length} files)\n`);
 const originalHome = process.env.HOME ?? os.homedir();
 const temporaryRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
 if (isWithin(originalHome, temporaryRoot)) {
@@ -66,33 +102,19 @@ const environment = {
     .join(path.delimiter),
 };
 
-const testDirectories = [
-  "tests/integration",
-  "tests/evaluation",
-  "tests/filler-removal",
-  "tests/speech",
-  "tests/golden",
-  "tests/release-gate",
-  "tests/release-report",
-];
-const testFiles = (await Promise.all(testDirectories.map(async (directory) =>
-  (await readdir(path.join(repositoryRoot, directory)))
-    .filter((file) => file.endsWith(".test.ts"))
-    .map((file) => path.join(directory, file)),
-))).flat().sort();
-
 try {
-  const documentationFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
-    .filter((file) => file.endsWith(".test.mjs"))
-    .map((file) => path.join("tests/documentation", file)).sort();
-  const documentationExitCode = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--test", ...documentationFiles], {
-      cwd: repositoryRoot, env: environment, stdio: "inherit",
-    });
-    child.once("error", reject);
-    child.once("close", (code) => resolve(code ?? 1));
-  });
-  if (documentationExitCode !== 0) throw new Error(`Documentation tests failed with exit code ${documentationExitCode}`);
+  if (suiteName === "all") {
+    const documentationTestFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
+      .filter((file) => file.endsWith(".test.mjs"))
+      .map((file) => path.join("tests/documentation", file)).sort();
+    if (documentationTestFiles.length > 0) {
+      const documentationExitCode = await runCommand(process.execPath, ["--test", ...documentationTestFiles], environment);
+      if (documentationExitCode !== 0) throw new Error(`Documentation tests failed with exit code ${documentationExitCode}`);
+    } else {
+      throw new Error("TEST_INVENTORY_DRIFT: documentation test files are missing");
+    }
+  }
+
   const exitCode = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx", "--test", ...testFiles], {
       cwd: repositoryRoot,
@@ -106,6 +128,19 @@ try {
 } finally {
   await chmod(isolatedHome, 0o700).catch(() => undefined);
   await rm(stateRoot, { recursive: true, force: true });
+}
+
+function executableAvailable(executable) {
+  const lookup = process.platform === "win32" ? "where" : "which";
+  return spawnSync(lookup, [executable], { stdio: "ignore" }).status === 0;
+}
+
+function runCommand(command, args, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd: repositoryRoot, env: environment, stdio: "inherit" });
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 1));
+  });
 }
 
 function isWithin(parent, candidate) {
