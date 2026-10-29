@@ -43,6 +43,40 @@ test("resolves TypeScript aliases and relative imports into package-owned graph 
     && edge.specifier === "./value.js"));
 });
 
+test("resolves inherited TypeScript aliases for type-only imports", async (t) => {
+  const paths = {
+    "@fixture/runtime": ["./packages/runtime/src/index.ts"],
+    "@fixture/adapter": ["./adapters/native/src/index.ts"],
+    "@fixture/server": ["./apps/server/src/index.ts"],
+    "@private/*": ["./adapters/native/src/*"],
+  };
+  const fixture = await createFixture({
+    "tsconfig.json": JSON.stringify({ extends: "./tsconfig.base.json" }),
+    "tsconfig.base.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths } }),
+    "packages/runtime/src/index.ts": 'import type { Secret } from "@private/private"; export type RuntimeShape = Secret; export const runtimeValue = 1;',
+    "adapters/native/src/private.ts": "export interface Secret { value: string }",
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+  assertViolation(result, "unexported-entrypoint");
+});
+
+test("child TypeScript paths replace inherited mappings", async (t) => {
+  const fixture = await createFixture({
+    "tsconfig.json": JSON.stringify({ extends: "./tsconfig.base.json", compilerOptions: { baseUrl: ".", paths: {
+      "@fixture/runtime": ["./packages/runtime/src/index.ts"],
+      "@fixture/adapter": ["./adapters/native/src/index.ts"],
+      "@fixture/server": ["./apps/server/src/index.ts"],
+    } } }),
+    "tsconfig.base.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@old/*": ["./adapters/native/src/*"] } } }),
+    "packages/runtime/src/index.ts": 'import type { Secret } from "@old/private"; export type RuntimeShape = Secret; export const runtimeValue = 1;',
+    "adapters/native/src/private.ts": "export interface Secret { value: string }",
+  });
+  t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+  const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy });
+  assertViolation(result, "forbidden-external-dependency");
+});
+
 test("rejects relative imports that cross package boundaries", async (t) => {
   const fixture = await createFixture({
     "packages/runtime/src/index.ts": 'import { nativeValue } from "../../../adapters/native/src/index.js"; export const runtimeValue = nativeValue;',
