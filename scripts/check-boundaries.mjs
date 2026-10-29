@@ -1,24 +1,16 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { analyzeWorkspaceBoundaries, FRAMEKIT_BOUNDARY_POLICY, FRAMEKIT_PACKAGES } from "./boundary-policy.mjs";
 
-const forbidden = [
-  ["packages/runtime", /@modelcontextprotocol\/sdk/],
-  ["packages/runtime", /@framekit\/final-cut/],
-];
+const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const { violations, edges } = await analyzeWorkspaceBoundaries({
+  rootDir,
+  packages: FRAMEKIT_PACKAGES,
+  policy: FRAMEKIT_BOUNDARY_POLICY,
+});
 
-async function* typescriptFiles(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const file = join(directory, entry.name);
-    if (entry.isDirectory()) yield* typescriptFiles(file);
-    else if (entry.isFile() && file.endsWith(".ts")) yield file;
-  }
+if (violations.length > 0) {
+  for (const item of violations) console.error(`[${item.code}] ${item.source}: ${item.message}`);
+  process.exitCode = 1;
+} else {
+  console.log(`Framekit import boundaries passed (${edges.length} resolved source edges)`);
 }
-
-for (const [directory, pattern] of forbidden) {
-  for await (const file of typescriptFiles(directory)) {
-    const source = await readFile(file, "utf8");
-    if (pattern.test(source)) throw new Error(`Boundary violation in ${file}: ${pattern}`);
-  }
-}
-
-console.log("Framekit package boundaries passed");

@@ -13,7 +13,7 @@ import {
   parseFinalCutKeyedArchive,
   parseFinalCutGroundTruthSnapshotResponse,
   validateFinalCutGroundTruthCorpus,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/experimental";
 
 const fingerprint = buildFinalCutSchemaFingerprint({
   schemaVersion: 18,
