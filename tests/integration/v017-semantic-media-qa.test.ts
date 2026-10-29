@@ -21,7 +21,7 @@ import {
 } from "@framekit/testkit";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { HeadlessProjectService } from "../../apps/mcp-server/src/headless-projects.js";
+import { HeadlessProjectService } from "@framekit/headless-application";
 
 const execFileAsync = promisify(execFile);
 

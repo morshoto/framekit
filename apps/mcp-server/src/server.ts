@@ -63,10 +63,10 @@ import {
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
 import {
-  HeadlessProjectService,
+  type HeadlessProjectWorkflow,
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
-} from "./headless-projects.js";
+} from "@framekit/headless-application";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 
@@ -983,7 +983,7 @@ export interface McpServerOptions {
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
-  headlessProjects?: HeadlessProjectService;
+  headlessProjects?: HeadlessProjectWorkflow;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -1035,7 +1035,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
     return materializations;
   };
-  const requireHeadlessProjects = (): HeadlessProjectService => {
+  const requireHeadlessProjects = (): HeadlessProjectWorkflow => {
     if (!options.headlessProjects) throw new Error("HEADLESS_PROJECT_UNAVAILABLE: headless project storage is not configured");
     return options.headlessProjects;
   };
@@ -1886,7 +1886,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
     let sourceTransactionId: string;
     let artifactDigest: string;
-    let sourceProof: Awaited<ReturnType<HeadlessProjectService["verifyPublishableRoughCut"]>> | undefined;
+    let sourceProof: Awaited<ReturnType<HeadlessProjectWorkflow["verifyPublishableRoughCut"]>> | undefined;
     if (headlessExecutionId) {
       sourceProof = await requireHeadlessProjects().verifyPublishableRoughCut(headlessExecutionId, artifactPath);
       sourceTransactionId = sourceProof.sourceTransactionId;

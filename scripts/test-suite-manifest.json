@@ -230,6 +230,19 @@
       "requires": []
     },
     {
+      "path": "tests/integration/cli-headless-projects.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
       "path": "tests/integration/codeql-workflow.test.ts",
       "owner": "shared",
       "tags": [

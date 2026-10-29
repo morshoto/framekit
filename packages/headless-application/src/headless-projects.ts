@@ -12,6 +12,7 @@ import {
   type FramekitRenderArtifactVerifier,
   type FramekitRenderProvider,
   type FramekitRenderParameters,
+  type LocalMediaRegistrationResult,
   type LocalMediaMetadataProbe,
   type ProjectEditCommand,
   type ProjectEditPreview,
@@ -35,6 +36,49 @@ export interface HeadlessProjectServiceOptions {
   renderer?: FramekitRenderProvider;
   verifier?: FramekitRenderArtifactVerifier;
   clock?: () => string;
+}
+
+export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
+  target?: ProjectEditCommand["target"];
+};
+
+export interface HeadlessProjectWorkflow {
+  create(timeline: TimelineIr): Promise<FramekitProjectDocument>;
+  list(): Promise<HeadlessProjectSummary[]>;
+  open(projectId: string): Promise<FramekitProjectDocument>;
+  inspect(projectId: string): Promise<FramekitProjectDocument>;
+  registerMedia(
+    projectId: string,
+    sourcePath: string,
+    expectedRevision?: ContextRevision,
+  ): Promise<LocalMediaRegistrationResult>;
+  previewEdit(
+    projectId: string,
+    command: HeadlessProjectEditCommand,
+    sequenceId: string,
+  ): ReturnType<ProjectTransactionService["preview"]>;
+  executeEdit(
+    projectId: string,
+    command: HeadlessProjectEditCommand,
+    sequenceId: string,
+  ): ReturnType<ProjectTransactionService["execute"]>;
+  previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview>;
+  executeRoughCut(request: HeadlessRoughCutExecutionRequest): Promise<HeadlessRoughCutExecution>;
+  verifyPublishableRoughCut(
+    executionId: string,
+    artifactPath: string,
+    artifactDigest?: string,
+  ): Promise<HeadlessRoughCutPublishProof>;
+  verifyPublishableRoughCutTransaction(
+    request: HeadlessRoughCutPublishVerificationRequest,
+  ): Promise<HeadlessRoughCutPublishProof>;
+  render(
+    projectId: string,
+    sequenceId: string,
+    parameters: FramekitRenderParameters,
+    expectedRevision?: ContextRevision,
+  ): Promise<HeadlessRenderRecord>;
+  inspectRender(renderId: string): Promise<HeadlessRenderRecord>;
 }
 
 export interface HeadlessProjectSummary {
@@ -156,6 +200,12 @@ export interface HeadlessRoughCutPublishProof {
   sourceMediaDigests: Array<{ source: string; sha256: string }>;
 }
 
+export interface HeadlessRoughCutPublishVerificationRequest {
+  sourceTransactionId: string;
+  artifactPath: string;
+  artifactDigest: string;
+}
+
 interface HeadlessRoughCutExecutionRecord {
   schemaVersion: 1;
   executionId: string;
@@ -192,7 +242,7 @@ interface HeadlessRoughCutApprovalRecord {
   evidenceDigest: string;
 }
 
-export class HeadlessProjectService {
+export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly directory: string;
   private readonly mediaProbe?: LocalMediaMetadataProbe;
   private readonly renderer?: FramekitRenderProvider;
@@ -248,7 +298,7 @@ export class HeadlessProjectService {
     return new LocalMediaRegistrar(this.store(projectId), this.mediaProbe, { clock: this.clock }).register(sourcePath, expectedRevision);
   }
 
-  public async previewEdit(projectId: string, command: Omit<ProjectEditCommand, "target"> & { target?: ProjectEditCommand["target"] }, sequenceId: string) {
+  public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     await this.open(projectId);
     const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
     return transaction.preview({
@@ -257,7 +307,7 @@ export class HeadlessProjectService {
     });
   }
 
-  public async executeEdit(projectId: string, command: Omit<ProjectEditCommand, "target"> & { target?: ProjectEditCommand["target"] }, sequenceId: string) {
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     await this.open(projectId);
     const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
     return transaction.execute({
@@ -510,11 +560,9 @@ export class HeadlessProjectService {
     };
   }
 
-  public async verifyPublishableRoughCutTransaction(request: {
-    sourceTransactionId: string;
-    artifactPath: string;
-    artifactDigest: string;
-  }): Promise<HeadlessRoughCutPublishProof> {
+  public async verifyPublishableRoughCutTransaction(
+    request: HeadlessRoughCutPublishVerificationRequest,
+  ): Promise<HeadlessRoughCutPublishProof> {
     const prefix = "headless-rough-cut:";
     if (!request.sourceTransactionId.startsWith(prefix)) {
       throw new Error("HEADLESS_ROUGH_CUT_EXECUTION_INVALID: source transaction is not a rough-cut execution");
