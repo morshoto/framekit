@@ -32,12 +32,14 @@ test("reports missing package commands, workflow commands, links, and executable
       bin: { framekit: "./bin/missing-executable.mjs" },
     }));
     await writeFile(join(root, ".github/workflows/ci.yml"), "steps:\n  - run: node scripts/missing-workflow.mjs\n  - run: ./scripts/missing-direct-workflow.sh\n");
+    await writeFile(join(root, "CONTRIBUTING.md"), "Run `node scripts/missing-contributing-command.mjs`.\n");
     await writeFile(join(root, "docs/testing.md"), "[missing](../scripts/missing-link.mjs)\n\nRun `node scripts/missing-doc-command.mjs`.\n");
     await writeFile(join(root, "tests/README.md"), "Run `node scripts/missing-test-command.mjs`.\n");
 
     assert.deepEqual(await checkScriptReferences(root), [
       ".github/workflows/ci.yml runs missing script scripts/missing-direct-workflow.sh",
       ".github/workflows/ci.yml runs missing script scripts/missing-workflow.mjs",
+      "CONTRIBUTING.md runs missing script scripts/missing-contributing-command.mjs",
       "docs/testing.md links to missing script ../scripts/missing-link.mjs",
       "docs/testing.md runs missing script scripts/missing-doc-command.mjs",
       "package.json bin.framekit points to missing executable bin/missing-executable.mjs",

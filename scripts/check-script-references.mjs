@@ -31,8 +31,8 @@ export async function checkScriptReferences(rootDirectory = repositoryRoot) {
   }
 
   const documents = await listFiles(path.join(rootDirectory, "docs"));
-  for (const readme of ["README.md", "tests/README.md"]) {
-    const file = path.join(rootDirectory, readme);
+  for (const document of ["README.md", "CONTRIBUTING.md", "tests/README.md"]) {
+    const file = path.join(rootDirectory, document);
     if (await isFile(file)) documents.push(file);
   }
   for (const document of documents) {
