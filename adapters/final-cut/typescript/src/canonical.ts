@@ -1273,6 +1273,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     validateProjectCatalog(catalog);
     const after = await this.readLiveStateSafely();
     const liveIdentity = before && after ? await this.live.getIdentity() : undefined;
+    const selection = await this.projectSelectionCapability();
     return reconcileProjectCatalog(catalog, {
       ...(before && after ? { before, after } : {}),
       provenance: {
@@ -1289,9 +1290,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           },
         } : {}),
         selection: {
-          available: false,
-          mode: "unavailable",
-          unavailableReason: "project selection is not exposed by the background provider",
+          available: selection.available,
+          mode: selection.mode,
+          ...(!selection.available ? {
+            unavailableReason: "project selection is not exposed by the background provider",
+          } : {}),
         },
       },
     });
