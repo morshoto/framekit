@@ -3091,6 +3091,8 @@ test("native Final Cut media selection refocuses Final Cut without closing the e
   const [match] = await adapter.searchMedia("Interview");
   const selected = await adapter.selectMedia(match.handle);
   assert.equal(selected.target.kind, "browser-media");
+  assert.equal(selected.readiness.targetKind, "browser-media");
+  assert.equal(selected.readiness.targetBound, false);
   assert.equal(scripts.filter((script) => script.includes("set frontmost to true")).length >= 2, true);
   assert.equal(scripts.some((script) => script.includes('click button 1 of window "Framekit"')), false);
 });

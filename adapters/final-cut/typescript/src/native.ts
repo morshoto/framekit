@@ -1561,10 +1561,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     const after = await this.requireAvailableContext();
     this.selectedMediaHandle = handle;
-    return {
+    const context: NativeFinalCutContext = {
       ...after,
       target: { kind: "browser-media", name: match.name, ...(match.role ? { role: match.role } : {}) },
     };
+    return { ...context, readiness: readinessForContext(context) };
   }
 
   public async locateOccurrence(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutOccurrenceSearchResult> {
