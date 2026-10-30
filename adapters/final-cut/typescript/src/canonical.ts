@@ -9,6 +9,7 @@ import {
   canonicalSnapshotDigest,
   canonicalTimelineMode,
   createProjectSelectionResult,
+  projectSelectionMode,
   assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
   resolveTimelineTarget,
@@ -29,6 +30,7 @@ import {
   type ProjectCatalog,
   type ProjectSelection,
   type ProjectSelectionResult,
+  type ProjectSelectionMode,
   type ProjectSnapshot,
   type RationalTime,
   type TimeRange,
@@ -69,8 +71,9 @@ export interface FinalCutBackgroundCatalogProvider {
 export interface FinalCutCanonicalNativeProviderOptions {
   live: LiveEditorStatePort & {
     getIdentity(): Promise<EditorIdentity>;
-    getCapabilities?(): Promise<RuntimeCapabilities>;
+    getCapabilities?(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
+    selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   };
   native: CanonicalNativeMutationPort;
   readSnapshot: () => Promise<ProjectSnapshot>;
@@ -757,6 +760,12 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private lastLiveRevision?: Pick<ContextRevision, "id" | "sequence">;
   private readonly revisionEpoch = randomUUID();
   private lastSnapshot?: ProjectSnapshot;
+  /** Reuse a capability probe's export once, only while its live target revision still matches. */
+  private probedSnapshot?: {
+    snapshot: ProjectSnapshot;
+    liveRevision: Pick<ContextRevision, "id" | "sequence">;
+  };
+  private selectedTarget?: { projectId: string; sequenceId: string };
   private revisionSequence = 0;
   private revision?: ContextRevision;
   private pending?: PendingNativeOperation;
@@ -776,6 +785,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
     const backgroundCatalog = await this.resolveBackgroundCatalog();
+    const selection = await this.projectSelectionCapability();
     const snapshotProbe = !backgroundCatalog
       ? { available: false as const, reason: "canonical timeline snapshot requires a background project catalog" }
       : options.probeCanonicalSnapshot !== false
@@ -799,8 +809,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         frameCapture: false,
         playbackControl: false,
         projectCatalogRead: Boolean(backgroundCatalog),
-        projectSelection: false,
-        projectSelectionMode: "unavailable",
+        projectSelection: selection.available,
+        projectSelectionMode: selection.mode,
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
@@ -896,9 +906,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {
     try {
-      await this.readProject();
+      const snapshot = await this.readProject();
+      if (this.lastLiveRevision) {
+        this.probedSnapshot = {
+          snapshot: structuredClone(snapshot),
+          liveRevision: { ...this.lastLiveRevision },
+        };
+      }
       return { available: true };
     } catch (error) {
+      this.probedSnapshot = undefined;
       const detail = error instanceof Error ? error.message : String(error);
       return {
         available: false,
@@ -912,7 +929,21 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async readProject(): Promise<ProjectSnapshot> {
+    const probed = this.probedSnapshot;
+    this.probedSnapshot = undefined;
+    if (probed) {
+      const live = await this.live.readLiveState();
+      if (live.project?.id === probed.snapshot.projectId
+        && live.sequence?.id === probed.snapshot.timeline.id
+        && live.revision?.id === probed.liveRevision.id
+        && live.revision.sequence === probed.liveRevision.sequence) {
+        this.assertSelectedTarget(live);
+        return structuredClone(probed.snapshot);
+      }
+    }
+
     const beforeLive = await this.live.readLiveState();
+    this.assertSelectedTarget(beforeLive);
     const snapshot = await this.readSnapshotSource();
     const live = await this.assertActiveTarget(snapshot);
     if (!beforeLive.project?.id || !beforeLive.sequence?.id
@@ -1124,7 +1155,49 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
-    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider");
+    const capability = await this.projectSelectionCapability();
+    if (!capability.available || !this.live.selectProject) {
+      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the live provider");
+    }
+    if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
+    if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
+      throw new Error("INVALID_PROJECT_SELECTION: sequenceId cannot be empty");
+    }
+
+    const catalog = await this.listProjects();
+    const project = catalog.projects.find((candidate) => candidate.id === selection.projectId);
+    if (!project) throw new Error(`TARGET_MISMATCH: selected project ${selection.projectId} is absent from the project catalog`);
+    const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+    if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: sequenceId is required for project ${selection.projectId}`);
+    if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
+      throw new Error(`TARGET_MISMATCH: selected sequence ${sequenceId} is absent from project ${selection.projectId}`);
+    }
+
+    const target = { projectId: selection.projectId, sequenceId };
+    const result = await this.live.selectProject(target);
+    validateProjectCatalog(result);
+    if (result.activeProjectId !== target.projectId || result.activeSequenceId !== target.sequenceId
+      || result.observedActiveTarget.projectId !== target.projectId
+      || result.observedActiveTarget.sequenceId !== target.sequenceId
+      || result.requestedTarget.projectId !== target.projectId
+      || result.requestedTarget.sequenceId !== target.sequenceId) {
+      throw new Error("TARGET_MISMATCH: live project selection did not confirm the requested project and sequence");
+    }
+
+    const live = await this.live.readLiveState();
+    if (live.project?.id !== target.projectId || live.sequence?.id !== target.sequenceId) {
+      throw new Error("TARGET_MISMATCH: active project or sequence differs from the selected target");
+    }
+    if (!live.revision?.id || !Number.isSafeInteger(live.revision.sequence)) {
+      throw new Error("FINAL_CUT_CANONICAL_REVISION_UNAVAILABLE: live revision is incomplete after project selection");
+    }
+    if (result.observedRevision.id !== live.revision.id || result.observedRevision.sequence !== live.revision.sequence) {
+      throw new Error("STALE_CONTEXT: live revision changed during project selection");
+    }
+
+    this.selectedTarget = target;
+    this.probedSnapshot = undefined;
+    return structuredClone(result);
   }
 
   public async readLiveState(): Promise<EditorLiveState> {
@@ -1137,6 +1210,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<EditorLiveState> {
     const live = await this.live.readLiveState();
+    this.assertSelectedTarget(live);
     if (!live.project || live.project.id !== snapshot.projectId) {
       throw new Error(`TARGET_MISMATCH: active project identity ${live.project?.id ?? "<unavailable>"} does not match exported project ${snapshot.projectId}`);
     }
@@ -1159,7 +1233,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (this.backgroundCatalog) return this.backgroundCatalog;
     if (!this.live.listProjects || !this.live.getCapabilities) return undefined;
     try {
-      const capabilities = await this.live.getCapabilities();
+      const capabilities = await this.live.getCapabilities({ probeCanonicalSnapshot: false });
       if (!capabilities.editor.projectCatalogRead) return undefined;
       const identity = await this.live.getIdentity();
       return {
@@ -1168,6 +1242,28 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       };
     } catch {
       return undefined;
+    }
+  }
+
+  private async projectSelectionCapability(): Promise<{ available: boolean; mode: ProjectSelectionMode }> {
+    if (!this.live.selectProject || !this.live.getCapabilities) return { available: false, mode: "unavailable" };
+    try {
+      const capabilities = await this.live.getCapabilities({ probeCanonicalSnapshot: false });
+      const mode = projectSelectionMode(capabilities.editor);
+      const available = capabilities.editor.projectSelection === true && mode !== "unavailable";
+      return {
+        available,
+        mode: available ? mode : "unavailable",
+      };
+    } catch {
+      return { available: false, mode: "unavailable" };
+    }
+  }
+
+  private assertSelectedTarget(live: EditorLiveState): void {
+    if (this.selectedTarget && (live.project?.id !== this.selectedTarget.projectId
+      || live.sequence?.id !== this.selectedTarget.sequenceId)) {
+      throw new Error(`TARGET_MISMATCH: active project or sequence differs from the explicitly selected target ${this.selectedTarget.projectId}/${this.selectedTarget.sequenceId}`);
     }
   }
 

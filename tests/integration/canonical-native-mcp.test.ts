@@ -192,6 +192,37 @@ test("canonical native provider exposes reads without selection", async () => {
   }
 });
 
+test("confirmed headed project inspection exports one canonical snapshot", async () => {
+  const calls: string[] = [];
+  let snapshotReads = 0;
+  const runtime = createRuntime(calls, async () => {
+    snapshotReads += 1;
+    return snapshot("Original");
+  });
+  const { client, server } = await connect(runtime);
+
+  try {
+    const project = await client.callTool({
+      name: "project.inspect",
+      arguments: {
+        confirmHeadedRead: true,
+        expectedTarget: {
+          projectId: "final-cut:project:canonical-mcp",
+          sequenceId: "final-cut:sequence:canonical-mcp",
+        },
+      },
+    });
+
+    assert.equal(project.isError, undefined);
+    assert.equal(JSON.parse(textFrom(project)).projectId, "final-cut:project:canonical-mcp");
+    assert.equal(snapshotReads, 1);
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("canonical native provider disables preview transactions without canonical-live readiness", async () => {
   const calls: string[] = [];
   const { client, server } = await connect(createRuntime(calls));
