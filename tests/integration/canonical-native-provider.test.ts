@@ -1346,3 +1346,26 @@ test("canonical provider rejects media identity drift during read-after-write", 
   );
   assert.deepEqual(calls, ["edit", "undo"]);
 });
+
+test("canonical native edit rejects live revision drift during target resolution", async () => {
+  let current = liveState();
+  let mutations = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(current),
+      liveChangesSince: async () => [],
+    },
+    native: {
+      renameSelectedClip: async () => { mutations++; return { operationId: "op", undoAvailable: true }; },
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => snapshot("Original"),
+    resolveTarget: async () => {
+      current = { ...current, revision: { id: "externally-changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+    },
+  });
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision), /STALE|TARGET_MISMATCH/);
+  assert.equal(mutations, 0);
+});
