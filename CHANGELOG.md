@@ -1,5 +1,27 @@
 # Changelog
 
+## [v0.2.0](https://github.com/morshoto/framekit/compare/v0.1.18...v0.2.0) - 2026-10-30
+
+### Bug Fixes
+- fix: select lowest linked milestone by @morshoto in https://github.com/morshoto/framekit/pull/601
+- fix: find draft release when tag is pending by @morshoto in https://github.com/morshoto/framekit/pull/602
+- fix: preserve apostrophes in headless titles by @morshoto in https://github.com/morshoto/framekit/pull/589
+- fix: report negative ripple range bounds by @morshoto in https://github.com/morshoto/framekit/pull/592
+- fix: normalize title frames for FFmpeg 8 by @morshoto in https://github.com/morshoto/framekit/pull/591
+- fix: verify normalized 48 kHz render audio by @morshoto in https://github.com/morshoto/framekit/pull/593
+- fix: reject native Browser wildcard queries by @morshoto in https://github.com/morshoto/framekit/pull/595
+- fix: preserve reused music occurrences by @morshoto in https://github.com/morshoto/framekit/pull/594
+### Documentation
+- chore: make documentation changes intentional by @morshoto in https://github.com/morshoto/framekit/pull/604
+- chore: consolidate docs into five canonical files by @morshoto in https://github.com/morshoto/framekit/pull/605
+- chore: enforce workspace import boundaries by @morshoto in https://github.com/morshoto/framekit/pull/607
+- chore: define prerequisite-aware test suites by @morshoto in https://github.com/morshoto/framekit/pull/609
+- chore: extract headless application workflows by @morshoto in https://github.com/morshoto/framekit/pull/608
+- chore: organize scripts by ownership by @morshoto in https://github.com/morshoto/framekit/pull/610
+- [Chore] Normalize CLI workspace identity and entrypoints by @morshoto in https://github.com/morshoto/framekit/pull/611
+### Other changes
+- chore: isolate test state from contributor home by @morshoto in https://github.com/morshoto/framekit/pull/606
+
 ## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-28
 
 ### Release scope
