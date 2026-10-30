@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -753,6 +754,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private readonly resolveTarget: CanonicalNativeTargetResolver;
   private readonly backgroundCatalog?: FinalCutBackgroundCatalogProvider;
   private lastDigest?: string;
+  private lastLiveRevision?: Pick<ContextRevision, "id" | "sequence">;
+  private readonly revisionEpoch = randomUUID();
   private lastSnapshot?: ProjectSnapshot;
   private revisionSequence = 0;
   private revision?: ContextRevision;
@@ -895,13 +898,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   public async readProject(): Promise<ProjectSnapshot> {
     const snapshot = await this.readSnapshotSource();
-    await this.assertActiveTarget(snapshot);
+    const live = await this.assertActiveTarget(snapshot);
     const digest = canonicalSnapshotDigest(snapshot);
-    if (digest !== this.lastDigest || !this.revision) {
+    if (digest !== this.lastDigest || !this.revision
+      || live.revision.id !== this.lastLiveRevision?.id
+      || live.revision.sequence !== this.lastLiveRevision.sequence) {
       this.revisionSequence = Math.max(this.revisionSequence + 1, snapshot.revision.sequence + 1);
       this.lastDigest = digest;
+      this.lastLiveRevision = { id: live.revision.id, sequence: live.revision.sequence };
       this.revision = {
-        id: `canonical:${digest}`,
+        id: `canonical:${this.revisionEpoch}:${digest}`,
         sequence: this.revisionSequence,
         timestamp: new Date().toISOString(),
       };
@@ -1107,7 +1113,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     return this.live.liveChangesSince(revision, waitMs);
   }
 
-  private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<void> {
+  private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<EditorLiveState> {
     const live = await this.live.readLiveState();
     if (!live.project || live.project.id !== snapshot.projectId) {
       throw new Error(`TARGET_MISMATCH: active project identity ${live.project?.id ?? "<unavailable>"} does not match exported project ${snapshot.projectId}`);
@@ -1121,6 +1127,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (live.sequence.name !== snapshot.timeline.name) {
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
     }
+    if (!live.revision?.id || !Number.isSafeInteger(live.revision.sequence)) {
+      throw new Error("FINAL_CUT_CANONICAL_REVISION_UNAVAILABLE: live revision is incomplete");
+    }
+    return live;
   }
 
   private async resolveBackgroundCatalog(): Promise<FinalCutBackgroundCatalogProvider | undefined> {
