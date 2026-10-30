@@ -1637,6 +1637,18 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
 
   assert.equal(pending.state, "verification-pending");
   assert.equal(deliveryCalls, 1);
+  const disabledPublisher = createPublisherForTest({
+    ...publisherOptions,
+    enabled: false,
+    liveState: async () => createdState,
+  });
+  const unavailable = await disabledPublisher.executePublishJob(prepared.jobId, true);
+  assert.equal(unavailable.state, "verification-pending", "provider loss must retain the spent import state");
+  assert.equal(deliveryCalls, 1);
+  const missingLivePublisher = createPublisherForTest({ ...publisherOptions });
+  const missingLive = await missingLivePublisher.executePublishJob(prepared.jobId, true);
+  assert.equal(missingLive.state, "verification-pending", "missing live state must not re-arm dispatch");
+  assert.equal(deliveryCalls, 1);
   const restartedPublisher = createPublisherForTest({
     ...publisherOptions,
     liveState: async () => createdState,
