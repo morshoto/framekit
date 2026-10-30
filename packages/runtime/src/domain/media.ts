@@ -122,6 +122,8 @@ export interface MediaIndexEntry {
   sourceIdentity: MediaSourceIdentity;
   semantic: MediaSemanticDescription;
   analysis: MediaAnalysisStatus[];
+  speech?: SpeechAnalysis;
+  audio?: AudioAnalysis;
   analysisRevision?: string;
 }
 
@@ -148,6 +150,23 @@ export interface RoughCutShot {
   confidence: number;
   matchedProperties: string[];
   rationale: string;
+  evidence?: RoughCutSpeechEvidence;
+}
+
+export interface RoughCutSpeechEvidence {
+  kind: "speech";
+  transcript: string;
+  wordCount: number;
+  averageWordConfidence: number;
+  vad?: {
+    kind: SpeechSegmentKind;
+    confidence?: number;
+  };
+  audio?: {
+    integratedLufs?: number;
+    truePeakDb?: number;
+    silenceMs?: number;
+  };
 }
 
 export interface RoughCutPlan {
@@ -159,6 +178,40 @@ export interface RoughCutPlan {
   query: RoughCutPlanRequest;
   shots: RoughCutShot[];
   warnings: string[];
+}
+
+export interface TimelineSemanticContextQuery {
+  query?: string;
+  occurrenceIds?: string[];
+}
+
+export interface TimelineSemanticObservation {
+  capability: "speech" | "visual" | "metadata";
+  range: TimeRange;
+  text?: string;
+  label?: string;
+  confidence?: number;
+  analyzer?: AnalyzerDescriptor;
+}
+
+export interface TimelineSemanticOccurrenceContext {
+  occurrenceId: string;
+  status: "available" | "unavailable";
+  mediaId?: string;
+  sourceIdentity?: MediaSourceIdentity;
+  sourceRange?: TimeRange;
+  reason?: string;
+  observations: TimelineSemanticObservation[];
+  analysis: MediaAnalysisStatus[];
+  analysisRevision?: string;
+}
+
+export interface TimelineSemanticContext {
+  projectId: string;
+  timelineId: string;
+  revision: ContextRevision;
+  query: TimelineSemanticContextQuery;
+  occurrences: TimelineSemanticOccurrenceContext[];
 }
 
 export interface SpeechAnalysis {

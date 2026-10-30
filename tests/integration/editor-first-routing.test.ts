@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { RuntimeCapabilities } from "@framekit/runtime";
@@ -10,8 +11,12 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { HeadlessProjectService } from "@framekit/headless-application";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  EDITOR_FIRST_WORKFLOW,
+  HEADLESS_FIRST_MCP_INSTRUCTIONS,
+  HEADLESS_FIRST_WORKFLOW,
   resolveEditingRoute,
   type EditorRoutingContext,
 } from "../../apps/mcp-server/src/routing.js";
@@ -36,6 +41,20 @@ const canonicalCapabilities: RuntimeCapabilities = {
     audioLoudness: false,
     visualTrack: false,
   },
+};
+
+const metadataOnlyCapabilities: RuntimeCapabilities = {
+  editor: {
+    ...canonicalCapabilities.editor,
+    projectRead: false,
+    timelineSnapshotRead: false,
+    timelineWrite: false,
+    timelineArtifactWrite: false,
+    readAfterWrite: false,
+    rollback: false,
+    liveStateRead: true,
+  },
+  analyzers: canonicalCapabilities.analyzers,
 };
 
 function context(overrides: Partial<EditorRoutingContext> = {}): EditorRoutingContext {
@@ -75,6 +94,84 @@ test("routing selects the connected editor when required capabilities are availa
   });
   assert.ok(route.requiredCapabilities.includes("editor.timelineSnapshotRead"));
   assert.ok(route.requiredCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
+});
+
+test("routing selects a supported Timeline IR edit before editor availability", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", editType: "rename-occurrence" }, context({
+    connection: {
+      state: "unavailable",
+      lastError: { code: "FINAL_CUT_ABSENT", message: "Final Cut is not installed" },
+    },
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: ["timeline.edit:rename-occurrence"],
+    },
+  }));
+
+  assert.equal(route.status, "headless-selected");
+  assert.equal(route.selectedPath, "headless");
+  assert.deepEqual(route.missingCapabilities, []);
+  assert.deepEqual(route.provider, {
+    backend: "framekit-project-store",
+    guarantee: "canonical-write",
+  });
+  assert.equal(route.reason.code, "HEADLESS_SELECTED");
+  assert.deepEqual(route.workflow, HEADLESS_FIRST_WORKFLOW);
+  assert.match(route.reason.message, /headless/i);
+  assert.match(HEADLESS_FIRST_MCP_INSTRUCTIONS, /headless/i);
+});
+
+test("routing reports an unavailable headless path without falling back to an editor", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit" }, context({
+    connection: { state: "ready" },
+    headless: {
+      available: false,
+      backend: "framekit-project-store",
+      guarantee: "none",
+      supportedOperations: ["timeline.edit:rename-occurrence"],
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.selectedPath, "none");
+  assert.equal(route.reason.code, "HEADLESS_UNAVAILABLE");
+  assert.equal(route.reason.unavailable?.category, "background-api");
+  assert.match(route.reason.message, /headless/i);
+});
+
+test("routing requires explicit headed opt-in when the headless path is available", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", path: "headed" }, context({
+    connection: { state: "ready" },
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: ["timeline.edit:rename-occurrence"],
+    },
+  }));
+
+  assert.equal(route.status, "editor-selected");
+  assert.equal(route.selectedPath, "editor");
+  assert.equal(route.reason.code, "EDITOR_SELECTED");
+  assert.deepEqual(route.workflow, EDITOR_FIRST_WORKFLOW);
+});
+
+test("routing does not advertise an unsupported whole legacy timeline edit surface as headless", () => {
+  const route = resolveEditingRoute({ operation: "timeline.edit", path: "headless" }, context({
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      supportedOperations: [],
+    },
+  }));
+
+  assert.equal(route.status, "unavailable");
+  assert.equal(route.selectedPath, "none");
+  assert.equal(route.reason.code, "HEADLESS_UNAVAILABLE");
+  assert.deepEqual(route.missingCapabilities, ["headless.timeline.edit"]);
 });
 
 test("routing selects native picture-in-picture only with native placement guarantees", () => {
@@ -433,7 +530,7 @@ test("MCP exposes editor-first instructions, descriptions, and routing decisions
     assert.ok(routeTool);
     assert.match(routeTool.description ?? "", /capabilit/i);
     assert.match(routeTool.description ?? "", /external/i);
-    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["fallback", "operation"]);
+    assert.deepEqual(Object.keys(routeTool.inputSchema.properties ?? {}).sort(), ["editType", "fallback", "operation", "path"]);
     for (const name of ["project.inspect", "timeline.edit", "timeline.edit.preview", "timeline.edit.execute"]) {
       const tool = tools.tools.find((candidate) => candidate.name === name);
       assert.ok(tool, `${name} must be registered`);
@@ -447,6 +544,46 @@ test("MCP exposes editor-first instructions, descriptions, and routing decisions
     })));
     assert.equal(route.status, "editor-selected");
     assert.equal(route.selectedPath, "editor");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("headless routing does not connect a headed-capable MCP server", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Routing Fixture",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  let connections = 0;
+  const server = createMcpServer(runtime, {
+    processMode: "headed",
+    headlessProjects: new HeadlessProjectService({ directory: join(tmpdir(), "framekit-routing-unused") }),
+    connectionStatus: () => {
+      connections += 1;
+      return { state: "unavailable" };
+    },
+  });
+  const client = new Client({ name: "dual-path-routing-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    for (const arguments_ of [
+      { operation: "timeline.edit", editType: "rename-occurrence" },
+      { operation: "timeline.edit", editType: "rename-occurrence", path: "headless" },
+      { operation: "timeline.edit", editType: "reduce-noise", path: "headless" },
+    ]) {
+      const route = JSON.parse(textFrom(await client.callTool({ name: "editing.route", arguments: arguments_ })));
+      assert.equal(route.selectedPath, arguments_.editType === "reduce-noise" ? "none" : "headless");
+      assert.equal(connections, 0);
+    }
+    await client.callTool({ name: "editing.route", arguments: {
+      operation: "timeline.edit", editType: "rename-clip", path: "headed",
+    } });
+    assert.equal(connections, 1);
   } finally {
     await client.close();
     await server.close();
@@ -580,45 +717,309 @@ test("MCP does not advertise or invoke disabled project publishing", async () =>
 
     const publish = await client.callTool({
       name: "timeline.publish.new-project",
-      arguments: { transactionId: "missing-transaction" },
+      arguments: { transactionId: "missing-transaction", targetLibraryPath: "/tmp/Target.fcpbundle", confirm: true },
     });
     assert.equal(publish.isError, true);
     assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
+
+    const artifactPublish = await client.callTool({
+      name: "artifact.publish",
+      arguments: { artifactPath: "/tmp/disabled-project.fcpxml", targetLibraryPath: "/tmp/Target.fcpbundle", transactionId: "missing-transaction", confirm: true },
+    });
+    assert.equal(artifactPublish.isError, true);
+    assert.match(textFrom(artifactPublish), /CAPABILITY_UNAVAILABLE/);
   } finally {
     await client.close();
     await server.close();
   }
 });
 
-test("MCP documentation describes one consistent editor-first policy", async () => {
-  const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const [overview, tools, errors] = await Promise.all([
-    readFile(resolve(repository, "docs/mcp/README.md"), "utf8"),
-    readFile(resolve(repository, "docs/mcp/tools.md"), "utf8"),
-    readFile(resolve(repository, "docs/mcp/capabilities-and-errors.md"), "utf8"),
-  ]);
+test("production-shaped publisher is unavailable without target-bound creation", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Production Shape",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    processMode: "headed",
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: "/tmp/managed.fcpxml",
+      documentDelivery: {
+        deliverFcpxml: async () => ({
+          status: "user-interaction-required",
+          route: "background-document-open",
+          attempted: false,
+          imported: false,
+          requestedActivates: false,
+          activation: "unknown",
+          ui: "none",
+          target: { guarantee: "unavailable" },
+        }),
+      },
+      liveState: async () => ({
+        project: { id: "existing-project", name: "Existing" },
+        sequence: {
+          id: "existing-sequence",
+          name: "Existing",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "existing-revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
+    }),
+  });
+  const client = new Client({ name: "unbound-publisher-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-  for (const content of [overview, tools, errors]) {
-    assert.match(content, /editor-first/i);
-    assert.match(content, /editing\.route/);
-    assert.match(content, /external-renderer/);
-    assert.match(content, /CAPABILITY_UNAVAILABLE/);
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.editor.timelinePublishNewProject, false);
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.publish.new-project" },
+    })));
+    assert.equal(route.status, "unavailable");
+
+    const publish = await client.callTool({
+      name: "artifact.publish",
+      arguments: { artifactPath: "/tmp/managed.fcpxml", targetLibraryPath: "/tmp/Target.fcpbundle", transactionId: "missing-transaction", confirm: true },
+    });
+    assert.equal(publish.isError, true);
+    assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE.*target-binding provider/);
+  } finally {
+    await client.close();
+    await server.close();
   }
-  assert.match(tools, /project\.list/);
-  assert.match(tools, /observation\.library/);
-  assert.match(errors, /background API support/);
-  assert.match(errors, /canonical snapshot support/);
-  assert.match(errors, /native UI access/);
-  for (const [before, after] of [
-    ["connection.status", "editor.inspect"],
-    ["editor.inspect", "project.inspect"],
-    ["project.inspect", "editing.route"],
-    ["editing.route", "preview"],
-    ["preview", "execute"],
-    ["execute", "edit.diff"],
-    ["edit.diff", "edit.verify"],
-  ]) {
-    assert.ok(tools.indexOf(before) < tools.indexOf(after), `${before} must precede ${after}`);
+});
+
+test("MCP keeps publishing unavailable for a metadata-only connection", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Metadata Only",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const originalInspection = await runtime.inspectEditor();
+  const metadataInspection = {
+    ...originalInspection,
+    identity: { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" },
+    capabilities: withCapabilityFamilies(metadataOnlyCapabilities, {
+      backend: "workflow-extension-ipc",
+      publishing: true,
+      publishingBackend: "fcpxml-publisher",
+    }),
+  };
+  runtime.inspectEditor = async () => metadataInspection;
+  let importCalled = false;
+  const server = createMcpServer(runtime, {
+    processMode: "headed",
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: "/tmp/metadata-only.fcpxml",
+      liveState: async () => ({
+        project: { id: "metadata-project", name: "Metadata Project" },
+        sequence: {
+          id: "metadata-sequence",
+          name: "Metadata Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "metadata-revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
+      executor: async () => {
+        importCalled = true;
+        return "imported";
+      },
+    }),
+  });
+  const client = new Client({ name: "metadata-only-publisher-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.editor.artifactPublishMode, "unavailable");
+    assert.equal(editor.capabilities.families.publishing.projectCreation.available, false);
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.publish.new-project" },
+    })));
+    assert.equal(route.status, "unavailable");
+    assert.equal(route.reason.code, "CAPABILITY_UNAVAILABLE");
+
+    const publish = await client.callTool({
+      name: "timeline.publish.new-project",
+      arguments: { transactionId: "missing-transaction", targetLibraryPath: "/tmp/Target.fcpbundle", confirm: true },
+    });
+    assert.equal(publish.isError, true);
+    assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
+    assert.equal(importCalled, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP does not advertise headed publishing in headless mode", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Headless Publisher",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    processMode: "headless",
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: "/tmp/headless-publisher.fcpxml",
+      liveState: async () => ({
+        project: { id: "project", name: "Project" },
+        sequence: {
+          id: "sequence",
+          name: "Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
+    }),
+  });
+  const client = new Client({ name: "headless-publisher-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.families.publishing.projectCreation.available, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP keeps publishing unavailable for a metadata-only connection", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Metadata Only",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const originalInspection = await runtime.inspectEditor();
+  const metadataInspection = {
+    ...originalInspection,
+    identity: { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" },
+    capabilities: withCapabilityFamilies(metadataOnlyCapabilities, {
+      backend: "workflow-extension-ipc",
+      publishing: true,
+      publishingBackend: "fcpxml-publisher",
+    }),
+  };
+  runtime.inspectEditor = async () => metadataInspection;
+  let importCalled = false;
+  const server = createMcpServer(runtime, {
+    processMode: "headed",
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: "/tmp/metadata-only.fcpxml",
+      liveState: async () => ({
+        project: { id: "metadata-project", name: "Metadata Project" },
+        sequence: {
+          id: "metadata-sequence",
+          name: "Metadata Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "metadata-revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
+      executor: async () => {
+        importCalled = true;
+        return "imported";
+      },
+    }),
+  });
+  const client = new Client({ name: "metadata-only-publisher-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.editor.artifactPublishMode, "unavailable");
+    assert.equal(editor.capabilities.families.publishing.projectCreation.available, false);
+
+    const route = JSON.parse(textFrom(await client.callTool({
+      name: "editing.route",
+      arguments: { operation: "timeline.publish.new-project" },
+    })));
+    assert.equal(route.status, "unavailable");
+    assert.equal(route.reason.code, "CAPABILITY_UNAVAILABLE");
+
+    const publish = await client.callTool({
+      name: "timeline.publish.new-project",
+      arguments: { transactionId: "missing-transaction", targetLibraryPath: "/tmp/Target.fcpbundle", confirm: true },
+    });
+    assert.equal(publish.isError, true);
+    assert.match(textFrom(publish), /CAPABILITY_UNAVAILABLE/);
+    assert.equal(importCalled, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP does not advertise headed publishing in headless mode", async () => {
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "Headless Publisher",
+    timelineId: "timeline-1",
+    timelineName: "Main",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, {
+    processMode: "headless",
+    projectPublisher: new FinalCutProjectPublisher({
+      enabled: true,
+      sourcePath: "/tmp/headless-publisher.fcpxml",
+      liveState: async () => ({
+        project: { id: "project", name: "Project" },
+        sequence: {
+          id: "sequence",
+          name: "Sequence",
+          startTime: { value: "0", timescale: "1" },
+          duration: { value: "1", timescale: "1" },
+          frameDuration: { value: "1", timescale: "24" },
+        },
+        revision: { id: "revision", sequence: 1, timestamp: new Date(0).toISOString() },
+      }),
+    }),
+  });
+  const client = new Client({ name: "headless-publisher-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.capabilities.editor.artifactPublish, false);
+    assert.equal(editor.capabilities.families.publishing.projectCreation.available, false);
+  } finally {
+    await client.close();
+    await server.close();
   }
 });
 

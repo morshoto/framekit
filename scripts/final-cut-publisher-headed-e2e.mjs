@@ -9,6 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT;
 const expectedSequence = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE;
+const targetLibraryPath = process.env.FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH;
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -17,6 +18,7 @@ if (process.argv.includes("--help")) {
     "Required:",
     "  FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH=/absolute/path/to/disposable.fcpxml",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT=exact-imported-project-name",
+    "  FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH=/absolute/path/to/new-library.fcpbundle",
     "Optional:",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE=exact-imported-sequence-name",
     "",
@@ -26,8 +28,8 @@ if (process.argv.includes("--help")) {
   process.exit(0);
 }
 
-if (!artifactPath || !expectedProject) {
-  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH and FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT before running the publisher headed E2E");
+if (!artifactPath || !expectedProject || !targetLibraryPath) {
+  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH, FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT, and FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH before running the publisher headed E2E");
 }
 
 const transport = new StdioClientTransport({
@@ -88,6 +90,7 @@ try {
   const result = await callJson("artifact.publish", {
     artifactPath,
     transactionId: artifactTransactionId,
+    targetLibraryPath,
     confirm: true,
   });
   published = true;
@@ -102,6 +105,8 @@ try {
     sourceTarget: { kind: result.sourceTarget.kind, artifactPath: basename(result.sourceTarget.artifactPath) },
     createdTarget: result.createdTarget,
     activeProject: result.activeProject,
+    semanticReadback: result.semanticReadback,
+    sourceMediaIntegrity: result.sourceMediaIntegrity,
     beforeLive: { projectId: beforeLive.project.id, sequenceId: beforeLive.sequence.id },
     afterLive: { projectId: afterLive.project.id, sequenceId: afterLive.sequence.id },
   }, null, 2)}\n`);

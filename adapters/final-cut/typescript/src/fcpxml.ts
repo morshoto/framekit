@@ -44,7 +44,23 @@ export interface FcpxmlTargetBinding {
   sequenceId: string;
 }
 
+export interface FcpxmlDocumentAdapterOptions {
+  /** Allows deterministic path-bound IDs when reading artifacts without immutable UIDs. */
+  allowMissingImmutableIdsForReadback?: boolean;
+}
+
 const CLIP_KINDS = new Set(["asset-clip", "clip", "ref-clip", "sync-clip", "mc-clip", "audio", "video"]);
+const MARKER_HOST_KINDS = new Set([...CLIP_KINDS, "gap", "title", "live-drawing"]);
+const MARKER_FOLLOWING_CHILD_KINDS = new Set([
+  "audio-channel-source",
+  "audio-role-source",
+  "sync-source",
+  "filter-video",
+  "filter-video-mask",
+  "filter-audio",
+  "metadata",
+  "reserved",
+]);
 const TIMELINE_KINDS = new Set([
   ...CLIP_KINDS,
   "gap",
@@ -77,11 +93,15 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   private sequence = 0;
   private fileSignature?: string;
   private readonly history = new Map<string, OrderedXml>();
+  private readonly allowMissingImmutableIdsForReadback: boolean;
 
   public constructor(
     private readonly filePath: string,
     private readonly target?: FcpxmlTargetBinding,
-  ) {}
+    options: FcpxmlDocumentAdapterOptions = {},
+  ) {
+    this.allowMissingImmutableIdsForReadback = options.allowMissingImmutableIdsForReadback ?? false;
+  }
 
   public async getIdentity(): Promise<EditorIdentity> {
     return { name: "Final Cut Pro", version: "FCPXML", backend: "fcpxml-document" };
@@ -341,17 +361,26 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   }
 
   private identity(project: XmlNode, sequence: XmlNode | undefined): { projectId: string; sequenceId: string } {
-    const projectUid = immutableUid(project, "PROJECT");
+    const projectUid = optionalImmutableUid(project);
+    if (!projectUid && !this.allowMissingImmutableIdsForReadback) immutableUid(project, "PROJECT");
     if (this.target && projectUid !== this.target.projectUid) {
       throw new Error(`TARGET_MISMATCH: exported project UID ${projectUid} does not match live project UID ${this.target.projectUid}`);
     }
-    const exportedSequenceUid = sequence ? attribute(sequence, "uid") : undefined;
+    const exportedSequenceUid = sequence ? optionalImmutableUid(sequence) : undefined;
+    if (!exportedSequenceUid && !projectUid && !this.target?.sequenceId && !this.allowMissingImmutableIdsForReadback) {
+      immutableUid(sequence, "SEQUENCE");
+    }
     if (this.target && exportedSequenceUid !== undefined && String(exportedSequenceUid) !== this.target.sequenceId) {
       throw new Error(`TARGET_MISMATCH: exported sequence UID ${String(exportedSequenceUid)} does not match live sequence UID ${this.target.sequenceId}`);
     }
     return {
-      projectId: this.target?.projectId ?? `fcpxml:project:${projectUid}`,
-      sequenceId: this.target?.sequenceId ?? stableSequenceId(sequence),
+      projectId: this.target?.projectId ?? (projectUid
+        ? `fcpxml:project:${projectUid}`
+        : `fcpxml:readback-project:${hash(`${this.filePath}\0${attribute(project, "name") ?? "Final Cut Project"}`)}`),
+      sequenceId: this.target?.sequenceId ?? (exportedSequenceUid
+        ? `fcpxml:sequence:${exportedSequenceUid}`
+        : projectUid ? `fcpxml:sequence:${projectUid}`
+        : `fcpxml:readback-sequence:${hash(`${this.filePath}\0${attribute(sequence ?? {}, "name") ?? "Final Cut Sequence"}`)}`),
     };
   }
 
@@ -398,20 +427,17 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       }
       case "ripple-delete":
         if (operation.timelineId !== timelineId) throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
-        this.applyRippleDelete(spine, operation.range.start, operation.range.end);
+        this.applyRippleDelete(
+          spine,
+          operation.range.start,
+          operation.range.end,
+          attribute(sequence, "duration") === undefined
+            ? rationalSeconds(timelineDuration(timelineEntries(spine)))
+            : rationalSeconds(parseRational(attribute(sequence, "duration"))),
+        );
         break;
       case "add-marker": {
-        if (operation.timelineId !== timelineId) {
-          throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
-        }
-        appendChild(spine, "marker", {
-          ":@": {
-            "@_id": operation.marker.id,
-            "@_start": formatSeconds(operation.marker.start),
-            "@_duration": formatSeconds(operation.marker.duration),
-            "@_value": operation.marker.name,
-          },
-        });
+        this.applyMarker(spine, timelineId, operation);
         break;
       }
       case "timeline.media.add":
@@ -443,6 +469,43 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         break;
     }
     this.updateSequenceDuration(sequence, spine);
+  }
+
+  private applyMarker(
+    spine: XmlNode,
+    timelineId: string,
+    operation: Extract<WorkflowOperation, { type: "add-marker" }>,
+  ): void {
+    if (operation.timelineId !== timelineId) {
+      throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
+    }
+    const markerStart = parseRational(formatSeconds(operation.marker.start));
+    const markerDuration = parseRational(formatSeconds(operation.marker.duration));
+    const markerEnd = addRational(markerStart, markerDuration);
+    const host = timelineEntries(spine).find((entry) => {
+      if (!MARKER_HOST_KINDS.has(entry.kind)) return false;
+      const hostEnd = addRational(entry.startTime, entry.durationTime);
+      return compareRational(markerStart, entry.startTime) >= 0
+        && compareRational(markerEnd, hostEnd) <= 0;
+    });
+    if (!host) {
+      throw new Error("FCPXML_MARKER_TARGET_UNAVAILABLE: marker must fit inside an existing story element");
+    }
+    const sourceStart = parseRational(attribute(host.node, "start") ?? "0s");
+    const localStart = addRational(sourceStart, subtractRational(markerStart, host.startTime));
+    const marker = elementNode("marker", {
+      start: formatRational(localStart),
+      duration: formatRational(markerDuration),
+      value: operation.marker.name,
+      note: `com.framekit.id:${operation.marker.id}`,
+    });
+    const firstFollowingChild = storyEntries(host.node)
+      .find(({ kind }) => MARKER_FOLLOWING_CHILD_KINDS.has(kind));
+    if (firstFollowingChild) {
+      insertChildBefore(host.node, firstFollowingChild.node, "marker", marker);
+    } else {
+      appendChild(host.node, "marker", marker);
+    }
   }
 
   private findClipEntry(spine: XmlNode, clipId: string, timelineId: string): TimelineEntry | undefined {
@@ -738,9 +801,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     }
   }
 
-  private applyRippleDelete(spine: XmlNode, start: number, end: number): void {
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+  private applyRippleDelete(spine: XmlNode, start: number, end: number, sequenceDuration: number): void {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
       throw new Error("INVALID_OPERATION: ripple-delete range must be finite and increasing");
+    }
+    if (start < 0 || end > sequenceDuration) {
+      throw new Error(
+        `INVALID_OPERATION: ripple-delete range [${start}, ${end}) must fit timeline bounds [0, ${sequenceDuration})`,
+      );
     }
     const direct = storyEntries(spine)
       .map(({ kind, node }) => timelineEntries(spine).find((entry) => entry.node === node && entry.kind === kind))
@@ -926,7 +994,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const gain = firstChild(node, "adjust-volume");
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
-    const role = kind === "audio" ? audioRoleFromXml(node) : undefined;
+    const roleAttributeName = kind === "audio" ? "role" : kind === "asset-clip" ? "audioRole" : undefined;
+    const roleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
+    const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music"
+      ? audioRoleFromXml(node, roleAttributeName ?? "role")
+      : undefined;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
@@ -951,7 +1023,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
   }
 
   private instanceId(node: XmlNode, kind: string, path: string, timelineId: string): string {
-    const explicit = attribute(node, "id") ?? attribute(node, "uid");
+    const metadata = firstChild(node, "metadata");
+    const framekitId = metadata === undefined ? undefined : storyEntries(metadata)
+      .find(({ kind: childKind, node: child }) => childKind === "md" && attribute(child, "key") === "com.framekit.id")?.node;
+    const explicit = attribute(node, "id") ?? attribute(node, "uid") ?? (framekitId && attribute(framekitId, "value"));
     return String(explicit ?? `${timelineId}:spine:${path}:${kind}`);
   }
 
@@ -979,7 +1054,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .filter(({ kind }) => kind === "marker")
       .map(({ node, startTime, durationTime }, index) => {
         return {
-          id: String(attribute(node, "id") ?? `marker-${index + 1}`),
+          id: String(attribute(node, "id") ?? framekitNoteId(attribute(node, "note")) ?? `marker-${index + 1}`),
           start: rationalSeconds(startTime),
           duration: rationalSeconds(durationTime),
           startTime,
@@ -994,12 +1069,12 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       .filter(({ kind }) => kind === "caption")
       .map(({ node, startTime, durationTime }, index) => {
         return {
-          id: String(attribute(node, "id") ?? `caption-${index + 1}`),
+          id: String(attribute(node, "id") ?? framekitNoteId(textChildValue(node, "note")) ?? `caption-${index + 1}`),
           start: rationalSeconds(startTime),
           duration: rationalSeconds(durationTime),
           startTime,
           durationTime,
-          text: String(attribute(node, "text") ?? attribute(node, "name") ?? ""),
+          text: String(textChildValue(node, "text") ?? attribute(node, "text") ?? attribute(node, "name") ?? ""),
         };
       });
   }
@@ -1129,8 +1204,8 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
   };
 }
 
-function audioRoleFromXml(node: XmlNode): "audio" | "music" {
-  const role = attribute(node, "role");
+function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "music" {
+  const role = attribute(node, attributeName);
   if (role === undefined || role === "audio") return "audio";
   if (role === "music") return "music";
   throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);
@@ -1139,10 +1214,36 @@ function audioRoleFromXml(node: XmlNode): "audio" | "music" {
 function textChildValue(node: XmlNode, kind: string): string | undefined {
   const text = firstChild(node, kind);
   if (!text) return undefined;
-  const value = Array.isArray(text[kind]) ? text[kind][0]?.["#text"] : undefined;
-  if (Array.isArray(value) && value.length > 0) return String(value[0]);
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  return undefined;
+  const value = xmlTextContent(text);
+  return value.length > 0 ? value : undefined;
+}
+
+function xmlTextContent(node: XmlNode): string {
+  return Object.entries(node)
+    .filter(([kind]) => kind !== ":@")
+    .map(([kind, value]) => {
+      if (kind === "#text") {
+        const text = (Array.isArray(value) ? value : [value])
+          .filter((part) => typeof part === "string" || typeof part === "number")
+          .map(String)
+          .filter((part) => part.trim().length > 0)
+          .join("");
+        return text;
+      }
+      if (!Array.isArray(value)) return "";
+      return value
+        .filter((child): child is XmlNode => typeof child === "object" && child !== null)
+        .map(xmlTextContent)
+        .join("");
+    })
+    .join("");
+}
+
+function framekitNoteId(value: unknown): string | undefined {
+  const prefix = "com.framekit.id:";
+  return typeof value === "string" && value.startsWith(prefix) && value.length > prefix.length
+    ? value.slice(prefix.length)
+    : undefined;
 }
 
 function mediaKindCompatible(role: "video" | "music" | "audio", mediaKind?: "video" | "audio"): boolean {
@@ -1153,24 +1254,33 @@ function mediaKindCompatible(role: "video" | "music" | "audio", mediaKind?: "vid
 function timelineEntries(spine: XmlNode): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
 
-  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string): void => {
+  const visit = (node: XmlNode, parentStart: RationalTime, parentPath: string, parentKind?: string): void => {
     storyEntries(node).forEach(({ kind, node: child }, index) => {
       const path = parentPath.length === 0 ? String(index) : `${parentPath}.${index}`;
-      const localStart = parseRational(
+      const localOffset = parseRational(
         attribute(child, "offset")
           ?? ((kind === "marker" || kind === "caption") ? attribute(child, "start") : undefined)
           ?? "0s",
       );
+      const markerInHost = kind === "marker"
+        && parentKind !== undefined
+        && MARKER_HOST_KINDS.has(parentKind);
+      const assetClipRelativeChild = parentKind === "asset-clip"
+        && (kind === "title" || kind === "caption" || kind === "asset-clip" && attribute(child, "audioRole") === "music");
+      const sourceRelativeChild = markerInHost || assetClipRelativeChild;
+      const localStart = sourceRelativeChild
+        ? subtractRational(localOffset, parseRational(attribute(node, "start") ?? "0s"))
+        : localOffset;
       const durationTime = parseRational(attribute(child, "duration") ?? "0s");
       const startTime = addRational(parentStart, localStart);
       if (TIMELINE_KINDS.has(kind)) {
         entries.push({ kind, node: child, path, startTime, durationTime, parent: node, parentStartTime: parentStart });
       }
-      visit(child, startTime, path);
+      visit(child, startTime, path, kind);
     });
   };
 
-  visit(spine, { value: "0", timescale: "1" }, "");
+  visit(spine, { value: "0", timescale: "1" }, "", "spine");
   return entries;
 }
 
@@ -1210,6 +1320,24 @@ function appendChild(node: XmlNode, kind: string, child: XmlNode): void {
   } else {
     node[kind] = [...(Array.isArray(node[kind]) ? node[kind] : []), wrapper];
   }
+}
+
+function insertChildBefore(parent: XmlNode, before: XmlNode, kind: string, child: XmlNode): void {
+  const elementKey = Object.keys(parent).find((key) => key !== ":@");
+  if (!elementKey || !Array.isArray(parent[elementKey])) {
+    appendChild(parent, kind, child);
+    return;
+  }
+  const children = parent[elementKey] as XmlNode[];
+  const index = children.indexOf(before);
+  if (index < 0) {
+    appendChild(parent, kind, child);
+    return;
+  }
+  const wrapper = Object.prototype.hasOwnProperty.call(child, kind)
+    ? child
+    : { [kind]: [], ...child };
+  children.splice(index, 0, wrapper);
 }
 
 function attributes(node: XmlNode): XmlNode {
@@ -1303,6 +1431,13 @@ function addRational(left: RationalTime, right: RationalTime): RationalTime {
   });
 }
 
+function subtractRational(left: RationalTime, right: RationalTime): RationalTime {
+  return rationalTime({
+    numerator: BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale),
+    denominator: BigInt(left.timescale) * BigInt(right.timescale),
+  });
+}
+
 function compareRational(left: RationalTime, right: RationalTime): number {
   const difference = BigInt(left.value) * BigInt(right.timescale)
     - BigInt(right.value) * BigInt(left.timescale);
@@ -1349,7 +1484,7 @@ function mediaKindFromResource(node: XmlNode): "video" | "audio" | undefined {
   const hasVideo = attribute(node, "hasVideo");
   const hasAudio = attribute(node, "hasAudio");
   if (hasVideo === "1" || hasVideo === "true") return "video";
-  if ((hasVideo === "0" || hasVideo === "false") && (hasAudio === "1" || hasAudio === "true")) return "audio";
+  if (hasAudio === "1" || hasAudio === "true") return "audio";
   return undefined;
 }
 
@@ -1462,6 +1597,11 @@ function immutableUid(node: XmlNode | undefined, kind: "PROJECT" | "SEQUENCE"): 
     throw new Error(`FCPXML_${kind}_IDENTITY_UNAVAILABLE: ${kind.toLowerCase()} has no immutable uid`);
   }
   return String(uid);
+}
+
+function optionalImmutableUid(node: XmlNode | undefined): string | undefined {
+  const uid = node ? attribute(node, "uid") : undefined;
+  return uid === undefined || String(uid).trim().length === 0 ? undefined : String(uid);
 }
 
 function stableTimelineId(project: XmlNode, sequence: XmlNode | undefined): string {

@@ -25,6 +25,7 @@ const validResponse = JSON.stringify({
   libraries: [{
     id: "library-1",
     name: "Library",
+    path: "/tmp/Library.fcpbundle",
     events: [{
       id: "event-1",
       name: "Event",
@@ -52,6 +53,7 @@ test("parses library, event, project, and sequence metadata", () => {
   assert.deepEqual(result.catalog.libraries[0], {
     id: "library-1",
     name: "Library",
+    path: "/tmp/Library.fcpbundle",
     events: [{
       id: "event-1",
       name: "Event",
@@ -187,10 +189,39 @@ test("builds a direct read-only Final Cut Apple Event script", () => {
   assert.match(script, /var value = target\[property\]\(\)/);
   assert.match(script, /collectionCall\(finalCut, "libraries"\)/);
   assert.match(script, /collectionCall\(library, "events"\)/);
+  assert.match(script, /textValue\(library, "file"\)/);
   assert.match(script, /collectionCall\(event, "projects"\)/);
   assert.match(script, /sequence/);
   assert.doesNotMatch(script, /System Events/);
   assert.doesNotMatch(script, /frontmost|activate|keystroke|click|AXPress/);
+});
+
+test("binds an imported project to the exact Final Cut library path", async () => {
+  const provider = new FinalCutLibraryInspectionProvider({ executor: async () => validResponse });
+
+  const binding = await provider.resolveProjectBinding("/tmp/Library.fcpbundle", {
+    projectName: "Project",
+    sequenceName: "Main",
+  });
+
+  assert.deepEqual(binding, {
+    projectId: "project-1",
+    sequenceId: "sequence-1",
+    libraryId: "library-1",
+    eventId: "event-1",
+    libraryPath: "/tmp/Library.fcpbundle",
+  });
+});
+
+test("does not bind a project when the native library path is unavailable", async () => {
+  const response = JSON.parse(validResponse) as { libraries: Array<Record<string, unknown>> };
+  delete response.libraries[0]!.path;
+  const provider = new FinalCutLibraryInspectionProvider({ executor: async () => JSON.stringify(response) });
+
+  await assert.rejects(
+    provider.resolveProjectBinding("/tmp/Library.fcpbundle", { projectName: "Project", sequenceName: "Main" }),
+    /FINAL_CUT_PUBLISH_TARGET_PENDING/,
+  );
 });
 
 test("maps the rich inspection result to a project catalog", async () => {
@@ -327,23 +358,6 @@ test("MCP project.list returns structured background inspection failures", async
     await client.close();
     await server.close();
   }
-});
-
-test("documents the background library inspection safety boundary", async () => {
-  const documentation = await readFile(join(repositoryRoot, "docs/final-cut/background-library-inspection.md"), "utf8");
-  const finalCutGuide = await readFile(join(repositoryRoot, "docs/final-cut/README.md"), "utf8");
-  const liveGuide = await readFile(join(repositoryRoot, "docs/mcp/final-cut-live.md"), "utf8");
-  const compatibility = await readFile(join(repositoryRoot, "docs/COMPATIBILITY.md"), "utf8");
-
-  assert.match(documentation, /com\.apple\.FinalCut\.library\.inspection/);
-  assert.match(documentation, /direct Apple Events/);
-  assert.match(documentation, /System Events/);
-  assert.match(documentation, /metadata-only/);
-  assert.match(documentation, /FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE/);
-  assert.match(documentation, /Final Cut Pro 10\.7\.1/);
-  assert.match(finalCutGuide, /background-library-inspection\.md/);
-  assert.match(liveGuide, /background library inspection contract/);
-  assert.match(compatibility, /bundled Workflow Extension \+ background library/);
 });
 
 const headedLibraryInspectionTest = process.env.FRAMEKIT_FINAL_CUT_LIBRARY_HEADED === "1" ? test : test.skip;

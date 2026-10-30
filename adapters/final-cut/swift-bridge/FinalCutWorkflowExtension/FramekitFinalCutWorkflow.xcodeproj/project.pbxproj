@@ -255,6 +255,8 @@
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_DEBUG_DYLIB = NO;
+				FRAMEKIT_BUILD_COMMIT = unknown;
+				FRAMEKIT_BUILD_VERSION = unknown;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"/tmp/framekit-finalcut-frameworks",
@@ -446,6 +448,8 @@
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_DEBUG_DYLIB = NO;
+				FRAMEKIT_BUILD_COMMIT = unknown;
+				FRAMEKIT_BUILD_VERSION = unknown;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"/tmp/framekit-finalcut-frameworks",

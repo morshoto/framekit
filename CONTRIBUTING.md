@@ -31,7 +31,12 @@ pnpm run hooks:install
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
+pnpm run check:docs
 ```
+
+The maintained documentation set is [indexed here](docs/README.md):
+[architecture](docs/architecture.md), [getting started](docs/getting-started.md),
+[testing](docs/testing.md), and [release](docs/release.md).
 
 The deterministic MCP fixture is available with:
 
@@ -51,6 +56,30 @@ pnpm run mcp
 - Put deterministic adapters and analyzer fixtures in `packages/testkit`.
 
 Do not make the runtime depend on MCP SDK or editor-specific adapter code.
+
+## Documentation changes
+
+Update documentation only when a change affects user-facing setup or commands,
+supported public MCP contracts or behavior, production architecture invariants
+or capability boundaries, or the release process. Internal refactors, test
+additions, and bug fixes with unchanged external behavior do not need a docs
+edit. If no tracked documentation file changes, no declaration is required in
+the pull request.
+
+When documentation is needed, update only the canonical document that owns the
+information and the smallest relevant section. Avoid unrelated rewrites, broad
+formatting, duplicate explanations, new ADRs, and one-off feature documents.
+Put implementation rationale in the issue, pull request, review discussion,
+and tests. Keep durable QA and release evidence linked from issues, pull
+requests, workflow artifacts, or releases so its source and status remain
+auditable. Keep TDD plans, detailed QA transcripts, run logs, generated tool
+catalogs, and ephemeral evidence out of tracked docs; retain them in tests,
+workflow artifacts, issues, pull requests, or releases according to their
+audit needs. Preserve required user-facing, safety, compatibility, legal,
+security, and release provenance information.
+
+For the one-time documentation consolidation, follow the five-file target and
+evidence-retention requirements in issue #572.
 
 ## Native Final Cut work
 

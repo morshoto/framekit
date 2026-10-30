@@ -1,8 +1,9 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import {
   canonicalSnapshotDigest,
   canonicalTimelineMode,
@@ -43,6 +44,7 @@ import { verifyCanonicalReadback } from "./canonical-verification.js";
 import { FcpxmlDocumentAdapter, type FcpxmlTargetBinding } from "./fcpxml.js";
 
 const execFile = promisify(execFileCallback);
+const CANONICAL_APPLE_EVENT_TIMEOUT_MS = 30_000;
 
 export interface CanonicalNativeMutationPort {
   renameSelectedClip(name: string): Promise<{ operationId: string; undoAvailable: boolean }>;
@@ -80,6 +82,8 @@ export interface FinalCutCanonicalSnapshotSourceOptions {
   exportTimeoutMs?: number;
   pollIntervalMs?: number;
   target?: FcpxmlTargetBinding;
+  /** Catalog-bound publish readback. Catalog IDs are not FCPXML UIDs. */
+  readbackTarget?: { projectId: string; sequenceId: string; projectName: string; sequenceName: string };
 }
 
 export type FinalCutCanonicalExportCleanup = "complete" | "incomplete";
@@ -185,24 +189,37 @@ export class FinalCutCanonicalSnapshotSource {
   private readonly exportTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly target?: FcpxmlTargetBinding;
+  private readonly readbackTarget?: FinalCutCanonicalSnapshotSourceOptions["readbackTarget"];
+  private readonly stageOnDesktop: boolean;
 
   public constructor(options: FinalCutCanonicalSnapshotSourceOptions = {}) {
     this.executor = options.executor ?? executeCanonicalAppleScript;
     this.exportTimeoutMs = Math.max(1_000, options.exportTimeoutMs ?? 30_000);
     this.pollIntervalMs = Math.max(10, options.pollIntervalMs ?? 100);
     this.target = options.target;
+    this.readbackTarget = options.readbackTarget;
+    if (this.target && this.readbackTarget) {
+      throw new Error("FINAL_CUT_CANONICAL_TARGET_INVALID: FCPXML UID and catalog readback bindings cannot be combined");
+    }
+    this.stageOnDesktop = !options.executor;
   }
 
   public async readSnapshot(): Promise<ProjectSnapshot> {
     const directory = await mkdtemp(join(tmpdir(), "framekit-finalcut-canonical-"));
-    const exportPath = join(directory, "active.fcpxml");
+    // Final Cut's headed save panel does not reliably honor Go To Folder when
+    // driven through System Events. Stage real headed reads on the default
+    // Desktop, then remove the exact package after parsing it. Injected
+    // executors retain the isolated temporary path used by deterministic tests.
+    const exportPath = this.stageOnDesktop
+      ? join(homedir(), "Desktop", `${basename(directory)}.fcpxml`)
+      : join(directory, "active.fcpxml");
     try {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         const result = parseFinalCutCanonicalExportResult(
           await this.executor(buildFinalCutCanonicalExportScript(exportPath)),
         );
         if (result.status === "export-requested") {
-          return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target);
+          return await readCanonicalExport(exportPath, this.exportTimeoutMs, this.pollIntervalMs, this.target, this.readbackTarget);
         }
         const error = new FinalCutCanonicalExportError(result);
         if (!error.retryable || error.cleanup !== "complete" || attempt === 2) throw error;
@@ -214,6 +231,8 @@ export class FinalCutCanonicalSnapshotSource {
       if (detail.includes("FINAL_CUT_CANONICAL_") || detail.includes("TARGET_MISMATCH")) throw error;
       throw new Error(`FINAL_CUT_CANONICAL_EXPORT_FAILED: ${detail}`);
     } finally {
+      await rm(exportPath, { force: true });
+      await rm(`${exportPath}.fcpxmld`, { recursive: true, force: true });
       await rm(directory, { recursive: true, force: true });
     }
   }
@@ -222,6 +241,19 @@ export class FinalCutCanonicalSnapshotSource {
 export function buildFinalCutCanonicalExportScript(exportPath: string): string {
   const exportDirectory = dirname(exportPath);
   const exportName = basename(exportPath);
+  const chooseExportDirectory = `          keystroke "g" using {command down, shift down}
+          delay 1
+          try
+            set pathField to text field 1 of sheet 1 of window "Export XML"
+            set value of pathField to ${appleScriptString(exportDirectory)}
+          on error
+            keystroke "a" using {command down}
+            keystroke ${appleScriptString(exportDirectory)}
+          end try
+          delay 0.5
+          key code 36
+          delay 0.8
+`;
 
   return `
 using terms from application "System Events"
@@ -297,6 +329,23 @@ on findAccessibilityDescendant(container, expectedRoles, depth)
   return missing value
 end findAccessibilityDescendant
 
+on findTimelineArea(container, depth)
+  if depth > 12 then return missing value
+  try
+    if (role of container as text) is "AXLayoutArea" then
+      if my accessibilityMatchesExpectedName(container, {"Project Timeline", "Timeline"}) then return container
+    end if
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findTimelineArea(candidate, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findTimelineArea
+
 on accessibilityContainsPathMarker(candidate)
   repeat with attributeName in {"AXDescription", "AXTitle", "AXIdentifier"}
     try
@@ -314,6 +363,10 @@ end accessibilityContainsPathMarker
 on matchesCanonicalPathField(candidate)
   try
     if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  try
+    set candidateIdentifier to id of candidate as text
+    if candidateIdentifier is "PathTextField" then return true
   end try
   try
     set candidateIdentifier to value of attribute "AXIdentifier" of candidate as text
@@ -358,9 +411,31 @@ on findCanonicalPathField(container, depth)
   return missing value
 end findCanonicalPathField
 
+on findAccessibilityIdentifier(container, expectedIdentifier, depth)
+  if depth > 12 then return missing value
+  try
+    set candidateIdentifier to id of container as text
+    if candidateIdentifier is expectedIdentifier then return container
+  end try
+  try
+    set candidateIdentifier to (value of attribute "AXIdentifier" of container) as text
+    if candidateIdentifier is expectedIdentifier then return container
+  end try
+  try
+    repeat with childRef in (UI elements of container)
+      set candidate to contents of childRef
+      set found to my findAccessibilityIdentifier(candidate, expectedIdentifier, depth + 1)
+      if found is not missing value then return found
+    end repeat
+  end try
+  return missing value
+end findAccessibilityIdentifier
+
 on findSavePathField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
+    set candidate to my findAccessibilityIdentifier(saveWindow, "PathTextField", 0)
+    if candidate is not missing value then return candidate
     set focusedCandidate to missing value
     try
       set focusedCandidate to value of attribute "AXFocusedUIElement"
@@ -380,6 +455,10 @@ end findSavePathField
 on matchesCanonicalSaveNameField(candidate)
   try
     if not my roleIsExpected(role of candidate as text, {"AXTextField", "AXTextArea", "AXComboBox"}) then return false
+  end try
+  try
+    set candidateIdentifier to id of candidate as text
+    if candidateIdentifier is "saveAsNameTextField" then return true
   end try
   repeat with attributeName in {"AXIdentifier", "AXDescription", "AXTitle"}
     try
@@ -408,6 +487,12 @@ end findCanonicalSaveNameFieldDescendant
 on findCanonicalSaveNameField(saveWindow, timeoutSeconds, timeoutMessage)
   set deadline to (current date) + timeoutSeconds
   repeat
+    set candidate to my findAccessibilityIdentifier(saveWindow, "saveAsNameTextField", 0)
+    if candidate is not missing value then return candidate
+    try
+      set focusedCandidate to value of attribute "AXFocusedUIElement"
+      if my matchesCanonicalSaveNameField(focusedCandidate) then return focusedCandidate
+    end try
     set candidate to my findCanonicalSaveNameFieldDescendant(saveWindow, 0)
     if candidate is not missing value then return candidate
     if (current date) > deadline then error timeoutMessage
@@ -509,6 +594,25 @@ tell application "System Events"
       set frontmost to true
       delay 0.1
       if not frontmost then error "FINAL_CUT_CANONICAL_NOT_FRONTMOST: Final Cut Pro must be frontmost"
+      try
+        if exists window "Final Cut Pro" of finalCut then
+          perform action "AXRaise" of window "Final Cut Pro" of finalCut
+          delay 0.2
+        end if
+      end try
+      set frontWindow to window "Final Cut Pro" of finalCut
+      set timelineArea to my findTimelineArea(frontWindow, 0)
+      if timelineArea is missing value then error "FINAL_CUT_CANONICAL_TIMELINE_UNAVAILABLE: Project Timeline was not exposed"
+      try
+        perform action "AXPress" of timelineArea
+      on error
+        try
+          click timelineArea
+        on error
+          error "FINAL_CUT_CANONICAL_TIMELINE_UNAVAILABLE: Project Timeline could not be focused"
+        end try
+      end try
+      delay 0.2
       set fileMenu to menu "File" of menu bar 1
       set exportCommand to missing value
       try
@@ -531,35 +635,32 @@ tell application "System Events"
       end try
       perform action "AXPress" of exportCommand
       set exportWindow to my findWindow(finalCut, {"Export XML", "XML"}, 15, "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear")
-      my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"})
-      delay 0.2
-          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-          keystroke "g" using {command down, shift down}
-          set pathField to my findSavePathField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear")
-          set value of pathField to ${appleScriptString(exportDirectory)}
+      set saveWindow to exportWindow
+      set saveRoot to first UI element of saveWindow
+      set nameField to missing value
+      try
+        set nameField to text field 2 of saveRoot
+      end try
+      if nameField is missing value then
+        if not my pressAccessibilityButtonIfPresent(exportWindow, {"Next…", "Next...", "Export"}) then error "FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML next control was not exposed"
+        delay 0.2
+        set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
+${chooseExportDirectory}        set saveRoot to first UI element of saveWindow
+        try
+          set nameField to text field 2 of saveRoot
+        on error
+          error "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field was not exposed as text field 2"
+        end try
+      else
+${chooseExportDirectory}      end if
+      set value of nameField to ${appleScriptString(exportName)}
+          set savePressed to false
+          try
+            perform action "AXPress" of button 3 of saveRoot
+            set savePressed to true
+          end try
+          if not savePressed and not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
           delay 0.2
-          key code 36
-          delay 0.2
-          set saveWindow to my findWindow(finalCut, {"Save", "Export XML"}, 15, "FINAL_CUT_CANONICAL_SAVE_WINDOW_UNAVAILABLE: XML save window did not appear")
-              set nameField to my findCanonicalSaveNameField(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_NAME_UNAVAILABLE: save filename field did not appear")
-              set value of nameField to ${appleScriptString(exportName)}
-              if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then error "FINAL_CUT_CANONICAL_SAVE_BUTTON_UNAVAILABLE: Save button was not exposed"
-              repeat 10 times
-                set savePanelOpen to false
-                repeat with saveWindowName in {"Save", "Export XML"}
-                  try
-                    if exists window (saveWindowName as text) of finalCut then
-                      set savePanelOpen to true
-                      set saveWindow to window (saveWindowName as text) of finalCut
-                      exit repeat
-                    end if
-                  end try
-                end repeat
-                if not savePanelOpen then exit repeat
-                if not my pressAccessibilityButtonIfPresent(saveWindow, {"Save"}) then key code 36
-                delay 0.2
-              end repeat
-      my pressAccessibilityButtonIfPresent(saveWindow, {"Replace"})
       return my canonicalExportResponse("export-requested", "", "", "complete")
     on error errorMessage number errorNumber
       set cleanupComplete to my cleanupCanonicalExport(finalCut)
@@ -574,7 +675,8 @@ end tell`;
 }
 
 export function createFinalCutNativeTargetResolver(
-  native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">,
+  native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
+    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "searchMediaForCanonicalTarget">>,
 ): CanonicalNativeTargetResolver {
   return async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
@@ -583,7 +685,9 @@ export function createFinalCutNativeTargetResolver(
     const query = sourceBasename(media.source);
     if (!query) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no searchable source basename`);
 
-    const matches = (await native.searchMedia(query)).filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
+    const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;
+    const matches = (await searchMedia.call(native, query))
+      .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
     if (matches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple exact media matches for ${query}`);
     const match = matches[0]!;
@@ -593,12 +697,20 @@ export function createFinalCutNativeTargetResolver(
     if (located.status === "none" || located.occurrences.length === 0) {
       throw new Error(`TARGET_MISMATCH: Final Cut timeline has no occurrence for ${query}`);
     }
-    if (located.status !== "unique" || located.occurrences.length !== 1) {
-      throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline has multiple occurrences for ${query}`);
+    const matchingOccurrences = located.occurrences.filter((candidate) =>
+      candidate.start && candidate.duration && clip.startTime && clip.durationTime
+      && sameRationalText(candidate.start, clip.startTime)
+      && sameRationalText(candidate.duration, clip.durationTime));
+    if (matchingOccurrences.length === 0) {
+      throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
-    const occurrence = located.occurrences[0]!;
+    if (matchingOccurrences.length !== 1) {
+      throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline occurrence coordinates are not unique for ${clip.id}`);
+    }
+    const occurrence = matchingOccurrences[0]!;
+    await native.selectOccurrence?.(occurrence.handle);
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
-    if (!occurrenceIdentity) {
+    if (!occurrenceIdentity && !native.selectOccurrence) {
       throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
     }
     if (!occurrence.sequenceId) {
@@ -1311,12 +1423,14 @@ function canonicalRippleRange(snapshot: ProjectSnapshot, range: TimeRange): { st
     throw new Error("INVALID_OPERATION: ripple-delete range must have positive duration");
   }
   const end = addRational(start, duration);
-  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
-  }
   const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
   if (compareRational(start, zeroRational()) < 0 || compareRational(end, timelineDuration) > 0) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must fit inside the active timeline");
+    throw new Error(
+      `INVALID_OPERATION: ripple-delete range [${range.start}, ${range.end}) must fit timeline bounds [0, ${rationalSeconds(timelineDuration)})`,
+    );
+  }
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
+    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
   }
   return { start, end };
 }
@@ -1602,10 +1716,16 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
 
 async function executeCanonicalAppleScript(script: string): Promise<string> {
   try {
-    const result = await execFile("osascript", ["-e", script], { maxBuffer: 1_000_000 });
+    const result = await execFile("osascript", ["-e", script], {
+      maxBuffer: 1_000_000,
+      timeout: CANONICAL_APPLE_EVENT_TIMEOUT_MS,
+    });
     return result.stdout.trim();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+    if (detail.includes("ETIMEDOUT") || detail.includes("timed out")) {
+      throw new Error(`FINAL_CUT_CANONICAL_AUTOMATION_TIMEOUT: Export XML AppleEvent exceeded ${CANONICAL_APPLE_EVENT_TIMEOUT_MS}ms`);
+    }
     if (detail.includes("not authorized") || detail.includes("-1743") || detail.includes("-25211")) {
       throw new Error(`FINAL_CUT_CANONICAL_PERMISSION_REQUIRED: ${detail}`);
     }
@@ -1618,6 +1738,7 @@ async function readCanonicalExport(
   timeoutMs: number,
   pollIntervalMs: number,
   target?: FcpxmlTargetBinding,
+  readbackTarget?: FinalCutCanonicalSnapshotSourceOptions["readbackTarget"],
 ): Promise<ProjectSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let previousSignature: string | undefined;
@@ -1641,7 +1762,17 @@ async function readCanonicalExport(
 
     if (readablePath && signature && signature === previousSignature) {
       try {
-        return await new FcpxmlDocumentAdapter(readablePath, target).readProject();
+        const snapshot = await new FcpxmlDocumentAdapter(readablePath, target, {
+          allowMissingImmutableIdsForReadback: Boolean(readbackTarget),
+        }).readProject();
+        if (readbackTarget) {
+          if (snapshot.projectName !== readbackTarget.projectName || snapshot.timeline.name !== readbackTarget.sequenceName) {
+            throw new Error("TARGET_MISMATCH: canonical export project and sequence names differ from the catalog-bound created target");
+          }
+          snapshot.projectId = readbackTarget.projectId;
+          snapshot.timeline.id = readbackTarget.sequenceId;
+        }
+        return snapshot;
       } catch (error) {
         lastReadError = error;
         if (error instanceof Error && error.message.includes("TARGET_MISMATCH")) throw error;
@@ -1655,12 +1786,11 @@ async function readCanonicalExport(
 }
 
 function sourceBasename(source: string): string {
-  const withoutQuery = source.split(/[?#]/, 1)[0] ?? source;
   try {
-    const url = new URL(withoutQuery);
-    return basename(decodeURIComponent(url.pathname));
+    const url = new URL(source);
+    return basename(url.protocol === "file:" ? fileURLToPath(url) : decodeURIComponent(url.pathname));
   } catch {
-    return basename(withoutQuery.replace(/^file:\/\//, ""));
+    return basename(source);
   }
 }
 

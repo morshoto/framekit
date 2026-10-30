@@ -153,13 +153,41 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(scripts.some((script) => script.includes("timelineWindowAvailable")), true);
   assert.equal(scripts.some((script) => script.includes("Apply Custom Name") && script.includes("tell application \"Final Cut Pro\" to activate")), false);
   assert.equal(scripts.some((script) => script.includes("focused text field")), false);
-  assert.equal(scripts.some((script) => script.includes("first text field of front window")), true);
+  assert.equal(scripts.some((script) => script.includes("findInspectorNameField") && script.includes('attribute "AXValue"')), true);
 
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
   assert.equal(undone.context.target.name, "Interview");
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Rename" of menu "Edit"')), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
+});
+
+test("headed clip rename uses Final Cut's native Rename Clip action and Unicode input", async () => {
+  const nativeMouseSources: string[] = [];
+  const contextOutputs = [
+    context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, "Undo Existing Change"),
+    context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename Clip"),
+    context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename Clip"),
+  ];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("entire contents") || script.includes("timelineWindowAvailable")
+      ? contextOutputs.shift()!
+      : "",
+    nativeMouseExecutor: async (source) => {
+      nativeMouseSources.push(source);
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+
+  assert.equal(result.verification.verified, true);
+  assert.equal(result.after.target.name, "Interview Clean");
+  assert.equal(nativeMouseSources.length, 1);
+  assert.match(nativeMouseSources[0]!, /kAXShowMenuAction/);
+  assert.match(nativeMouseSources[0]!, /text\(element, "AXTitle"\).*"Rename Clip"/s);
+  assert.match(nativeMouseSources[0]!, /keyboardSetUnicodeString/);
+  assert.doesNotMatch(nativeMouseSources[0]!, /metadata inspector/);
 });
 
 test("native Final Cut adapter allows the first edit to establish operation Undo", async () => {
@@ -798,6 +826,9 @@ test("native Final Cut Undo recovers when frontmost is lost after preflight", as
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
+      if (script.includes("on selectedTimelineOccurrenceIndex")) {
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo" : "Undo Existing Change");
+      }
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
         return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo" : "Undo Existing Change");
@@ -1037,7 +1068,7 @@ test("native Undo rejects when Final Cut changes the current Undo command", asyn
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED/);
 });
 
-test("native Undo reports failed restoration when Final Cut exposes no new revision", async () => {
+test("native Undo reports failed restoration when Final Cut exposes no new revision or consumed Undo command", async () => {
   let clock = 0;
   let revision = 1;
   let renamed = false;
@@ -1065,6 +1096,41 @@ test("native Undo reports failed restoration when Final Cut exposes no new revis
   });
   const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED/);
+});
+
+test("native Undo accepts a metadata rename when Final Cut consumes Undo without a live revision", async () => {
+  let clock = 0;
+  let renamed = false;
+  const contextOutputs = [
+    context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, "Undo Existing Change"),
+    context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename Clip"),
+    context(true, "Final Cut Pro", "Interview Clean", 1, true, true, true, "timeline", 0, "Undo Rename Clip"),
+    context(true, "Final Cut Pro", "", 0, false, true, true, "timeline", 0, "Undo Existing Change"),
+  ];
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-stable", sequence: 1, timestamp: new Date(1).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    now: () => clock,
+    sleep: async (milliseconds) => { clock += milliseconds; },
+    liveState,
+    executor: async (script) => script.includes("entire contents") || script.includes("timelineWindowAvailable")
+      ? contextOutputs.shift()!
+      : "",
+    nativeMouseExecutor: async () => { renamed = true; },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(renamed, true);
+  const undone = await adapter.undo(result.operationId);
+  assert.equal(undone.undone, true);
+  assert.equal(undone.verification.verified, true);
+  assert.equal(undone.context.target.kind, "playhead");
 });
 
 test("native Final Cut adapter refuses edits without a selected clip", async () => {
@@ -1114,6 +1180,8 @@ test("native inspect is passive and reports partial readiness", async () => {
   assert.equal(inspected.readiness.selectedTarget, true);
   assert.equal(scripts.length, 1);
   assert.match(scripts[0]!, /FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT/);
+  assert.match(scripts[0]!, /set frontWindow to window "Final Cut Pro"/);
+  assert.doesNotMatch(scripts[0]!, /UI element 8 of UI element/);
   assert.doesNotMatch(scripts[0]!, /set frontmost to true|perform action "AXRaise"|perform action "AXMinimize"|click at/);
 });
 
@@ -1257,6 +1325,7 @@ test("native focus resolves the selected occurrence and binds live target scope"
 
   assert.equal(target.kind, "selected-clip");
   assert.equal(target.identity, "native-occurrence-1");
+  assert.equal(focused.readiness.targetBound, true);
   assert.equal(target.projectId, "project-1");
   assert.equal(target.sequenceId, "sequence-1");
   assert.deepEqual(target.revision, {
@@ -1264,6 +1333,16 @@ test("native focus resolves the selected occurrence and binds live target scope"
     sequence: 1,
     timestamp: new Date(0).toISOString(),
   });
+
+  const indexOnly = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async () => `${context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", "")}${separator}1`,
+  });
+  const indexed = await indexOnly.inspect();
+  assert.equal(indexed.target.kind, "selected-clip");
+  assert.equal(indexed.target.occurrenceIndex, 1);
+  assert.equal(indexed.readiness.targetBound, false);
 });
 
 test("native inspect fails closed when a selected occurrence has no stable identity", async () => {
@@ -1720,6 +1799,9 @@ test("native Final Cut recovers when frontmost is lost after preflight", async (
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     executor: async (script) => {
+      if (script.includes("on selectedTimelineOccurrenceIndex")) {
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
+      }
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
         return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
@@ -1739,6 +1821,50 @@ test("native Final Cut recovers when frontmost is lost after preflight", async (
   assert.equal(result.verification.verified, true);
   assert.equal(editCalls, 2);
   assert.equal(preflightCalls >= 3, true);
+});
+
+test("native Final Cut allows a non-playhead retry when focus recovery changes the playhead", async () => {
+  let preflightCalls = 0;
+  let detailedInspectCalls = 0;
+  let editCalls = 0;
+  let renamed = false;
+  let playhead = "0";
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+    playheadTime: { value: playhead, timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      if (script.includes("on selectedTimelineOccurrenceIndex")) {
+        detailedInspectCalls += 1;
+        return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
+      }
+      if (script.includes("timelineWindowAvailable")) {
+        preflightCalls += 1;
+        if (preflightCalls === 2) playhead = "5";
+        return context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
+      }
+      if (script.includes("Apply Custom Name")) {
+        editCalls += 1;
+        if (editCalls === 1) {
+          throw new Error("FINAL_CUT_NATIVE_AUTOMATION_FAILED: execution error: Final Cut is not frontmost (-1719)");
+        }
+        renamed = true;
+      }
+      return "";
+    },
+  });
+
+  const result = await adapter.edit({ type: "rename-selected-clip", name: "Interview Clean" });
+  assert.equal(result.verification.verified, true);
+  assert.equal(editCalls, 2);
+  assert.equal(preflightCalls >= 3, true);
+  assert.equal(detailedInspectCalls >= 3, true);
 });
 
 test("native Final Cut refuses a retry when focus recovery changes the selection", async () => {
@@ -2026,6 +2152,21 @@ test("native Final Cut literal Browser search does not fall back to arbitrary au
 
   const nonmatching = await adapter.searchMedia("music");
   assert.deepEqual(nonmatching, []);
+});
+
+test("native Final Cut rejects wildcard Browser queries before accessing the UI", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.searchMedia("*"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  await assert.rejects(adapter.searchMedia("Interview?"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  assert.deepEqual(scripts, []);
 });
 
 test("native Final Cut search includes selected Browser media with an alternate AX role", async () => {
@@ -2873,7 +3014,7 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
 });
 
 test("native Final Cut expands a user-home path before validating and importing it", async () => {
-  const homeDirectory = await mkdtemp(join(os.homedir(), ".framekit-native-media-home-"));
+  const homeDirectory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-home-"));
   const sourcePath = join(homeDirectory, "home-import.mov");
   await writeFile(sourcePath, "video fixture");
 
@@ -2883,6 +3024,7 @@ test("native Final Cut expands a user-home path before validating and importing 
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    homeDirectory,
     executor: async (script) => {
       scripts.push(script);
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
@@ -2898,7 +3040,7 @@ test("native Final Cut expands a user-home path before validating and importing 
   });
 
   try {
-    const requestedPath = `~/${relative(os.homedir(), sourcePath)}`;
+    const requestedPath = "~/home-import.mov";
     const imported = await adapter.importMedia(requestedPath);
 
     assert.equal(imported.sourcePath, sourcePath);

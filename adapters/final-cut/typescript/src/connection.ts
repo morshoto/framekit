@@ -53,8 +53,15 @@ export interface FinalCutConnectionOptions {
   activateExtension?: (options?: FinalCutActivationOptions) => Promise<void>;
   restartFinalCut?: () => Promise<void>;
   restartAfterInstall?: boolean;
+  /** Install the configured extension source before accepting an existing bridge. */
+  installBeforeProbe?: boolean;
   probe?: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   sleep?: (milliseconds: number) => Promise<void>;
+}
+
+export interface FinalCutEnsureConnectedOptions {
+  /** Background lifecycle probes must never reopen an editor the user quit. */
+  allowEditorLaunch?: boolean;
 }
 
 export interface CanonicalProviderConfiguration {
@@ -111,6 +118,7 @@ export class FinalCutConnectionManager {
   private readonly activateExtension: (options?: FinalCutActivationOptions) => Promise<void>;
   private readonly restartFinalCut: () => Promise<void>;
   private readonly restartAfterInstall: boolean;
+  private readonly installBeforeProbe: boolean;
   private readonly probe: () => Promise<{ identity: EditorIdentity; capabilities: RuntimeCapabilities }>;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private status: FinalCutConnectionStatus;
@@ -142,6 +150,7 @@ export class FinalCutConnectionManager {
     this.registerExtension = options.registerExtension ?? (() => defaultRegisterExtension(this.extensionInstallPath));
     this.activateExtension = options.activateExtension ?? ((activationOptions) => defaultActivateFinalCut(activationOptions));
     this.restartAfterInstall = options.restartAfterInstall ?? false;
+    this.installBeforeProbe = options.installBeforeProbe ?? false;
     this.restartFinalCut = options.restartFinalCut ?? (() => defaultRestartFinalCut(
       this.detectFinalCut,
       this.launchFinalCut,
@@ -165,8 +174,8 @@ export class FinalCutConnectionManager {
 
   public startAutoConnect(): void {
     if (this.interval) return;
-    void this.ensureConnected();
-    this.interval = setInterval(() => void this.ensureConnected(), this.pollIntervalMs);
+    void this.ensureConnected({ allowEditorLaunch: false });
+    this.interval = setInterval(() => void this.ensureConnected({ allowEditorLaunch: false }), this.pollIntervalMs);
   }
 
   public stopAutoConnect(): void {
@@ -174,22 +183,22 @@ export class FinalCutConnectionManager {
     this.interval = undefined;
   }
 
-  public async ensureConnected(): Promise<FinalCutConnectionStatus> {
+  public async ensureConnected(options: FinalCutEnsureConnectedOptions = {}): Promise<FinalCutConnectionStatus> {
     if (this.attempt) return this.attempt;
-    this.attempt = this.connect().finally(() => {
+    this.attempt = this.connect(options.allowEditorLaunch ?? true).finally(() => {
       this.attempt = undefined;
     });
     return this.attempt;
   }
 
-  private async connect(): Promise<FinalCutConnectionStatus> {
+  private async connect(allowEditorLaunch: boolean): Promise<FinalCutConnectionStatus> {
     try {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
       this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
-      if (existing.result) return this.ready(existing.result);
+      if (existing.result && !this.installBeforeProbe) return this.ready(existing.result);
 
-      if (this.canonicalProviderRequired) {
+      if (this.canonicalProviderRequired && !existing.result) {
         return this.fail(
           "FINAL_CUT_CANONICAL_PROVIDER_UNAVAILABLE",
           `Canonical live provider is unavailable at ${this.socketPath}; metadata-only fallback is disabled`,
@@ -197,7 +206,7 @@ export class FinalCutConnectionManager {
         );
       }
 
-      if (this.headless) {
+      if (this.headless && !existing.result) {
         this.update({ state: "waiting-for-socket" });
         const waiting = await this.waitForHeadlessBridge(existing.error);
         if (waiting.result) return this.ready(waiting.result);
@@ -208,6 +217,13 @@ export class FinalCutConnectionManager {
       const editorDetected = await this.detectFinalCut();
       this.update({ editorDetected });
       if (!editorDetected) {
+        if (!allowEditorLaunch) {
+          return this.fail(
+            "FINAL_CUT_AUTO_LAUNCH_SUPPRESSED",
+            "Final Cut Pro is not running; background reconnect will not reopen an explicitly closed editor",
+            "needs-user-action",
+          );
+        }
         this.update({ state: "launching" });
         await this.launchFinalCut();
         const deadline = Date.now() + Math.min(5_000, this.startupTimeoutMs);

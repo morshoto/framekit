@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { resolve as resolvePath } from "node:path";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
   createCapabilityPreflight,
@@ -9,6 +9,7 @@ import {
   serializeCapabilityUnavailableError,
   withCanonicalTimelineMode,
   withCapabilityFamilies,
+  createTimelineIrFromProjectSnapshot,
   type CapabilityProcessMode,
   type CapabilityDescriptor,
   type CapabilityPreflight,
@@ -18,6 +19,7 @@ import {
   type EditTransaction,
   type EditTarget,
   type RuntimeCapabilities,
+  type RoughCutPlan,
   type TimelineFrameCapture,
   type TimelineIr,
   type TimelineIrEditOperation,
@@ -27,7 +29,10 @@ import {
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
   serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
+  nativeMediaSearchQueryError,
   type DisposableNativeEditWorkflow,
+  type FinalCutProjectPublishJobState,
+  type FinalCutProjectPublishReadiness,
   type FinalCutProjectPublisher,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
@@ -38,11 +43,16 @@ import {
 } from "@framekit/final-cut";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
+  EDITING_ROUTE_EDIT_TYPES,
   EDITOR_FIRST_MCP_INSTRUCTIONS,
+  HEADLESS_TIMELINE_EDIT_TYPES,
+  HEADLESS_FIRST_MCP_INSTRUCTIONS,
   resolveEditingRoute,
   type EditorRoutingContext,
+  type EditingRouteEditType,
   type EditingRouteOperation,
 } from "./routing.js";
+import { assessBuildAlignment, type BuildAlignmentReport } from "./build-alignment.js";
 import {
   FRAMEKIT_BUILD_FINGERPRINT,
   FRAMEKIT_VERSION,
@@ -53,6 +63,13 @@ import {
   SessionMaterializationJobs,
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
+import {
+  type HeadlessProjectWorkflow,
+  type HeadlessRoughCutExecutionRequest,
+  type HeadlessRoughCutRequest,
+} from "@framekit/headless-application";
+import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
+import { chooseTimelineReadback } from "./readback-policy.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
@@ -65,6 +82,11 @@ const revisionSchema = revisionValueSchema.optional();
 const contextTargetSchema = z.object({
   projectId: z.string().min(1),
   sequenceId: z.string().min(1),
+}).strict();
+const timelineReadbackSchema = z.object({
+  sessionId: z.string().min(1).optional(),
+  requestedCanonical: z.boolean().optional().default(false),
+  finalVerification: z.boolean().optional().default(false),
 }).strict();
 const contextCursorSchema = z.object({
   revision: revisionValueSchema,
@@ -92,8 +114,13 @@ const mediaIndexQuerySchema = z.object({
   range: rangeSchema.optional(),
   capabilities: z.array(z.enum(["metadata", "speech", "audio", "noise", "visual"])).optional(),
 });
+const timelineSemanticContextQuerySchema = z.object({
+  query: z.string().optional(),
+  occurrenceIds: z.array(z.string().min(1)).optional(),
+}).strict();
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
+  projectId: z.string().min(1).optional(),
 });
 const durationRangeSchema = z.object({
   startSeconds: z.number().finite().nonnegative(),
@@ -184,7 +211,14 @@ const colorCorrectionSchema = z.object({
   }),
   baseRevision: revisionSchema,
 });
-const rippleDeleteSchema = z.object({ type: z.literal("ripple-delete"), timelineId: z.string().min(1), range: rangeSchema, reason: z.string().optional(), baseRevision: revisionSchema });
+const rippleDeleteSchema = z.object({
+  type: z.literal("ripple-delete"),
+  timelineId: z.string().min(1),
+  // The editor validates this range against the active timeline and reports its actual bounds.
+  range: z.object({ start: z.number().finite(), end: z.number().finite() }),
+  reason: z.string().optional(),
+  baseRevision: revisionSchema,
+});
 const addMarkerSchema = z.object({ type: z.literal("add-marker"), timelineId: z.string().min(1), marker: markerSchema, baseRevision: revisionSchema });
 const roughCutImportSchema = z.object({
   type: z.literal("media.import"),
@@ -213,6 +247,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
   rippleDeleteSchema,
   addMarkerSchema,
 ]);
+const editingPathSchema = z.enum(["headless", "headed"]).optional();
 const verificationAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio-audibility"),
@@ -330,13 +365,14 @@ function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
   return mcpDiscriminatedUnion(options);
 }
 
-const editToolInputSchema = createEditToolInputSchema();
+const editToolInputSchema = createEditToolInputSchema({ path: editingPathSchema });
 const artifactEditToolInputSchema = createEditToolInputSchema({
   artifactPath: z.string().trim().min(1),
 }, revisionValueSchema);
 const editorTimelineEditToolInputSchema = createEditToolInputSchema({
   projectId: z.string().trim().min(1),
   sequenceId: z.string().trim().min(1),
+  path: editingPathSchema,
 }, revisionValueSchema);
 
 type JsonSchema = {
@@ -378,6 +414,7 @@ function installMcpSchemaCompatibility(server: McpServer): void {
 
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
+  targetLibraryPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
   confirm: z.boolean(),
 }).strict();
@@ -915,6 +952,26 @@ export interface McpConnectionStatus {
 
 export interface McpCapabilityPreflight extends CapabilityPreflight {
   fingerprint: FramekitBuildFingerprint;
+  buildAlignment: BuildAlignmentReport;
+  nativeHandoffReadiness: NativeHandoffReadiness;
+}
+
+export interface NativeHandoffReadiness {
+  status: "ready" | "blocked" | "verified";
+  reasons: Array<{ code: string; message: string }>;
+  targetBinding: { available: boolean; guarantee: "native-readback" | "none" };
+  buildAlignment: BuildAlignmentReport;
+  publish?: { jobId: string; state: FinalCutProjectPublishJobState };
+  createdTarget?: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+    libraryPath?: string;
+    projectName: string;
+    sequenceName?: string;
+  };
 }
 
 export interface McpServerOptions {
@@ -927,18 +984,48 @@ export interface McpServerOptions {
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
+  requireBuildAlignment?: boolean;
+  validationCommit?: string;
   sessionDirectory?: string;
   sessionChangeSource?: EditingSessionChangeSource;
   sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
+  headlessProjects?: HeadlessProjectWorkflow;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
+  if (options.requireBuildAlignment) {
+    const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
+    options = {
+      ...options,
+      ...(options.nativeEditor
+        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities"]) }
+        : {}),
+      ...(options.disposableNative
+        ? { disposableNative: withBuildAlignmentGuard(options.disposableNative, assertAlignment) }
+        : {}),
+      ...(options.nativeOperationSession
+        ? { nativeOperationSession: withBuildAlignmentGuard(options.nativeOperationSession, assertAlignment) }
+        : {}),
+      ...(options.projectPublisher
+        ? {
+            projectPublisher: withBuildAlignmentGuard(
+              options.projectPublisher,
+              assertAlignment,
+              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob"],
+            ),
+          }
+        : {}),
+      ...(options.videoExporter
+        ? { videoExporter: withBuildAlignmentGuard(options.videoExporter, assertAlignment, ["isAvailable"]) }
+        : {}),
+    };
+  }
   const server = new McpServer(
     { name: "framekit", version: FRAMEKIT_VERSION },
-    { instructions: EDITOR_FIRST_MCP_INSTRUCTIONS },
+    { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
   const sessions = options.sessionDirectory
@@ -955,6 +1042,38 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   const requireMaterializations = (): SessionMaterializationJobs => {
     if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
     return materializations;
+  };
+  const requireHeadlessProjects = (): HeadlessProjectWorkflow => {
+    if (!options.headlessProjects) throw new Error("HEADLESS_PROJECT_UNAVAILABLE: headless project storage is not configured");
+    return options.headlessProjects;
+  };
+
+  const prepareSessionReadback = async (sessionId: string, requestedCanonical: boolean, finalVerification: boolean) => {
+    const stored = await requireSessions().inspect(sessionId);
+    const decision = chooseTimelineReadback({
+      hasCanonicalBase: true,
+      requestedCanonical,
+      finalVerification,
+      sessionState: stored.document.state,
+      ...(stored.document.observation ? {
+        fastObservation: {
+          available: true,
+          coverageComplete: stored.document.observation.coverageComplete,
+          status: "possibly-stale" as const,
+        },
+      } : {}),
+    });
+    return { stored, decision };
+  };
+
+  const canonicalResyncSession = async (sessionId: string, providerId?: string) => {
+    if (providerId && providerId !== "final-cut") {
+      throw new Error(`SESSION_PROVIDER_MISMATCH: canonical Final Cut resync cannot replace provider ${providerId}`);
+    }
+    const snapshot = await runtime.inspectProject();
+    const timeline = createTimelineIrFromProjectSnapshot(snapshot, { id: "final-cut" });
+    const session = await requireSessions().reconcile(sessionId, { id: "final-cut" }, timeline);
+    return { snapshot, session };
   };
 
   const sessionOperationSchema = z.array(z.unknown());
@@ -1061,10 +1180,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().min(1) },
   }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
 
+  server.registerTool("session.materialize.resync", {
+    description: "Read the completed versioned handoff target and create a fresh editing-session baseline for continuation.",
+    inputSchema: { jobId: z.string().min(1), sessionId: z.string().min(1) },
+  }, async ({ jobId, sessionId }) => sessionResult(async () => requireMaterializations().resync(jobId, sessionId)));
+
   server.registerTool("connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
   }, async () => jsonResult(await effectiveConnectionStatus(runtime, options)));
+
+  server.registerTool("editor.native.handoff.readiness", {
+    description: "Read native Final Cut handoff readiness without launching, activating, importing, or mutating Final Cut.",
+    inputSchema: { publishJobId: z.string().trim().min(1).optional() },
+  }, async ({ publishJobId }) => jsonResult(
+    await inspectNativeHandoffReadiness(runtime, options, publishJobId),
+  ));
 
   server.registerTool("skill.list", {
     description: "List registered versioned Framekit Skills with current capability availability.",
@@ -1128,8 +1259,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("project.inspect", {
-    description: "Read the current canonical project snapshot before editing.route selects a capability-checked path.",
-  }, async () => {
+    description: "Read a bound session baseline or perform an explicit canonical project resync before editing.route selects a capability-checked path.",
+    inputSchema: timelineReadbackSchema,
+  }, async ({ sessionId, requestedCanonical, finalVerification }) => {
+    if (sessionId) {
+      const { stored, decision } = await prepareSessionReadback(sessionId, requestedCanonical, finalVerification);
+      if (decision.route === "session" || decision.route === "fast-observation") {
+        return jsonResult({
+          sessionId,
+          readback: decision,
+          session: stored.document,
+          snapshot: stored.document.base,
+        });
+      }
+      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
+      return jsonResult({ sessionId, readback: decision, ...resynced });
+    }
     const inspected = await inspectMcpEditor(runtime, options);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
@@ -1179,6 +1324,164 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
+  server.registerTool("headless.project.create", {
+    description: "Create and persist a Framekit-owned canonical project without contacting Final Cut Pro.",
+    inputSchema: { timeline: z.unknown() },
+  }, async ({ timeline }) => sessionResult(async () => requireHeadlessProjects().create(timeline as TimelineIr)));
+
+  server.registerTool("headless.project.list", {
+    description: "List persisted Framekit-owned projects and their stable canonical revisions.",
+    inputSchema: {},
+  }, async () => sessionResult(() => requireHeadlessProjects().list()));
+
+  server.registerTool("headless.project.open", {
+    description: "Open a persisted Framekit-owned project and fail closed if registered media changed or is missing.",
+    inputSchema: { projectId: z.string().min(1) },
+  }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().open(projectId)));
+
+  server.registerTool("headless.project.inspect", {
+    description: "Inspect the current persisted Framekit Timeline IR and exact revision.",
+    inputSchema: { projectId: z.string().min(1) },
+  }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().inspect(projectId)));
+
+  server.registerTool("headless.media.register", {
+    description: "Register one local source file in the canonical Framekit project with digest and ffprobe metadata.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sourcePath: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+    },
+  }, async ({ projectId, sourcePath, expectedRevision }) => sessionResult(() => requireHeadlessProjects().registerMedia(projectId, sourcePath, expectedRevision)));
+
+  server.registerTool("headless.edit.preview", {
+    description: "Preview supported Framekit Timeline IR edits without persisting or mutating the project.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().previewEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  server.registerTool("headless.edit.execute", {
+    description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().executeEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  const headlessRenderParametersSchema = z.object({
+    outputPath: z.string().min(1),
+    format: z.enum(["mp4", "mov"]),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    frameRate: rationalTimeSchema,
+    overwrite: z.boolean().optional(),
+  }).strict();
+
+  const roughCutExecutionPlanSchema = z.object({
+    planner: z.object({ id: z.string().min(1), version: z.number().int().nonnegative() }).strict(),
+    revision: revisionValueSchema,
+    query: z.record(z.unknown()),
+    shots: z.array(z.object({
+      order: z.number().int().positive(),
+      sourceIdentity: z.object({
+        mediaId: z.string().min(1),
+        source: z.string().min(1),
+        sourceDigest: z.string().optional(),
+        mediaKind: z.enum(["video", "audio"]).optional(),
+        duration: z.number().finite().positive().optional(),
+      }).strict(),
+      range: z.object({
+        start: z.number().finite().nonnegative(),
+        end: z.number().finite().positive(),
+        startTime: rationalTimeSchema.optional(),
+        durationTime: rationalTimeSchema.optional(),
+      }).strict(),
+      confidence: z.number().finite().nonnegative(),
+      matchedProperties: z.array(z.string()),
+      rationale: z.string().min(1),
+      evidence: z.object({
+        kind: z.literal("speech"),
+        transcript: z.string(),
+        wordCount: z.number().int().nonnegative(),
+        averageWordConfidence: z.number().finite().min(0).max(1),
+        vad: z.object({
+          kind: z.enum(["speech", "silence", "breath", "laughter", "noise"]),
+          confidence: z.number().finite().min(0).max(1).optional(),
+        }).strict().optional(),
+        audio: z.object({
+          integratedLufs: z.number().finite().optional(),
+          truePeakDb: z.number().finite().optional(),
+          silenceMs: z.number().finite().nonnegative().optional(),
+        }).strict().optional(),
+      }).strict().optional(),
+    }).strict()),
+    warnings: z.array(z.string()),
+  }).strict();
+  const headlessFcpxmlTargetSchema = z.object({
+    provider: z.literal("final-cut"),
+    libraryUid: z.string().min(1),
+    eventUid: z.string().min(1),
+    projectUid: z.string().min(1),
+    sequenceUid: z.string().min(1),
+    eventName: z.string().min(1).optional(),
+    materialization: z.enum(["versioned", "reuse-existing"]).optional(),
+  }).strict();
+  const headlessRoughCutRequestSchema = z.object({
+    projectId: z.string().min(1),
+    sequenceId: z.string().min(1),
+    plan: roughCutExecutionPlanSchema,
+    operations: z.array(z.unknown()).optional().describe("Ordered Timeline IR edit operations included in the preview and bound into planDigest."),
+    sourceAudioPolicy: z.literal("preserve-and-mix").optional().describe("Retain source audio and mix registered audio/music occurrences using their configured gain."),
+    render: headlessRenderParametersSchema,
+    fcpxml: z.object({
+      path: z.string().min(1),
+      target: headlessFcpxmlTargetSchema,
+      overwrite: z.boolean().optional(),
+    }).strict(),
+  }).strict();
+
+  server.registerTool("headless.render", {
+    description: "Render and independently verify one immutable Framekit revision without launching an NLE.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema.optional(),
+      parameters: headlessRenderParametersSchema,
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
+
+  server.registerTool("headless.rough-cut.preview", {
+    description: "Preview a semantic rough-cut plan with optional Timeline IR operations; the digest binds both, and preview returns provenance and FCPXML output intent without mutation.",
+    inputSchema: headlessRoughCutRequestSchema.shape,
+  }, async (request) => sessionResult(() => requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest)));
+
+  server.registerTool("headless.rough-cut.execute", {
+    description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and write equivalent editable FCPXML.",
+    inputSchema: {
+      ...headlessRoughCutRequestSchema.shape,
+      approved: z.boolean(),
+      planDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    },
+  }, async (request) => sessionResult(() => requireHeadlessProjects().executeRoughCut(request as unknown as HeadlessRoughCutExecutionRequest)));
+
+  server.registerTool("headless.render.inspect", {
+    description: "Inspect a persisted headless render record, provenance, and independent verification evidence.",
+    inputSchema: { renderId: z.string().min(1) },
+  }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().inspectRender(renderId)));
+
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable capabilities before selecting an editing path.",
   }, async () => {
@@ -1208,7 +1511,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   })));
 
   server.registerTool("editing.route", {
-    description: "Resolve an editor-first path after capability checks; never bypass a connected editor, and require explicit external fallback selection.",
+    description: "Resolve the default headless SSoT path or an explicitly requested headed path after capability checks; never fall back to native UI implicitly, and require explicit external-renderer fallback selection.",
     inputSchema: {
       operation: z.enum([
         "project.list",
@@ -1225,10 +1528,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         "timeline.export",
       ]),
       fallback: z.enum(["none", "external-renderer"]).optional().default("none"),
+      path: z.enum(["headless", "headed"]).optional(),
+      editType: z.enum(EDITING_ROUTE_EDIT_TYPES).optional(),
     },
-  }, async ({ operation, fallback }) => {
-    const context = await editingRouteContext(runtime, options);
-    return jsonResult(resolveEditingRoute({ operation, fallback }, context));
+  }, async ({ operation, fallback, path, editType }) => {
+    const headlessOnly = fallback === "none"
+      && (path === "headless" || (Boolean(options.headlessProjects) && operation === "timeline.edit" && path !== "headed"));
+    const context = headlessOnly
+      ? { connection: { state: "disconnected" }, ...headlessRoutingContext(options) } as EditorRoutingContext
+      : await editingRouteContext(runtime, options);
+    return jsonResult(resolveEditingRoute({
+      operation,
+      fallback,
+      ...(path ? { path } : {}),
+      ...(editType ? { editType } : {}),
+    }, context));
   });
 
   server.registerTool("editing.duration.plan", {
@@ -1324,7 +1638,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: nativeOperationSessionJobSchema,
   }, async ({ jobId }) => {
     if (!options.nativeOperationSession) throw new Error("CAPABILITY_UNAVAILABLE: native operation session is not configured");
-    return jsonResult(options.nativeOperationSession.status(jobId));
+    return jsonResult(await options.nativeOperationSession.status(jobId));
   });
 
   server.registerTool("editor.native.operation.retry", {
@@ -1438,10 +1752,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("editor.native.media.search", {
-    description: "Search the active Final Cut Browser for live media and return short-lived media handles.",
+    description: "Search the active Final Cut Browser by literal text and return short-lived media handles; wildcard operators are unsupported.",
     inputSchema: { query: z.string().min(1) },
   }, async ({ query }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media search is not configured");
+    const queryError = nativeMediaSearchQueryError(query);
+    if (queryError) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: JSON.stringify(queryError) }],
+      };
+    }
     return jsonResult(await options.nativeEditor.searchMedia(query, { signal: extra.signal }));
   });
 
@@ -1566,37 +1887,59 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.preview", {
-    description: "Prepare a headed-only publish handoff for a verified FCPXML artifact without opening Final Cut.",
+    description: "Prepare an experimental, opt-in native handoff from a verified artifact without opening Final Cut.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
-      transactionId: z.string().min(1),
+      targetLibraryPath: z.string().trim().min(1),
+      transactionId: z.string().min(1).optional(),
+      headlessExecutionId: z.string().min(1).optional(),
     },
-  }, async ({ artifactPath, transactionId }) => {
+  }, async ({ artifactPath, targetLibraryPath, transactionId, headlessExecutionId }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    const transaction = runtime.getTransaction(transactionId);
-    if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
-      throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+    if (Boolean(transactionId) === Boolean(headlessExecutionId)) {
+      throw new Error("PUBLISH_SOURCE_REQUIRED: provide exactly one of transactionId or headlessExecutionId");
     }
-    if (!transaction.artifactDigest) {
-      throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+    let sourceTransactionId: string;
+    let artifactDigest: string;
+    let sourceProof: Awaited<ReturnType<HeadlessProjectWorkflow["verifyPublishableRoughCut"]>> | undefined;
+    if (headlessExecutionId) {
+      sourceProof = await requireHeadlessProjects().verifyPublishableRoughCut(headlessExecutionId, artifactPath);
+      sourceTransactionId = sourceProof.sourceTransactionId;
+      artifactDigest = sourceProof.artifactDigest;
+    } else {
+      const transaction = runtime.getTransaction(transactionId!);
+      if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
+        throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
+      }
+      if (!transaction.artifactDigest) {
+        throw new Error(`PUBLISH_SOURCE_CHANGED: transaction ${transactionId} has no immutable artifact digest`);
+      }
+      const verification = await runtime.verifyTransaction(transactionId!);
+      if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
+      sourceTransactionId = transactionId!;
+      artifactDigest = transaction.artifactDigest;
     }
-    const verification = await runtime.verifyTransaction(transactionId);
-    if (!verification.passed) throw new Error(`FINAL_CUT_PUBLISH_VALIDATION_FAILED: source transaction ${transactionId} did not pass verification`);
-    return jsonResult(await options.projectPublisher.preparePublish({
-      sourceTransactionId: transactionId,
+
+    const job = await options.projectPublisher.preparePublish({
+      sourceTransactionId,
       artifactPath,
-      artifactDigest: transaction.artifactDigest,
-    }));
+      artifactDigest,
+      targetLibraryPath,
+    });
+    return jsonResult({ ...job, ...(sourceProof ? { sourceProof } : {}) });
   });
 
   server.registerTool("artifact.publish.execute", {
-    description: "Execute a prepared artifact publish job after explicit confirmation and return only a verified or resumable state.",
+    description: "Execute an experimental native handoff after explicit confirmation; dispatch alone is not project-creation proof, and success requires target readback.",
     inputSchema: {
       jobId: z.string().trim().min(1),
       confirm: z.literal(true),
     },
   }, async ({ jobId, confirm }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
+      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    }
     return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm));
   });
 
@@ -1609,10 +1952,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish", {
-    description: "Import the validated FCPXML artifact as a new Final Cut project without replacing the active project; requires explicit confirmation.",
+    description: "Experimental, opt-in native import of validated FCPXML. Dispatch alone does not prove project creation; success requires matching created-target readback and explicit confirmation.",
     inputSchema: artifactPublishInputSchema,
-  }, async ({ artifactPath, transactionId, confirm }) => {
-    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+  }, async ({ artifactPath, targetLibraryPath, transactionId, confirm }) => {
+    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
+      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
       throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for artifact ${artifactPath}`);
@@ -1626,15 +1972,23 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sourceTransactionId: transactionId,
       artifactPath,
       artifactDigest: transaction.artifactDigest,
+      targetLibraryPath,
       confirm,
     }));
   });
 
   server.registerTool("timeline.publish.new-project", {
-    description: "Legacy alias for publishing a verified artifact transaction as a new Final Cut project.",
-    inputSchema: { transactionId: z.string().min(1) },
-  }, async ({ transactionId }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
+    description: "Experimental, opt-in native import of a verified artifact transaction; reports verified delivery only after matching created-target readback and explicit confirmation.",
+    inputSchema: {
+      transactionId: z.string().min(1),
+      targetLibraryPath: z.string().trim().min(1),
+      confirm: z.literal(true),
+    },
+  }, async ({ transactionId, targetLibraryPath, confirm }) => {
+    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
+      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact") {
       throw new Error(`PUBLISH_TARGET_MISMATCH: transaction ${transactionId} is not verified for a managed artifact`);
@@ -1648,7 +2002,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sourceTransactionId: transactionId,
       artifactPath: transaction.target.artifactPath,
       artifactDigest: transaction.artifactDigest,
-      confirm: true,
+      targetLibraryPath,
+      confirm,
     }));
   });
 
@@ -1763,8 +2118,27 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, waitMs ?? 0)));
 
   server.registerTool("timeline.inspect", {
-    description: "Read the current canonical timeline snapshot after canonical capability checks.",
-  }, async () => {
+    description: "Read a bound session baseline or perform an explicit canonical timeline resync after canonical capability checks.",
+    inputSchema: timelineReadbackSchema,
+  }, async ({ sessionId, requestedCanonical, finalVerification }) => {
+    if (sessionId) {
+      const { stored, decision } = await prepareSessionReadback(sessionId, requestedCanonical, finalVerification);
+      if (decision.route === "session" || decision.route === "fast-observation") {
+        return jsonResult({
+          sessionId,
+          readback: decision,
+          session: stored.document,
+          timeline: stored.document.base,
+        });
+      }
+      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
+      return jsonResult({
+        sessionId,
+        readback: decision,
+        snapshot: resynced.snapshot.timeline,
+        session: resynced.session,
+      });
+    }
     const inspected = await inspectMcpEditor(runtime, options);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
@@ -1772,6 +2146,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
     try {
       return jsonResult(await runtime.inspectTimeline());
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
+    }
+  });
+
+  server.registerTool("timeline.semantic.inspect", {
+    description: "Enrich timeline occurrences with source-range-bound semantic speech, visual, and metadata context without mutating the timeline.",
+    inputSchema: timelineSemanticContextQuerySchema.shape,
+  }, async (query) => {
+    const inspected = await inspectMcpEditor(runtime, options);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) {
+      return capabilityErrorResult("timeline.semantic.inspect", "canonicalDocument.read", capability);
+    }
+    try {
+      return jsonResult(await runtime.inspectTimelineSemanticContext(query));
     } catch (error) {
       return capabilityUnavailableErrorResult(error);
     }
@@ -1820,14 +2210,27 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
 
   server.registerTool("media.understand", {
-    description: "Return combined speech, audio, and visual understanding for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.understandMedia(mediaId)));
+    description: "Return combined speech, audio, and visual understanding for one media item in the selected editor project or a named headless project.",
+    inputSchema: { mediaId: z.string().min(1), projectId: z.string().min(1).optional() },
+  }, async ({ mediaId, projectId }) => {
+    if (!projectId) return jsonResult(await runtime.understandMedia(mediaId));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("rough-cut.plan", {
-    description: "Create a deterministic, explainable, read-only shot plan from analyzed media; does not mutate the timeline.",
+    description: "Create a deterministic, explainable, read-only shot plan from analyzed editor or named headless project media; does not mutate the timeline.",
     inputSchema: roughCutPlanSchema.shape,
-  }, async (request) => jsonResult(await runtime.planRoughCut(request)));
+  }, async (request) => {
+    const { projectId, ...planRequest } = request;
+    if (!projectId) return jsonResult(await runtime.planRoughCut(planRequest));
+    return sessionResult(async () => {
+      const project = await requireHeadlessProjects().open(projectId);
+      return runtime.planRoughCutInProject(planRequest, projectSnapshotFromTimelineIr(project.timeline));
+    });
+  });
 
   server.registerTool("editor.assets", {
     description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
@@ -1873,8 +2276,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Apply one supported edit after editing.route confirms the required capabilities; return read-after-write plus its diff.",
     inputSchema: editToolInputSchema,
   }, async (input) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
-    return jsonResult(await runtime.edit(editOperationSchema.parse(input), input.verification ?? {}));
+    const { path, verification, ...operation } = input;
+    const parsedOperation = editOperationSchema.parse(operation);
+    await requireEditingRoute(runtime, options, "timeline.edit", path, parsedOperation.type);
+    return jsonResult(await runtime.edit(parsedOperation, verification ?? {}));
   });
 
   server.registerTool("rough-cut.construction.plan", {
@@ -1901,11 +2306,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
     inputSchema: editorTimelineEditToolInputSchema,
   }, async (input) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
-    const { projectId, sequenceId, verification, ...operation } = input;
+    const { path, projectId, sequenceId, verification, ...operation } = input;
+    const parsedOperation = editOperationSchema.parse(operation);
+    await requireEditingRoute(runtime, options, "timeline.edit", path, parsedOperation.type);
     return jsonResult(await runtime.editTimeline(
       { projectId, sequenceId },
-      editOperationSchema.parse(operation),
+      parsedOperation,
       verification ?? {},
     ));
   });
@@ -1931,10 +2337,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
+      path: editingPathSchema,
     },
   }, async (request) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
-    return jsonResult(await runtime.previewEdit(request));
+    const { path, ...editRequest } = request;
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
+    return jsonResult(await runtime.previewEdit(editRequest));
   });
 
   server.registerTool("timeline.mask.add.preview", {
@@ -1976,9 +2384,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       baseRevision: revisionValueSchema,
       operations: workflowOperationsSchema,
       verification: verificationPolicySchema.optional(),
+      path: editingPathSchema,
     },
-  }, async ({ projectId, sequenceId, baseRevision, operations, verification }) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
+  }, async ({ projectId, sequenceId, baseRevision, operations, verification, path }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
     return jsonResult(await runtime.previewTimelineEdit(
       { projectId, sequenceId },
       { baseRevision, operations, ...(verification ? { verification } : {}) },
@@ -2025,17 +2434,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.timeline.edit.execute", {
     description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
-    inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
+    inputSchema: { previewToken: z.string().min(1), path: editingPathSchema },
+  }, async ({ previewToken, path }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
   server.registerTool("timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
-    inputSchema: { previewToken: z.string().min(1) },
-  }, async ({ previewToken }) => {
-    await requireEditingRoute(runtime, options, "timeline.edit");
+    inputSchema: { previewToken: z.string().min(1), path: editingPathSchema },
+  }, async ({ previewToken, path }) => {
+    await requireEditingRoute(runtime, options, "timeline.edit", path);
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
@@ -2063,9 +2472,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => jsonResult(await runtime.executeFillerRemoval(previewToken)));
 
   server.registerTool("audio.analyze", {
-    description: "Analyze loudness, true peak, and silence for one media item.",
-    inputSchema: { mediaId: z.string().min(1) },
-  }, async ({ mediaId }) => jsonResult(await runtime.analyzeAudio(mediaId)));
+    description: "Analyze loudness, true peak, and silence for one media item or source range.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
+  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeAudio(mediaId, range)));
 
   server.registerTool("audio.noise.analyze", {
     description: "Analyze unwanted background noise for one media item when a noise analyzer is configured.",
@@ -2269,7 +2678,7 @@ async function effectiveConnectionStatus(
       ...status,
       state: "unavailable",
       lastError: {
-        code: "CAPABILITY_UNAVAILABLE",
+        code: message.match(/\bFRAMEKIT_[A-Z_]+\b/)?.[0] ?? "CAPABILITY_UNAVAILABLE",
         message: `effective runtime capability inspection failed: ${message}`,
       },
       identity: undefined,
@@ -2281,10 +2690,30 @@ async function effectiveConnectionStatus(
 
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
   const inspected = await runtime.inspectEditor();
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  const buildAlignment = assessBuildAlignment(
+    fingerprint,
+    inspected.identity.buildFingerprint,
+    options.validationCommit,
+  );
+  if (options.requireBuildAlignment && buildAlignment.status !== "matched") {
+    throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${buildAlignment.message}`);
+  }
   const native = options.nativeEditor?.capabilities();
-  const publishingAvailable = Boolean(options.projectPublisher && (
+  const processMode = options.processMode ?? (native ? "headed" : "headless");
+  const configuredPublisher = Boolean(options.projectPublisher && (
     typeof options.projectPublisher.isAvailable !== "function" || options.projectPublisher.isAvailable()
   ));
+  const publisherExecutionMode = configuredPublisher
+    ? (typeof options.projectPublisher?.executionMode === "function"
+      ? options.projectPublisher.executionMode()
+      : "headed-only")
+    : "unavailable";
+  const publishingAvailable = configuredPublisher && (
+    publisherExecutionMode === "background-capable"
+    || processMode === "headed"
+  );
+  const publishingMode = publishingAvailable ? publisherExecutionMode : "unavailable";
   const exportAvailable = Boolean(options.videoExporter?.isAvailable());
   const backgroundExportAvailable = Boolean(options.backgroundRenderer?.isAvailable());
   const capabilities = withCapabilityFamilies({
@@ -2292,7 +2721,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     editor: {
       ...inspected.capabilities.editor,
       artifactPublish: publishingAvailable,
-      artifactPublishMode: publishingAvailable ? "headed-only" : "unavailable",
+      artifactPublishMode: publishingMode,
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
       backgroundRender: backgroundExportAvailable,
@@ -2326,7 +2755,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       clipMovement: false,
     },
     publishing: publishingAvailable,
-    publishingBackend: "fcpxml-publisher",
+    publishingBackend: publishingMode === "background-capable" ? "fcpxml-document-open" : "fcpxml-publisher",
     export: exportAvailable,
     exportBackend: "final-cut-native-export",
     backgroundExport: {
@@ -2357,13 +2786,161 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     },
     preflight: {
       ...createCapabilityPreflight(inspected.identity, capabilities, {
-        processMode: options.processMode ?? (native ? "headed" : "headless"),
+        processMode,
         nativeWrite: Boolean(native?.selectionEdit),
       }),
-      fingerprint: options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT,
+      fingerprint,
+      buildAlignment,
+      nativeHandoffReadiness: createNativeHandoffReadiness(options.projectPublisher, buildAlignment),
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
+}
+
+async function inspectNativeHandoffReadiness(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+  publishJobId?: string,
+): Promise<NativeHandoffReadiness> {
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  let extensionFingerprint: FramekitBuildFingerprint | undefined;
+  try {
+    extensionFingerprint = (await runtime.inspectEditor()).identity.buildFingerprint;
+  } catch {
+    const status = await connectionStatus(options).catch(() => undefined);
+    extensionFingerprint = status?.identity?.buildFingerprint;
+  }
+  const buildAlignment = assessBuildAlignment(
+    fingerprint,
+    extensionFingerprint,
+    options.validationCommit,
+  );
+  return createNativeHandoffReadiness(options.projectPublisher, buildAlignment, publishJobId);
+}
+
+function createNativeHandoffReadiness(
+  publisher: FinalCutProjectPublisher | undefined,
+  buildAlignment: BuildAlignmentReport,
+  publishJobId?: string,
+): NativeHandoffReadiness {
+  const publisherReadiness = inspectProjectPublisherReadiness(publisher);
+  const reasons = [...publisherReadiness.reasons];
+  if (buildAlignment.status !== "matched") {
+    reasons.push({
+      code: buildAlignment.status === "mismatched"
+        ? "FRAMEKIT_BUILD_ALIGNMENT_MISMATCH"
+        : "FRAMEKIT_BUILD_ALIGNMENT_MISSING",
+      message: `Workflow Extension build alignment is ${buildAlignment.status}: ${buildAlignment.message}`,
+    });
+  }
+
+  let publish: NativeHandoffReadiness["publish"];
+  let verifiedTarget: NativeHandoffReadiness["createdTarget"];
+  if (publishJobId) {
+    if (!publisher || typeof publisher.getPublishJob !== "function") {
+      reasons.push({
+        code: "FINAL_CUT_PUBLISH_JOB_UNAVAILABLE",
+        message: `Publish job ${publishJobId} cannot be inspected because the publisher is unavailable`,
+      });
+    } else {
+      try {
+        const job = publisher.getPublishJob(publishJobId);
+        publish = { jobId: job.jobId, state: job.state };
+        const resultTarget = job.result?.createdTarget;
+        const targetMatches = job.createdTarget
+          && resultTarget
+          && job.createdTarget.projectId === resultTarget.projectId
+          && job.createdTarget.sequenceId === resultTarget.sequenceId;
+        if (job.state === "verified" && job.result?.verified === true && targetMatches) {
+          verifiedTarget = resultTarget;
+        } else {
+          reasons.push({
+            code: "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED",
+            message: job.error?.message
+              ? `Publish job ${job.jobId} is ${job.state}; native project and sequence IDs remain withheld: ${job.error.message}`
+              : `Publish job ${job.jobId} is ${job.state}; native project and sequence IDs are reported only after native readback verifies them`,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reasons.push({
+          code: "FINAL_CUT_PUBLISH_JOB_UNAVAILABLE",
+          message: `Publish job ${publishJobId} could not be inspected: ${message}`,
+        });
+      }
+    }
+  }
+
+  const ready = reasons.length === 0;
+  return {
+    status: ready ? (publishJobId ? "verified" : "ready") : "blocked",
+    reasons,
+    targetBinding: {
+      available: publisherReadiness.targetBindingAvailable,
+      guarantee: publisherReadiness.targetBindingAvailable ? "native-readback" : "none",
+    },
+    buildAlignment,
+    ...(publish ? { publish } : {}),
+    ...(ready && verifiedTarget ? { createdTarget: verifiedTarget } : {}),
+  };
+}
+
+function inspectProjectPublisherReadiness(
+  publisher: FinalCutProjectPublisher | undefined,
+): FinalCutProjectPublishReadiness {
+  if (!publisher) {
+    return {
+      available: false,
+      targetBindingAvailable: false,
+      reasons: [{
+        code: "FINAL_CUT_PUBLISH_PROVIDER_UNAVAILABLE",
+        message: "No Final Cut project publisher is configured",
+      }],
+    };
+  }
+  if (typeof publisher.inspectReadiness === "function") return publisher.inspectReadiness();
+
+  // Keep older injected publisher implementations fail-closed but inspectable.
+  const available = typeof publisher.isAvailable === "function" && publisher.isAvailable();
+  return {
+    available,
+    targetBindingAvailable: available,
+    reasons: available ? [] : [{
+      code: "FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE",
+      message: "Native publisher readiness or target-binding provider is unavailable",
+    }],
+  };
+}
+
+async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options: McpServerOptions): Promise<void> {
+  const inspected = await runtime.inspectEditor();
+  const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
+  const alignment = assessBuildAlignment(
+    fingerprint,
+    inspected.identity.buildFingerprint,
+    options.validationCommit,
+  );
+  if (alignment.status !== "matched") {
+    throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
+  }
+}
+
+function withBuildAlignmentGuard<T extends object>(
+  provider: T,
+  assertAlignment: () => Promise<void>,
+  synchronousMethods: readonly PropertyKey[] = [],
+): T {
+  const synchronous = new Set(synchronousMethods);
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function" || synchronous.has(property)) return value;
+      return async (...args: unknown[]) => {
+        await assertAlignment();
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
 }
 
 function requireArtifactTransaction(
@@ -2383,11 +2960,24 @@ async function requireEditingRoute(
   runtime: AgentVideoRuntime,
   options: McpServerOptions,
   operation: EditingRouteOperation,
+  path?: "headless" | "headed",
+  editType?: EditingRouteEditType,
 ): Promise<void> {
-  const route = resolveEditingRoute({ operation }, await editingRouteContext(runtime, options));
+  const route = resolveEditingRoute({
+    operation,
+    ...(path ? { path } : {}),
+    ...(editType ? { editType } : {}),
+  }, await editingRouteContext(runtime, options));
+  if (route.status === "headless-selected") {
+    throw new Error("HEADLESS_ROUTE_SELECTED: use the headless.project and headless.edit tools for the default Framekit SSoT path");
+  }
   if (route.status !== "editor-selected") {
     throw new Error(`${route.reason.code}: ${route.reason.message}`);
   }
+}
+
+function requiresHeadedPublishingRoute(publisher: FinalCutProjectPublisher): boolean {
+  return publisher.executionMode() !== "background-capable";
 }
 
 async function editingRouteContext(
@@ -2412,7 +3002,20 @@ async function editingRouteContext(
   return {
     connection,
     ...(editor ? { editor } : {}),
+    ...headlessRoutingContext(options),
     ...(options.nativeEditor ? { native: { ...options.nativeEditor.capabilities() } } : {}),
     ...(nativeReadiness ? { nativeReadiness } : {}),
   };
+}
+
+function headlessRoutingContext(options: McpServerOptions): Pick<EditorRoutingContext, "headless"> {
+  return options.headlessProjects ? {
+    headless: {
+      available: true,
+      backend: "framekit-project-store",
+      guarantee: "canonical-write",
+      // The legacy timeline.edit surface also includes unsupported operations.
+      supportedOperations: HEADLESS_TIMELINE_EDIT_TYPES.map((editType) => `timeline.edit:${editType}`),
+    },
+  } : {};
 }

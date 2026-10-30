@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -71,6 +71,103 @@ test("Framekit plugin guidance preserves live capability and safety boundaries",
   assert.match(skill, /not prerequisites?\s+for headless read-only access/i);
 });
 
+test("Framekit Skill links to an installable production runbook", async () => {
+  const pluginRoot = resolve(repository, "plugins/framekit");
+  const skillPath = resolve(pluginRoot, "skills/framekit/SKILL.md");
+  const skill = await readFile(skillPath, "utf8");
+  const runbookLink = skill.match(/\[Codex video production runbook\]\(([^)]+)\)/);
+  assert.ok(runbookLink, "the Skill must link to its production runbook");
+
+  const runbookPath = resolve(dirname(skillPath), runbookLink[1]!);
+  const runbookFromPlugin = relative(pluginRoot, runbookPath);
+  assert.ok(
+    runbookFromPlugin && runbookFromPlugin !== ".." && !runbookFromPlugin.startsWith(`..${sep}`),
+    "the production runbook must ship inside the installed plugin",
+  );
+
+  const packagedRunbook = await readFile(runbookPath, "utf8");
+  assert.match(packagedRunbook, /docs\/getting-started\.md/);
+});
+
+test("Framekit plugin exposes a headless video workflow and separately authorized native delivery", async () => {
+  const manifest = await readJson("plugins/framekit/.codex-plugin/plugin.json") as {
+    interface?: { shortDescription?: string; longDescription?: string; defaultPrompt?: string[] };
+  };
+  assert.match(manifest.interface?.shortDescription ?? "", /video production/i);
+  assert.match(manifest.interface?.longDescription ?? "", /headless media analysis/i);
+  assert.ok(manifest.interface?.defaultPrompt?.some((prompt) => /rough cut from local media/i.test(prompt)));
+
+  const skill = await readFile(resolve(repository, "plugins/framekit/skills/framekit/SKILL.md"), "utf8");
+  for (const expected of [
+    "headless video production",
+    "projectId",
+    "media.understand",
+    "rough-cut.plan",
+    "matches individual query terms",
+    "every intended source appears",
+    "headless.rough-cut.preview",
+    "headless.rough-cut.execute",
+    "artifact.publish.preview",
+    "artifact.publish.execute",
+    "headlessExecutionId",
+    "targetLibraryPath",
+    "explicit user authorization",
+    "CAPABILITY_UNAVAILABLE",
+    "codex-video-production-e2e.md",
+  ]) {
+    assert.ok(skill.toLowerCase().includes(expected.toLowerCase()), `skill includes ${expected}`);
+  }
+
+  const runbook = await readFile(resolve(repository, "plugins/framekit/references/tests/codex-video-production-e2e.md"), "utf8");
+  for (const expected of [
+    "FRAMEKIT_SPEECH_ANALYZER",
+    "Codex",
+    "artifact.publish.status",
+    "headlessExecutionId",
+    "targetLibraryPath",
+    "expectedRevision",
+    "replace it with the revision returned",
+    "pending",
+    "Final Cut",
+    "B-A-C",
+    "FrameKit MVP Test",
+    "preserve-and-mix",
+    "0-6",
+    "0-30",
+    "-12 dB",
+    "rejected approval",
+    "stale revision",
+    "interrupted handoff",
+  ]) {
+    assert.ok(runbook.toLowerCase().includes(expected.toLowerCase()), `runbook includes ${expected}`);
+  }
+  assert.doesNotMatch(runbook, /FRAMEKIT_FINAL_CUT_LIBRARY_UID/);
+});
+
+test("Codex video handoff records artifact-only and native follow-up provenance", async () => {
+  const runbook = await readFile(resolve(repository, "plugins/framekit/references/tests/codex-video-production-e2e.md"), "utf8");
+  const evidenceSection = runbook.match(/## Record the run([\s\S]*?)(?:\n## |$)/)?.[1] ?? "";
+  const normalizedEvidenceSection = evidenceSection.replace(/\s+/g, " ").toLowerCase();
+
+  for (const expected of [
+    "canonical revision",
+    "source-media SHA-256",
+    "MP4 and FCPXML SHA-256",
+    "headless preview digest",
+    "native publish preview",
+    "Workflow Extension version and fingerprint",
+    "sanitized Codex/MCP transcript",
+    "approval records",
+    "created-target readback",
+    "active-project before/after",
+    "recovery evidence",
+    "#597",
+    "#599",
+  ]) {
+    assert.ok(normalizedEvidenceSection.includes(expected.toLowerCase()), `evidence section includes ${expected}`);
+  }
+});
+
 test("CI runs the clean Codex plugin installation smoke test", async () => {
   const packageManifest = await readJson("package.json") as { scripts?: Record<string, string> };
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
@@ -91,13 +188,13 @@ test("CI runs the clean Codex plugin installation smoke test", async () => {
 test("user documentation leads with plugin installation and explains first-run boundaries", async () => {
   const readme = await readFile(resolve(repository, "README.md"), "utf8");
   const gettingStarted = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
-  const installation = await readFile(resolve(repository, "docs/final-cut/installation.md"), "utf8");
+  const installation = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
 
   for (const content of [readme, gettingStarted]) {
     assert.match(content, /codex plugin marketplace add morshoto\/framekit/);
     assert.match(content, /\/plugins/);
     assert.match(content, /new\s+Codex session/i);
-    assert.doesNotMatch(content, /codex mcp add framekit/);
+    assert.doesNotMatch(content, /codex mcp add framekit\s+--env/);
   }
 
   for (const expected of [
@@ -111,8 +208,8 @@ test("user documentation leads with plugin installation and explains first-run b
     assert.match(installation, new RegExp(expected.replace(".", "\\."), "i"));
   }
   assert.match(installation, /npx -y @morshoto\/framekit doctor finalcut/);
-  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready\s+live session may expose metadata while rejecting unsupported operations/i);
-  assert.match(gettingStarted, /permissions are required only for an explicit\s+headed native-write setup/i);
+  assert.match(installation, /`CAPABILITY_UNAVAILABLE` is an operation-level diagnostic[\s\S]*ready\s+live session\s+may expose metadata while rejecting unsupported operations/i);
+  assert.match(gettingStarted, /permissions are required only for an explicit\s+headed\s+native-write setup/i);
 });
 
 test("tagpr releases publish the package consumed by the plugin", async () => {

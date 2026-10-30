@@ -29,7 +29,7 @@ jobs:
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -43,6 +43,12 @@ jobs:
       - name: Package boundary checks
         run: pnpm run check:boundaries
 
+      - name: Script references and package entrypoints
+        run: pnpm run check:scripts
+
+      - name: Documentation structure and links
+        run: pnpm run check:docs
+
   test:
     name: Unit / integration tests
     runs-on: ubuntu-latest
@@ -54,7 +60,7 @@ jobs:
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -62,11 +68,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install FFmpeg fixture toolchain
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
+
       - name: Validate clean Codex plugin installation
         run: pnpm run test:codex-plugin
 
       - name: Run unit and integration tests
+        env:
+          FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR: artifacts/headless-release-gate/${{ github.run_id }}
+          FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: pnpm run test
+
+      - name: Upload v0.1.15 headless release-gate evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: headless-release-gate-${{ github.run_id }}
+          path: artifacts/headless-release-gate/${{ github.run_id }}
+          if-no-files-found: warn
 
       - name: Run Basic Final Cut Editing MVP gate
         if: ${{ always() }}
@@ -80,7 +100,7 @@ jobs:
 
       - name: Upload filler-removal benchmark evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: filler-removal-benchmark-${{ github.run_id }}
           path: artifacts/filler-removal/${{ github.run_id }}
@@ -91,7 +111,7 @@ jobs:
 
       - name: Upload release gate evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-gate-${{ github.run_id }}
           path: artifacts/release-gate/${{ github.run_id }}

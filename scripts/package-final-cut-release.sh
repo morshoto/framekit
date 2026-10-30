@@ -17,7 +17,7 @@ FRAMEKIT_CODESIGN_REQUIRED=YES \
 codesign --verify --deep --strict "$product"
 mkdir -p "$output_dir"
 ditto -c -k --sequesterRsrc --keepParent "$product" "$output_dir/$archive_name"
-shasum -a 256 "$output_dir/$archive_name" > "$output_dir/$archive_name.sha256"
+(cd "$output_dir" && shasum -a 256 "$archive_name" > "$archive_name.sha256")
 
 if [[ -n "${FRAMEKIT_NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$output_dir/$archive_name" \
@@ -26,7 +26,7 @@ if [[ -n "${FRAMEKIT_NOTARY_PROFILE:-}" ]]; then
   xcrun stapler staple "$product"
   codesign --verify --deep --strict "$product"
   ditto -c -k --sequesterRsrc --keepParent "$product" "$output_dir/$archive_name"
-  shasum -a 256 "$output_dir/$archive_name" > "$output_dir/$archive_name.sha256"
+  (cd "$output_dir" && shasum -a 256 "$archive_name" > "$archive_name.sha256")
 fi
 
 echo "Release artifact: $output_dir/$archive_name"

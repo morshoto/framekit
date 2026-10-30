@@ -130,6 +130,44 @@ test("headless connection probes an existing bridge without launching or activat
   assert.deepEqual(events, []);
 });
 
+test("background reconnect never relaunches Final Cut after an explicit quit", async () => {
+  const events: string[] = [];
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    pollIntervalMs: 1,
+    startupTimeoutMs: 10,
+    detectFinalCut: async () => false,
+    launchFinalCut: async () => { events.push("launch"); },
+    probe: async () => { throw new Error("socket missing"); },
+    sleep: async () => {},
+  });
+
+  manager.startAutoConnect();
+  const status = await manager.ensureConnected({ allowEditorLaunch: false });
+  manager.stopAutoConnect();
+
+  assert.deepEqual(events, []);
+  assert.equal(status.lastError?.code, "FINAL_CUT_AUTO_LAUNCH_SUPPRESSED");
+});
+
+test("explicit connection requests may still launch Final Cut", async () => {
+  let detected = false;
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    detectFinalCut: async () => detected,
+    launchFinalCut: async () => { detected = true; },
+    probe: async () => ({
+      identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+      capabilities,
+    }),
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.editorDetected, true);
+});
+
 test("headless ready status preserves the checked extension installation state", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-headless-ready-extension-test-"));
   const manager = new FinalCutConnectionManager({
@@ -400,6 +438,96 @@ test("explicit connection restarts Final Cut after replacing the extension", asy
   const status = await manager.ensureConnected();
   assert.equal(status.state, "ready");
   assert.deepEqual(events, ["install", "register", "restart", "launch-extension", "activate"]);
+});
+
+test("development connection replaces an already responding extension before accepting its probe", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-development-restart-test-"));
+  const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");
+  const installPath = join(directory, "Applications", "FramekitFinalCutWorkflow.app");
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(installPath, { recursive: true });
+  const events: string[] = [];
+
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    extensionSourcePath: sourcePath,
+    extensionInstallPath: installPath,
+    restartAfterInstall: true,
+    installBeforeProbe: true,
+    detectFinalCut: async () => { events.push("detect"); return true; },
+    installExtension: async () => { events.push("install"); },
+    registerExtension: async () => { events.push("register"); },
+    restartFinalCut: async () => { events.push("restart"); },
+    launchExtension: async () => { events.push("launch-extension"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => {
+      if (!events.includes("restart")) {
+        events.push("probe-stale");
+        return {
+          identity: { name: "Final Cut Pro", version: "stale", backend: "workflow-extension-ipc" },
+          capabilities,
+        };
+      }
+      events.push("probe-current");
+      return {
+        identity: { name: "Final Cut Pro", version: "checkout", backend: "workflow-extension-ipc" },
+        capabilities,
+      };
+    },
+    sleep: async () => {},
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.identity?.version, "checkout");
+  assert.deepEqual(events, ["probe-stale", "detect", "install", "register", "restart", "launch-extension", "activate", "probe-current"]);
+});
+
+test("install-before-probe continues past existing-probe guards and validates the replacement", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-development-canonical-restart-test-"));
+  const sourcePath = join(directory, "source", "FramekitFinalCutWorkflow.app");
+  const installPath = join(directory, "Applications", "FramekitFinalCutWorkflow.app");
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(installPath, { recursive: true });
+  const events: string[] = [];
+
+  const manager = new FinalCutConnectionManager({
+    headless: true,
+    canonicalProviderRequired: true,
+    extensionSourcePath: sourcePath,
+    extensionInstallPath: installPath,
+    restartAfterInstall: true,
+    installBeforeProbe: true,
+    detectFinalCut: async () => { events.push("detect"); return true; },
+    installExtension: async () => { events.push("install"); },
+    registerExtension: async () => { events.push("register"); },
+    restartFinalCut: async () => { events.push("restart"); },
+    launchExtension: async () => { events.push("launch-extension"); },
+    activateExtension: async () => { events.push("activate"); },
+    probe: async () => {
+      if (!events.includes("restart")) {
+        events.push("probe-stale");
+        return {
+          identity: { name: "Final Cut Pro", version: "stale", backend: "workflow-extension-ipc" },
+          capabilities,
+        };
+      }
+      events.push("probe-current");
+      return {
+        identity: { name: "Final Cut Pro", version: "checkout", backend: "external-canonical-provider" },
+        capabilities: canonicalWriteCapabilities,
+      };
+    },
+    sleep: async () => {},
+  });
+
+  const status = await manager.ensureConnected();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.identity?.version, "checkout");
+  assert.equal(status.capabilities?.editor.canonicalTimelineMode, "canonical-write");
+  assert.deepEqual(events, ["probe-stale", "detect", "install", "register", "restart", "launch-extension", "activate", "probe-current"]);
 });
 
 test("background connection does not restart Final Cut after extension replacement", async () => {

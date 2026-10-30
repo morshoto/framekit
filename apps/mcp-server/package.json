@@ -5,18 +5,20 @@
   "type": "module",
   "dependencies": {
     "@framekit/final-cut": "workspace:*",
+    "@framekit/headless-application": "workspace:*",
+    "@framekit/headless-renderer": "workspace:*",
     "@framekit/runtime": "workspace:*",
     "@framekit/testkit": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "tsx src/main.ts"
   },
   "devDependencies": {
-    "@types/node": "24.13.6",
-    "tsx": "4.23.13",
+    "@types/node": "24.19.2",
+    "tsx": "4.23.15",
     "typescript": "7.0.2"
   }
 }

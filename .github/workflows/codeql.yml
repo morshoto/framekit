@@ -1,94 +1,94 @@
 name: CodeQL
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-  schedule:
-    - cron: "30 1 * * 0"
-  workflow_dispatch:
+    push:
+        branches:
+            - main
+    # pull_request:
+    #   branches:
+    #     - main
+    #   types:
+    #     - opened
+    #     - synchronize
+    #     - reopened
+    schedule:
+        - cron: '30 1 * * 0'
+    workflow_dispatch:
 
 permissions:
-  contents: read
-  security-events: write
-  actions: read
+    contents: read
+    security-events: write
+    actions: read
 
 concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  # Keep active default-branch scans intact; supersede stale PR scans.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    group: codeql-${{ github.workflow }}-${{ github.ref }}
+    # Keep active default-branch scans intact; supersede stale PR scans.
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  analyze:
-    name: Analyze (${{ matrix.language }})
-    # Always publish the required JavaScript/TypeScript check, including for documentation-only PRs.
-    if: ${{ !cancelled() }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - language: javascript-typescript
-            build-mode: none
-            os: ubuntu-latest
+    analyze:
+        name: Analyze (${{ matrix.language }})
+        # Always publish the required JavaScript/TypeScript check, including for documentation-only PRs.
+        if: ${{ !cancelled() }}
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - language: javascript-typescript
+                      build-mode: none
+                      os: ubuntu-latest
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+            - name: Initialize CodeQL
+              uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              with:
+                  languages: ${{ matrix.language }}
+                  build-mode: ${{ matrix.build-mode }}
 
-      - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          category: /language:${{ matrix.language }}
-          # Do not block the required check on delayed SARIF processing.
-          wait-for-processing: false
+            - name: Analyze with CodeQL
+              uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              with:
+                  category: /language:${{ matrix.language }}
+                  # Do not block the required check on delayed SARIF processing.
+                  wait-for-processing: false
 
-  analyze-swift:
-    name: Analyze (swift)
-    # Always publish the configured Swift category so code-scanning comparison
-    # has a result even when the pull request changes no Swift source.
-    if: ${{ !cancelled() }}
-    runs-on: macos-26
-    timeout-minutes: 40
+    analyze-swift:
+        name: Analyze (swift)
+        # Always publish the configured Swift category so code-scanning comparison
+        # has a result even when the pull request changes no Swift source.
+        if: ${{ !cancelled() }}
+        runs-on: macos-26
+        timeout-minutes: 40
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          languages: swift
-          build-mode: manual
+            - name: Initialize CodeQL
+              uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              with:
+                  languages: swift
+                  build-mode: manual
 
-      - name: Type-check Swift sources for CodeQL extraction
-        timeout-minutes: 25
-        run: |
-          xcrun --sdk macosx swiftc \
-            -typecheck \
-            -parse-as-library \
-            -module-name FramekitFinalCutWorkflowCodeQL \
-            -target "$(uname -m)-apple-macos15.0" \
-            -swift-version 5 \
-            -D FRAMEKIT_CODEQL \
-            adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift \
-            .github/codeql/FinalCutWorkflowExtensionShim.swift
+            - name: Type-check Swift sources for CodeQL extraction
+              timeout-minutes: 25
+              run: |
+                  xcrun --sdk macosx swiftc \
+                    -typecheck \
+                    -parse-as-library \
+                    -module-name FramekitFinalCutWorkflowCodeQL \
+                    -target "$(uname -m)-apple-macos15.0" \
+                    -swift-version 5 \
+                    -D FRAMEKIT_CODEQL \
+                    adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift \
+                    .github/codeql/FinalCutWorkflowExtensionShim.swift
 
-      - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          category: /language:swift
+            - name: Analyze with CodeQL
+              uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              with:
+                  category: /language:swift

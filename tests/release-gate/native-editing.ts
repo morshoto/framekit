@@ -68,7 +68,13 @@ export interface ReleaseProvenanceInput {
   serverVersion?: string;
   releaseTag?: string;
   githubRelease?: { tagName?: string; draft?: boolean };
-  workflow?: { status?: string; conclusion?: string; headSha?: string; tagSha?: string };
+  workflow?: {
+    status?: string;
+    conclusion?: string;
+    headSha?: string;
+    tagSha?: string;
+    checkedOutTagSha?: string;
+  };
   npmVersion?: string;
   nativeAssets?: Array<{ name: string; sha256?: string; content?: string }>;
 }
@@ -193,11 +199,8 @@ export function assessReleaseProvenance(input: ReleaseProvenanceInput): ReleaseP
 
   if (input.workflow) {
     const successful = input.workflow.status === "completed" && input.workflow.conclusion === "success";
-    const tagMatches = Boolean(
-      input.workflow.headSha
-      && input.workflow.tagSha
-      && input.workflow.tagSha === input.workflow.headSha,
-    );
+    const checkedOutCommit = input.workflow.checkedOutTagSha ?? input.workflow.headSha;
+    const tagMatches = Boolean(input.workflow.tagSha && checkedOutCommit && input.workflow.tagSha === checkedOutCommit);
     checks.push(successful && tagMatches
       ? verified("release-workflow", "release workflow completed successfully")
       : failed("release-workflow", "release workflow is incomplete, failed, or points at a different commit"));

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -16,9 +18,11 @@ function textFrom(result: unknown): string {
 
 test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-stdio-state-"));
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0" },
     stderr: "pipe",
   });
   const client = new Client({ name: "phase-0-test-client", version: "0.1.0" });
@@ -43,6 +47,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "skill.list",
         "skill.preview",
         "connection.status",
+        "editor.native.handoff.readiness",
         "context.changes",
         "context.inspect",
         "edit.diff",
@@ -114,6 +119,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "session.materialize.execute",
         "session.materialize.preview",
         "session.materialize.retry",
+        "session.materialize.resync",
         "session.materialize.status",
         "session.observe",
         "session.reconcile",
@@ -145,14 +151,26 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "timeline.export",
         "timeline.frame.capture",
         "timeline.inspect",
+        "timeline.semantic.inspect",
         "visual.analyze",
+        "headless.project.create",
+        "headless.project.list",
+        "headless.project.open",
+        "headless.project.inspect",
+        "headless.media.register",
+        "headless.edit.preview",
+        "headless.edit.execute",
+        "headless.render",
+        "headless.render.inspect",
+        "headless.rough-cut.execute",
+        "headless.rough-cut.preview",
       ].sort(),
     );
     const nativeMaskPreviewTool = tools.tools.find((tool) => tool.name === "editor.native.mask.preview");
     assert.doesNotMatch(JSON.stringify(nativeMaskPreviewTool?.inputSchema ?? {}), /inverted/);
     const timelineEditTool = tools.tools.find((tool) => tool.name === "editor.timeline.edit");
     assert.deepEqual(Object.keys(timelineEditTool?.inputSchema.properties ?? {}).sort(), [
-      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
+      "baseRevision", "clipId", "correction", "duration", "durationTime", "gainDb", "marker", "name", "path", "projectId", "range", "reason", "reductionDb", "sequenceId", "timelineId", "verification",
     ]);
     const timelineEditTrim = (timelineEditTool?.inputSchema as { anyOf?: Array<{ properties?: Record<string, { const?: string }>; required?: string[] }> }).anyOf?.find(
       (branch) => branch.properties?.type?.const === "trim-clip",
@@ -164,9 +182,13 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     );
     assert.deepEqual(artifactEditRename?.required?.slice().sort(), ["artifactPath", "baseRevision", "clipId", "name", "type"]);
     const artifactPublishTool = tools.tools.find((tool) => tool.name === "artifact.publish");
-    assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "transactionId"]);
+    assert.deepEqual(artifactPublishTool?.inputSchema.required?.slice().sort(), ["artifactPath", "confirm", "targetLibraryPath", "transactionId"]);
+    const timelinePublishTool = tools.tools.find((tool) => tool.name === "timeline.publish.new-project");
+    assert.deepEqual(timelinePublishTool?.inputSchema.required?.slice().sort(), ["confirm", "targetLibraryPath", "transactionId"]);
     const artifactPublishPreviewTool = tools.tools.find((tool) => tool.name === "artifact.publish.preview");
-    assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "transactionId"]);
+    assert.deepEqual(artifactPublishPreviewTool?.inputSchema.required?.slice().sort(), ["artifactPath", "targetLibraryPath"]);
+    assert.ok(artifactPublishPreviewTool?.inputSchema.properties?.transactionId);
+    assert.ok(artifactPublishPreviewTool?.inputSchema.properties?.headlessExecutionId);
     const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
     assert.deepEqual(artifactPublishExecuteTool?.inputSchema.required?.slice().sort(), ["confirm", "jobId"]);
     const artifactPublishStatusTool = tools.tools.find((tool) => tool.name === "artifact.publish.status");
@@ -214,6 +236,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         clipId: "clip-1",
         name: "Interview - Clean",
         baseRevision: before.revision,
+        path: "headed",
       },
     });
     const transaction = JSON.parse(textFrom(edited));
@@ -235,6 +258,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         clipId: "clip-1",
         name: "Stale MCP edit",
         baseRevision: before.revision,
+        path: "headed",
       },
     });
     assert.equal(staleEdit.isError, true);
@@ -340,6 +364,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         timelineId: "timeline-1",
         marker: { id: "marker-1", start: 2, duration: 0, name: "Review" },
         baseRevision: transaction.after.revision,
+        path: "headed",
       },
     });
     const markerTransaction = JSON.parse(textFrom(markerEdit));
@@ -356,6 +381,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
   } finally {
     await client.close();
     await transport.close();
+    await rm(stateDirectory, { recursive: true, force: true });
     if (serverPid !== null) {
       assert.throws(() => process.kill(serverPid as number, 0), /ESRCH/);
     }

@@ -37,6 +37,8 @@ import type {
   TimelineChangesRequest,
   TimelineChangesResult,
   TimelineFrameCapture,
+  TimelineSemanticContext,
+  TimelineSemanticContextQuery,
   TimeRange,
   VerificationPolicy,
   VisualAnalysis,
@@ -269,8 +271,8 @@ export class AgentVideoRuntime {
     return this.media.analyzeSpeech(mediaId, range);
   }
 
-  public async analyzeAudio(mediaId: string): Promise<AudioAnalysis> {
-    return this.media.analyzeAudio(mediaId);
+  public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
+    return this.media.analyzeAudio(mediaId, range);
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
@@ -283,6 +285,10 @@ export class AgentVideoRuntime {
 
   public async understandMedia(mediaId: string): Promise<MediaUnderstanding> {
     return this.media.understandMedia(mediaId);
+  }
+
+  public async understandMediaInProject(mediaId: string, project: ProjectSnapshot): Promise<MediaUnderstanding> {
+    return this.media.understandMediaInProject(mediaId, project);
   }
 
   public planDuration(request: DurationPolicyRequest): DurationPolicyPlan {
@@ -303,6 +309,19 @@ export class AgentVideoRuntime {
 
   public async planRoughCut(request: SemanticRoughCutPlanRequest): Promise<SemanticRoughCutPlan> {
     return this.media.planRoughCut(request);
+  }
+
+  public async planRoughCutInProject(
+    request: SemanticRoughCutPlanRequest,
+    project: ProjectSnapshot,
+  ): Promise<SemanticRoughCutPlan> {
+    return this.media.planRoughCutInProject(request, project);
+  }
+
+  public async inspectTimelineSemanticContext(
+    query: TimelineSemanticContextQuery = {},
+  ): Promise<TimelineSemanticContext> {
+    return this.media.inspectTimelineSemanticContext(query);
   }
 
   public async listAssets(query?: AssetSearchQuery): Promise<EditorAsset[]> {

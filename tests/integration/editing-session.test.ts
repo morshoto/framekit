@@ -6,6 +6,19 @@ import {
   type TimelineIr,
 } from "@framekit/runtime";
 
+/** Recursively reverses object-property insertion order while preserving values. */
+function reverseObjectKeyOrder<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => reverseObjectKeyOrder(entry)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).reverse().map(([key, entry]) => [key, reverseObjectKeyOrder(entry)]),
+    ) as T;
+  }
+  return value;
+}
+
 function baseTimeline(): TimelineIr {
   return {
     schemaVersion: 1,
@@ -57,6 +70,31 @@ test("serializes and loads a provider-neutral session without losing rational id
     identity: "asset-1",
   });
 });
+
+/** Proves canonical encoding is independent of object-property insertion order. */
+function assertCanonicalEncodingIsDeterministic(): void {
+  const canonical = baseTimeline();
+  const reordered = reverseObjectKeyOrder(canonical);
+
+  const originalEncoding = EditingSession.create({ base: canonical }).serialize();
+  const reorderedEncoding = EditingSession.create({ base: reordered }).serialize();
+
+  assert.equal(reorderedEncoding, originalEncoding);
+}
+
+test("encodes equivalent canonical state deterministically regardless of object key order", assertCanonicalEncodingIsDeterministic);
+
+/** Proves provider identities stay in explicit bindings beside logical IDs. */
+function assertProviderBindingIsSeparateFromLogicalIdentity(): void {
+  const serialized = JSON.parse(EditingSession.create({ base: baseTimeline() }).serialize()) as { base: TimelineIr };
+  const resource = serialized.base.resources[0];
+
+  assert.equal(resource?.id, "media-1");
+  assert.deepEqual(resource?.binding, { provider: "final-cut", kind: "resource", identity: "asset-1" });
+  assert.notEqual(resource?.id, resource?.binding?.identity);
+}
+
+test("keeps provider bindings separate from logical Timeline IR identity", assertProviderBindingIsSeparateFromLogicalIdentity);
 
 test("previews and applies deterministic edits while Final Cut is unavailable", () => {
   const session = EditingSession.create({ base: baseTimeline(), clock: () => "2026-09-14T00:01:00.000Z" });

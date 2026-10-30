@@ -192,11 +192,19 @@ export function sanitizeDisposableNativeEvidence(run, environment) {
   assert(run.executeStatus === "VERIFIED", "disposable native mutation was not verified");
   assert(run.editor, "editor identity is missing");
   assert(run.capabilities, "capability payload is missing");
-  const canonicalMode = run.capabilities.editor?.canonicalTimelineMode;
+  const editorCapabilities = run.capabilities.editor ?? {};
+  const canonicalMode = editorCapabilities.canonicalTimelineMode;
   assert(canonicalMode === "canonical-read" || canonicalMode === "canonical-write", "canonical live capability is required");
-  for (const key of ["projectRead", "timelineSnapshotRead", "readAfterWrite", "projectCatalogRead", "projectSelection"]) {
-    assert(run.capabilities.editor?.[key] === true, `${key} capability is required`);
+  const activeCanonicalTarget = canonicalMode === "canonical-read"
+    && editorCapabilities.projectRead === true
+    && editorCapabilities.timelineSnapshotRead === true
+    && editorCapabilities.projectCatalogRead === true
+    && editorCapabilities.projectSelection === false;
+  for (const key of ["projectRead", "timelineSnapshotRead", "projectCatalogRead"]) {
+    assert(editorCapabilities[key] === true, `${key} capability is required`);
   }
+  assert(editorCapabilities.readAfterWrite === true || activeCanonicalTarget, "readAfterWrite capability is required unless the active canonical target is already bound");
+  assert(editorCapabilities.projectSelection === true || activeCanonicalTarget, "projectSelection capability is required unless the active canonical target is already bound");
   assert(run.project && run.target, "project or target identity is missing");
   assert(run.before && run.after && run.restored && run.diff, "canonical snapshots or diff are missing");
   assert(run.digests?.before && run.digests?.after && run.digests?.restored, "canonical digests are missing");

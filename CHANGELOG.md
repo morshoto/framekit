@@ -1,5 +1,121 @@
 # Changelog
 
+## [v0.2.0](https://github.com/morshoto/framekit/compare/v0.1.18...v0.2.0) - 2026-10-30
+
+### Bug Fixes
+- fix: select lowest linked milestone by @morshoto in https://github.com/morshoto/framekit/pull/601
+- fix: find draft release when tag is pending by @morshoto in https://github.com/morshoto/framekit/pull/602
+- fix: preserve apostrophes in headless titles by @morshoto in https://github.com/morshoto/framekit/pull/589
+- fix: report negative ripple range bounds by @morshoto in https://github.com/morshoto/framekit/pull/592
+- fix: normalize title frames for FFmpeg 8 by @morshoto in https://github.com/morshoto/framekit/pull/591
+- fix: verify normalized 48 kHz render audio by @morshoto in https://github.com/morshoto/framekit/pull/593
+- fix: reject native Browser wildcard queries by @morshoto in https://github.com/morshoto/framekit/pull/595
+- fix: preserve reused music occurrences by @morshoto in https://github.com/morshoto/framekit/pull/594
+### Documentation
+- chore: make documentation changes intentional by @morshoto in https://github.com/morshoto/framekit/pull/604
+- chore: consolidate docs into five canonical files by @morshoto in https://github.com/morshoto/framekit/pull/605
+- chore: enforce workspace import boundaries by @morshoto in https://github.com/morshoto/framekit/pull/607
+- chore: define prerequisite-aware test suites by @morshoto in https://github.com/morshoto/framekit/pull/609
+- chore: extract headless application workflows by @morshoto in https://github.com/morshoto/framekit/pull/608
+- chore: organize scripts by ownership by @morshoto in https://github.com/morshoto/framekit/pull/610
+- [Chore] Normalize CLI workspace identity and entrypoints by @morshoto in https://github.com/morshoto/framekit/pull/611
+### Other changes
+- chore: isolate test state from contributor home by @morshoto in https://github.com/morshoto/framekit/pull/606
+
+## [v0.1.18](https://github.com/morshoto/framekit/compare/v0.1.17...v0.1.18) - 2026-10-28
+
+### Release scope
+- **Supported:** Production Codex MCP workflow, independently verified MP4, editable FCPXML, and canonical provenance/source-integrity checks.
+- **Not guaranteed:** Native Final Cut library creation, successful import, active-project binding, or authoritative native semantic readback. Optional native publishing is experimental; an FCPXML dispatch acknowledgment is not proof of project creation.
+
+### New Features
+- chore: add local checkout validation workflow by @morshoto in https://github.com/morshoto/framekit/pull/522
+- feat: guard new-project publishing by @morshoto in https://github.com/morshoto/framekit/pull/523
+- feat: bind native publish to a new library by @morshoto in https://github.com/morshoto/framekit/pull/537
+- feat: report native handoff readiness by @morshoto in https://github.com/morshoto/framekit/pull/539
+- feat: bind approved rough cuts to project publishing by @morshoto in https://github.com/morshoto/framekit/pull/525
+- feat: route Codex video workflow through headless projects by @morshoto in https://github.com/morshoto/framekit/pull/526
+- feat: verify headed Final Cut project publishing by @morshoto in https://github.com/morshoto/framekit/pull/552
+- feat: sync status labels to project by @morshoto in https://github.com/morshoto/framekit/pull/600
+### Documentation
+- chore: align GitHub release notes by @morshoto in https://github.com/morshoto/framekit/pull/530
+- chore: validate pretag release artifacts by @morshoto in https://github.com/morshoto/framekit/pull/528
+- test: record blocked MVP QA readiness by @morshoto in https://github.com/morshoto/framekit/pull/531
+- feat: add local Framekit MCP setup by @morshoto in https://github.com/morshoto/framekit/pull/546
+- test: record issue 544 native acceptance preflight by @morshoto in https://github.com/morshoto/framekit/pull/550
+- chore: verify downloaded signed native release by @morshoto in https://github.com/morshoto/framekit/pull/553
+### Chores
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/524
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/534
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/536
+- chore(deps): update pnpm to v12.14.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/535
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/540
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/533
+- fix(deps): update dependency zod to v4 [security] - abandoned by @renovate[bot] in https://github.com/morshoto/framekit/pull/548
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/575
+### Other changes
+- chore: sync linked issue milestones by @morshoto in https://github.com/morshoto/framekit/pull/529
+- chore: CodeQL as push only change by @morshoto in https://github.com/morshoto/framekit/pull/549
+- chore(deps): bump zod from 3.25.76 to 4.6.6 by @dependabot[bot] in https://github.com/morshoto/framekit/pull/547
+- Update labels.json by @morshoto in https://github.com/morshoto/framekit/pull/596
+
+## [v0.1.17](https://github.com/morshoto/framekit/compare/v0.1.16...v0.1.17) - 2026-10-11
+
+### Feature changes
+- fix: bind every local audio analysis result by @morshoto in https://github.com/morshoto/framekit/pull/507
+- feat: persist semantic media index by @morshoto in https://github.com/morshoto/framekit/pull/508
+- feat: add local Whisper speech backend by @morshoto in https://github.com/morshoto/framekit/pull/509
+- feat: expose source-range-bound timeline semantic context by @morshoto in https://github.com/morshoto/framekit/pull/510
+- feat: execute approved semantic rough cuts headlessly by @morshoto in https://github.com/morshoto/framekit/pull/511
+- feat: make rough-cut selection speech-first by @morshoto in https://github.com/morshoto/framekit/pull/514
+- test: validate v0.1.17 semantic media workflow by @morshoto in https://github.com/morshoto/framekit/pull/515
+- feat: add approved layered rough-cut output by @morshoto in https://github.com/morshoto/framekit/pull/518
+### Patch changes
+- fix: install ffmpeg for release gate by @morshoto in https://github.com/morshoto/framekit/pull/503
+- fix: suppress background Final Cut relaunch by @morshoto in https://github.com/morshoto/framekit/pull/513
+
+## [v0.1.16](https://github.com/morshoto/framekit/compare/v0.1.15...v0.1.16) - 2026-10-07
+
+### Feature changes
+- feat: harden editable FCPXML materialization by @morshoto in https://github.com/morshoto/framekit/pull/495
+- feat: deliver FCPXML through non-activating bridge by @morshoto in https://github.com/morshoto/framekit/pull/497
+- feat: add experimental Final Cut pasteboard observation boundary by @morshoto in https://github.com/morshoto/framekit/pull/439
+- feat: observe read-only Final Cut SQLite WAL deltas by @morshoto in https://github.com/morshoto/framekit/pull/498
+- feat: reconcile provider-neutral Final Cut observations by @morshoto in https://github.com/morshoto/framekit/pull/440
+- feat: verify materialization base and readback by @morshoto in https://github.com/morshoto/framekit/pull/499
+- feat: add materialization continuation resync by @morshoto in https://github.com/morshoto/framekit/pull/500
+### Patch changes
+- fix: bind headed native edits to canonical occurrences by @morshoto in https://github.com/morshoto/framekit/pull/501
+### Maintenance and internal
+- docs: define background editable handoff by @morshoto in https://github.com/morshoto/framekit/pull/446
+- perf: route canonical timeline resync by @morshoto in https://github.com/morshoto/framekit/pull/441
+
+## [v0.1.15](https://github.com/morshoto/framekit/compare/v0.1.14...v0.1.15) - 2026-10-06
+
+### Feature changes
+- docs: define headless core boundary by @morshoto in https://github.com/morshoto/framekit/pull/473
+- feat: persist canonical Framekit projects by @morshoto in https://github.com/morshoto/framekit/pull/474
+- feat: register local media in headless projects by @morshoto in https://github.com/morshoto/framekit/pull/475
+- feat: add headless project transactions by @morshoto in https://github.com/morshoto/framekit/pull/476
+- feat: add headless structural timeline edits by @morshoto in https://github.com/morshoto/framekit/pull/477
+- feat: add headless property edits by @morshoto in https://github.com/morshoto/framekit/pull/478
+- feat: add headless titles and transitions by @morshoto in https://github.com/morshoto/framekit/pull/479
+- feat: define provider-neutral headless render contract by @morshoto in https://github.com/morshoto/framekit/pull/480
+- feat: add deterministic headless render fixtures by @morshoto in https://github.com/morshoto/framekit/pull/481
+- feat: add FFmpeg Timeline IR renderer by @morshoto in https://github.com/morshoto/framekit/pull/482
+- feat: render and independently verify Framekit output by @morshoto in https://github.com/morshoto/framekit/pull/483
+- feat: expose headless project lifecycle through MCP by @morshoto in https://github.com/morshoto/framekit/pull/484
+- feat: make headless SSoT the default editing route by @morshoto in https://github.com/morshoto/framekit/pull/485
+- test: add v0.1.15 production headless release gate by @morshoto in https://github.com/morshoto/framekit/pull/486
+- test: assert semantic headless release output by @morshoto in https://github.com/morshoto/framekit/pull/490
+### Patch changes
+- test: stabilize concurrent project saves by @morshoto in https://github.com/morshoto/framekit/pull/489
+- test: make headless source ranges observable by @morshoto in https://github.com/morshoto/framekit/pull/488
+- test: assert deterministic Timeline IR encoding by @morshoto in https://github.com/morshoto/framekit/pull/491
+### Maintenance and internal
+- chore: add UI-free Final Cut read capability probe by @morshoto in https://github.com/morshoto/framekit/pull/461
+- docs: record background read NO-GO gate by @morshoto in https://github.com/morshoto/framekit/pull/462
+
 ## [v0.1.14](https://github.com/morshoto/framekit/compare/v0.1.13...v0.1.14) - 2026-10-02
 
 ### Patch changes

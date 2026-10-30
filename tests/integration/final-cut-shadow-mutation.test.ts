@@ -5,7 +5,7 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { FinalCutShadowBundleMutator } from "@framekit/final-cut";
+import { FinalCutShadowBundleMutator } from "@framekit/final-cut/experimental";
 
 const execFile = promisify(execFileCallback);
 

@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./experimental": {
+      "types": "./src/experimental.ts",
+      "import": "./src/experimental.ts"
     }
   },
   "dependencies": {
@@ -17,7 +21,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@types/node": "24.13.6",
+    "@types/node": "24.19.2",
     "typescript": "7.0.2"
   }
 }

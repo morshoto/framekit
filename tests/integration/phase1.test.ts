@@ -121,7 +121,7 @@ test("Final Cut adapter reads and writes a supported FCPXML timeline", async () 
   await adapter.apply({
     type: "add-marker",
     timelineId: before.timeline.id,
-    marker: { id: "marker-1", start: 2, duration: 0, name: "Review" },
+    marker: { id: "marker-1", start: 0.02, duration: 0, name: "Review" },
   }, after.revision);
   const marked = await adapter.readProject();
   assert.equal(marked.timeline.markers[0]?.name, "Review");
@@ -167,14 +167,18 @@ test("FCPXML project identity fails closed without an immutable uid", async () =
   await assert.rejects(adapter.readProject(), /FCPXML_PROJECT_IDENTITY_UNAVAILABLE/);
 });
 
-test("FCPXML sequence identity fails closed without an immutable uid", async () => {
+test("FCPXML 1.11 sequence identity derives from the immutable project uid", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-sequence-identity-"));
   const path = join(directory, "project.fcpxml");
   await writeFile(path, `<?xml version="1.0"?><fcpxml><resources/><library><event><project uid="project-stable" name="Stable Project"><sequence name="Mutable Sequence" duration="1s"><spine><gap duration="1s" /></spine></sequence></project></event></library></fcpxml>`);
   const adapter = new FcpxmlDocumentAdapter(path);
 
-  await assert.rejects(adapter.listProjects(), /FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE/);
-  await assert.rejects(adapter.readProject(), /FCPXML_SEQUENCE_IDENTITY_UNAVAILABLE/);
+  await adapter.listProjects();
+  const before = await adapter.readProject();
+  assert.equal(before.timeline.id, "fcpxml:sequence:project-stable");
+  await writeFile(path, (await readFile(path, "utf8")).replace("Mutable Sequence", "Renamed Sequence"));
+  const after = await new FcpxmlDocumentAdapter(path).readProject();
+  assert.equal(after.timeline.id, before.timeline.id);
 });
 
 test("UID-backed FCPXML identities remain stable across project and sequence renames", async () => {
@@ -630,6 +634,56 @@ test("Final Cut live adapter reads native state and incremental events", async (
   assert.equal((await adapter.getCapabilities()).editor.timelineSnapshotRead, false);
   assert.equal((await adapter.liveChangesSince({ id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() })).length, 1);
   assert.deepEqual(transport.requests.map(({ method }) => method), ["state", "capabilities", "changes"]);
+});
+
+test("Final Cut live adapter requests non-activating FCPXML document delivery", async () => {
+  const transport = new FakeFinalCutLiveTransport();
+  const adapter = new FinalCutLiveAdapter(transport);
+  (transport as FakeFinalCutLiveTransport & { request: FakeFinalCutLiveTransport["request"] }).request = async (request) => {
+    transport.requests.push(request);
+    const identity = { name: "Final Cut Pro", version: "10.7.1", backend: "workflow-extension-ipc" };
+    const capabilities = {
+      editor: { projectRead: true, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false },
+      analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+    };
+    return {
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        identity,
+        capabilities,
+        delivery: {
+          status: "dispatched",
+          route: "background-document-open",
+          attempted: true,
+          imported: false,
+          requestedActivates: false,
+          activation: "preserved",
+          ui: "none",
+          target: { requestedLibraryLocation: "/tmp/framekit-library.fcpbundle", guarantee: "requested-unverified" },
+        },
+      },
+    };
+  };
+
+  const result = await adapter.deliverFcpxml({
+    artifactPath: "/tmp/framekit-project.fcpxml",
+    targetLibraryLocation: "/tmp/framekit-library.fcpbundle",
+    activates: false,
+  });
+
+  assert.equal(result.status, "dispatched");
+  assert.equal(result.requestedActivates, false);
+  assert.equal(result.activation, "preserved");
+  assert.deepEqual(transport.requests.at(-1), {
+    version: 1,
+    id: transport.requests.at(-1)?.id,
+    method: "deliver-fcpxml",
+    artifactPath: "/tmp/framekit-project.fcpxml",
+    targetLibraryLocation: "/tmp/framekit-library.fcpbundle",
+    activates: false,
+  });
 });
 
 test("metadata-only live context stays source-bound without canonical timeline data", async () => {

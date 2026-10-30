@@ -56,12 +56,18 @@ async function connect(
       to: TimelineIr["revision"];
     }>;
   },
+  sessionChangeSourceOverride: "omit" | "default" = "default",
 ) {
+  const changeSource = sessionChangeSourceOverride === "omit"
+    ? undefined
+    : sessionChangeSource ?? {
+        changesSince: async (revision: TimelineIr["revision"]) => ({ from: revision, to: revision }),
+      };
   const server = createMcpServer(runtime(), {
     sessionDirectory: join(directory, "sessions"),
     materializationDirectory: join(directory, "materializations"),
     ...(publisher ? { sessionMaterializationPublisher: publisher } : {}),
-    ...(sessionChangeSource ? { sessionChangeSource } : {}),
+    ...(changeSource ? { sessionChangeSource: changeSource } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "materialization-test", version: "0.1.0" });
@@ -109,6 +115,10 @@ test("previews without mutation and resumes a blocked immutable materialization 
     assert.equal(preview.mutating, false);
     assert.equal(preview.destination.mode, "versioned");
     assert.notEqual(preview.destination.projectUid, target.projectUid);
+    assert.equal(preview.coverage.exact.includes("provenance"), true);
+    assert.equal(preview.coverage.unsupported.length, 0);
+    assert.equal(preview.provenance.source, "framekit-timeline-ir");
+    assert.match(preview.provenance.revision.id, /^ir:[a-f0-9]{64}$/);
     await assert.rejects(readdir(join(directory, "materializations")), /ENOENT/);
 
     const unconfirmed = await first.client.callTool({
@@ -128,6 +138,15 @@ test("previews without mutation and resumes a blocked immutable materialization 
     assert.equal(executed.evidence.providerRequested, false);
     assert.equal(executed.evidence.canonicalReadback, false);
     assert.equal(executed.evidence.headedNative, false);
+    assert.deepEqual(executed.verification, {
+      tier: "artifact",
+      status: "blocked",
+      artifactDigest: executed.artifactDigest,
+      desiredDigest: executed.desiredDigest,
+      reason: "No Final Cut materialization publisher is configured; retry when a provider is available",
+    });
+    assert.deepEqual(executed.coverage, preview.coverage);
+    assert.deepEqual(executed.provenance, preview.provenance);
     assert.match(executed.artifactPath, /\.fcpxml$/);
 
     await first.client.close();
@@ -145,6 +164,7 @@ test("previews without mutation and resumes a blocked immutable materialization 
     }));
     assert.equal(restored.state, "blocked");
     assert.equal(restored.artifactDigest, executed.artifactDigest);
+    assert.deepEqual(restored.provenance, executed.provenance);
     const resumed = payload(await second.client.callTool({
       name: "session.materialize.retry",
       arguments: { jobId: executed.jobId },
@@ -159,12 +179,52 @@ test("previews without mutation and resumes a blocked immutable materialization 
   }
 });
 
+test("recovers legacy jobs without target-bound materialization metadata", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-legacy-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-legacy", provider: { id: "final-cut" }, base: timeline() } });
+    const executed = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-legacy", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const jobPath = join(directory, "materializations", "jobs", `${executed.jobId}.json`);
+    const legacy = JSON.parse(await readFile(jobPath, "utf8"));
+    legacy.schemaVersion = 1;
+    delete legacy.coverage;
+    delete legacy.provenance;
+    await writeFile(jobPath, `${JSON.stringify(legacy)}\n`, "utf8");
+
+    const requests: string[] = [];
+    const second = await connect(directory, {
+      publish: async (request) => {
+        requests.push(request.jobId);
+        return { state: "blocked", code: "UNEXPECTED", message: "publisher must not receive legacy metadata", retryable: true };
+      },
+    });
+    const restored = payload(await second.client.callTool({ name: "session.materialize.status", arguments: { jobId: executed.jobId } }));
+    assert.equal(restored.state, "failed");
+    assert.equal(restored.error.code, "MATERIALIZATION_JOB_METADATA_UNAVAILABLE");
+    assert.equal(restored.error.retryable, false);
+    const retried = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: executed.jobId } }));
+    assert.equal(retried.state, "failed");
+    assert.deepEqual(requests, []);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("completes only after matching canonical provider readback", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provider-"));
-  const published: Array<{ artifactPath: string; projectUid: string }> = [];
+  const published: Array<{ artifactPath: string; projectUid: string; timelineDigest: string }> = [];
   const publisher: SessionMaterializationPublisher = {
     publish: async (request) => {
-      published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid });
+      published.push({ artifactPath: request.artifactPath, projectUid: request.destination.projectUid, timelineDigest: request.provenance.timelineDigest });
       return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
     },
   };
@@ -180,8 +240,11 @@ test("completes only after matching canonical provider readback", async () => {
     assert.equal(completed.evidence.providerRequested, true);
     assert.equal(completed.evidence.canonicalReadback, true);
     assert.equal(completed.evidence.headedNative, false);
+    assert.equal(completed.verification.tier, "canonical-verified");
+    assert.equal(completed.verification.status, "verified");
     assert.equal(published.length, 1);
     assert.notEqual(published[0]?.projectUid, target.projectUid);
+    assert.match(published[0]?.timelineDigest ?? "", /^[a-f0-9]{64}$/);
     await connected.client.close();
     await connected.server.close();
   } finally {
@@ -291,6 +354,112 @@ test("fails closed when the persisted session changes after staging", async () =
     assert.equal(requests.length, 0);
     await second.client.close();
     await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the canonical base changes after staging", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-base-drift-"));
+  const providerRevision = {
+    id: "provider-revision-after-staging",
+    sequence: 2,
+    timestamp: "2026-09-15T00:02:00.000Z",
+  };
+  let calls = 0;
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-base-drift", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-base-drift", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const second = await connect(directory, {
+      publish: async () => {
+        calls += 1;
+        return { state: "completed", canonicalReadback: timeline(), canonicalTarget: canonicalTarget({ target, destination: { projectUid: "project-1-framekit-abc123", sequenceUid: "sequence-1-framekit-abc123" } }), headedNativeVerified: false };
+      },
+    }, {
+      changesSince: async (revision) => ({ from: revision, to: providerRevision }),
+    });
+    const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_BASE_CHANGED");
+    assert.equal(failed.verification.status, "failed");
+    assert.equal(calls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("reports an explicit unavailable verification when no canonical change source exists", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-base-unavailable-"));
+  let calls = 0;
+  try {
+    const first = await connect(directory, {
+      publish: async () => ({ state: "blocked", code: "TEMPORARY", message: "try again", retryable: true }),
+    });
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-no-source", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-no-source", target, confirm: true },
+    }));
+    await first.client.close();
+    await first.server.close();
+
+    const second = await connect(directory, {
+      publish: async () => {
+        calls += 1;
+        return { state: "completed", canonicalReadback: timeline(), canonicalTarget: canonicalTarget({ target, destination: { projectUid: "project-1-framekit-abc123", sequenceUid: "sequence-1-framekit-abc123" } }), headedNativeVerified: false };
+      },
+    }, undefined, "omit");
+    const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_BASE_UNAVAILABLE");
+    assert.equal(failed.verification.tier, "artifact");
+    assert.equal(failed.verification.status, "failed");
+    assert.equal(calls, 0);
+    await second.client.close();
+    await second.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("returns a target-bound structural diff when canonical readback mismatches", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-structural-diff-"));
+  try {
+    const connected = await connect(directory, {
+      publish: async (request) => {
+        const canonicalReadback = structuredClone(request.desired);
+        canonicalReadback.sequence.occurrences[0]!.name = "Canonical mismatch";
+        return { state: "completed", canonicalReadback, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+      },
+    });
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-structural-diff", provider: { id: "final-cut" }, base: timeline() } });
+    const failed = payload(await connected.client.callTool({
+      name: "session.materialize.execute",
+      arguments: { sessionId: "session-structural-diff", target, confirm: true },
+    }));
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error.code, "MATERIALIZATION_READBACK_MISMATCH");
+    assert.equal(failed.verification.tier, "delivery");
+    assert.equal(failed.verification.status, "failed");
+    assert.equal(failed.verification.structuralDiff.target.projectId, "project-1");
+    assert.deepEqual(failed.verification.structuralDiff.changes, [{
+      path: "sequence.occurrences[0].name",
+      before: "Opening",
+      after: "Canonical mismatch",
+    }]);
+    await connected.client.close();
+    await connected.server.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -492,30 +661,4 @@ test("rejects a tampered persisted desired snapshot before retry publication", a
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test("documents session tools persistence and materialization evidence boundaries", async () => {
-  const tools = await readFile("docs/mcp/tools.md", "utf8");
-  const architecture = await readFile("docs/architecture/headless-editing-sessions.md", "utf8");
-
-  for (const tool of [
-    "session.create",
-    "session.observe",
-    "session.reconcile",
-    "session.materialize.preview",
-    "session.materialize.execute",
-    "session.materialize.status",
-    "session.materialize.retry",
-  ]) {
-    assert.match(tools, new RegExp(tool.replaceAll(".", "\\.")));
-  }
-  assert.match(architecture, /FRAMEKIT_STATE_DIR/);
-  assert.match(architecture, /canonical: false/);
-  assert.match(architecture, /artifact.*provider-requested.*canonical-readback.*headed-native/s);
-  assert.match(architecture, /does not write.*SQLite/i);
-  assert.match(architecture, /FRAMEKIT_FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND/);
-  assert.match(architecture, /publishing/);
-  assert.match(architecture, /provider change stream/i);
-  assert.match(architecture, /possibly_stale/);
-  assert.match(tools, /libraryUid.*eventUid.*projectUid.*sequenceUid/s);
 });

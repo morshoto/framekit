@@ -75,9 +75,52 @@ jobs:
             - id: run-tagpr
               name: Run tagpr
               if: steps.requested-tag.outputs.tag == '' && steps.existing-tag.outputs.tag == ''
-              uses: Songmu/tagpr@967f2ab22be958948fb5bd439bfa3d404dd9dee8 # v1
+              uses: Songmu/tagpr@1fcd7292d1fe8ea9a8313eef46b8d80b7a15d227 # v1
               env:
                   GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
+
+            - name: Format draft release notes
+              if: >-
+                steps.requested-tag.outputs.tag != '' ||
+                steps.existing-tag.outputs.tag != '' ||
+                steps.run-tagpr.outputs.tag != ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  original="${RUNNER_TEMP}/draft-release-body.md"
+                  formatted="${RUNNER_TEMP}/draft-release-body-formatted.md"
+                  payload="${RUNNER_TEMP}/draft-release-body.json"
+                  release_json="${RUNNER_TEMP}/draft-release.json"
+
+                  release_id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                    | jq -sr --arg tag "${RELEASE_TAG}" \
+                      '[.[][] | select(.draft == true and (.name == $tag or .tag_name == $tag)) | .id][0] // empty')"
+                  if [ -z "${release_id}" ]; then
+                    echo "No draft release for ${RELEASE_TAG}; nothing to format."
+                    exit 0
+                  fi
+
+                  gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > "${release_json}"
+                  jq -r '.body // ""' "${release_json}" > "${original}"
+                  if ! grep -Fq '<!-- Release notes generated' "${original}"; then
+                    echo "Draft body is not GitHub-generated; preserving it without edits."
+                    exit 0
+                  fi
+
+                  node scripts/format-release-notes.mjs < "${original}" > "${formatted}"
+                  if cmp -s "${original}" "${formatted}"; then
+                    exit 0
+                  fi
+
+                  jq -Rs '{body: .}' < "${formatted}" > "${payload}"
+                  gh api --method PATCH \
+                    "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+                    --input "${payload}" \
+                    --silent
 
             - id: classify
               name: Classify milestone release
@@ -119,9 +162,9 @@ jobs:
 
             - name: Set up Node.js
               if: needs.tagpr.outputs.milestone-release == 'true'
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.21.0
+                  node-version: 24.22.1
                   cache: pnpm
 
             - name: Install dependencies
@@ -198,9 +241,9 @@ jobs:
               uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
             - name: Set up Node.js
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.21.0
+                  node-version: 24.22.1
                   registry-url: https://registry.npmjs.org
                   cache: pnpm
 
@@ -209,6 +252,9 @@ jobs:
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
+
+            - name: Install FFmpeg fixture toolchain
+              run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
 
             - name: Build release package
               run: pnpm run build:package
@@ -227,7 +273,7 @@ jobs:
 
             - name: Upload release gate evidence
               if: always()
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
               with:
                   name: release-gate-${{ github.run_id }}
                   path: artifacts/release-gate/${{ github.run_id }}
@@ -335,6 +381,17 @@ jobs:
                   cat "${error_log}" >&2
                   exit 1
 
+            - name: Verify clean published Codex MCP installation
+              env:
+                  FRAMEKIT_CLEAN_CLIENT: codex
+                  FRAMEKIT_CLEAN_MCP_EVIDENCE_OUTPUT: artifacts/release-candidate/clean-mcp-clients.json
+                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  export RELEASE_COMMIT="$(git rev-parse HEAD)"
+                  pnpm run test:clean-mcp-clients
+
             - name: Publish GitHub release
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -354,6 +411,14 @@ jobs:
                     gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
                   fi
 
+            - name: Upload clean MCP release candidate evidence
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: clean-mcp-clients-${{ needs.tagpr.outputs.release-tag }}
+                  path: artifacts/release-candidate/clean-mcp-clients.json
+                  if-no-files-found: warn
+
     validate-codex-plugin:
         if: needs.tagpr.outputs.release-tag != ''
         needs: tagpr
@@ -371,9 +436,9 @@ jobs:
               uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
             - name: Set up Node.js
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.21.0
+                  node-version: 24.22.1
                   cache: pnpm
 
             - name: Install dependencies

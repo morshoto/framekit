@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -62,28 +62,6 @@ test("FCPXML capabilities advertise only the documented safe operation matrix", 
     "/Transitions/Cross.localized/Cross.moti");
 });
 
-test("FCPXML operation coverage has a documented evidence boundary", async () => {
-  const matrix = await readFile("docs/final-cut/fcpxml-operation-matrix.md", "utf8");
-
-  for (const operation of [
-    "timeline.media.add",
-    "timeline.media.move",
-    "timeline.media.replace",
-    "timeline.media.remove",
-    "timeline.audio.fades",
-    "timeline.audio.attach",
-    "timeline.audio.mix",
-    "timeline.title.add",
-    "timeline.transition.add",
-    "ripple-delete",
-    "timeline.mask.add",
-  ]) {
-    assert.match(matrix, new RegExp(operation.replaceAll(".", "\\.")));
-  }
-  assert.match(matrix, /CAPABILITY_UNAVAILABLE/);
-  assert.match(matrix, /does not prove a live\s+Final Cut timeline change/i);
-});
-
 test("FCPXML media operations preview, execute, verify, diff, and undo", async () => {
   const { path, adapter } = await artifact();
   const runtime = new AgentVideoRuntime(adapter);
@@ -143,6 +121,183 @@ test("FCPXML media additions preserve music roles through read-after-write", asy
   assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
   assert.equal(transaction.after.timeline.clips.find((clip) => clip.id === "music-1")?.role, "music");
   assert.match(await readFile(path, "utf8"), /id="music-1"[^>]+role="music"/);
+});
+
+test("FCPXML marker edits stay inside a DTD-valid story element", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-marker-dtd-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources><format id="format-main" frameDuration="1/24s" /></resources>
+  <library><event name="Event"><project uid="project-marker" name="Marker Project">
+    <sequence format="format-main" duration="1s"><spine>
+      <gap name="Black" offset="0s" duration="1s" />
+    </spine></sequence>
+  </project></event></library>
+</fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "marker-1", start: 0, duration: 0, name: "Framekit Publisher E2E" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    assert.equal(transaction.after.timeline.markers[0]?.id, "marker-1");
+    assert.equal(transaction.after.timeline.markers[0]?.name, "Framekit Publisher E2E");
+    assert.equal(transaction.after.timeline.markers[0]?.start, 0);
+
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<gap[^>]*>\s*<marker(?=[^>]*\bstart="0\/1s")(?=[^>]*\bduration="0\/1s")(?=[^>]*\bvalue="Framekit Publisher E2E")(?=[^>]*\bnote="com\.framekit\.id:marker-1")[^>]*><\/marker>\s*<\/gap>/);
+    assert.doesNotMatch(xml, /<spine[^>]*>\s*<marker/);
+    assert.doesNotMatch(xml, /<marker[^>]*\bid=/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FCPXML markers inside auditions attach to an audition story element", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-audition-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+  <format id="format-audition" frameDuration="1/24s" />
+  <asset id="source" name="Source.mov" src="file:///fixtures/source.mov" hasVideo="1" duration="2s" />
+</resources><library><event name="Event"><project uid="project-audition" name="Audition Project">
+  <sequence format="format-audition" duration="2s"><spine>
+    <audition offset="0s" duration="2s"><asset-clip ref="source" offset="0s" start="0s" duration="2s" /></audition>
+  </spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "audition-marker", start: 1, duration: 0, name: "Audition Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<audition[^>]*>\s*<asset-clip[^>]*>\s*<marker[^>]*value="Audition Marker"/);
+    assert.doesNotMatch(xml, /<audition[^>]*>\s*<marker/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FCPXML gap markers round-trip from nonzero source time", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-gap-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><library><event name="Event"><project uid="project-gap-marker" name="Gap Marker Project">
+  <sequence duration="2s"><spine><gap name="Black" offset="0s" start="5s" duration="2s" /></spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "gap-marker", start: 1, duration: 0, name: "Gap Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    assert.equal(transaction.after.timeline.markers[0]?.start, 1);
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<gap[^>]*start="5s"[^>]*>\s*<marker[^>]*start="6\/1s"[^>]*value="Gap Marker"/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FCPXML audio markers round-trip from nonzero source time", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-audio-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+  <format id="format-audio-marker" frameDuration="1/24s" />
+  <asset id="video-source" name="Video.mov" duration="2s" hasVideo="1"><media-rep src="file:///fixtures/video.mov" /></asset>
+  <asset id="audio-source" name="Audio.wav" duration="8s" hasAudio="1"><media-rep src="file:///fixtures/audio.wav" /></asset>
+</resources><library><event name="Event"><project uid="project-audio-marker" name="Audio Marker Project">
+  <sequence format="format-audio-marker" duration="2s"><spine>
+    <asset-clip ref="video-source" offset="0s" start="0s" duration="1/2s">
+      <audio ref="audio-source" lane="1" offset="0s" start="5s" duration="2s" />
+    </asset-clip>
+  </spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "audio-marker", start: 1, duration: 0, name: "Audio Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    assert.equal(transaction.after.timeline.markers[0]?.start, 1);
+    const xml = await readFile(path, "utf8");
+    assert.match(xml, /<audio[^>]*start="5s"[^>]*>\s*<marker[^>]*start="6\/1s"[^>]*value="Audio Marker"/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FCPXML markers precede ordered filter and metadata children", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-filter-marker-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+  <format id="format-filter" frameDuration="1/24s" />
+  <asset id="source" name="Source.mov" duration="2s" hasVideo="1"><media-rep src="file:///fixtures/source.mov" /></asset>
+  <effect id="filter-effect" name="Test Filter" uid="/Effects/Test.localized/Test.moti" />
+</resources><library><event name="Event"><project uid="project-filter-marker" name="Filter Marker Project">
+  <sequence format="format-filter" duration="2s"><spine>
+    <asset-clip ref="source" offset="0s" start="0s" duration="2s"><filter-video ref="filter-effect" /><metadata /></asset-clip>
+  </spine></sequence>
+</project></event></library></fcpxml>`);
+    const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+    const before = await runtime.inspectProject();
+    const preview = await runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{
+        type: "add-marker",
+        timelineId: before.timeline.id,
+        marker: { id: "filtered-marker", start: 1, duration: 0, name: "Filtered Marker" },
+      }],
+    });
+
+    const transaction = await runtime.executeEdit(preview.previewToken);
+    assert.equal(transaction.status, "VERIFIED", JSON.stringify(transaction.verification));
+    const xml = await readFile(path, "utf8");
+    const assetClip = xml.match(/<asset-clip[^>]*>([\s\S]*?)<\/asset-clip>/)?.[1];
+    assert.ok(assetClip);
+    const markerIndex = assetClip.indexOf("<marker");
+    const filterIndex = assetClip.indexOf("<filter-video");
+    const metadataIndex = assetClip.indexOf("<metadata");
+    assert.ok(markerIndex >= 0 && markerIndex < filterIndex && filterIndex < metadataIndex, assetClip);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("FCPXML titles, transitions, and audio parameters round-trip through one transaction", async () => {
@@ -251,6 +406,22 @@ test("FCPXML ripple delete preserves source ranges and rational timing", async (
   );
   assert.equal(transaction.after.timeline.duration, 6);
   assert.match(await readFile(path, "utf8"), /offset="3\/1s"/);
+});
+
+test("FCPXML ripple delete rejects ranges outside sequence bounds before preview", async () => {
+  const { path, adapter } = await artifact();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const original = await readFile(path, "utf8");
+
+  for (const range of [{ start: -1, end: 1 }, { start: 7, end: 9 }]) {
+    await assert.rejects(runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{ type: "ripple-delete", timelineId: before.timeline.id, range }],
+    }), new RegExp(`ripple-delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 8\\)`));
+    assert.deepEqual(await runtime.inspectProject(), before);
+    assert.equal(await readFile(path, "utf8"), original);
+  }
 });
 
 test("FCPXML preview and transaction failures leave bytes unchanged", async () => {

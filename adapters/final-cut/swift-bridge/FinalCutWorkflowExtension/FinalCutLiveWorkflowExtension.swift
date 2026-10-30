@@ -15,6 +15,11 @@ import ProExtensionHost
 
 private let protocolVersion = 1
 
+private struct BuildFingerprint: Codable {
+    let version: String
+    let commit: String
+}
+
 private struct RationalTime: Codable {
     let value: String
     let timescale: String
@@ -69,6 +74,9 @@ private struct BridgeRequest: Codable {
     let method: String
     let afterSequence: Int?
     let waitMs: Int?
+    let artifactPath: String?
+    let targetLibraryLocation: String?
+    let activates: Bool?
 }
 
 private struct EditorCapabilities: Codable {
@@ -189,6 +197,7 @@ private struct Identity: Codable {
     let name: String
     let version: String
     let backend: String
+    let buildFingerprint: BuildFingerprint
 }
 
 private struct BridgeResult: Codable {
@@ -196,6 +205,24 @@ private struct BridgeResult: Codable {
     let capabilities: RuntimeCapabilities
     let state: LiveState?
     let changes: [LiveChange]?
+    let delivery: FCPXMLDelivery?
+}
+
+private struct FCPXMLDelivery: Codable {
+    let status: String
+    let route: String
+    let attempted: Bool
+    let imported: Bool
+    let requestedActivates: Bool
+    let activation: String
+    let ui: String
+    let target: FCPXMLDeliveryTarget
+    let error: BridgeError?
+}
+
+private struct FCPXMLDeliveryTarget: Codable {
+    let requestedLibraryLocation: String?
+    let guarantee: String
 }
 
 private struct BridgeError: Codable {
@@ -472,7 +499,12 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
     }
 
     private func handle(_ request: BridgeRequest) -> BridgeResponse {
-        let identity = Identity(name: "Final Cut Pro", version: "Workflow Extension", backend: "workflow-extension-ipc")
+        let identity = Identity(
+            name: "Final Cut Pro",
+            version: "Workflow Extension",
+            backend: "workflow-extension-ipc",
+            buildFingerprint: extensionBuildFingerprint()
+        )
         let capabilities = RuntimeCapabilities(
                 editor: EditorCapabilities(canonicalTimelineMode: "metadata-only", projectRead: false, timelineSnapshotRead: false, timelineWrite: false, timelineArtifactWrite: false, readAfterWrite: false, incrementalChanges: true, rollback: false, assetDiscovery: false, liveStateRead: true, playheadWrite: false, frameCapture: false, playbackControl: false, projectCatalogRead: false, projectSelection: false, projectSelectionMode: "unavailable", backgroundLibraryInspection: false),
             analyzers: AnalyzerCapabilities(speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false),
@@ -481,10 +513,10 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         )
         switch request.method {
         case "capabilities":
-            return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: nil), error: nil)
+            return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: nil, delivery: nil), error: nil)
         case "state":
             do {
-                return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: try state(), changes: nil), error: nil)
+                return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: try state(), changes: nil, delivery: nil), error: nil)
             } catch {
                 return failure(request, code: "ACTIVE_SEQUENCE_UNAVAILABLE", message: String(describing: error))
             }
@@ -495,7 +527,9 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
                 Thread.sleep(forTimeInterval: Double(min(request.waitMs ?? 0, 30_000)) / 1000.0)
             }
             let result = stateLock.withLock { changes.filter { $0.revision.sequence > after } }
-            return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: result), error: nil)
+            return BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: result, delivery: nil), error: nil)
+        case "deliver-fcpxml":
+            return deliverFCPXML(request, identity: identity, capabilities: capabilities)
         case "projects", "select-project":
             return failure(request, code: "CAPABILITY_UNAVAILABLE", message: "Final Cut Workflow Extension does not expose project catalog or selection")
         case "snapshot", "apply", "restore":
@@ -505,8 +539,99 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         }
     }
 
+    private func extensionBuildFingerprint() -> BuildFingerprint {
+        let info = Bundle(for: FinalCutLiveWorkflowExtension.self).infoDictionary ?? [:]
+        return BuildFingerprint(
+            version: info["FramekitBuildVersion"] as? String ?? "unknown",
+            commit: info["FramekitBuildCommit"] as? String ?? "unknown"
+        )
+    }
+
     private func failure(_ request: BridgeRequest, code: String, message: String) -> BridgeResponse {
         BridgeResponse(version: protocolVersion, id: request.id, ok: false, result: nil, error: BridgeError(code: code, message: message))
+    }
+
+    private func deliverFCPXML(_ request: BridgeRequest, identity: Identity, capabilities: RuntimeCapabilities) -> BridgeResponse {
+        let requestedActivates = request.activates ?? false
+        let target = FCPXMLDeliveryTarget(
+            requestedLibraryLocation: request.targetLibraryLocation,
+            guarantee: request.targetLibraryLocation?.isEmpty == false ? "requested-unverified" : "unavailable"
+        )
+        guard let path = request.artifactPath, !path.isEmpty else {
+            return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+                status: "failed", route: "background-document-open", attempted: false, imported: false,
+                requestedActivates: requestedActivates, activation: "unknown", ui: "none", target: target,
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_ARTIFACT_INVALID", message: "FCPXML artifact path is required")
+            ))
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+            return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+                status: "failed", route: "background-document-open", attempted: false, imported: false,
+                requestedActivates: requestedActivates, activation: "unknown", ui: "none", target: target,
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_ARTIFACT_UNAVAILABLE", message: "FCPXML artifact does not exist at the requested path")
+            ))
+        }
+        guard request.targetLibraryLocation?.isEmpty == false else {
+            return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+                status: "user-interaction-required", route: "background-document-open", attempted: false, imported: false,
+                requestedActivates: requestedActivates, activation: "unknown", ui: "prompted", target: target,
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE", message: "The document-open path requires an explicit new library location embedded in the FCPXML import options")
+            ))
+        }
+
+#if FRAMEKIT_CODEQL
+        return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+            status: "failed", route: "background-document-open", attempted: false, imported: false,
+            requestedActivates: requestedActivates, activation: "unknown", ui: "none", target: target,
+            error: BridgeError(code: "FINAL_CUT_DELIVERY_UNAVAILABLE", message: "NSWorkspace document delivery is unavailable in the static-analysis build")
+        ))
+#else
+        let beforeBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = requestedActivates
+        configuration.promptsUserIfNeeded = false
+        var openedApplication: NSRunningApplication?
+        var openError: Error?
+        let semaphore = DispatchSemaphore(value: 0)
+        NSWorkspace.shared.open(URL(fileURLWithPath: path), configuration: configuration) { application, error in
+            openedApplication = application
+            openError = error
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+                status: "failed", route: "background-document-open", attempted: true, imported: false,
+                requestedActivates: requestedActivates, activation: "unknown", ui: "unknown", target: target,
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_TIMEOUT", message: "NSWorkspace did not report whether the FCPXML document-open request was accepted")
+            ))
+        }
+        if let openError {
+            return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+                status: "failed", route: "background-document-open", attempted: true, imported: false,
+                requestedActivates: requestedActivates, activation: "unknown", ui: "unknown", target: target,
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_OPEN_FAILED", message: openError.localizedDescription)
+            ))
+        }
+        let afterBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let activation: String
+        if requestedActivates {
+            activation = "activated"
+        } else if beforeBundle != nil && beforeBundle == afterBundle {
+            activation = "preserved"
+        } else if openedApplication?.isActive == true || afterBundle == "com.apple.FinalCut" {
+            activation = "activated"
+        } else {
+            activation = "unknown"
+        }
+        return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
+            status: "dispatched", route: "background-document-open", attempted: true, imported: false,
+            requestedActivates: requestedActivates, activation: activation, ui: "unknown", target: target, error: nil
+        ))
+#endif
+    }
+
+    private func deliveryResponse(_ request: BridgeRequest, identity: Identity, capabilities: RuntimeCapabilities, delivery: FCPXMLDelivery) -> BridgeResponse {
+        BridgeResponse(version: protocolVersion, id: request.id, ok: true, result: BridgeResult(identity: identity, capabilities: capabilities, state: nil, changes: nil, delivery: delivery), error: nil)
     }
 
     private func record(kind: String) {

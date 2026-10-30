@@ -18,6 +18,7 @@ import {
   DisposableNativeEditWorkflow,
   FinalCutBackgroundMaterializationPublisher,
   FinalCutProjectPublisher,
+  parseFinalCutProjectPublishRoute,
   FinalCutSqliteInspectionProvider,
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
@@ -26,9 +27,11 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "@framekit/headless-renderer";
 
 const fixture = new InMemoryEditorAdapter({
   projectId: "project-1",
@@ -117,6 +120,10 @@ const canonicalNativeMutationEditor = canonicalNativeProviderEnabled
     })
   : nativeEditor;
 
+const canonicalNativeTargetResolver = canonicalNativeProviderEnabled
+  ? createFinalCutNativeTargetResolver(nativeEditor!)
+  : undefined;
+
 const canonicalNativeProvider = canonicalNativeProviderEnabled
   ? new FinalCutCanonicalNativeProvider({
       live: liveAdapter!,
@@ -158,7 +165,7 @@ const canonicalNativeProvider = canonicalNativeProviderEnabled
           target: { projectId, projectUid: projectId, sequenceId },
         }).readSnapshot();
       },
-      resolveTarget: createFinalCutNativeTargetResolver(nativeEditor!),
+      resolveTarget: canonicalNativeTargetResolver!,
       backgroundCatalog: backgroundLibraryProvider,
     })
   : undefined;
@@ -189,6 +196,7 @@ const editor = liveMode
     })
   : fixture;
 
+const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
 const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
@@ -206,14 +214,28 @@ const analyzers = liveMode
       metadataAnalyzer: new FixtureMetadataAnalyzer(),
     };
 
-const runtime = new AgentVideoRuntime(editor, analyzers);
-const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
+const runtime = new AgentVideoRuntime(editor, {
+  ...analyzers,
+  semanticMediaIndexStore: new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json")),
+});
+const headlessProjects = new HeadlessProjectService({
+  directory: join(framekitStateDirectory, "projects"),
+  mediaProbe: new FfmpegMediaMetadataProbe(),
+  renderer: new FfmpegTimelineRenderer(),
+  verifier: new FfmpegRenderVerifier(),
+});
 const sqliteObservationProvider = new FinalCutSqliteInspectionProvider();
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
       native: nativeEditor,
       readCanonicalSnapshot: () => runtime.inspectProject(),
       readCanonicalCapabilities: async () => (await runtime.inspectEditor()).capabilities,
+      ...(nativeEditor ? {
+        prepareTarget: async (target, snapshot) => {
+          const occurrenceIndex = snapshot.timeline.clips.findIndex((clip) => clip.id === target.id) + 1;
+          await nativeEditor.selectCanonicalOccurrence(target.name, occurrenceIndex);
+        },
+      } : {}),
     })
   : undefined;
 const nativeOperationSession = disposableNative && nativeEditor
@@ -223,7 +245,33 @@ const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({
       enabled: !headlessFinalCut && process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES === "1",
       sourcePath: fcpxmlPath,
+      publishJobsDirectory: join(framekitStateDirectory, "publish-jobs"),
+      documentDelivery: liveAdapter!,
+      publishRoute: parseFinalCutProjectPublishRoute(
+        process.env.FRAMEKIT_FINAL_CUT_PUBLISH_ROUTE,
+        Boolean(liveAdapter),
+      ),
       liveState: () => liveAdapter!.readLiveState(),
+      readCanonicalSnapshot: (targetBinding, identity) => new FinalCutCanonicalSnapshotSource({
+        readbackTarget: { ...targetBinding, ...identity },
+      }).readSnapshot(),
+      targetBinding: (targetLibraryPath, identity) => {
+        if (!targetLibraryPath || !backgroundLibraryProvider) {
+          throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: a target library path and Final Cut library catalog are required");
+        }
+        return backgroundLibraryProvider.resolveProjectBinding(targetLibraryPath, identity);
+      },
+      headlessSourceVerifier: async (request) => {
+        const proof = await headlessProjects.verifyPublishableRoughCutTransaction({
+          sourceTransactionId: request.sourceTransactionId,
+          artifactPath: request.artifactPath,
+          artifactDigest: request.artifactDigest,
+        });
+        return {
+          targetLibraryUid: proof.targetLibraryUid,
+          sourceMediaDigests: proof.sourceMediaDigests,
+        };
+      },
     })
   : undefined;
 const backgroundMaterializationCommand = liveMode
@@ -252,10 +300,15 @@ const server = createMcpServer(runtime, {
   projectPublisher,
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
+  requireBuildAlignment: process.env.FRAMEKIT_REQUIRE_BUILD_ALIGNMENT === "1",
+  ...(process.env.FRAMEKIT_VALIDATION_COMMIT?.trim()
+    ? { validationCommit: process.env.FRAMEKIT_VALIDATION_COMMIT.trim() }
+    : {}),
   sessionDirectory: join(framekitStateDirectory, "sessions"),
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   sqliteObservationProvider,
+  headlessProjects,
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

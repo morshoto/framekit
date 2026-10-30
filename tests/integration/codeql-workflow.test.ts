@@ -1,180 +1,223 @@
-import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import test from "node:test";
-import { fileURLToPath } from "node:url";
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 async function readRepositoryFile(relativePath: string): Promise<string> {
-  return readFile(resolve(repository, relativePath), "utf8");
+	return readFile(resolve(repository, relativePath), 'utf8');
 }
 
-test("CodeQL keeps default-branch runs from being cancelled", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+/** Extract a job without assuming two-space or four-space YAML indentation. */
+function getJob(workflow: string, jobName: string): string | undefined {
+	const lines = workflow.split(/\r?\n/);
+	const jobsLine = lines.findIndex((line) => /^jobs:\s*$/.test(line));
+	if (jobsLine < 0) return undefined;
 
-  assert.match(workflow, /push:\s+branches:\s+- main/);
-  assert.match(workflow, /group:\s+codeql-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
-  assert.match(workflow, /cancel-in-progress:\s+\$\{\{ github\.event_name == 'pull_request' \}\}/);
+	let start = -1;
+	let indentation = -1;
+	for (let i = jobsLine + 1; i < lines.length; i++) {
+		const match = lines[i].match(/^([ \t]+)([a-z][a-z0-9-]*):\s*$/);
+		if (match?.[2] === jobName) {
+			start = i;
+			indentation = match[1].length;
+			break;
+		}
+	}
+	if (start < 0) return undefined;
+
+	let end = lines.length;
+	for (let i = start + 1; i < lines.length; i++) {
+		const match = lines[i].match(/^([ \t]+)([a-z][a-z0-9-]*):\s*$/);
+		if (match && match[1].length === indentation) {
+			end = i;
+			break;
+		}
+	}
+	return lines.slice(start, end).join('\n');
+}
+
+test('CodeQL keeps default-branch runs from being cancelled', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+
+	assert.match(workflow, /push:\s+branches:\s+- main/);
+	assert.match(
+		workflow,
+		/group:\s+codeql-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/,
+	);
+	assert.match(
+		workflow,
+		/cancel-in-progress:\s+\$\{\{ github\.event_name == 'pull_request' \}\}/,
+	);
 });
 
-test("CodeQL still supersedes obsolete pull-request runs", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
-
-  assert.match(workflow, /pull_request:\s+branches:\s+- main/);
-  assert.match(workflow, /types:\s+- opened\s+- synchronize\s+- reopened/);
-  assert.match(workflow, /github\.event_name == 'pull_request'/);
+test('CodeQL does not trigger on pull requests', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	// Ignore commented-out YAML, including the old pull_request configuration.
+	const activeWorkflow = workflow.replace(/^[ \t]*#.*$/gm, '');
+	assert.doesNotMatch(activeWorkflow, /^\s*pull_request:/m);
+	assert.match(activeWorkflow, /^\s*push:/m);
+	assert.match(activeWorkflow, /^\s*workflow_dispatch:/m);
+	assert.match(activeWorkflow, /^\s*schedule:/m);
 });
 
-test("CodeQL publishes both required checks for documentation-only pull requests", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
-  const javascriptJob = workflow.match(/\n  analyze:\n[\s\S]*?(?=\n  analyze-swift:|$)/)?.[0];
-  const swiftJob = workflow.match(/\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/)?.[0];
+test('CodeQL retains both analysis jobs for default-branch runs', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const javascriptJob = getJob(workflow, 'analyze');
+	const swiftJob = getJob(workflow, 'analyze-swift');
 
-  assert.ok(javascriptJob, "JavaScript/TypeScript CodeQL job should be present");
-  assert.ok(swiftJob, "Swift CodeQL job should be present");
-  assert.match(javascriptJob, /name: Analyze \(\$\{\{ matrix\.language \}\}\)/);
-  assert.match(javascriptJob, /language: javascript-typescript/);
-  assert.match(javascriptJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
-  assert.match(swiftJob, /name: Analyze \(swift\)/);
-  assert.match(swiftJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
-  assert.doesNotMatch(workflow, /\n  changes:\n|needs: changes/);
+	assert.ok(
+		javascriptJob,
+		'JavaScript/TypeScript CodeQL job should be present',
+	);
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+	assert.match(
+		javascriptJob,
+		/name: Analyze \(\$\{\{ matrix\.language \}\}\)/,
+	);
+	assert.match(javascriptJob, /language: javascript-typescript/);
+	assert.match(javascriptJob, /^\s+if: \$\{\{ !cancelled\(\) \}\}/m);
+	assert.match(swiftJob, /name: Analyze \(swift\)/);
+	assert.match(swiftJob, /^\s+if: \$\{\{ !cancelled\(\) \}\}/m);
+	assert.doesNotMatch(workflow, /\n  changes:\n|needs: changes/);
 });
 
-test("Swift CodeQL publishes its required analysis when unchanged", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
-  const swiftJob = workflow.match(
-    /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
-  )?.[0];
+test('Swift CodeQL publishes its required analysis when unchanged', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const swiftJob = getJob(workflow, 'analyze-swift');
 
-  assert.ok(swiftJob, "Swift CodeQL job should be present");
-  assert.match(swiftJob, /\n    if: \$\{\{ !cancelled\(\) \}\}/);
-  assert.doesNotMatch(swiftJob, /Skip Swift CodeQL analysis \(no Swift changes\)/);
-  assert.doesNotMatch(swiftJob, /if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/);
-  assert.match(swiftJob, /category: \/language:swift/);
-  assert.doesNotMatch(
-    swiftJob,
-    /needs: changes\n    if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/,
-  );
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+	assert.match(swiftJob, /^\s+if: \$\{\{ !cancelled\(\) \}\}/m);
+	assert.doesNotMatch(
+		swiftJob,
+		/Skip Swift CodeQL analysis \(no Swift changes\)/,
+	);
+	assert.doesNotMatch(
+		swiftJob,
+		/if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/,
+	);
+	assert.match(swiftJob, /category: \/language:swift/);
+	assert.doesNotMatch(
+		swiftJob,
+		/needs: changes\n    if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/,
+	);
 });
 
-test("CodeQL concurrency policy is documented for operators", async () => {
-  const documentation = await readRepositoryFile("docs/ci/codeql.md");
+test('CodeQL preserves JavaScript analysis and adds a bounded Swift job', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 
-  assert.match(documentation, /default-branch.*queue/i);
-  assert.match(documentation, /pull-request.*cancel/i);
-  assert.match(documentation, /one.*running.*one.*pending/i);
-  assert.match(documentation, /code-scanning analyses API/i);
+	assert.match(workflow, /language: javascript-typescript/);
+	assert.match(workflow, /build-mode: none/);
+	assert.match(workflow, /os: ubuntu-latest/);
+	assert.match(workflow, /analyze-swift:/);
+	assert.match(workflow, /name: Analyze \(swift\)/);
+	assert.match(workflow, /runs-on: macos-26/);
+	assert.match(workflow, /timeout-minutes: 40/);
+	assert.match(workflow, /languages: swift/);
+	assert.match(workflow, /build-mode: manual/);
+	assert.match(workflow, /timeout-minutes: 25/);
+	assert.match(
+		workflow,
+		/\n[ \t]+- name: Type-check Swift sources for CodeQL extraction\n[ \t]+timeout-minutes: 25\n[ \t]+run: \|/,
+	);
 });
 
-test("CodeQL verification documentation records operational metadata", async () => {
-  const documentation = await readRepositoryFile("docs/ci/codeql.md");
+test('JavaScript CodeQL uploads without waiting on remote processing', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const javascriptJob = getJob(workflow, 'analyze');
 
-  for (const expected of [
-    /^Status:\s+.+$/im,
-    /^Last verified:\s+\d{4}-\d{2}-\d{2}/im,
-    /^Environment:\s+.+$/im,
-    /^Scope:\s+.+$/im,
-    /^Expected result:\s+.+$/im,
-    /^Actual evidence:\s+.+$/im,
-    /^Limitations:\s+.+$/im,
-  ]) {
-    assert.match(documentation, expected);
-  }
+	assert.ok(javascriptJob, 'JavaScript CodeQL job should be present');
+	assert.match(
+		javascriptJob,
+		/name: Analyze with CodeQL[\s\S]*?wait-for-processing: false/,
+	);
 });
 
-test("CodeQL preserves JavaScript analysis and adds a bounded Swift job", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
+test('Swift CodeQL extraction uses the checked-in shim only', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const project = await readRepositoryFile(
+		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml',
+	);
+	const swiftJob = getJob(workflow, 'analyze-swift');
 
-  assert.match(workflow, /language: javascript-typescript/);
-  assert.match(workflow, /build-mode: none/);
-  assert.match(workflow, /os: ubuntu-latest/);
-  assert.match(workflow, /analyze-swift:/);
-  assert.match(workflow, /name: Analyze \(swift\)/);
-  assert.match(workflow, /runs-on: macos-26/);
-  assert.match(workflow, /timeout-minutes: 40/);
-  assert.match(workflow, /languages: swift/);
-  assert.match(workflow, /build-mode: manual/);
-  assert.match(workflow, /timeout-minutes: 25/);
-  assert.match(workflow, /\n      - name: Type-check Swift sources for CodeQL extraction\n        timeout-minutes: 25\n        run: \|/);
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+
+	assert.match(swiftJob, /xcrun --sdk macosx swiftc/);
+	assert.match(swiftJob, /-typecheck/);
+	assert.match(swiftJob, /-parse-as-library/);
+	assert.match(swiftJob, /-target \"\$\(uname -m\)-apple-macos15\.0\"/);
+	assert.match(swiftJob, /-swift-version 5/);
+	assert.match(swiftJob, /timeout-minutes: 40/);
+	assert.match(swiftJob, /timeout-minutes: 25/);
+	assert.match(swiftJob, /-D FRAMEKIT_CODEQL/);
+	assert.doesNotMatch(swiftJob, /xcodebuild/);
+	assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
+	assert.doesNotMatch(swiftJob, /-destination/);
+	assert.doesNotMatch(swiftJob, /-emit-module/);
+	assert.doesNotMatch(swiftJob, /ProExtensionHostShim/);
+	assert.doesNotMatch(swiftJob, /Final Cut Pro\.app/);
+	assert.doesNotMatch(swiftJob, /ProExtensionHost\.framework/);
+	assert.doesNotMatch(swiftJob, /\/tmp\/framekit-finalcut-frameworks/);
+	assert.doesNotMatch(swiftJob, /build\.sh/);
+	assert.match(project, /FramekitFinalCutWorkflowCodeQL:/);
+	assert.match(project, /type: library\.static/);
+	assert.match(project, /FinalCutLiveWorkflowExtension\.swift/);
+	assert.match(
+		project,
+		/\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/,
+	);
 });
 
-test("JavaScript CodeQL uploads without waiting on remote processing", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
-  const javascriptJob = workflow.match(
-    /\n  analyze:\n[\s\S]*?(?=\n  analyze-swift:|$)/,
-  )?.[0];
+test('CodeQL substitutes host declarations without changing the native import', async () => {
+	const source = await readRepositoryFile(
+		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift',
+	);
+	const shim = await readRepositoryFile(
+		'.github/codeql/FinalCutWorkflowExtensionShim.swift',
+	);
+	const project = await readRepositoryFile(
+		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj/project.pbxproj',
+	);
 
-  assert.ok(javascriptJob, "JavaScript CodeQL job should be present");
-  assert.match(
-    javascriptJob,
-    /name: Analyze with CodeQL[\s\S]*?wait-for-processing: false/,
-  );
+	assert.match(
+		source,
+		/#if !FRAMEKIT_CODEQL[\s\S]*import ProExtensionHost[\s\S]*#endif/,
+	);
+	assert.match(
+		source,
+		/#if !FRAMEKIT_CODEQL[\s\S]*import AppKit[\s\S]*#endif/,
+	);
+	assert.match(shim, /import CoreMedia/);
+	assert.match(shim, /class NSViewController/);
+	assert.match(shim, /protocol FCPXTimelineObserver/);
+	assert.match(shim, /func ProExtensionHostSingleton/);
+	assert.match(project, /FinalCutWorkflowExtensionShim\.swift/);
 });
 
-test("Swift CodeQL extraction uses the checked-in shim only", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/codeql.yml");
-  const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml");
-  const swiftJob = workflow.match(
-    /\n  analyze-swift:\n[\s\S]*?(?=\n  [a-z][a-z0-9-]*:\n|$)/,
-  )?.[0];
+test('Swift CI remains an independent native validation gate', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/swift.yml');
 
-  assert.ok(swiftJob, "Swift CodeQL job should be present");
-
-  assert.match(swiftJob, /xcrun --sdk macosx swiftc/);
-  assert.match(swiftJob, /-typecheck/);
-  assert.match(swiftJob, /-parse-as-library/);
-  assert.match(swiftJob, /-target \"\$\(uname -m\)-apple-macos15\.0\"/);
-  assert.match(swiftJob, /-swift-version 5/);
-  assert.match(swiftJob, /timeout-minutes: 40/);
-  assert.match(swiftJob, /timeout-minutes: 25/);
-  assert.match(swiftJob, /-D FRAMEKIT_CODEQL/);
-  assert.doesNotMatch(swiftJob, /xcodebuild/);
-  assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
-  assert.doesNotMatch(swiftJob, /-destination/);
-  assert.doesNotMatch(swiftJob, /-emit-module/);
-  assert.doesNotMatch(swiftJob, /ProExtensionHostShim/);
-  assert.doesNotMatch(swiftJob, /Final Cut Pro\.app/);
-  assert.doesNotMatch(swiftJob, /ProExtensionHost\.framework/);
-  assert.doesNotMatch(swiftJob, /\/tmp\/framekit-finalcut-frameworks/);
-  assert.doesNotMatch(swiftJob, /build\.sh/);
-  assert.match(project, /FramekitFinalCutWorkflowCodeQL:/);
-  assert.match(project, /type: library\.static/);
-  assert.match(project, /FinalCutLiveWorkflowExtension\.swift/);
-  assert.match(project, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
+	assert.match(workflow, /name: Swift CI/);
+	assert.match(workflow, /xcodebuild[\s\S]*-list/);
+	assert.match(workflow, /xcrun swiftc/);
+	assert.match(workflow, /ProExtensionHostShim/);
 });
 
-test("CodeQL substitutes host declarations without changing the native import", async () => {
-  const source = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift");
-  const shim = await readRepositoryFile(".github/codeql/FinalCutWorkflowExtensionShim.swift");
-  const project = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj/project.pbxproj");
+test('Swift bridge documents the separate bounded CodeQL path', async () => {
+	const documentation = await readRepositoryFile(
+		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md',
+	);
 
-  assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import ProExtensionHost[\s\S]*#endif/);
-  assert.match(source, /#if !FRAMEKIT_CODEQL[\s\S]*import AppKit[\s\S]*#endif/);
-  assert.match(shim, /import CoreMedia/);
-  assert.match(shim, /class NSViewController/);
-  assert.match(shim, /protocol FCPXTimelineObserver/);
-  assert.match(shim, /func ProExtensionHostSingleton/);
-  assert.match(project, /FinalCutWorkflowExtensionShim\.swift/);
-});
-
-test("Swift CI remains an independent native validation gate", async () => {
-  const workflow = await readRepositoryFile(".github/workflows/swift.yml");
-
-  assert.match(workflow, /name: Swift CI/);
-  assert.match(workflow, /xcodebuild[\s\S]*-list/);
-  assert.match(workflow, /xcrun swiftc/);
-  assert.match(workflow, /ProExtensionHostShim/);
-});
-
-test("Swift bridge documents the separate bounded CodeQL path", async () => {
-  const documentation = await readRepositoryFile("adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/README.md");
-
-  assert.match(documentation, /CodeQL Swift extraction/);
-  assert.match(documentation, /manual\s+`xcrun swiftc`/);
-  assert.match(documentation, /checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/);
-  assert.match(documentation, /Direct\s+compiler\s+invocation/);
-  assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
-  assert.match(documentation, /forty and twenty-five minutes/);
-  assert.match(documentation, /standalone Swift CI/);
+	assert.match(documentation, /CodeQL Swift extraction/);
+	assert.match(documentation, /manual\s+`xcrun swiftc`/);
+	assert.match(
+		documentation,
+		/checked-in\s+`.github\/codeql\/FinalCutWorkflowExtensionShim\.swift`/,
+	);
+	assert.match(documentation, /Direct\s+compiler\s+invocation/);
+	assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
+	assert.match(documentation, /forty and twenty-five minutes/);
+	assert.match(documentation, /standalone Swift CI/);
 });

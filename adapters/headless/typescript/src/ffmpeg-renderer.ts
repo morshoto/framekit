@@ -1,0 +1,673 @@
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
+import {
+  createFramekitRenderResult,
+  type FramekitRenderCapabilityReport,
+  type FramekitRenderFeature,
+  type FramekitRenderFormat,
+  type FramekitRenderPlan,
+  type FramekitRenderProvider,
+  type FramekitRenderProviderResult,
+  type FramekitRenderRequest,
+  type TimelineIr,
+  type TimelineIrOccurrence,
+  type TimelineIrResource,
+  type TimelineIrTransition,
+} from "@framekit/runtime";
+
+const execFileAsync = promisify(execFile);
+
+export interface FfmpegTimelineRendererOptions {
+  ffmpegPath?: string;
+  version?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export type FfmpegRenderErrorCode =
+  | "HEADLESS_RENDER_UNAVAILABLE"
+  | "HEADLESS_RENDER_UNSUPPORTED"
+  | "HEADLESS_RENDER_MEDIA_MISSING"
+  | "HEADLESS_RENDER_MEDIA_CHANGED"
+  | "HEADLESS_RENDER_OUTPUT_EXISTS"
+  | "HEADLESS_RENDER_OUTPUT_INVALID"
+  | "HEADLESS_RENDER_PLAN_MISMATCH"
+  | "HEADLESS_RENDER_FAILED";
+
+export class FfmpegRenderError extends Error {
+  public constructor(
+    public readonly code: FfmpegRenderErrorCode,
+    message: string,
+  ) {
+    super(`${code}: ${message}`);
+    this.name = "FfmpegRenderError";
+  }
+}
+
+/**
+ * The first provider-neutral concrete renderer. It consumes only a validated
+ * Timeline IR render plan and treats local source files as immutable inputs.
+ */
+export class FfmpegTimelineRenderer implements FramekitRenderProvider {
+  public readonly id = "ffmpeg-headless";
+  public readonly version: string;
+  private readonly ffmpegPath: string;
+  private readonly environment: NodeJS.ProcessEnv;
+  private readonly fontFile?: string;
+
+  public constructor(options: FfmpegTimelineRendererOptions = {}) {
+    this.ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_BIN ?? "ffmpeg";
+    this.version = options.version ?? "0.1.0";
+    this.environment = { ...process.env, ...options.env };
+    this.fontFile = resolveFontFile(options.env?.FRAMEKIT_RENDER_FONT ?? process.env.FRAMEKIT_RENDER_FONT);
+  }
+
+  public capabilities(request: FramekitRenderRequest): FramekitRenderCapabilityReport {
+    const timeline = request.timeline;
+    return {
+      renderer: { id: this.id, version: this.version },
+      features: {
+        "local-media": supportsLocalMedia(timeline) ? "supported" : "unsupported",
+        "structural-edits": supportsStructuralEdits(timeline) ? "supported" : "unsupported",
+        "audio-gain": supportsAudioGain(timeline) ? "supported" : "unsupported",
+        "audio-mixing": supportsAudioMixing(timeline) ? "supported" : "unsupported",
+        transform: supportsTransforms(timeline) ? "supported" : "unsupported",
+        titles: supportsTitles(timeline) ? "supported" : "unsupported",
+        "cross-dissolve": supportsCrossDissolve(timeline) ? "supported" : "unsupported",
+      },
+    };
+  }
+
+  public async render(plan: FramekitRenderPlan): Promise<FramekitRenderProviderResult> {
+    if (plan.renderer.id !== this.id || plan.renderer.version !== this.version) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "render plan is bound to another renderer version");
+    }
+    const unavailable = plan.requiredFeatures.filter((feature) => plan.capabilities.features[feature] !== "supported");
+    if (unavailable.length > 0) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `required features are unavailable: ${unavailable.join(", ")}`);
+    }
+
+    const model = await prepareRenderModel(plan);
+    const outputPath = resolve(plan.parameters.outputPath);
+    await assertOutputPath(outputPath, plan.parameters.overwrite ?? false, model.sourcePaths);
+    const outputDirectory = dirname(outputPath);
+    await access(outputDirectory).catch(() => {
+      throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", `output directory does not exist: ${outputDirectory}`);
+    });
+    const stagingDirectory = await mkdtemp(join(outputDirectory, ".framekit-render-"));
+    const stagingPath = join(stagingDirectory, `render.${plan.parameters.format}`);
+    try {
+      const titleTextFiles = await writeTitleTextFiles(model.timeline.sequence.titles ?? [], stagingDirectory);
+      const args = buildFfmpegArguments(model, stagingPath, this.fontFile, titleTextFiles);
+      try {
+        await execFileAsync(this.ffmpegPath, args, {
+          cwd: stagingDirectory,
+          env: this.environment,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", detail);
+      }
+      if (!(await isRegularFile(stagingPath))) {
+        throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", "FFmpeg completed without producing an output file");
+      }
+      await assertSourcesUnchanged(model);
+      if (plan.parameters.overwrite ?? false) {
+        await rename(stagingPath, outputPath);
+      } else {
+        try {
+          await link(stagingPath, outputPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_EXISTS", `render output already exists: ${outputPath}`);
+          }
+          throw error;
+        }
+        await unlink(stagingPath);
+      }
+      return createFramekitRenderResult(plan, {
+        path: plan.parameters.outputPath,
+        format: plan.parameters.format,
+      });
+    } finally {
+      await rm(stagingDirectory, { recursive: true, force: true });
+    }
+  }
+}
+
+interface RenderModel {
+  timeline: TimelineIr;
+  occurrences: TimelineIrOccurrence[];
+  audioOccurrences: TimelineIrOccurrence[];
+  resources: Map<string, TimelineIrResource>;
+  sourcePaths: string[];
+  duration: number;
+  tailDuration: number;
+  frameRate: { value: string; timescale: string };
+  width: number;
+  height: number;
+  format: FramekitRenderFormat;
+  sourceIdentities: Array<{ path: string; digest: string }>;
+}
+
+async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel> {
+  const timeline = structuredClone(plan.timeline);
+  const sequence = timeline.sequence;
+  const occurrences = sequence.occurrences
+    .filter(isPrimaryVideoOccurrence)
+    .sort((left, right) => compareSeconds(left.startTime, right.startTime));
+  const audioOccurrences = sequence.occurrences
+    .filter(isIndependentAudioOccurrence)
+    .sort((left, right) => compareSeconds(left.startTime, right.startTime));
+  if (!supportsStructuralEdits(timeline)) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "markers, captions, story elements, disabled clips, and non-primary tracks are not supported");
+  }
+  if (!supportsTransforms(timeline) || !supportsTitles(timeline) || !supportsCrossDissolve(timeline)) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "Timeline IR contains unsupported renderer semantics");
+  }
+  if (occurrences.length === 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "at least one video occurrence is required");
+  if (occurrences.length + audioOccurrences.length !== sequence.occurrences.length) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "occurrence roles and lanes do not form a primary video storyline with connected audio layers");
+  }
+
+  const duration = rationalSeconds(sequence.durationTime, "sequence duration");
+  const sequenceFrameRate = 1 / rationalSeconds(sequence.frameDuration, "sequence frame duration");
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(sequenceFrameRate) || sequenceFrameRate <= 0) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "sequence duration and frame rate must be finite and positive");
+  }
+  if (!Number.isSafeInteger(plan.parameters.width) || !Number.isSafeInteger(plan.parameters.height)) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "output dimensions must be safe integers");
+  }
+
+  const resources = new Map(timeline.resources.map((resource) => [resource.id, resource]));
+  const sourcePaths: string[] = [];
+  const sourceIdentities: Array<{ path: string; digest: string }> = [];
+  const audioAvailability = new Set<boolean>();
+  let previousEnd = 0;
+  for (const occurrence of occurrences) {
+    if (occurrence.enabled === false || occurrence.attachedTo) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `occurrence has unsupported state: ${occurrence.id}`);
+    }
+    if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio fades are not renderable: ${occurrence.id}`);
+    }
+    const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
+    const clipDuration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    if (Math.abs(start - previousEnd) > 1e-7) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `primary occurrences must be contiguous: ${occurrence.id}`);
+    }
+    previousEnd = start + clipDuration;
+    const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
+    if (!resource) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `occurrence has no registered media: ${occurrence.id}`);
+    if (resource.mediaKind !== "video") throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `primary occurrence does not reference video media: ${occurrence.id}`);
+    const source = await verifyResource(resource, occurrence, clipDuration);
+    const sourcePath = source.path;
+    audioAvailability.add(resource.metadata?.streams.some((stream) => stream.kind === "audio") ?? false);
+    if (!sourcePaths.includes(sourcePath)) sourcePaths.push(sourcePath);
+    if (!sourceIdentities.some((identity) => identity.path === source.path && identity.digest === source.digest)) {
+      sourceIdentities.push(source);
+    }
+  }
+  for (const occurrence of audioOccurrences) {
+    if (occurrence.enabled === false || occurrence.attachedTo) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio occurrence has unsupported state: ${occurrence.id}`);
+    }
+    if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio fades are not renderable: ${occurrence.id}`);
+    }
+    const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
+    const clipDuration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    if (clipDuration <= 0 || start + clipDuration > duration + 1e-7) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio occurrence exceeds the sequence duration: ${occurrence.id}`);
+    }
+    const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
+    if (!resource) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `audio occurrence has no registered media: ${occurrence.id}`);
+    const source = await verifyAudioResource(resource, occurrence, clipDuration);
+    if (!sourcePaths.includes(source.path)) sourcePaths.push(source.path);
+    if (!sourceIdentities.some((identity) => identity.path === source.path && identity.digest === source.digest)) {
+      sourceIdentities.push(source);
+    }
+  }
+  if (audioAvailability.size > 1) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "all primary occurrences must agree on audio availability");
+  }
+  const tailDuration = duration - previousEnd;
+  if (tailDuration < -1e-7) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "primary occurrences exceed the sequence duration");
+  }
+  const transitions = timeline.sequence.transitions ?? [];
+  if (transitions.length > 1) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "the first FFmpeg provider supports one canonical cross-dissolve");
+  }
+  return {
+    timeline,
+    occurrences,
+    audioOccurrences,
+    resources,
+    sourcePaths,
+    duration,
+    tailDuration: Math.max(0, tailDuration),
+    frameRate: structuredClone(plan.parameters.frameRate),
+    width: plan.parameters.width,
+    height: plan.parameters.height,
+    format: plan.parameters.format,
+    sourceIdentities,
+  };
+}
+
+async function verifyResource(resource: TimelineIrResource, occurrence: TimelineIrOccurrence, duration: number): Promise<{ path: string; digest: string }> {
+  if (resource.sourceKind !== "local-file" || !resource.source || !resource.sourceDigest) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is not a registered local file: ${resource.id}`);
+  }
+  const sourcePath = resolve(resource.source);
+  let details;
+  try {
+    details = await lstat(sourcePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_MISSING", `registered source is missing: ${sourcePath}`);
+    }
+    throw error;
+  }
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_MISSING", `registered source is not a regular file: ${sourcePath}`);
+  }
+  const actualDigest = await digestFile(sourcePath);
+  if (actualDigest !== resource.sourceDigest) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed: ${sourcePath}`);
+  }
+  const video = resource.metadata?.streams.find((stream) => stream.kind === "video");
+  if (!video?.width || !video.height) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is missing video dimensions: ${resource.id}`);
+  }
+  const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+  const sourceDuration = resource.metadata ? rationalSeconds(resource.metadata.durationTime, `${resource.id}.durationTime`) : 0;
+  if (sourceStart < 0 || duration <= 0 || sourceStart + duration > sourceDuration + 1e-7) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `source range exceeds registered media: ${occurrence.id}`);
+  }
+  return { path: sourcePath, digest: actualDigest };
+}
+
+async function verifyAudioResource(resource: TimelineIrResource, occurrence: TimelineIrOccurrence, duration: number): Promise<{ path: string; digest: string }> {
+  if (resource.mediaKind !== "audio" || resource.sourceKind !== "local-file" || !resource.source || !resource.sourceDigest) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is not registered local audio: ${resource.id}`);
+  }
+  const sourcePath = resolve(resource.source);
+  let details;
+  try {
+    details = await lstat(sourcePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_MISSING", `registered source is missing: ${sourcePath}`);
+    }
+    throw error;
+  }
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_MISSING", `registered source is not a regular file: ${sourcePath}`);
+  }
+  const actualDigest = await digestFile(sourcePath);
+  if (actualDigest !== resource.sourceDigest) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed: ${sourcePath}`);
+  }
+  if (!resource.metadata?.streams.some((stream) => stream.kind === "audio")) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `resource is missing audio metadata: ${resource.id}`);
+  }
+  const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+  const sourceDuration = resource.metadata ? rationalSeconds(resource.metadata.durationTime, `${resource.id}.durationTime`) : 0;
+  if (sourceStart < 0 || duration <= 0 || sourceStart + duration > sourceDuration + 1e-7) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `source audio range exceeds registered media: ${occurrence.id}`);
+  }
+  return { path: sourcePath, digest: actualDigest };
+}
+
+async function assertSourcesUnchanged(model: RenderModel): Promise<void> {
+  for (const identity of model.sourceIdentities) {
+    let details;
+    try {
+      details = await lstat(identity.path);
+    } catch {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed during rendering: ${identity.path}`);
+    }
+    if (!details.isFile() || details.isSymbolicLink() || await digestFile(identity.path) !== identity.digest) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_MEDIA_CHANGED", `registered source changed during rendering: ${identity.path}`);
+    }
+  }
+}
+
+function buildFfmpegArguments(
+  model: RenderModel,
+  stagingPath: string,
+  fontFile: string | undefined,
+  titleTextFiles: readonly string[],
+): string[] {
+  const filters: string[] = [];
+  const inputArguments: string[] = [];
+  const videoLabels: string[] = [];
+  const audioLabels: string[] = [];
+  const musicLabels: string[] = [];
+  const fps = `${model.frameRate.value}/${model.frameRate.timescale}`;
+  const inputIndices = new Map<string, number>();
+
+  for (const [index, occurrence] of [...model.occurrences, ...model.audioOccurrences].entries()) {
+    const resource = model.resources.get(occurrence.mediaId!);
+    const inputPath = resolve(resource!.source!);
+    inputArguments.push("-i", inputPath);
+    inputIndices.set(occurrence.id, index);
+  }
+
+  for (const occurrence of model.occurrences) {
+    const index = inputIndices.get(occurrence.id)!;
+    const resource = model.resources.get(occurrence.mediaId!);
+    const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+    const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    const videoInput = `[${index}:v]`;
+    const videoLabel = `clipv${index}`;
+    filters.push(`${videoInput}trim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps},${transformFilter(occurrence, resource!, model.width, model.height)}[${videoLabel}]`);
+    videoLabels.push(`[${videoLabel}]`);
+    const hasAudio = resource!.metadata?.streams.some((stream) => stream.kind === "audio") ?? false;
+    if (hasAudio) {
+      const audioLabel = `clipa${index}`;
+      const gain = occurrence.gainDb ?? 0;
+      filters.push(`${`[${index}:a]`}atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},volume=${formatNumber(Math.pow(10, gain / 20))}[${audioLabel}]`);
+      audioLabels.push(`[${audioLabel}]`);
+    }
+  }
+
+  for (const occurrence of model.audioOccurrences) {
+    const index = inputIndices.get(occurrence.id)!;
+    const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+    const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
+    const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    const gain = occurrence.gainDb ?? 0;
+    const delaySamples = Math.round(start * HEADLESS_AUDIO_SAMPLE_RATE);
+    const audioLabel = `bed-audio${index}`;
+    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad=whole_dur=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
+    musicLabels.push(`[${audioLabel}]`);
+  }
+
+  const transition = model.timeline.sequence.transitions?.[0];
+  const videoBase = addVideoComposition(filters, videoLabels, model, transition);
+  const videoWithTail = addBlackVideoTail(filters, videoBase, model.tailDuration);
+  const videoOutput = addTitleOverlays(filters, videoWithTail, model, fontFile, titleTextFiles);
+  let audioOutput: string | undefined;
+  if (audioLabels.length > 0) audioOutput = addAudioComposition(filters, audioLabels, model, transition);
+  if (musicLabels.length > 0) {
+    const inputs = [...(audioOutput ? [`[${audioOutput}]`] : []), ...musicLabels];
+    audioOutput = addAudioMix(filters, inputs, model.duration);
+  }
+  const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
+  args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
+  if (audioOutput) {
+    args.push("-map", `[${audioOutput}]`, "-c:a", HEADLESS_AUDIO_CODEC, "-b:a", "128k", "-ar", String(HEADLESS_AUDIO_SAMPLE_RATE), "-ac", String(HEADLESS_AUDIO_CHANNELS));
+  }
+  args.push("-map_metadata", "-1", "-t", formatNumber(model.duration), "-movflags", "+faststart", stagingPath);
+  return args;
+}
+
+function addAudioMix(filters: string[], labels: string[], duration: number): string {
+  if (labels.length === 1) return labels[0]!.slice(1, -1);
+  const output = "audio-mix";
+  filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS[${output}]`);
+  return output;
+}
+
+function addBlackVideoTail(filters: string[], input: string, duration: number): string {
+  if (duration <= 1e-7) return input;
+  const output = "video-black-tail";
+  filters.push(`[${input}]tpad=stop_mode=add:stop_duration=${formatNumber(duration)}:color=black[${output}]`);
+  return output;
+}
+
+function addVideoComposition(
+  filters: string[],
+  labels: string[],
+  model: RenderModel,
+  transition: TimelineIrTransition | undefined,
+): string {
+  if (labels.length === 1) {
+    const output = "video-base";
+    filters.push(`${labels[0]}tpad=stop_mode=clone:stop_duration=0[${output}]`);
+    return output;
+  }
+  if (transition) {
+    const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
+    const offset = rationalSeconds(model.occurrences[0]!.durationTime, "transition offset") - duration;
+    if (offset < 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "transition duration exceeds the first occurrence duration");
+    const output = "video-xfade";
+    filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
+    const padding = Math.max(0, model.duration - (model.duration - duration));
+    filters.push(`[${output}]tpad=stop_mode=clone:stop_duration=${formatNumber(padding)}[${output}-padded]`);
+    return `${output}-padded`;
+  }
+  const output = "video-concat";
+  filters.push(`${labels.join("")}concat=n=${labels.length}:v=1:a=0[${output}]`);
+  return output;
+}
+
+function addAudioComposition(
+  filters: string[],
+  labels: string[],
+  model: RenderModel,
+  transition: TimelineIrTransition | undefined,
+): string {
+  if (labels.length === 1) {
+    const output = "audio-base";
+    filters.push(`${labels[0]}apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}]`);
+    return output;
+  }
+  if (transition) {
+    const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
+    const output = "audio-crossfade";
+    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=tri:c2=tri[${output}]`);
+    filters.push(`[${output}]apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
+    return `${output}-padded`;
+  }
+  const output = "audio-concat";
+  filters.push(`${labels.join("")}concat=n=${labels.length}:v=0:a=1[${output}]`);
+  return output;
+}
+
+async function writeTitleTextFiles(
+  titles: readonly { text: string }[],
+  stagingDirectory: string,
+): Promise<string[]> {
+  const files: string[] = [];
+  for (const [index, title] of titles.entries()) {
+    const filename = `title-${index}.txt`;
+    await writeFile(join(stagingDirectory, filename), title.text, "utf8");
+    files.push(filename);
+  }
+  return files;
+}
+
+function addTitleOverlays(
+  filters: string[],
+  input: string,
+  model: RenderModel,
+  fontFile: string | undefined,
+  titleTextFiles: readonly string[],
+): string {
+  const titles = model.timeline.sequence.titles ?? [];
+  if (titles.length === 0) return input;
+  filters.push(`[${input}]format=yuv420p[video-titles-base]`);
+  let current = "video-titles-base";
+  for (const [index, title] of titles.entries()) {
+    const start = rationalSeconds(title.startTime, `${title.id}.startTime`);
+    const end = start + rationalSeconds(title.durationTime, `${title.id}.durationTime`);
+    const style = title.style;
+    const color = escapeFilterValue(style?.color ?? "white");
+    const size = formatNumber(style?.fontSize ?? 32);
+    const x = title.position
+      ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`
+      : style?.alignment === "left" ? "20" : style?.alignment === "right" ? "w-text_w-20" : "(w-text_w)/2";
+    const y = title.position
+      ? `${formatNumber(model.height / 2 - title.position.y * model.height / 2)}-(text_h/2)`
+      : "(h-text_h)/2";
+    const output = `title-${index}`;
+    const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
+    const textFile = titleTextFiles[index];
+    if (!textFile) throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", `title text file is missing: ${index}`);
+    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
+    current = output;
+  }
+  return current;
+}
+
+function transformFilter(occurrence: TimelineIrOccurrence, resource: TimelineIrResource, width: number, height: number): string {
+  const transform = occurrence.transform;
+  if (!transform) return `scale=${width}:${height}:force_original_aspect_ratio=disable`;
+  const sourceVideo = resource.metadata!.streams.find((stream) => stream.kind === "video")!;
+  const scaledWidth = evenDimension(sourceVideo.width! * transform.scaleX);
+  const scaledHeight = evenDimension(sourceVideo.height! * transform.scaleY);
+  const positionX = transform.positionX ?? 0;
+  const positionY = -(transform.positionY ?? 0);
+  if (scaledWidth >= width && scaledHeight >= height) {
+    const cropX = clamp((scaledWidth - width) / 2 - positionX, 0, scaledWidth - width);
+    const cropY = clamp((scaledHeight - height) / 2 - positionY, 0, scaledHeight - height);
+    return `scale=${scaledWidth}:${scaledHeight},crop=${width}:${height}:${formatNumber(cropX)}:${formatNumber(cropY)}`;
+  }
+  return `scale=${scaledWidth}:${scaledHeight},pad=${width}:${height}:${formatNumber((width - scaledWidth) / 2 + positionX)}:${formatNumber((height - scaledHeight) / 2 + positionY)}:color=black`;
+}
+
+function supportsLocalMedia(timeline: TimelineIr): boolean {
+  const resources = new Map(timeline.resources.map((resource) => [resource.id, resource]));
+  return timeline.sequence.occurrences.every((occurrence) => {
+    const resource = occurrence.mediaId ? resources.get(occurrence.mediaId) : undefined;
+    return resource?.sourceKind === "local-file" && Boolean(resource.source) && Boolean(resource.sourceDigest);
+  });
+}
+
+function supportsStructuralEdits(timeline: TimelineIr): boolean {
+  const primaryOccurrences = timeline.sequence.occurrences.filter(isPrimaryVideoOccurrence);
+  return timeline.sequence.storyElements.length === 0
+    && timeline.sequence.markers.length === 0
+    && timeline.sequence.captions.length === 0
+    && primaryOccurrences.length > 0
+    && primaryOccurrences.length + timeline.sequence.occurrences.filter(isIndependentAudioOccurrence).length === timeline.sequence.occurrences.length
+    && timeline.sequence.occurrences.every((occurrence) => (isPrimaryVideoOccurrence(occurrence) || isIndependentAudioOccurrence(occurrence))
+      && occurrence.enabled !== false
+      && !occurrence.attachedTo
+      && occurrence.fadeIn === undefined
+      && occurrence.fadeOut === undefined);
+}
+
+function supportsAudioMixing(timeline: TimelineIr): boolean {
+  return timeline.sequence.occurrences
+    .filter((occurrence) => occurrence.role === "audio" || occurrence.role === "music")
+    .every(isIndependentAudioOccurrence);
+}
+
+function isPrimaryVideoOccurrence(occurrence: TimelineIrOccurrence): boolean {
+  return occurrence.track === 0 && (occurrence.role === undefined || occurrence.role === "video");
+}
+
+function isIndependentAudioOccurrence(occurrence: TimelineIrOccurrence): boolean {
+  return occurrence.track > 0 && (occurrence.role === "audio" || occurrence.role === "music");
+}
+
+function supportsAudioGain(timeline: TimelineIr): boolean {
+  return timeline.sequence.occurrences.every((occurrence) => occurrence.gainDb === undefined || Number.isFinite(occurrence.gainDb));
+}
+
+function supportsTransforms(timeline: TimelineIr): boolean {
+  return timeline.sequence.occurrences.every((occurrence) => !occurrence.transform || (
+    Number.isFinite(occurrence.transform.scaleX)
+    && Number.isFinite(occurrence.transform.scaleY)
+    && occurrence.transform.scaleX > 0
+    && occurrence.transform.scaleY > 0
+    && [occurrence.transform.positionX, occurrence.transform.positionY, occurrence.transform.rotationDegrees].every((value) => value === undefined || Number.isFinite(value))
+    && occurrence.transform.rotationDegrees === undefined
+  ));
+}
+
+function supportsTitles(timeline: TimelineIr): boolean {
+  return (timeline.sequence.titles ?? []).every((title) => !title.style || (
+    title.style.fontFamily === undefined
+    && (title.style.fontSize === undefined || (Number.isFinite(title.style.fontSize) && title.style.fontSize > 0))
+  ));
+}
+
+function supportsCrossDissolve(timeline: TimelineIr): boolean {
+  const transitions = timeline.sequence.transitions ?? [];
+  const primaryCount = timeline.sequence.occurrences.filter(isPrimaryVideoOccurrence).length;
+  return transitions.length <= 1
+    && transitions.every((transition) => transition.kind === "cross-dissolve")
+    && (transitions.length === 0 || primaryCount === 2);
+}
+
+async function assertOutputPath(outputPath: string, overwrite: boolean, sourcePaths: string[]): Promise<void> {
+  if (sourcePaths.includes(outputPath)) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "render output must not overwrite a source media file");
+  }
+  if (!overwrite && await isRegularFile(outputPath)) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_EXISTS", `render output already exists: ${outputPath}`);
+  }
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    const details = await lstat(path);
+    return details.isFile() && !details.isSymbolicLink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function digestFile(path: string): Promise<string> {
+  const digest = createHash("sha256");
+  await new Promise<void>((resolvePromise, reject) => {
+    const stream = createReadStream(path);
+    stream.on("data", (chunk: string | Buffer) => digest.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", resolvePromise);
+  });
+  return digest.digest("hex");
+}
+
+function rationalSeconds(time: { value: string; timescale: string }, field: string): number {
+  if (!/^-?\d+$/.test(time.value) || !/^\d+$/.test(time.timescale) || BigInt(time.timescale) <= 0n) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `invalid rational time: ${field}`);
+  }
+  const result = Number(BigInt(time.value)) / Number(BigInt(time.timescale));
+  if (!Number.isFinite(result)) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `rational time is too large: ${field}`);
+  return result;
+}
+
+function compareSeconds(left: { value: string; timescale: string }, right: { value: string; timescale: string }): number {
+  const leftValue = BigInt(left.value) * BigInt(right.timescale);
+  const rightValue = BigInt(right.value) * BigInt(left.timescale);
+  return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
+}
+
+function evenDimension(value: number): number {
+  return Math.max(2, Math.round(value / 2) * 2);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function formatNumber(value: number): string {
+  return Number(value.toFixed(6)).toString();
+}
+
+function escapeFilterValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("'", "'\\''").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
+}
+
+function resolveFontFile(preferred?: string): string | undefined {
+  const candidates = [
+    preferred,
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSync(candidate));
+}

@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { timelineIrDigest, type TimelineIr } from "@framekit/runtime";
+import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
+  type TimelineIrMaterializationCoverage,
+  type TimelineIrMaterializationProvenance,
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut";
@@ -18,22 +20,62 @@ export interface SessionMaterializationPublishRequest {
   collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
+  baseDigest: string;
+  baseRevision: TimelineIr["revision"];
+  coverage: TimelineIrMaterializationCoverage;
+  provenance: TimelineIrMaterializationProvenance;
+}
+
+export type MaterializationVerificationTier = "artifact" | "delivery" | "storage-observed" | "canonical-verified" | "interaction-required";
+
+export type MaterializationDeliveryState = "background" | "activated" | "prompted" | "failed" | "interaction-required";
+
+export interface MaterializationDeliveryEvidence {
+  state: MaterializationDeliveryState;
+  route: "background" | "headed" | "unknown";
+}
+
+export interface MaterializationStructuralDiff {
+  target: { projectId: string; sequenceId: string };
+  desiredDigest: string;
+  actualDigest: string;
+  changes: Array<{ path: string; before?: unknown; after?: unknown }>;
+}
+
+export interface MaterializationVerification {
+  tier: MaterializationVerificationTier;
+  status: "verified" | "blocked" | "failed";
+  artifactDigest: string;
+  desiredDigest: string;
+  reason?: string;
+  canonicalReadbackDigest?: string;
+  canonicalTarget?: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
+  structuralDiff?: MaterializationStructuralDiff;
+  delivery?: MaterializationDeliveryEvidence;
 }
 
 export interface SessionMaterializationPublisher {
+  readCanonicalTarget?(request: {
+    target: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
+  }): Promise<{
+    canonicalReadback: TimelineIr;
+    canonicalTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
+    delivery?: MaterializationDeliveryEvidence;
+  }>;
   publish(request: SessionMaterializationPublishRequest): Promise<
     | {
         state: "completed";
         canonicalReadback: TimelineIr;
         canonicalTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
         headedNativeVerified: boolean;
+        delivery?: MaterializationDeliveryEvidence;
       }
-    | { state: "blocked"; code: string; message: string; retryable: boolean }
+    | { state: "blocked"; code: string; message: string; retryable: boolean; delivery?: MaterializationDeliveryEvidence }
   >;
 }
 
 export interface SessionMaterializationJob {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   jobId: string;
   sessionId: string;
   state: "blocked" | "publishing" | "completed" | "failed";
@@ -44,6 +86,19 @@ export interface SessionMaterializationJob {
   destination: TimelineIrToFcpxmlResult["destination"];
   desired: TimelineIr;
   desiredDigest: string;
+  baseDigest: string;
+  baseRevision: TimelineIr["revision"];
+  coverage?: TimelineIrMaterializationCoverage;
+  provenance?: TimelineIrMaterializationProvenance;
+  verification?: MaterializationVerification;
+  continuation?: {
+    state: "canonical-resync-required" | "resynced";
+    reason: string;
+    sessionId?: string;
+    readbackDigest?: string;
+    changeSinceHandoff?: "changed" | "unchanged" | "unknown";
+    delivery?: MaterializationDeliveryEvidence;
+  };
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   evidence: {
@@ -75,6 +130,8 @@ export class SessionMaterializationJobs {
       destination: artifact.destination,
       collisionPolicy: "create-only",
       artifactDigest: artifact.digest,
+      coverage: artifact.coverage,
+      provenance: artifact.provenance,
       evidence: { artifact: { verified: true, format: "fcpxml" as const, digest: artifact.digest } },
     };
   }
@@ -95,7 +152,7 @@ export class SessionMaterializationJobs {
     await this.sessions.checkpoint(sessionId, session);
 
     let job: SessionMaterializationJob = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       jobId,
       sessionId,
       state: "blocked",
@@ -106,12 +163,23 @@ export class SessionMaterializationJobs {
       destination: artifact.destination,
       desired: structuredClone(desired),
       desiredDigest: timelineIrDigest(desired),
+      baseDigest: timelineIrDigest(session.base()),
+      baseRevision: structuredClone(session.base().revision),
+      coverage: artifact.coverage,
+      provenance: artifact.provenance,
       sessionDigest: digestSession(session),
       evidence: {
         artifact: { verified: true, format: "fcpxml", digest: artifact.digest },
         providerRequested: false,
         canonicalReadback: false,
         headedNative: false,
+      },
+      verification: {
+        tier: "artifact",
+        status: "blocked",
+        artifactDigest: artifact.digest,
+        desiredDigest: timelineIrDigest(desired),
+        reason: "No Final Cut materialization publisher is configured; retry when a provider is available",
       },
       error: {
         code: "MATERIALIZATION_PROVIDER_UNAVAILABLE",
@@ -126,8 +194,10 @@ export class SessionMaterializationJobs {
   public async status(jobId: string): Promise<SessionMaterializationJob> {
     try {
       const job = JSON.parse(await readFile(this.jobPath(jobId), "utf8")) as SessionMaterializationJob;
-      if (job.schemaVersion !== 1 || job.jobId !== jobId) throw new Error("MATERIALIZATION_JOB_INVALID: persisted job is invalid");
-      return structuredClone(job);
+      if (job.jobId !== jobId || (job.schemaVersion !== 1 && job.schemaVersion !== 2)) {
+        throw new Error("MATERIALIZATION_JOB_INVALID: persisted job is invalid");
+      }
+      return structuredClone(normalizePersistedJob(job));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(`MATERIALIZATION_JOB_NOT_FOUND: unknown materialization job ${jobId}`);
@@ -141,6 +211,60 @@ export class SessionMaterializationJobs {
     if (job.state === "publishing" || job.state === "completed" || job.state === "failed") return job;
     if (!job.error?.retryable) throw new Error(`MATERIALIZATION_NOT_RETRYABLE: job ${jobId} cannot be retried`);
     return this.attempt(job);
+  }
+
+  public async resync(jobId: string, sessionId: string) {
+    const job = await this.status(jobId);
+    if (job.state !== "completed") {
+      throw new Error("MATERIALIZATION_NOT_COMPLETED: canonical continuation requires a completed handoff");
+    }
+    const verification = job.verification;
+    const target = verification?.canonicalTarget;
+    if (!target) {
+      throw new Error("MATERIALIZATION_TARGET_UNAVAILABLE: completed handoff has no verified target identity");
+    }
+    if (!this.publisher?.readCanonicalTarget) {
+      throw new Error("MATERIALIZATION_CANONICAL_RESYNC_UNAVAILABLE: no target-bound canonical readback capability is configured");
+    }
+    const result = await this.publisher.readCanonicalTarget({ target: structuredClone(target) });
+    validateTimelineIr(result.canonicalReadback);
+    if (!sameTarget(result.canonicalTarget, target)
+      || result.canonicalReadback.project.id !== target.projectUid
+      || result.canonicalReadback.sequence.id !== target.sequenceUid) {
+      throw new Error("MATERIALIZATION_RESYNC_TARGET_MISMATCH: canonical readback does not identify the completed handoff target");
+    }
+    const readbackDigest = timelineIrDigest(result.canonicalReadback);
+    const changeSinceHandoff = verification.canonicalReadbackDigest
+      ? readbackDigest === verification.canonicalReadbackDigest ? "unchanged" as const : "changed" as const
+      : "unknown" as const;
+    const created = await this.sessions.create({
+      sessionId,
+      base: result.canonicalReadback,
+      provider: { id: job.target.provider },
+    });
+    const continuation = {
+      state: "resynced" as const,
+      reason: changeSinceHandoff === "changed"
+        ? "Canonical state changed after handoff; a fresh session was created from the current target readback."
+        : changeSinceHandoff === "unchanged"
+          ? "Canonical state matches the handoff readback; a fresh session was created from the current target readback."
+          : "A fresh session was created from target-bound canonical readback; comparison with the handoff snapshot was unavailable.",
+      sessionId,
+      readbackDigest,
+      changeSinceHandoff,
+      ...(result.delivery ? { delivery: result.delivery } : {}),
+    };
+    await this.save({ ...job, continuation });
+    return {
+      jobId,
+      state: continuation.state,
+      sessionId,
+      changeSinceHandoff,
+      canonicalTarget: structuredClone(result.canonicalTarget),
+      readbackDigest,
+      document: created.document,
+      ...(result.delivery ? { delivery: result.delivery } : {}),
+    };
   }
 
   private async attempt(job: SessionMaterializationJob): Promise<SessionMaterializationJob> {
@@ -163,6 +287,10 @@ export class SessionMaterializationJobs {
         collisionPolicy: "create-only",
         desired: structuredClone(claimed.desired),
         desiredDigest: claimed.desiredDigest,
+        baseDigest: claimed.baseDigest,
+        baseRevision: structuredClone(claimed.baseRevision),
+        coverage: structuredClone(claimed.coverage!),
+        provenance: structuredClone(claimed.provenance!),
       });
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
@@ -171,6 +299,14 @@ export class SessionMaterializationJobs {
           nextAction: "retry",
           claim: undefined,
           evidence: { ...claimed.evidence, providerRequested: true },
+          verification: {
+            tier: verificationTierForBlockedCode(result.code),
+            status: "blocked",
+            artifactDigest: claimed.verification?.artifactDigest ?? claimed.artifactDigest,
+            desiredDigest: claimed.verification?.desiredDigest ?? claimed.desiredDigest,
+            reason: result.message,
+            ...(result.delivery ? { delivery: result.delivery } : { delivery: deliveryEvidenceForBlockedCode(result.code) }),
+          },
           error: { code: result.code, message: result.message, retryable: result.retryable },
         };
         await this.save(blocked);
@@ -182,6 +318,8 @@ export class SessionMaterializationJobs {
           message: "Canonical provider readback does not match the desired Timeline IR",
           retryable: false,
           providerRequested: true,
+          verificationTier: "delivery",
+          structuralDiff: createMaterializationStructuralDiff(claimed.desired, result.canonicalReadback),
         });
       }
       const expectedTarget = {
@@ -210,6 +348,22 @@ export class SessionMaterializationJobs {
           headedNative: result.headedNativeVerified,
         },
         error: undefined,
+        verification: {
+          tier: "canonical-verified",
+          status: "verified",
+          artifactDigest: claimed.artifactDigest,
+          desiredDigest: claimed.desiredDigest,
+          canonicalReadbackDigest: timelineIrDigest(result.canonicalReadback),
+          canonicalTarget: structuredClone(result.canonicalTarget),
+          delivery: result.delivery ?? {
+            state: result.headedNativeVerified ? "activated" : "background",
+            route: result.headedNativeVerified ? "headed" : "background",
+          },
+        },
+        continuation: {
+          state: "canonical-resync-required",
+          reason: "Canonical readback verified this handoff once. Re-read the materialized target before later edits to detect subsequent manual Final Cut changes.",
+        },
       };
       await this.save(completed);
       return completed;
@@ -228,6 +382,40 @@ export class SessionMaterializationJobs {
         retryable: false,
       };
     }
+    if (!job.coverage || !job.provenance) {
+      return {
+        code: "MATERIALIZATION_JOB_METADATA_UNAVAILABLE",
+        message: "This persisted materialization job predates target-bound coverage and provenance; execute a new preview before retrying",
+        retryable: false,
+      };
+    }
+    if (job.provenance.timelineDigest !== job.desiredDigest
+      || job.provenance.projectId !== job.desired.project.id
+      || job.provenance.sequenceId !== job.desired.sequence.id
+      || job.provenance.revision?.id !== job.desired.revision.id
+      || job.provenance.revision?.sequence !== job.desired.revision.sequence
+      || job.provenance.revision?.timestamp !== job.desired.revision.timestamp
+      || job.provenance.target?.libraryUid !== job.target.libraryUid
+      || job.provenance.target?.eventUid !== job.target.eventUid
+      || job.provenance.target?.projectUid !== job.target.projectUid
+      || job.provenance.target?.sequenceUid !== job.target.sequenceUid
+      || job.provenance.destination?.projectUid !== job.destination.projectUid
+      || job.provenance.destination?.sequenceUid !== job.destination.sequenceUid) {
+      return {
+        code: "MATERIALIZATION_PROVENANCE_INVALID",
+        message: "The persisted materialization provenance does not bind to the desired revision and target",
+        retryable: false,
+      };
+    }
+    if (!Array.isArray(job.coverage.exact) || !Array.isArray(job.coverage.degraded) || !Array.isArray(job.coverage.unsupported)
+      || ![...job.coverage.exact, ...job.coverage.degraded, ...job.coverage.unsupported].every((value) => typeof value === "string" && value.trim())
+      || job.coverage.unsupported.length > 0) {
+      return {
+        code: "MATERIALIZATION_COVERAGE_INVALID",
+        message: "The persisted materialization coverage is unsupported or malformed",
+        retryable: false,
+      };
+    }
     if (!job.sessionDigest) {
       return {
         code: "MATERIALIZATION_SESSION_SNAPSHOT_INVALID",
@@ -235,8 +423,31 @@ export class SessionMaterializationJobs {
         retryable: false,
       };
     }
+    if (!job.baseDigest || !job.baseRevision) {
+      return {
+        code: "MATERIALIZATION_BASE_PROVENANCE_INVALID",
+        message: "The materialization job has no immutable canonical base digest and revision",
+        retryable: false,
+      };
+    }
+    if (!this.sessions.hasChangeSource()) {
+      return {
+        code: "MATERIALIZATION_BASE_UNAVAILABLE",
+        message: "A canonical session change source is required to verify the staged base before publication",
+        retryable: false,
+      };
+    }
     try {
       const session = await this.sessions.loadForMaterialization(job.sessionId);
+      if (session.state() === "possibly_stale" || session.state() === "conflicted"
+        || timelineIrDigest(session.base()) !== job.baseDigest
+        || !sameRevision(session.base().revision, job.baseRevision)) {
+        return {
+          code: "MATERIALIZATION_BASE_CHANGED",
+          message: "The bound canonical base project, sequence, or revision changed after materialization staging",
+          retryable: false,
+        };
+      }
       if (digestSession(session) !== job.sessionDigest) {
         return {
           code: "MATERIALIZATION_SESSION_CHANGED",
@@ -320,6 +531,15 @@ export class SessionMaterializationJobs {
         message: failure.message,
         retryable: failure.retryable,
       },
+      verification: {
+        tier: failure.verificationTier ?? "artifact",
+        status: "failed",
+        artifactDigest: job.artifactDigest,
+        desiredDigest: job.desiredDigest,
+        reason: failure.message,
+        ...(failure.structuralDiff ? { structuralDiff: failure.structuralDiff } : {}),
+        ...(failure.delivery ? { delivery: failure.delivery } : {}),
+      },
     };
     await this.save(failed);
     return failed;
@@ -354,6 +574,9 @@ interface MaterializationFailure {
   message: string;
   retryable: boolean;
   providerRequested?: boolean;
+  verificationTier?: MaterializationVerificationTier;
+  structuralDiff?: MaterializationStructuralDiff;
+  delivery?: MaterializationDeliveryEvidence;
 }
 
 function digestSession(session: { serialize(): string }): string {
@@ -370,10 +593,83 @@ function compileTimelineIrToFcxmlVersioned(
   return compileTimelineIrToFcpxml(desired, { target: { ...target, materialization: "versioned" } });
 }
 
+function normalizePersistedJob(job: SessionMaterializationJob): SessionMaterializationJob {
+  if (job.schemaVersion === 2) return job;
+  if (job.coverage && job.provenance) return { ...job, schemaVersion: 2 };
+  return {
+    ...job,
+    schemaVersion: 2,
+    state: "failed",
+    nextAction: "none",
+    claim: undefined,
+    error: {
+      code: "MATERIALIZATION_JOB_METADATA_UNAVAILABLE",
+      message: "This persisted materialization job predates target-bound coverage and provenance; execute a new preview before retrying",
+      retryable: false,
+    },
+  };
+}
+
 function materializationFailure(error: unknown, providerRequested: boolean): MaterializationFailure {
   const message = error instanceof Error ? error.message : String(error);
   const code = message.match(/^([A-Z][A-Z0-9_]*):/)?.[1] ?? "MATERIALIZATION_PUBLISH_FAILED";
   return { code, message, retryable: false, providerRequested };
+}
+
+function verificationTierForBlockedCode(code: string): MaterializationVerificationTier {
+  return /INTERACTION_REQUIRED|CONSOLE_LOCKED|PROMPT/i.test(code) ? "interaction-required" : "artifact";
+}
+
+function deliveryEvidenceForBlockedCode(code: string): MaterializationDeliveryEvidence {
+  if (/INTERACTION_REQUIRED/i.test(code)) return { state: "interaction-required", route: "headed" };
+  if (/PROMPT/i.test(code)) return { state: "prompted", route: "headed" };
+  return { state: "failed", route: "unknown" };
+}
+
+function createMaterializationStructuralDiff(desired: TimelineIr, actual: TimelineIr): MaterializationStructuralDiff {
+  const changes: MaterializationStructuralDiff["changes"] = [];
+  collectStructuralChanges(desired, actual, "", changes);
+  return {
+    target: { projectId: desired.project.id, sequenceId: desired.sequence.id },
+    desiredDigest: timelineIrDigest(desired),
+    actualDigest: timelineIrDigest(actual),
+    changes,
+  };
+}
+
+function collectStructuralChanges(
+  before: unknown,
+  after: unknown,
+  path: string,
+  changes: MaterializationStructuralDiff["changes"],
+): void {
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  if (Array.isArray(before) && Array.isArray(after)) {
+    const length = Math.max(before.length, after.length);
+    for (let index = 0; index < length; index += 1) {
+      collectStructuralChanges(before[index], after[index], `${path}[${index}]`, changes);
+    }
+    return;
+  }
+  if (isRecord(before) && isRecord(after)) {
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+    for (const key of keys) {
+      collectStructuralChanges(before[key], after[key], path ? `${path}.${key}` : key, changes);
+    }
+    return;
+  }
+  changes.push({ path, ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameRevision(left: TimelineIr["revision"], right: TimelineIr["revision"] | undefined): boolean {
+  return right !== undefined
+    && left.id === right.id
+    && left.sequence === right.sequence
+    && left.timestamp === right.timestamp;
 }
 
 function sameTarget(

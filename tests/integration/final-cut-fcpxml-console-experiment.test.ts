@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyFinalCutFcpxmlExperiment } from "@framekit/final-cut";
+import { classifyFinalCutFcpxmlExperiment } from "@framekit/final-cut/experimental";
 
 function observation(overrides: Record<string, unknown> = {}) {
   return {
@@ -75,7 +75,6 @@ test("rejects invalid artifact observations before environment classification", 
 
 test("read-only experiment runner records artifact and environment evidence without mutation", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-fcpxml-console-experiment.mjs"), "utf8");
-  const documentation = await readFile(join(process.cwd(), "docs/architecture/locked-console-fcpxml-experiment.md"), "utf8");
   const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
 
   assert.equal(packageJson.scripts["test:final-cut-fcpxml-console-experiment"], "node --import tsx scripts/final-cut-fcpxml-console-experiment.mjs");
@@ -93,7 +92,15 @@ test("read-only experiment runner records artifact and environment evidence with
   assert.doesNotMatch(runner, /\b(?:writeFile|rename|unlink)\b/);
   assert.match(runner, /classifyFinalCutFcpxmlExperiment/);
   assert.match(runner, /artifactReadback/);
-  assert.match(documentation, /FINAL_CUT_NATIVE_CONSOLE_LOCKED/);
-  assert.match(documentation, /targetBoundReadback: unavailable/);
-  assert.match(documentation, /safeToOverwrite: false/);
+});
+
+test("native FCPXML delivery is an explicit non-activating bridge with a target gate", async () => {
+  const bridge = await readFile(join(process.cwd(), "adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift"), "utf8");
+  assert.match(bridge, /case "deliver-fcpxml"/);
+  assert.match(bridge, /NSWorkspace\.OpenConfiguration/);
+  assert.match(bridge, /configuration\.activates = requestedActivates/);
+  assert.match(bridge, /configuration\.promptsUserIfNeeded = false/);
+  assert.match(bridge, /FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE/);
+  assert.match(bridge, /requested-unverified/);
+  assert.doesNotMatch(bridge, /perform action "AXPress"/);
 });

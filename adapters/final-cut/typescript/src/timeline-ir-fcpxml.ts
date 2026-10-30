@@ -4,11 +4,14 @@ import { pathToFileURL } from "node:url";
 import type {
   TimelineIr,
   TimelineIrOccurrence,
-  TimelineIrStoryElement,
+  TimelineIrTitle,
 } from "@framekit/runtime";
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
+const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
+const AUDIO_FORMAT_ID = "format-audio";
+const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
 
 /** Stable Final Cut identities required for target-bound publication. */
 export interface FinalCutTargetIdentity {
@@ -31,6 +34,26 @@ export interface TimelineIrToFcpxmlOptions {
   version?: typeof FRAMEKIT_FCPXML_VERSION;
 }
 
+export interface TimelineIrMaterializationCoverage {
+  exact: string[];
+  degraded: string[];
+  unsupported: string[];
+}
+
+export interface TimelineIrMaterializationProvenance {
+  source: "framekit-timeline-ir";
+  schemaVersion: 1;
+  projectId: string;
+  sequenceId: string;
+  revision: TimelineIr["revision"];
+  timelineDigest: string;
+  target: FinalCutTargetIdentity;
+  destination: {
+    projectUid: string;
+    sequenceUid: string;
+  };
+}
+
 export interface TimelineIrToFcpxmlResult {
   format: "fcpxml";
   version: typeof FRAMEKIT_FCPXML_VERSION;
@@ -45,11 +68,13 @@ export interface TimelineIrToFcpxmlResult {
     sequenceName: string;
   };
   resourceIds: Record<string, string>;
+  coverage: TimelineIrMaterializationCoverage;
+  provenance: TimelineIrMaterializationProvenance;
 }
 
 interface RenderableElement {
   id: string;
-  kind: "asset-clip" | "gap";
+  kind: "asset-clip" | "gap" | "title" | "marker" | "caption";
   startTime: { value: string; timescale: string };
   durationTime: { value: string; timescale: string };
   lane?: number;
@@ -60,6 +85,9 @@ interface RenderableElement {
   role?: "audio" | "music";
   gainDb?: number;
   enabled?: boolean;
+  text?: string;
+  frameAlignmentAdjusted?: boolean;
+  sourceRangeAdjusted?: boolean;
 }
 
 /**
@@ -77,44 +105,54 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);
   }
   validateTarget(options.target);
+  const unsupported = unsupportedFeatures(timeline);
+  if (unsupported.length > 0) {
+    throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
+  }
   const destination = resolveDestination(timeline, options.target);
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
   const resources = [...timeline.resources].sort((left, right) => left.id.localeCompare(right.id));
-  const elements = renderableElements(timeline, resourceIds);
+  const elements = alignRenderableElements(
+    renderableElements(timeline, resourceIds),
+    timeline.sequence.frameDuration,
+    new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
+  );
   const elementIds = new Set<string>();
   for (const element of elements) {
     if (elementIds.has(element.id)) throw new Error(`FCPXML_DUPLICATE_ELEMENT_ID: ${element.id}`);
     elementIds.add(element.id);
   }
-  for (const item of [...timeline.sequence.markers, ...timeline.sequence.captions]) {
-    if (elementIds.has(item.id)) throw new Error(`FCPXML_DUPLICATE_ELEMENT_ID: ${item.id}`);
-    elementIds.add(item.id);
-  }
-
-  const formatId = "format-framekit";
+  const formatId = "r1";
+  const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) =>
+    stream.kind === "video" && stream.width !== undefined && stream.height !== undefined) ?? [])[0];
+  const projectDimensions = projectVideo?.width && projectVideo.height
+    ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
+    : "";
+  const projectFormatName = projectVideo?.width && projectVideo.height
+    ? predefinedVideoFormatName(projectVideo.width, projectVideo.height, timeline.sequence.frameDuration)
+    : undefined;
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<fcpxml version="${FRAMEKIT_FCPXML_VERSION}">`,
     "  <resources>",
-    `    <format id="${formatId}" frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}" />`,
+    `    <format id="${formatId}"${projectFormatName ? ` name="${projectFormatName}"` : ""} frameDuration="${formatRational(timeline.sequence.frameDuration, "sequence.frameDuration")}"${projectDimensions} />`,
+    ...(resources.some((resource) => resource.mediaKind === "audio")
+      ? [`    <format id="${AUDIO_FORMAT_ID}" name="FFFrameRateUndefined" />`]
+      : []),
+    ...resources.flatMap((resource) => renderResourceFormat(resource, resourceIds.get(resource.id)!)),
+    ...(timeline.sequence.titles?.length
+      ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
+      : []),
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
     `    <event uid="${xmlEscape(options.target.eventUid)}" name="${xmlEscape(options.target.eventName ?? "Framekit Event")}">`,
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
-    `        <sequence uid="${xmlEscape(destination.sequenceUid)}" name="${xmlEscape(destination.sequenceName)}" format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
+    `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
     "          <spine>",
     ...renderElements(elements),
-    ...timeline.sequence.markers
-      .slice()
-      .sort(compareTimedItems)
-      .map((marker) => `            <marker id="${xmlEscape(marker.id)}" start="${formatRational(marker.startTime, `marker ${marker.id}.startTime`)}" duration="${formatRational(marker.durationTime, `marker ${marker.id}.durationTime`)}" value="${xmlEscape(marker.name)}" />`),
-    ...timeline.sequence.captions
-      .slice()
-      .sort(compareTimedItems)
-      .map((caption) => `            <caption id="${xmlEscape(caption.id)}" start="${formatRational(caption.startTime, `caption ${caption.id}.startTime`)}" duration="${formatRational(caption.durationTime, `caption ${caption.id}.durationTime`)}" text="${xmlEscape(caption.text)}" />`),
     "          </spine>",
     "        </sequence>",
     "      </project>",
@@ -124,6 +162,7 @@ export function compileTimelineIrToFcpxml(
     "",
   ];
   const xml = lines.join("\n");
+  const timelineDigest = timelineIrDigest(timeline);
   return {
     format: "fcpxml",
     version: FRAMEKIT_FCPXML_VERSION,
@@ -132,7 +171,159 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
+    coverage: materializationCoverage(timeline, destination.mode, elements),
+    provenance: {
+      source: "framekit-timeline-ir",
+      schemaVersion: 1,
+      projectId: timeline.project.id,
+      sequenceId: timeline.sequence.id,
+      revision: structuredClone(timeline.revision),
+      timelineDigest,
+      target: {
+        libraryUid: options.target.libraryUid,
+        eventUid: options.target.eventUid,
+        projectUid: options.target.projectUid,
+        sequenceUid: options.target.sequenceUid,
+      },
+      destination: {
+        projectUid: destination.projectUid,
+        sequenceUid: destination.sequenceUid,
+      },
+    },
   };
+}
+
+function unsupportedFeatures(timeline: TimelineIr): string[] {
+  const unsupported = new Set<string>();
+  if (timeline.sequence.titles?.some(({ style, position }) => style !== undefined || position !== undefined)) {
+    unsupported.add("styled-or-positioned-titles");
+  }
+  if (timeline.sequence.transitions?.length) unsupported.add("transitions");
+  for (const occurrence of timeline.sequence.occurrences) {
+    if (occurrence.transform !== undefined) unsupported.add("transforms");
+    if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) unsupported.add("audio-fades");
+    if (occurrence.role === "title") unsupported.add("title-occurrences");
+  }
+  for (const element of timeline.sequence.storyElements) {
+    if (element.kind !== "gap") unsupported.add(`story-element:${element.kind}`);
+  }
+  return [...unsupported].sort((left, right) => left.localeCompare(right));
+}
+
+function materializationCoverage(
+  timeline: TimelineIr,
+  destinationMode: TimelineIrToFcpxmlResult["destination"]["mode"],
+  elements: readonly RenderableElement[],
+): TimelineIrMaterializationCoverage {
+  const exact = new Set([
+    "artifact",
+    "project",
+    "sequence",
+    "resources",
+    "source-ranges",
+    "primary-storyline-order",
+    "provenance",
+  ]);
+  const degraded = new Set<string>();
+  if (elements.some(({ frameAlignmentAdjusted }) => frameAlignmentAdjusted)) {
+    degraded.add("video-edit-frame-rounding");
+  }
+  if (elements.some(({ sourceRangeAdjusted }) => sourceRangeAdjusted)) exact.delete("source-ranges");
+  if (elements.some(({ parentId }) => parentId !== undefined)) exact.add("connected-elements");
+  if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
+  if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
+  if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
+  if (timeline.sequence.titles?.length) {
+    exact.add("editable-titles");
+  }
+  if (destinationMode === "versioned") exact.add("versioned-destination");
+  if (timeline.sequence.markers.length > 0) exact.add("markers");
+  if (timeline.sequence.captions.length > 0) exact.add("captions");
+  return { exact: [...exact].sort(), degraded: [...degraded].sort(), unsupported: [] };
+}
+
+function alignRenderableElements(
+  elements: RenderableElement[],
+  frameDuration: { value: string; timescale: string },
+  audioResourceIds: ReadonlySet<string>,
+): RenderableElement[] {
+  return elements.map((element) => {
+    if (element.kind === "asset-clip" && element.resourceId !== undefined && audioResourceIds.has(element.resourceId)) {
+      return element;
+    }
+    const endTime = addExactTimes(element.startTime, element.durationTime);
+    const startTime = snapTimeToFrame(element.startTime, frameDuration);
+    const alignedEndTime = snapTimeToFrame(endTime, frameDuration);
+    const durationTime = subtractRational(alignedEndTime, startTime, `${element.id}.durationTime`);
+    const zero = { value: "0", timescale: "1" };
+    if (compareExactTimes(element.durationTime, zero) > 0 && compareExactTimes(durationTime, zero) === 0) {
+      throw new Error(`FCPXML_EDIT_BELOW_FRAME_RESOLUTION: ${element.id}`);
+    }
+    const sourceStartTime = element.sourceStartTime
+      ? snapTimeToFrame(element.sourceStartTime, frameDuration)
+      : undefined;
+    const adjusted = compareExactTimes(startTime, element.startTime) !== 0
+      || compareExactTimes(durationTime, element.durationTime) !== 0
+      || sourceStartTime !== undefined && compareExactTimes(sourceStartTime, element.sourceStartTime!) !== 0;
+    const sourceRangeAdjusted = element.kind === "asset-clip"
+      && (compareExactTimes(durationTime, element.durationTime) !== 0
+        || sourceStartTime !== undefined && compareExactTimes(sourceStartTime, element.sourceStartTime!) !== 0);
+    return {
+      ...element,
+      startTime,
+      durationTime,
+      ...(sourceStartTime ? { sourceStartTime } : {}),
+      ...(adjusted ? { frameAlignmentAdjusted: true } : {}),
+      ...(sourceRangeAdjusted ? { sourceRangeAdjusted: true } : {}),
+    };
+  });
+}
+
+function snapTimeToFrame(
+  value: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const time = parseExactRational(value);
+  const frame = parseExactRational(frameDuration);
+  if (time.value < 0n || frame.value <= 0n) throw new Error("FCPXML_INVALID_TIME: frame alignment requires non-negative time and positive frame duration");
+  const frameNumerator = time.value * frame.timescale;
+  const frameDenominator = time.timescale * frame.value;
+  let frames = frameNumerator / frameDenominator;
+  if ((frameNumerator % frameDenominator) * 2n >= frameDenominator) frames += 1n;
+  const numerator = frames * frame.value;
+  const denominator = frame.timescale;
+  const divisor = greatestCommonDivisor(numerator, denominator);
+  return { value: String(numerator / divisor), timescale: String(denominator / divisor) };
+}
+
+function predefinedVideoFormatName(
+  width: number,
+  height: number,
+  frameDuration: { value: string; timescale: string },
+): string | undefined {
+  const raster = width === 1280 && height === 720
+    ? "720p"
+    : width === 1920 && height === 1080
+      ? "1080p"
+      : width === 3840 && height === 2160 || width === 4096 && height === 2160
+        ? `${width}x${height}p`
+        : undefined;
+  if (!raster) return undefined;
+  const parts = parseExactRational(frameDuration);
+  const divisor = greatestCommonDivisor(parts.value, parts.timescale);
+  const rate = `${parts.value / divisor}/${parts.timescale / divisor}`;
+  const suffix: Record<string, string> = {
+    "1001/24000": "2398",
+    "1/24": "24",
+    "1/25": "25",
+    "1001/30000": "2997",
+    "1/30": "30",
+    "1/50": "50",
+    "1001/60000": "5994",
+    "1/60": "60",
+  };
+  const frameRate = suffix[rate];
+  return frameRate ? `FFVideoFormat${raster}${frameRate}` : undefined;
 }
 
 function validateTarget(target: TimelineIrToFcpxmlTarget): void {
@@ -157,17 +348,19 @@ function resolveDestination(
       projectUid: target.projectUid,
       sequenceUid: target.sequenceUid,
       projectName: timeline.project.name,
-      sequenceName: timeline.sequence.name,
+      sequenceName: timeline.project.name,
     };
   }
 
-  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timelineIrDigest(timeline)}`);
+  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}`);
+  const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
+  const projectName = `${timeline.project.name} (Framekit ${revisionName}-${revisionKey})`;
   return {
     mode: "versioned",
     projectUid: `${safeId(target.projectUid)}-framekit-${revisionKey}`,
     sequenceUid: `${safeId(target.sequenceUid)}-framekit-${revisionKey}`,
-    projectName: `${timeline.project.name} (Framekit ${revisionKey})`,
-    sequenceName: `${timeline.sequence.name} (Framekit ${revisionKey})`,
+    projectName,
+    sequenceName: projectName,
   };
 }
 
@@ -217,10 +410,36 @@ function renderResource(
   } catch (error) {
     throw new Error(`FCPXML_RESOURCE_SOURCE_UNSUPPORTED: resource ${resource.id} has an invalid file URL: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const mediaAttributes = resource.mediaKind === "video"
-    ? ' hasVideo="1" hasAudio="0"'
-    : ' hasVideo="0" hasAudio="1"';
-  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}" src="${xmlEscape(src)}"${mediaAttributes} />`;
+  const videoAttribute = resource.mediaKind === "video" ? ' hasVideo="1"' : ' hasVideo="0"';
+  const metadata = resource.metadata;
+  const video = metadata?.streams.find((stream) => stream.kind === "video");
+  const audio = metadata?.streams.find((stream) => stream.kind === "audio");
+  const timingAttributes = metadata
+    ? ` start="0s" duration="${formatRational(metadata.durationTime, `resource ${resource.id}.durationTime`)}"`
+    : "";
+  const formatAttribute = video?.width && video.height && video.frameRate
+    ? ` format="format-${id}"`
+    : resource.mediaKind === "audio"
+      ? ` format="${AUDIO_FORMAT_ID}"`
+      : "";
+  const audioAttribute = resource.mediaKind === "audio"
+    ? ' hasAudio="1"'
+    : metadata?.streams
+      ? ` hasAudio="${audio ? "1" : "0"}"`
+      : "";
+  const sourceAttributes = `${video ? ' videoSources="1"' : ""}${audio ? ' audioSources="1"' : ""}`;
+  const audioDetails = audio?.channels && audio.sampleRate
+    ? ` audioChannels="${audio.channels}" audioRate="${audio.sampleRate}"`
+    : "";
+  return `    <asset id="${xmlEscape(id)}" name="${xmlEscape(name)}"${timingAttributes}${videoAttribute}${formatAttribute}${audioAttribute}${sourceAttributes}${audioDetails}><media-rep kind="original-media" src="${xmlEscape(src)}" /></asset>`;
+}
+
+function renderResourceFormat(resource: TimelineIr["resources"][number], id: string): string[] {
+  const video = resource.metadata?.streams.find((stream) => stream.kind === "video");
+  if (!video?.width || !video.height || !video.frameRate) return [];
+  const frameDuration = { value: video.frameRate.timescale, timescale: video.frameRate.value };
+  const formatName = predefinedVideoFormatName(video.width, video.height, frameDuration);
+  return [`    <format id="format-${id}"${formatName ? ` name="${formatName}"` : ""} frameDuration="${formatRational(frameDuration, `resource ${resource.id}.frameRate`)}" width="${video.width}" height="${video.height}" />`];
 }
 
 function renderableElements(timeline: TimelineIr, resourceIds: Map<string, string>): RenderableElement[] {
@@ -241,7 +460,72 @@ function renderableElements(timeline: TimelineIr, resourceIds: Map<string, strin
       ...(element.attachedTo !== undefined ? { parentId: element.attachedTo } : {}),
     });
   }
+  for (const title of timeline.sequence.titles ?? []) {
+    elements.push(renderableTitle(title, timeline));
+  }
+  for (const marker of timeline.sequence.markers) {
+    elements.push({
+      id: marker.id,
+      kind: "marker",
+      startTime: marker.startTime,
+      durationTime: marker.durationTime,
+      parentId: primaryAnchorForTime("marker", marker.id, marker.startTime, marker.durationTime, elements),
+      name: marker.name,
+    });
+  }
+  for (const caption of timeline.sequence.captions) {
+    elements.push({
+      id: caption.id,
+      kind: "caption",
+      startTime: caption.startTime,
+      durationTime: caption.durationTime,
+      parentId: primaryAnchorForTime("caption", caption.id, caption.startTime, caption.durationTime, elements),
+      text: caption.text,
+    });
+  }
   return elements;
+}
+
+function primaryAnchorForTime(
+  kind: "marker" | "caption",
+  id: string,
+  startTime: RenderableElement["startTime"],
+  durationTime: RenderableElement["durationTime"],
+  elements: readonly RenderableElement[],
+): string {
+  const endTime = addExactTimes(startTime, durationTime);
+  const anchor = elements
+    .filter((element) => element.parentId === undefined
+      && (element.kind === "gap" || (element.kind === "asset-clip" && element.role === undefined)))
+    .filter((element) => compareExactTimes(startTime, element.startTime) >= 0
+      && compareExactTimes(endTime, addExactTimes(element.startTime, element.durationTime)) <= 0)
+    .sort((left, right) => compareExactTimes(right.startTime, left.startTime))[0];
+  if (!anchor) throw new Error(`FCPXML_${kind.toUpperCase()}_ANCHOR_NOT_FOUND: ${id}`);
+  return anchor.id;
+}
+
+function renderableTitle(title: TimelineIrTitle, timeline: TimelineIr): RenderableElement {
+  const titleEnd = addExactTimes(title.startTime, title.durationTime);
+  const parent = timeline.sequence.occurrences.find((occurrence) => {
+    if (occurrence.track !== 0 || occurrence.role !== undefined && occurrence.role !== "video") return false;
+    const occurrenceEnd = addExactTimes(occurrence.startTime, occurrence.durationTime);
+    return compareExactTimes(title.startTime, occurrence.startTime) >= 0
+      && compareExactTimes(titleEnd, occurrenceEnd) <= 0;
+  });
+  if (!parent) {
+    throw new Error(`FCPXML_TITLE_ANCHOR_NOT_FOUND: title ${title.id} must fit within one primary video occurrence`);
+  }
+  return {
+    id: title.id,
+    kind: "title",
+    startTime: title.startTime,
+    durationTime: title.durationTime,
+    lane: title.lane,
+    parentId: parent.id,
+    name: title.id,
+    resourceId: BASIC_TITLE_EFFECT_ID,
+    text: title.text,
+  };
 }
 
 function renderOccurrence(
@@ -266,13 +550,14 @@ function renderOccurrence(
   if (occurrence.attachedTo !== undefined && !occurrenceIds.has(occurrence.attachedTo)) {
     throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${occurrence.id} -> ${occurrence.attachedTo}`);
   }
+  const parentId = occurrence.attachedTo ?? musicAttachmentTarget(occurrence, timeline);
   return {
     id: occurrence.id,
     kind: "asset-clip",
     startTime: occurrence.startTime,
     durationTime: occurrence.durationTime,
     ...(occurrence.track > 0 ? { lane: occurrence.track } : {}),
-    ...(occurrence.attachedTo !== undefined ? { parentId: occurrence.attachedTo } : {}),
+    ...(parentId !== undefined ? { parentId } : {}),
     name: occurrence.name,
     resourceId: resource,
     ...(occurrence.sourceStartTime ? { sourceStartTime: occurrence.sourceStartTime } : {}),
@@ -280,6 +565,19 @@ function renderOccurrence(
     ...(occurrence.gainDb !== undefined ? { gainDb: occurrence.gainDb } : {}),
     ...(occurrence.enabled !== undefined ? { enabled: occurrence.enabled } : {}),
   };
+}
+
+function musicAttachmentTarget(occurrence: TimelineIrOccurrence, timeline: TimelineIr): string | undefined {
+  if (occurrence.role !== "music" || occurrence.track <= 0) return undefined;
+  const parent = timeline.sequence.occurrences
+    .filter((candidate) => candidate.track === 0
+      && candidate.role === "video"
+      && compareExactTimes(candidate.startTime, occurrence.startTime) <= 0)
+    .sort((left, right) => compareExactTimes(right.startTime, left.startTime))[0];
+  if (!parent) {
+    throw new Error(`FCPXML_MUSIC_ANCHOR_NOT_FOUND: ${occurrence.id} must start at or after a primary video occurrence`);
+  }
+  return parent.id;
 }
 
 function renderElements(elements: RenderableElement[]): string[] {
@@ -291,49 +589,83 @@ function renderElements(elements: RenderableElement[]): string[] {
     siblings.push(element);
     byParent.set(element.parentId, siblings);
   }
-  for (const siblings of byParent.values()) siblings.sort(compareTimedItems);
+  for (const siblings of byParent.values()) {
+    siblings.sort((left, right) => {
+      if (left.kind === "marker" && right.kind !== "marker") return 1;
+      if (right.kind === "marker" && left.kind !== "marker") return -1;
+      return compareTimedItems(left, right);
+    });
+  }
   const rendered = new Set<string>();
   const lines: string[] = [];
   const render = (parentId: string | undefined, indent: string): void => {
     for (const element of byParent.get(parentId) ?? []) {
       if (rendered.has(element.id)) throw new Error(`FCPXML_CYCLIC_ATTACHMENT: ${element.id}`);
       rendered.add(element.id);
-      const children = byParent.get(element.id) ?? [];
+      const parentElement = element.parentId === undefined ? undefined : byId.get(element.parentId);
       const parentStartTime = element.parentId === undefined
         ? { value: "0", timescale: "1" }
-        : byId.get(element.parentId)?.startTime;
+        : parentElement?.startTime;
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
       const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
+      const offsetTime = parentElement?.kind === "asset-clip"
+        && (element.kind === "title" || element.kind === "caption" || element.kind === "marker" || element.role === "music")
+        && parentElement.sourceStartTime !== undefined
+        ? addExactTimes(localStartTime, parentElement.sourceStartTime)
+        : localStartTime;
       const attributes = element.kind === "asset-clip"
         ? [
-            `id="${xmlEscape(element.id)}"`,
             `ref="${xmlEscape(element.resourceId!)}"`,
             `name="${xmlEscape(element.name!)}"`,
-            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
+            `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             ...(element.sourceStartTime ? [`start="${formatRational(element.sourceStartTime, `${element.id}.sourceStartTime`)}"`] : []),
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
-            ...(element.role ? [`role="${element.role}"`] : []),
+            ...(element.role ? [`audioRole="${element.role}"`] : []),
             ...(element.enabled !== undefined ? [`enabled="${element.enabled ? "1" : "0"}"`] : []),
           ]
-        : [
-            `id="${xmlEscape(element.id)}"`,
-            `offset="${formatRational(localStartTime, `${element.id}.startTime`)}"`,
+        : element.kind === "title"
+          ? [
+            `ref="${xmlEscape(element.resourceId!)}"`,
+            `name="${xmlEscape(element.name!)}"`,
+            `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
-          ];
-      const opening = `<${element.kind} ${attributes.join(" ")}>`;
-      const childLines = element.gainDb !== undefined
-        ? [`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`]
-        : [];
-      const childStart = childLines.length > 0 ? childLines : [];
-      if (children.length === 0 && childStart.length === 0) {
-        lines.push(`${indent}<${element.kind} ${attributes.join(" ")} />`);
+          ]
+          : element.kind === "gap"
+          ? [
+            `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
+            `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
+            ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
+          ]
+          : element.kind === "marker"
+            ? [
+              `start="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
+              `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
+              `value="${xmlEscape(element.name!)}"`,
+              `note="com.framekit.id:${xmlEscape(element.id)}"`,
+            ]
+            : [
+              `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
+              `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
+            ];
+      if (element.kind === "marker") {
+        lines.push(`${indent}<marker ${attributes.join(" ")} />`);
         continue;
       }
-      lines.push(`${indent}${opening}`);
-      lines.push(...childStart);
+      lines.push(`${indent}<${element.kind} ${attributes.join(" ")}>`);
+      if (element.kind === "title" || element.kind === "caption") {
+        lines.push(`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`);
+      }
+      if (element.gainDb !== undefined) {
+        lines.push(`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`);
+      }
       render(element.id, `${indent}  `);
+      if (element.kind === "caption") {
+        lines.push(`${indent}  <note>com.framekit.id:${xmlEscape(element.id)}</note>`);
+      } else {
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
+      }
       lines.push(`${indent}</${element.kind}>`);
     }
   };
@@ -346,12 +678,32 @@ function renderElements(elements: RenderableElement[]): string[] {
 }
 
 function compareTimedItems(left: { id: string; startTime: { value: string; timescale: string }; lane?: number }, right: { id: string; startTime: { value: string; timescale: string }; lane?: number }): number {
-  const leftTime = parseExactRational(left.startTime);
-  const rightTime = parseExactRational(right.startTime);
-  const difference = leftTime.value * rightTime.timescale - rightTime.value * leftTime.timescale;
-  if (difference !== 0n) return difference < 0n ? -1 : 1;
+  const difference = compareExactTimes(left.startTime, right.startTime);
+  if (difference !== 0) return difference;
   if ((left.lane ?? 0) !== (right.lane ?? 0)) return (left.lane ?? 0) - (right.lane ?? 0);
   return left.id.localeCompare(right.id);
+}
+
+function addExactTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = parseExactRational(left);
+  const rightValue = parseExactRational(right);
+  return {
+    value: (leftValue.value * rightValue.timescale + rightValue.value * leftValue.timescale).toString(),
+    timescale: (leftValue.timescale * rightValue.timescale).toString(),
+  };
+}
+
+function compareExactTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): number {
+  const leftTime = parseExactRational(left);
+  const rightTime = parseExactRational(right);
+  const difference = leftTime.value * rightTime.timescale - rightTime.value * leftTime.timescale;
+  return difference === 0n ? 0 : difference < 0n ? -1 : 1;
 }
 
 function formatRational(value: { value: string; timescale: string }, field: string): string {

@@ -22,7 +22,12 @@ pnpm install --frozen-lockfile
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
+pnpm run check:docs
 ```
+
+The maintained documentation is [indexed in `docs/README.md`](docs/README.md):
+[architecture](docs/architecture.md), [getting started](docs/getting-started.md),
+[testing](docs/testing.md), and [release](docs/release.md).
 
 For native changes, also run:
 
@@ -39,8 +44,12 @@ xcodebuild -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/Fr
   editor concept; use `Framekit` for product branding.
 - Use `FRAMEKIT_EDITOR`, `FRAMEKIT_FCPXML_PATH`, and
   `FRAMEKIT_FINAL_CUT_SOCKET` for runtime configuration.
-- Update documentation when moving files, changing commands, or changing
-  environment variables.
+- Update documentation only when user-facing setup or commands, supported
+  public MCP behavior, production architecture/capability boundaries, or the
+  release process change. Internal refactors, tests, and fixes with unchanged
+  external behavior do not require documentation edits.
+- Record implementation rationale in issues, pull requests, reviews, and tests;
+  do not add ADRs or one-off feature documents.
 - Do not commit `node_modules`, `dist`, credentials, private media, raw crash
   dumps, or user-specific local paths.
 

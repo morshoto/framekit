@@ -6,6 +6,7 @@ import type {
   VisualAnalyzer,
 } from "../domain/media.js";
 import type { VerificationEngine } from "../domain/verification.js";
+import type { SemanticMediaIndexStore } from "./semantic-media-index-store.js";
 
 export interface RuntimeOptions {
   speechAnalyzer?: SpeechAnalyzer;
@@ -13,6 +14,7 @@ export interface RuntimeOptions {
   noiseAnalyzer?: NoiseAnalyzer;
   visualAnalyzer?: VisualAnalyzer;
   metadataAnalyzer?: MetadataAnalyzer;
+  semanticMediaIndexStore?: SemanticMediaIndexStore;
   verificationEngine?: VerificationEngine;
   now?: () => number;
   previewTtlMs?: number;

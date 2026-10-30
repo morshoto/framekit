@@ -5,6 +5,8 @@ import type { TimelineIr } from "@framekit/runtime";
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 import type {
   FinalCutTargetIdentity,
+  TimelineIrMaterializationCoverage,
+  TimelineIrMaterializationProvenance,
   TimelineIrToFcpxmlResult,
   TimelineIrToFcpxmlTarget,
 } from "./timeline-ir-fcpxml.js";
@@ -20,6 +22,10 @@ export interface FinalCutBackgroundMaterializationRequest {
   collisionPolicy: "create-only";
   desired: TimelineIr;
   desiredDigest: string;
+  baseDigest: string;
+  baseRevision: TimelineIr["revision"];
+  coverage: TimelineIrMaterializationCoverage;
+  provenance: TimelineIrMaterializationProvenance;
 }
 
 export type FinalCutBackgroundMaterializationResult =
@@ -88,6 +94,7 @@ function validateRequest(request: FinalCutBackgroundMaterializationRequest): voi
     throw new Error("MATERIALIZATION_REQUEST_INVALID: immutable artifact path and digest are required");
   }
   if (!request.desiredDigest.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: desired digest is required");
+  if (!request.baseDigest.trim() || !request.baseRevision?.id?.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: canonical base provenance is required");
   if (request.collisionPolicy !== "create-only") throw new Error("MATERIALIZATION_REQUEST_INVALID: publication must be create-only");
   const { target } = request;
   if (target.provider !== "final-cut" || !target.libraryUid.trim() || !target.eventUid.trim() || !target.projectUid.trim() || !target.sequenceUid.trim()) {
@@ -100,6 +107,33 @@ function validateRequest(request: FinalCutBackgroundMaterializationRequest): voi
     throw new Error("MATERIALIZATION_DESTINATION_INVALID: versioned project and sequence identities are required");
   }
   validateTimelineIr(request.desired);
+  validateMaterializationMetadata(request);
+}
+
+function validateMaterializationMetadata(request: FinalCutBackgroundMaterializationRequest): void {
+  const { coverage, provenance } = request;
+  if (!coverage || !Array.isArray(coverage.exact) || !Array.isArray(coverage.degraded) || !Array.isArray(coverage.unsupported)
+    || [...coverage.exact, ...coverage.degraded, ...coverage.unsupported].some((value) => typeof value !== "string" || !value.trim())) {
+    throw new Error("MATERIALIZATION_COVERAGE_INVALID: exact, degraded, and unsupported feature lists are required");
+  }
+  if (coverage.unsupported.length > 0) {
+    throw new Error("MATERIALIZATION_COVERAGE_UNSUPPORTED: unsupported Timeline IR features cannot be delivered");
+  }
+  if (!provenance || provenance.source !== "framekit-timeline-ir" || provenance.schemaVersion !== 1
+    || provenance.projectId !== request.desired.project.id
+    || provenance.sequenceId !== request.desired.sequence.id
+    || provenance.timelineDigest !== request.desiredDigest
+    || provenance.revision?.id !== request.desired.revision.id
+    || provenance.revision?.sequence !== request.desired.revision.sequence
+    || provenance.revision?.timestamp !== request.desired.revision.timestamp
+    || provenance.target?.libraryUid !== request.target.libraryUid
+    || provenance.target?.eventUid !== request.target.eventUid
+    || provenance.target?.projectUid !== request.target.projectUid
+    || provenance.target?.sequenceUid !== request.target.sequenceUid
+    || provenance.destination?.projectUid !== request.destination.projectUid
+    || provenance.destination?.sequenceUid !== request.destination.sequenceUid) {
+    throw new Error("MATERIALIZATION_PROVENANCE_INVALID: provenance does not bind to the desired Timeline IR and target");
+  }
 }
 
 function validateResult(result: FinalCutBackgroundMaterializationResult): FinalCutBackgroundMaterializationResult {

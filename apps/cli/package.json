@@ -1,0 +1,19 @@
+{
+  "name": "@framekit/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {},
+  "dependencies": {
+    "@framekit/final-cut": "workspace:*",
+    "@framekit/headless-application": "workspace:*"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

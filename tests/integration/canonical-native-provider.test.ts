@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -31,6 +32,23 @@ const identity: EditorIdentity = {
   version: "10.7.1",
   backend: "workflow-extension-ipc",
 };
+
+function canonicalExportPath(script: string): string {
+  const directLayoutField = script.match(
+    /set value of pathField to "([^"]+)"[\s\S]*?set value of text field 2 of saveRoot to "([^"]+)"/,
+  );
+  if (directLayoutField?.[1] && directLayoutField?.[2]) return join(directLayoutField[1], directLayoutField[2]);
+  const directNameField = script.match(
+    /keystroke "a" using \{command down\}[\s\S]*?keystroke "([^\"]+)"[\s\S]*?set value of nameField to "([^\"]+)"/,
+  );
+  if (directNameField?.[1] && directNameField?.[2]) return join(directNameField[1], directNameField[2]);
+  const fields = script.match(
+    /keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"[\s\S]*?keystroke "a" using \{command down\}[\s\S]*?keystroke "([^"]+)"/,
+  );
+  assert.ok(fields?.[1]);
+  assert.ok(fields?.[2]);
+  return join(fields[1], fields[2]);
+}
 
 function snapshot(name: string): ProjectSnapshot {
   return {
@@ -501,6 +519,30 @@ test("canonical native provider rejects middle-of-clip ripple deletes", async ()
   assert.deepEqual(calls, []);
 });
 
+test("canonical native provider reports timeline bounds for out-of-range ripple deletes", async () => {
+  const { before: original } = rippleSnapshots();
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original, original, original], calls);
+  const before = await provider.readProject();
+
+  for (const range of [{ start: -1, end: 1 }, { start: 5, end: 7 }]) {
+    const operation = {
+      type: "ripple-delete" as const,
+      timelineId: before.timeline.id,
+      range,
+      candidateId: "out-of-bounds",
+      reason: "reject invalid range",
+    };
+    await assert.rejects(
+      provider.previewTransaction([operation], before.revision),
+      new RegExp(`ripple-delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 6\\)`),
+    );
+    assert.deepEqual(await provider.readProject(), before);
+  }
+
+  assert.deepEqual(calls, []);
+});
+
 test("canonical native provider rejects collateral ripple-delete readback changes", async () => {
   const { before: original, after: deleted } = rippleSnapshots();
   const collateral = structuredClone(deleted);
@@ -809,7 +851,19 @@ test("canonical Final Cut export is driven by the active timeline UI", () => {
   const frontmostGuardIndex = script.indexOf("if not frontmost then error");
   assert.ok(activationIndex >= 0);
   assert.ok(frontmostGuardIndex > activationIndex);
+  assert.match(script, /perform action "AXRaise" of window "Final Cut Pro" of finalCut/);
+  assert.match(script, /on findTimelineArea\(container, depth\)/);
+  assert.match(script, /set timelineArea to my findTimelineArea\(frontWindow, 0\)/);
+  assert.match(script, /perform action "AXPress" of timelineArea/);
   assert.doesNotMatch(script, /FRAMEKIT_FCPXML_PATH/);
+});
+
+test("canonical Final Cut export overrides a remembered save folder for Desktop targets", () => {
+  const exportPath = join(homedir(), "Desktop", "framekit-canonical.fcpxml");
+  const script = buildFinalCutCanonicalExportScript(exportPath);
+
+  assert.match(script, /keystroke "g" using \{command down, shift down\}/);
+  assert.match(script, new RegExp(`set value of pathField to "${join(homedir(), "Desktop")}"`));
 });
 
 test("canonical Final Cut export discovers nested save controls", () => {
@@ -827,17 +881,27 @@ test("canonical Final Cut export discovers nested save controls", () => {
   assert.match(script, /candidateInsidePathContainer then/);
   assert.match(script, /if container is focusedCandidate then return container/);
   assert.match(script, /if my matchesCanonicalPathField\(focusedCandidate\) then return focusedCandidate/);
-  assert.match(script, /set value of pathField to[\s\S]{0,120}delay 0\.2\s+key code 36/);
+  assert.match(script, /keystroke "a" using \{command down\}[\s\S]*?keystroke "\/tmp"[\s\S]*?key code 36/);
+  assert.match(script, /text field 1 of sheet 1 of window "Export XML"/);
   assert.match(script, /on findSavePathField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
-  assert.match(script, /set pathField to my findSavePathField\(saveWindow, 5, "FINAL_CUT_CANONICAL_SAVE_PATH_UNAVAILABLE: save path field did not appear"\)/);
+  assert.doesNotMatch(script, /set pathField to my findSavePathField/);
   assert.match(script, /on findCanonicalSaveNameField\(saveWindow, timeoutSeconds, timeoutMessage\)/);
+  assert.match(script, /id of candidate/);
+  assert.match(script, /PathTextField/);
   assert.match(script, /saveAsNameTextField/);
-  assert.match(script, /set value of pathField to "\/tmp"/);
   assert.match(script, /set value of nameField to "framekit-canonical\.fcpxml"/);
   assert.doesNotMatch(script, /findAccessibilityDescendant\(saveWindow, pathFieldRoles/);
+  assert.match(script, /on findAccessibilityIdentifier\(container, expectedIdentifier, depth\)/);
+  assert.match(script, /if depth > 12 then return missing value/);
   assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
-  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
-  assert.match(script, /repeat 10 times[\s\S]*pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.doesNotMatch(script, /repeat 10 times[\s\S]*pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
+  assert.doesNotMatch(script, /pressAccessibilityButtonIfPresent\(saveWindow, \{"Replace"\}\)/);
+  assert.match(script, /set saveRoot to first UI element of saveWindow/);
+  assert.match(script, /set value of nameField/);
+  assert.match(script, /set nameField to text field 2 of saveRoot/);
+  assert.match(script, /perform action "AXPress" of button 3 of saveRoot/);
+  assert.doesNotMatch(script, /perform action "AXPress" of button 2 of sheet 1 of saveWindow/);
+  assert.doesNotMatch(script, /entire contents of saveContainer/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
   assert.doesNotMatch(script, /my findDescendantByRole\(pathSheet, "AXTextField"/);
   assert.doesNotMatch(script, /entire contents of container/);
@@ -898,8 +962,8 @@ test("canonical export retries a cleaned-up recovery result", async () => {
           cleanup: "complete",
         });
       }
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
+      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
+      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
       assert.ok(directoryMatch?.[1]);
       assert.ok(nameMatch?.[1]);
       await writeFile(join(directoryMatch[1], nameMatch[1]), completeDocument);
@@ -922,8 +986,11 @@ test("canonical export recovers generated dialogs on UI failure", () => {
   assert.match(script, /my canonicalExportResponse\("retryable"/);
   assert.match(script, /perform action "AXPress" of candidate/);
   assert.match(script, /click candidate/);
-  assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 2);
-  assert.match(script, /if not my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\) then key code 36/);
+  assert.equal((script.match(/set saveWindow to my findWindow/g) ?? []).length, 1);
+  assert.match(script, /set value of nameField/);
+  assert.match(script, /set nameField to text field 2 of saveRoot/);
+  assert.match(script, /perform action "AXPress" of button 3 of saveRoot/);
+  assert.match(script, /my pressAccessibilityButtonIfPresent\(saveWindow, \{"Save"\}\)/);
   assert.doesNotMatch(script, /my findDescendantByRole\(saveWindow, "AXSheet"/);
 });
 
@@ -934,12 +1001,8 @@ test("canonical Final Cut export waits for a complete FCPXML file", async () => 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
-      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
       assert.match(script, /my canonicalExportResponse\("export-requested"/);
-      const exportPath = join(directoryMatch[1], nameMatch[1]);
+      const exportPath = canonicalExportPath(script);
       const partialDocument = completeDocument.slice(0, Math.floor(completeDocument.length / 2));
       await writeFile(exportPath, partialDocument);
       finishExport = new Promise((resolve) => {
@@ -973,11 +1036,7 @@ test("canonical Final Cut export reads the native directory package", async () =
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to "([^"]+)"/);
-      const nameMatch = script.match(/set value of nameField to "([^"]+)"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -999,11 +1058,7 @@ test("canonical export binds missing sequence UID to the live target", async () 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -1013,6 +1068,46 @@ test("canonical export binds missing sequence UID to the live target", async () 
   const project = await source.readSnapshot();
   assert.equal(project.projectId, "project-live");
   assert.equal(project.timeline.id, "sequence-live");
+});
+
+test("publish canonical readback binds a catalog target when the export has no immutable UIDs", async () => {
+  const source = new FinalCutCanonicalSnapshotSource({
+    readbackTarget: {
+      projectId: "catalog-project",
+      sequenceId: "catalog-sequence",
+      projectName: "Created Edit",
+      sequenceName: "Main",
+    },
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      await writeFile(canonicalExportPath(script), '<fcpxml version="1.11"><library><event><project name="Created Edit"><sequence name="Main" duration="1s"><spine/></sequence></project></event></library></fcpxml>');
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  const snapshot = await source.readSnapshot();
+  assert.equal(snapshot.projectId, "catalog-project");
+  assert.equal(snapshot.timeline.id, "catalog-sequence");
+});
+
+test("publish canonical readback rejects an export for another named target", async () => {
+  const source = new FinalCutCanonicalSnapshotSource({
+    readbackTarget: {
+      projectId: "catalog-project",
+      sequenceId: "catalog-sequence",
+      projectName: "Created Edit",
+      sequenceName: "Main",
+    },
+    exportTimeoutMs: 500,
+    pollIntervalMs: 10,
+    executor: async (script) => {
+      await writeFile(canonicalExportPath(script), '<fcpxml version="1.11"><library><event><project name="Another Edit"><sequence name="Main" duration="1s"><spine/></sequence></project></event></library></fcpxml>');
+      return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
+    },
+  });
+
+  await assert.rejects(source.readSnapshot(), /TARGET_MISMATCH: canonical export project and sequence names/);
 });
 
 test("canonical export rejects a sequence UID from another live target", async () => {
@@ -1026,11 +1121,7 @@ test("canonical export rejects a sequence UID from another live target", async (
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -1051,11 +1142,7 @@ test("canonical export rejects a live target from another project", async () => 
     exportTimeoutMs: 500,
     pollIntervalMs: 10,
     executor: async (script) => {
-      const directoryMatch = script.match(/set value of pathField to \"([^\"]+)\"/);
-      const nameMatch = script.match(/set value of nameField to \"([^\"]+)\"/);
-      assert.ok(directoryMatch?.[1]);
-      assert.ok(nameMatch?.[1]);
-      const packagePath = join(directoryMatch[1], `${nameMatch[1]}.fcpxmld`);
+      const packagePath = `${canonicalExportPath(script)}.fcpxmld`;
       await mkdir(packagePath);
       await writeFile(join(packagePath, "Info.fcpxml"), completeDocument);
       return JSON.stringify({ status: "export-requested", code: "", message: "", cleanup: "complete" });
@@ -1088,6 +1175,83 @@ test("canonical target resolver requires one exact native occurrence", async () 
 
   const resolver = createFinalCutNativeTargetResolver(native);
   await resolver(snapshot("Original").timeline.clips[0]!, snapshot("Original"));
+});
+
+test("canonical target resolver searches literal source basenames outside the public wildcard contract", async () => {
+  const project = snapshot("Original");
+  project.media[0]!.source = "/tmp/interview?.mov";
+  const seenQueries: string[] = [];
+  const native = {
+    searchMedia: async () => {
+      throw new Error("FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED: wildcard input is rejected");
+    },
+    searchMediaForCanonicalTarget: async (query: string) => {
+      seenQueries.push(query);
+      return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1" }];
+    },
+    locateOccurrence: async () => ({
+      status: "unique" as const,
+      occurrences: [{
+        handle: "occurrence-handle",
+        mediaHandle: "media-handle",
+        name: "Original",
+        identity: "native-occurrence-1",
+        start: "0/24",
+        duration: "96/24",
+        sequenceId: "final-cut:sequence:sequence-1",
+      }],
+    }),
+  };
+
+  const resolver = createFinalCutNativeTargetResolver(native);
+  await resolver(project.timeline.clips[0]!, project);
+  assert.deepEqual(seenQueries, ["interview?.mov"]);
+});
+
+test("canonical target resolver selects the coordinate-matching occurrence from duplicate media", async () => {
+  const selected: string[] = [];
+  const native = {
+    searchMedia: async () => [{
+      handle: "media-handle",
+      name: "clip.mov",
+      sourceIdentity: "browser-source-1",
+    }],
+    locateOccurrence: async () => ({
+      status: "ambiguous" as const,
+      occurrences: [
+        {
+          handle: "occurrence-first",
+          mediaHandle: "media-handle",
+          name: "Original",
+          start: "0/24",
+          duration: "96/24",
+          sequenceId: "final-cut:sequence:sequence-1",
+        },
+        {
+          handle: "occurrence-target",
+          mediaHandle: "media-handle",
+          name: "Original",
+          start: "96/24",
+          duration: "96/24",
+          sequenceId: "final-cut:sequence:sequence-1",
+        },
+      ],
+    }),
+    selectOccurrence: async (handle: string) => {
+      selected.push(handle);
+      return {} as never;
+    },
+  };
+  const targetSnapshot = structuredClone(snapshot("Original"));
+  targetSnapshot.timeline.clips[0] = {
+    ...targetSnapshot.timeline.clips[0]!,
+    start: 4,
+    startTime: { value: "96", timescale: "24" },
+  };
+
+  const resolver = createFinalCutNativeTargetResolver(native);
+  await resolver(targetSnapshot.timeline.clips[0]!, targetSnapshot);
+  assert.deepEqual(selected, ["occurrence-target"]);
 });
 
 test("canonical target resolver rejects ambiguous native media", async () => {

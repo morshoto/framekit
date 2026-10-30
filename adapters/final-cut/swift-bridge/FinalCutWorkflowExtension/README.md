@@ -76,11 +76,11 @@ The capability payload explicitly reports
 `editor.projectSelectionMode: "unavailable"`. This is a current public-API
 decision, not a headed-only fallback: the bridge never activates Final Cut or
 uses Accessibility UI to satisfy `select-project`. See
-[`ADR-0009`](../../../../docs/adr/0009-non-ui-project-selection.md) for the
+[`Architecture`](../../../../docs/architecture.md#provider-and-evidence-boundaries) for the
 evidence and future provider contract.
 
 The current-version native write and Undo investigation is recorded in
-[Native write and Undo investigation](../../../../docs/final-cut/native-write-undo-investigation.md).
+[native write, readback, and Undo requirements](../../../../docs/architecture.md#headless-and-native-editing).
 
 The local build is ad-hoc signed for development. From the repository root,
 `pnpm run framekit -- connect finalcut`

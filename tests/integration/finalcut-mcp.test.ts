@@ -1170,6 +1170,50 @@ test("Final Cut MCP preserves structured native media import errors", async () =
   }
 });
 
+test("Final Cut MCP distinguishes unsupported wildcard search from empty literal results", async () => {
+  const searched: string[] = [];
+  const nativeEditor = {
+    searchMedia: async (query: string) => {
+      searched.push(query);
+      return [];
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Search Query Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "native-search-query-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    for (const query of ["*", "Interview?"]) {
+      const response = await client.callTool({ name: "editor.native.media.search", arguments: { query } });
+      assert.equal(response.isError, true);
+      assert.deepEqual(JSON.parse(textFrom(response)), {
+        code: "FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED",
+        message: "Final Cut Browser search accepts literal text; wildcard operators * and ? are unsupported",
+        querySemantics: "literal",
+        unsupportedSyntax: "wildcard",
+      });
+    }
+    assert.deepEqual(searched, []);
+    const literal = await client.callTool({ name: "editor.native.media.search", arguments: { query: "Interview" } });
+    assert.equal(literal.isError, undefined);
+    assert.deepEqual(JSON.parse(textFrom(literal)), []);
+    assert.deepEqual(searched, ["Interview"]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("Final Cut MCP returns structured guidance for directory media import", async () => {
   const directory = "/tmp/framekit-media-directory-input";
   const nativeEditor = {

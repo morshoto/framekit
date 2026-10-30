@@ -3,6 +3,15 @@ export function verifyPublishedTarget({ result, beforeLive, afterLive, expectedP
     throw new Error("FINAL_CUT_E2E_PUBLISH_VERIFICATION_FAILED: publisher did not return the requested project identity");
   }
 
+  if (result.semanticReadback?.verified !== true
+    || !result.semanticReadback.expectedDigest
+    || result.semanticReadback.expectedDigest !== result.semanticReadback.observedDigest) {
+    throw new Error("FINAL_CUT_E2E_PUBLISH_SEMANTIC_READBACK_FAILED: native timeline does not match the approved FCPXML");
+  }
+  if (result.sourceMediaIntegrity?.unchanged !== true) {
+    throw new Error("FINAL_CUT_E2E_PUBLISH_SOURCE_MEDIA_FAILED: source-media digests were not preserved");
+  }
+
   if (result.createdTarget?.sequenceName !== (expectedSequence ?? sourceSequence)) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_SEQUENCE_VERIFICATION_FAILED: publisher did not return the requested sequence identity");
   }

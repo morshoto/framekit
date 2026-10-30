@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { BuildFingerprint } from "@framekit/runtime";
+import { parsePackageBuildIdentity } from "./build-identity.js";
 
 const FRAMEKIT_PACKAGE_NAME = "@morshoto/framekit";
 
@@ -11,10 +13,7 @@ interface PackageManifest {
 
 export const FRAMEKIT_VERSION = readFramekitVersion();
 
-export interface FramekitBuildFingerprint {
-  version: string;
-  commit: string;
-}
+export type FramekitBuildFingerprint = BuildFingerprint;
 
 export const FRAMEKIT_BUILD_FINGERPRINT: FramekitBuildFingerprint = Object.freeze({
   version: FRAMEKIT_VERSION,
@@ -53,7 +52,15 @@ function isMissingFile(error: unknown): boolean {
 
 function readFramekitCommit(): string {
   const configured = process.env.FRAMEKIT_BUILD_COMMIT?.trim();
-  if (configured) return configured;
+  if (configured) {
+    if (!/^[0-9a-f]{40}$/i.test(configured)) {
+      throw new Error("FRAMEKIT_BUILD_COMMIT_INVALID: expected a full commit SHA");
+    }
+    return configured.toLowerCase();
+  }
+
+  const packaged = readPackageBuildIdentity();
+  if (packaged) return packaged.commit;
 
   const repositoryRoot = findRepositoryRoot(dirname(fileURLToPath(import.meta.url)));
   if (!repositoryRoot) return "unknown";
@@ -89,6 +96,16 @@ function readFramekitCommit(): string {
     if (!isMissingFile(error)) return "unknown";
   }
   return "unknown";
+}
+
+function readPackageBuildIdentity(): ReturnType<typeof parsePackageBuildIdentity> {
+  try {
+    const identityPath = join(dirname(fileURLToPath(import.meta.url)), "build-identity.json");
+    return parsePackageBuildIdentity(JSON.parse(readFileSync(identityPath, "utf8")), FRAMEKIT_VERSION);
+  } catch (error) {
+    if (isMissingFile(error)) return undefined;
+    throw error;
+  }
 }
 
 function findRepositoryRoot(start: string): string | undefined {

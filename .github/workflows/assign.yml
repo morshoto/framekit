@@ -2,7 +2,9 @@ name: Assign
 
 on:
     pull_request:
-        types: [opened, synchronize]
+        types: [opened, synchronize, reopened, edited]
+    pull_request_target:
+        types: [opened, synchronize, reopened, edited]
     issues:
         types: [opened]
 
@@ -29,6 +31,7 @@ jobs:
                   configuration-path: .github/labels/labeling-files.yaml
 
     sync-labels:
+        if: ${{ github.event_name != 'pull_request_target' }}
         permissions:
             issues: write
             contents: read
@@ -37,15 +40,37 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: '24.21.0'
+                  node-version: '24.22.1'
             - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
             - name: Run github-label-setup
               run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
 
+    sync-pull-request-milestone:
+        if: >-
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+            (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+            - name: Sync linked issue milestone
+              run: node scripts/sync-pr-milestone.mjs
+              env:
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_EVENT_PATH: ${{ github.event_path }}
+                  GITHUB_API_URL: ${{ github.api_url }}
+
     assign-author:
-        if: ${{ ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
+        if: ${{ github.event_name != 'pull_request_target' && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
         permissions:
             issues: write
             pull-requests: write

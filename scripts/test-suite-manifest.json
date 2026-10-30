@@ -1,0 +1,1658 @@
+{
+  "schemaVersion": 1,
+  "tests": [
+    {
+      "path": "packages/runtime/test/project-store.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/evaluation/mcp-evaluation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/filler-removal/benchmark.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/filler-removal/cli.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/golden/workflow-corpus.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/agents-playbooks.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/artifact-workflow.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/background-catalog.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/background-export.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/basic-editing-mvp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/boundary-policy.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-incremental-contract.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-live.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-native-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-native-provider.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-provider-readiness.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-recovery.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-resync-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-resync-policy.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-timeline-changes.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/canonical-verification.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/capabilities.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/clean-mcp-clients.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "package"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/cli-development.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/cli-headless-projects.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/cli-workspace-identity.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/codeql-workflow.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/codex-plugin.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "package"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/color-correction.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/composite-transactions.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/connection.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/dialogue-normalization-skill.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/disposable-native-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/disposable-native-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/disposable-native.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/drift-reconciliation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/duration-policy.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/edit-targets.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/edit-tool-schema.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/editing-intent.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/editing-session.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/editor-first-routing.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/export-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/export.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/fast-observation-reconcile.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/fcpxml-media-representation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/fcpxml-operation-parity.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/filler-removal-ci.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/filler-removal-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/filler-removal-skill.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/filler-removal.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-assets.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-background-materialization.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-fcpxml-console-experiment.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-library-inspection.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-media.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-overlay-headed.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-publish-readback.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-shadow-mutation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-sqlite-experiment.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-sqlite-inspection.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-sqlite-wal-observation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/final-cut-supported-read-probe.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/finalcut-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/finalcut-routing.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/frame-capture.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/git-config.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/git-hooks.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/golden-corpus-ci.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/headed-native-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/headless-core-boundaries.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/headless-project-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/headless-release-gate.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration",
+        "release-gate"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/headless-render-fixtures.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/headless-renderer.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/headless-session-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/incremental-sync-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/integrated-background-workflow.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/live-protocol.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/local-media-registration.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/local-validation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/masking-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/masking.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/materialization-job-mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/mcp.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/media-role-preservation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/media-search.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/media-targeting.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/music-mixing.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/native-masking.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/native-operation-session.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/native-title-discovery.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/native-transition.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/native.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/noise-reduction.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/non-frontmost-regression.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/non-ui-timeline-snapshot-investigation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/package-distribution.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "package"
+      ],
+      "requires": [
+        "npm"
+      ]
+    },
+    {
+      "path": "tests/integration/pasteboard-snapshot.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/phase1.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/phase2.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/picture-in-picture-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/picture-in-picture.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/pr-milestone-sync.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-catalog-reconciliation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-finishing-objects.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-inspect-capabilities.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-property-edits.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-selection.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-status-sync.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/project-transactions.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/publisher-e2e.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/publisher.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/range-validation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/release-gate-ci.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/release-gate-docs.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/release-notes-format.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/release-runner.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/release-workflow.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/render-and-verify.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/render-contract.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/renovate-labeling.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/ripple-delete-range.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/rough-cut-headed-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration",
+        "native"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/rough-cut-headed.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration",
+        "native"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/rough-cut.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/runtime-alignment.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/runtime.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/script-organization.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/semantic-media.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/skill-conformance.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/skill-contract.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/skill-mcp-contract.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/skill-requirements.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/skill-runtime.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/staged-content.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/test-state-isolation.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/test-suites.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/timeline-ir-fcpxml.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/timeline-semantic-context.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/timeline-targets.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/unattended-editing.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/v017-semantic-media-qa.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/integration/verification-intent.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/verify-final-cut-native.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/artifacts.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/cli.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/dialogue-normalization.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/dialogue-planner.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/documentation-intent.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/mcp-skill.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/native-editing.test.ts",
+      "owner": "shared",
+      "tags": [
+        "native",
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/package-build-identity.test.ts",
+      "owner": "shared",
+      "tags": [
+        "package",
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/release-candidate-evidence.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/release-gate.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/repository-checks.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/runner.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-gate/v0112-acceptance.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/artifacts.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/cli.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/generate.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/generator.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/github.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/metrics.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/rendering.test.ts",
+      "owner": "shared",
+      "tags": [
+        "headless",
+        "release-gate"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
+      "path": "tests/release-report/sources.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/release-report/workflow.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/capabilities.test.ts",
+      "owner": "shared",
+      "tags": [
+        "contract",
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/command-analyzer.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/conformance.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/filler-components.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/local-wrapper.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/mapping.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/revision-bound-analysis.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/speech/whisper-backend.test.ts",
+      "owner": "shared",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    }
+  ]
+}

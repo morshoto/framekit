@@ -17,7 +17,7 @@ const target = {
 
 const contractDocumentation = readFileSync(join(
   process.cwd(),
-  "docs/architecture/canonical-incremental-synchronization.md",
+  "docs/architecture.md",
 ), "utf8");
 
 function revision(id: string, sequence: number) {

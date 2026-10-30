@@ -249,6 +249,42 @@ test("release provenance rejects workflow evidence without a tag commit", () => 
   assert.equal(report.checks.find((check) => check.name === "release-workflow")?.status, "failed");
 });
 
+test("release provenance accepts a workflow that checked out the exact tag commit", () => {
+
+  const report = assessReleaseProvenance({
+    packageManifest: { version: "0.1.6" },
+    pluginManifest: { version: "0.1.6" },
+    serverVersion: "0.1.6",
+    workflow: {
+      status: "completed",
+      conclusion: "success",
+      headSha: "a".repeat(40),
+      tagSha: "c".repeat(40),
+      checkedOutTagSha: "c".repeat(40),
+    },
+  });
+
+  assert.equal(report.checks.find((check) => check.name === "release-workflow")?.status, "verified");
+});
+
+test("release provenance rejects clean evidence from a different tag commit", () => {
+
+  const report = assessReleaseProvenance({
+    packageManifest: { version: "0.1.6" },
+    pluginManifest: { version: "0.1.6" },
+    serverVersion: "0.1.6",
+    workflow: {
+      status: "completed",
+      conclusion: "success",
+      headSha: "c".repeat(40),
+      tagSha: "c".repeat(40),
+      checkedOutTagSha: "d".repeat(40),
+    },
+  });
+
+  assert.equal(report.checks.find((check) => check.name === "release-workflow")?.status, "failed");
+});
+
 test("release provenance rejects a checksum file for a different archive", () => {
   const report = assessReleaseProvenance({
     packageManifest: { version: "0.1.6" },

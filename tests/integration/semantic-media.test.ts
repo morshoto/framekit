@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -10,7 +13,7 @@ import {
   FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
-import { AgentVideoRuntime, type MediaContext } from "@framekit/runtime";
+import { AgentVideoRuntime, InMemorySemanticMediaIndexStore, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function textFrom(result: unknown): string {
@@ -105,6 +108,123 @@ test("media understanding preserves source identity and analyzer provenance", as
   assert.equal(metadata?.provenance?.analyzer.provider, "fixture");
   assert.deepEqual(metadata?.provenance?.source, understanding.sourceIdentity);
   assert.deepEqual(metadata?.provenance?.ranges, [fixture.usableRange]);
+});
+
+test("local speech and audio analysis return source-bound range evidence", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: {
+      descriptor: { id: "local.audio", provider: "local", version: "1" },
+      analyze: async () => ({
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+  const range = { start: 2, end: 5 };
+
+  const speech = await runtime.analyzeSpeech("media-semantic-1", range);
+  const audio = await runtime.analyzeAudio("media-semantic-1", range);
+
+  assert.deepEqual(speech.sourceIdentity, {
+    mediaId: "media-semantic-1",
+    source: "/fixtures/interview.mov",
+    sourceDigest: "sha256:interview",
+    mediaKind: "video",
+    duration: 12,
+  });
+  assert.deepEqual(speech.requestedRange, range);
+  assert.deepEqual(audio.sourceIdentity, speech.sourceIdentity);
+  assert.deepEqual(audio.requestedRange, range);
+  assert.deepEqual(audio.measuredRange, range);
+  assert.deepEqual(audio.revision, speech.revision);
+  assert.deepEqual(audio.provider, { id: "local.audio", provider: "local", version: "1" });
+});
+
+test("local audio analysis rejects a source identity mismatch", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async () => ({
+        sourceIdentity: {
+          mediaId: "media-semantic-1",
+          source: "/fixtures/other.mov",
+          sourceDigest: "sha256:other",
+          mediaKind: "video" as const,
+          duration: 12,
+        },
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+
+  await assert.rejects(
+    runtime.analyzeAudio("media-semantic-1", { start: 2, end: 5 }),
+    /TARGET_MISMATCH: audio analysis source identity does not match the requested media/,
+  );
+});
+
+test("media understanding rejects stale audio revisions instead of caching them", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async ({ project }) => ({
+        revision: { ...project.revision, timestamp: "2026-01-01T00:00:00.000Z" },
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+
+  const understanding = await runtime.understandMedia("media-semantic-1");
+  const audio = understanding.analysis.find((record) => record.capability === "audio");
+
+  assert.equal(audio?.status, "unavailable");
+  assert.match(audio?.reason ?? "", /ANALYSIS_STALE: audio analysis revision/);
+  assert.equal(understanding.audio, undefined);
+});
+
+test("audio analysis rejects a requested range outside the source duration", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: new FixtureAudioAnalyzer(),
+  });
+
+  await assert.rejects(
+    runtime.analyzeAudio("media-semantic-1", { start: 11, end: 15 }),
+    /ANALYSIS_INVALID: requested audio range must be finite, positive, and inside the source duration/,
+  );
+});
+
+test("post-write audio reanalysis rejects stale revisions before verification", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async ({ project }, range) => ({
+        revision: { ...project.revision, timestamp: "2026-01-01T00:00:00.000Z" },
+        measuredRange: range,
+        integratedLufs: -18,
+        truePeakDb: -1,
+        silenceMs: 120,
+      }),
+    },
+  });
+
+  await assert.rejects(
+    runtime.edit(
+      { type: "rename-clip", clipId: "clip-semantic-1", name: "Interview - Clean" },
+      { assertions: [{ type: "audio-loudness", mediaId: "media-semantic-1", targetLufs: -18 }] },
+    ),
+    /ANALYSIS_FAILED: post-write verification analysis failed \(Error: ANALYSIS_STALE: audio analysis revision/,
+  );
+
+  const restored = await runtime.inspectProject();
+  assert.equal(restored.timeline.clips[0]?.name, "Interview");
 });
 
 test("media understanding cache rejects changed source identities", async () => {
@@ -292,6 +412,89 @@ test("rough-cut planning returns an explainable read-only shot plan", async () =
   assert.match(shot?.rationale ?? "", /subject "person"/);
 });
 
+test("rough-cut planning matches individual terms across media", async () => {
+  const labels = [
+    { id: "media-river", source: "/fixtures/river.mov", transcript: "river hiker" },
+    { id: "media-coast", source: "/fixtures/coast.mov", transcript: "cyclist coast lighthouse" },
+    { id: "media-bay", source: "/fixtures/bay.mov", transcript: "sailboat bay" },
+  ];
+  const adapter = new InMemoryEditorAdapter({
+    projectId: "project-multi-term-plan",
+    projectName: "Multi-term Plan",
+    timelineId: "timeline-multi-term-plan",
+    timelineName: "Main Edit",
+    clips: [],
+    media: labels.map(({ id, source, transcript }) => ({
+      mediaId: id,
+      source,
+      sourceDigest: `sha256:${id}`,
+      mediaKind: "video",
+      duration: 5,
+      semantic: {
+        subjects: [],
+        scenes: [],
+        environments: [],
+        timeOfDay: [],
+        moods: [],
+        usableRanges: [{ start: 0, end: 5 }],
+        transcript,
+      },
+    })),
+  });
+  const runtime = new AgentVideoRuntime(adapter);
+
+  const plan = await runtime.planRoughCut({
+    query: "river hiker cyclist coast lighthouse sailboat bay",
+    maxShots: 3,
+  });
+
+  assert.equal(plan.shots.length, 3);
+  assert.deepEqual(new Set(plan.shots.map(({ sourceIdentity }) => sourceIdentity.mediaId)), new Set(labels.map(({ id }) => id)));
+});
+
+test("rough-cut planning selects speech-first ranges and excludes silence", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({
+    metadata: { usableRanges: [] },
+    speech: {
+      words: [
+        { text: "setup", start: 0.5, end: 1, confidence: 0.8 },
+        { text: "highlight", start: 2, end: 2.5, confidence: 0.96 },
+        { text: "moment", start: 2.6, end: 3.1, confidence: 0.94 },
+      ],
+      vadSegments: [
+        { start: 0.5, end: 1, kind: "speech", confidence: 0.8 },
+        { start: 1, end: 2, kind: "silence", confidence: 0.99 },
+        { start: 2, end: 3.1, kind: "speech", confidence: 0.95 },
+      ],
+      silenceSegments: [{ start: 1, end: 2, kind: "silence" }],
+    },
+    audio: { integratedLufs: -18, truePeakDb: -1, silenceMs: 1000 },
+  });
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: new FixtureAudioAnalyzer(),
+  });
+
+  await runtime.understandMedia("media-semantic-1");
+  const plan = await runtime.planRoughCut({ query: "highlight", maxShots: 10 });
+  assert.equal((await runtime.indexMedia({ query: "highlight", range: { start: 2.2, end: 2.8 } })).length, 1);
+  assert.equal((await runtime.indexMedia({ query: "highlight", range: { start: 4, end: 5 } })).length, 0);
+
+  assert.equal(plan.shots.length, 2);
+  assert.deepEqual(plan.shots[0]?.range, { start: 2, end: 3.1 });
+  assert.deepEqual(plan.shots[0]?.evidence, {
+    kind: "speech",
+    transcript: "highlight moment",
+    wordCount: 2,
+    averageWordConfidence: 0.95,
+    vad: { kind: "speech", confidence: 0.95 },
+    audio: { integratedLufs: -18, truePeakDb: -1, silenceMs: 1000 },
+  });
+  assert.match(plan.shots[0]?.rationale ?? "", /highlight moment/);
+  assert.equal(plan.shots.some((shot) => shot.range.start === 1), false);
+});
+
 test("rough-cut planning excludes audio-only media from shots", async () => {
   const fixture = semanticFixture();
   fixture.adapter.replaceMedia({ mediaKind: "audio" });
@@ -369,6 +572,36 @@ test("MCP exposes semantic indexing and rough-cut planning", async () => {
   }
 });
 
+test("MCP exposes source-range-bound timeline semantic context", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    visualAnalyzer: new FixtureVisualAnalyzer(),
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+    semanticMediaIndexStore: new InMemorySemanticMediaIndexStore(),
+  });
+  await runtime.understandMedia("media-semantic-1");
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "timeline-semantic-context-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const context = JSON.parse(textFrom(await client.callTool({
+      name: "timeline.semantic.inspect",
+      arguments: { query: "hello" },
+    })));
+
+    assert.equal(context.occurrences.length, 1);
+    assert.equal(context.occurrences[0].status, "available");
+    assert.equal(context.occurrences[0].observations.some((observation: { text?: string }) => observation.text === "hello"), true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("metadata analyzer capability is machine-readable", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
@@ -405,4 +638,75 @@ test("command analyzer factory exposes independent metadata capability", () => {
 
   assert.equal(analyzers.metadataAnalyzer?.descriptor?.provider, "command");
   assert.equal(analyzers.metadataAnalyzer?.descriptor?.id, "command.metadata");
+});
+
+test("semantic media index persists source-bound understanding and reuses matching analyzer cache", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-semantic-index-"));
+  try {
+    const storePath = join(directory, "index.json");
+    const fixture = semanticFixture();
+    const delegate = new FixtureSpeechAnalyzer();
+    let calls = 0;
+    const analyzer = {
+      descriptor: delegate.descriptor,
+      capabilities: delegate.capabilities,
+      analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+        calls += 1;
+        return delegate.analyze(...args);
+      },
+    };
+    const first = new AgentVideoRuntime(fixture.adapter, {
+      speechAnalyzer: analyzer,
+      semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
+    });
+
+    await first.understandMedia("media-semantic-1");
+    assert.equal(calls, 1);
+
+    const reopened = new AgentVideoRuntime(fixture.adapter, {
+      speechAnalyzer: analyzer,
+      semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
+    });
+    await reopened.understandMedia("media-semantic-1");
+    assert.equal(calls, 1);
+    assert.equal((await reopened.indexMedia({ query: "hello" })).length, 1);
+
+    fixture.adapter.replaceMedia({ sourceDigest: "sha256:replacement" });
+    await reopened.understandMedia("media-semantic-1");
+    assert.equal(calls, 2);
+    const entries = await new JsonSemanticMediaIndexStore(storePath).list();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.sourceIdentity.sourceDigest, "sha256:replacement");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("semantic media index invalidates when analyzer provenance changes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-semantic-index-"));
+  try {
+    const storePath = join(directory, "index.json");
+    const fixture = semanticFixture();
+    let calls = 0;
+    const analyzer = (version: string) => ({
+      descriptor: { id: "fixture.speech", provider: "fixture", version },
+      capabilities: { transcription: true, vad: true },
+      analyze: async () => {
+        calls += 1;
+        return {
+          words: [{ text: "cached", start: 1, end: 2, confidence: 0.9 }],
+          vadSegments: [{ start: 1, end: 2, kind: "speech" as const, confidence: 0.9 }],
+        };
+      },
+    });
+    const store = new JsonSemanticMediaIndexStore(storePath);
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("1"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("2"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+
+    assert.equal(calls, 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
