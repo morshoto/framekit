@@ -1195,3 +1195,32 @@ function reverseObjectKeys(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).reverse().map(([key, child]) => [key, reverseObjectKeys(child)]));
 }
+
+test("live canonical reads do not silently retarget after explicit selection", async () => {
+  const selectedSnapshot = structuredClone(canonicalSnapshot);
+  const switchedSnapshot = structuredClone(canonicalSnapshot);
+  switchedSnapshot.projectId = "other-project";
+  switchedSnapshot.timeline.id = "other-sequence";
+  const catalogFor = (project: ProjectSnapshot) => ({
+    projects: [{ id: project.projectId, name: project.projectName, sequences: [{ id: project.timeline.id, name: project.timeline.name }] }],
+    activeProjectId: project.projectId,
+    activeSequenceId: project.timeline.id,
+  });
+  let switched = false;
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+      version: 1, id: request.id, ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalReadCapabilities,
+        ...(request.method === "select-project" ? { catalog: catalogFor(selectedSnapshot), revision: selectedSnapshot.revision } : {}),
+        ...(request.method === "snapshot" ? { snapshot: switched ? switchedSnapshot : selectedSnapshot } : {}),
+        ...(request.method === "projects" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot) } : {}),
+      },
+    }),
+  });
+  await adapter.selectProject({ projectId: selectedSnapshot.projectId, sequenceId: selectedSnapshot.timeline.id });
+  assert.equal((await adapter.readProject()).projectId, selectedSnapshot.projectId);
+  switched = true;
+  await assert.rejects(adapter.readProject(), /TARGET_MISMATCH|STALE_CONTEXT/);
+});
