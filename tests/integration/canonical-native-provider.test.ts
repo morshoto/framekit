@@ -1498,6 +1498,12 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(passiveChanges.provenance[0].source, "live-metadata");
     await client.callTool({ name: "timeline.changes", arguments: {} });
     assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize headed change inspection");
+    const explicitMcpContext = await client.callTool({ name: "context.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(explicitMcpContext.isError, undefined);
+    assert.ok(JSON.parse(textFrom(explicitMcpContext)).project);
     const explicitlyRequested = await runtime.inspectContext({ probeCanonicalSnapshot: true });
     assert.ok(explicitlyRequested.project);
     assert.ok(snapshotReads > readsAfterExplicitRequest);
