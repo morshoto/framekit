@@ -8,7 +8,8 @@ const consistent = {
   contributing: 'Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0. Consumer runtime: Node.js >=20.',
   gettingStarted: 'Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0. Consumer runtime: Node.js >=20.',
   workflow: 'NODE_VERSION: 22.14.0',
-  hook: 'Node.js >=22.14',
+  hook: 'minimum_node_major=22\nminimum_node_minor=14\nNode.js >=22.14',
+  consumerWorkflow: 'CONSUMER_NODE_VERSION: 20.0.0',
 };
 
 test('accepts consistent contributor and consumer requirements', () => {
@@ -24,4 +25,14 @@ test('reports version drift in each documented and executable surface', () => {
 
 test('checks the consumer minimum independently of contributor Node', () => {
   assert.ok(checkToolchain({ ...consistent, consumerNode: '>=22' }).some((error) => error.includes('consumer')));
+});
+
+
+test('detects a changed hook comparison even if its message is unchanged', () => {
+  const hook = consistent.hook.replace('minimum_node_minor=14', 'minimum_node_minor=15');
+  assert.ok(checkToolchain({ ...consistent, hook }).some((error) => error.includes('hook')));
+});
+
+test('checks the consumer smoke version against the declared minimum', () => {
+  assert.ok(checkToolchain({ ...consistent, consumerWorkflow: 'CONSUMER_NODE_VERSION: 22.0.0' }).some((error) => error.includes('consumerWorkflow')));
 });
