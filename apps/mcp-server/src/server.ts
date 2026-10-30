@@ -417,6 +417,7 @@ const artifactPublishInputSchema = z.object({
   targetLibraryPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
   confirm: z.boolean(),
+  confirmVerification: z.boolean().optional(),
 }).strict();
 const artifactTransactionInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
@@ -1930,17 +1931,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.execute", {
-    description: "Execute an experimental native handoff after explicit confirmation; dispatch alone is not project-creation proof, and success requires target readback.",
+    description: "Dispatch a prepared native handoff with confirm=true; for a pending job separately authorize headed readback with confirmVerification=true. Dispatch does not prove project creation.",
     inputSchema: {
       jobId: z.string().trim().min(1),
       confirm: z.literal(true),
+      confirmVerification: z.boolean().optional(),
     },
-  }, async ({ jobId, confirm }) => {
+  }, async ({ jobId, confirm, confirmVerification }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
     if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
-    return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm));
+    return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm, confirmVerification));
   });
 
   server.registerTool("artifact.publish.status", {
@@ -1952,9 +1954,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish", {
-    description: "Experimental, opt-in native import of validated FCPXML. Dispatch alone does not prove project creation; success requires matching created-target readback and explicit confirmation.",
+    description: "Experimental direct import; explicitly confirm both creation and headed readback for this artifact. Dispatch alone does not prove project creation.",
     inputSchema: artifactPublishInputSchema,
-  }, async ({ artifactPath, targetLibraryPath, transactionId, confirm }) => {
+  }, async ({ artifactPath, targetLibraryPath, transactionId, confirm, confirmVerification }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
     if (requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
@@ -1974,17 +1976,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       artifactDigest: transaction.artifactDigest,
       targetLibraryPath,
       confirm,
+      confirmVerification,
     }));
   });
 
   server.registerTool("timeline.publish.new-project", {
-    description: "Experimental, opt-in native import of a verified artifact transaction; reports verified delivery only after matching created-target readback and explicit confirmation.",
+    description: "Experimental direct import of a verified artifact; explicitly confirm creation and headed readback before verified delivery.",
     inputSchema: {
       transactionId: z.string().min(1),
       targetLibraryPath: z.string().trim().min(1),
       confirm: z.literal(true),
+      confirmVerification: z.boolean().optional(),
     },
-  }, async ({ transactionId, targetLibraryPath, confirm }) => {
+  }, async ({ transactionId, targetLibraryPath, confirm, confirmVerification }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
     if (requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
@@ -2004,6 +2008,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       artifactDigest: transaction.artifactDigest,
       targetLibraryPath,
       confirm,
+      confirmVerification,
     }));
   });
 

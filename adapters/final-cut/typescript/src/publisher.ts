@@ -70,6 +70,7 @@ export interface FinalCutProjectPublishRequest {
   artifactDigest: string;
   targetLibraryPath?: string;
   confirm: boolean;
+  confirmVerification?: boolean;
 }
 
 export interface FinalCutProjectPublishPreparationRequest {
@@ -104,7 +105,7 @@ export type FinalCutProjectPublishJobState =
   | "verified"
   | "failed";
 
-export type FinalCutProjectPublishJobAction = "confirm" | "retry" | "status" | "none";
+export type FinalCutProjectPublishJobAction = "confirm" | "confirm-verification" | "retry" | "status" | "none";
 
 export interface FinalCutProjectPublishJob {
   jobId: string;
@@ -326,6 +327,7 @@ export class FinalCutProjectPublisher {
   public async executePublishJob(
     jobId: string,
     confirm: boolean,
+    confirmVerification = false,
   ): Promise<FinalCutProjectPublishJob> {
     const storedJob = this.publishJobs.get(jobId);
     if (!storedJob) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
@@ -337,6 +339,12 @@ export class FinalCutProjectPublisher {
     // Once a dispatch may have occurred, unavailable providers must never
     // transition the job back to a state that can dispatch again.
     if (job.state === "verification-pending") {
+      if (!confirmVerification) {
+        job.nextAction = "confirm-verification";
+        job.retryable = false;
+        this.persistPublishJob(job);
+        return clonePublishJob(job);
+      }
       if (!this.enabled || !this.liveState || !this.targetBinding || !this.readCanonicalSnapshot) {
         job.nextAction = "retry";
         job.retryable = true;
@@ -434,6 +442,14 @@ export class FinalCutProjectPublisher {
         runtime,
         job,
       );
+      if (!result) {
+        job.state = "verification-pending";
+        job.nextAction = "confirm-verification";
+        job.retryable = false;
+        delete job.error;
+        this.persistPublishJob(job);
+        return clonePublishJob(job);
+      }
       return this.markVerified(job, result);
     } catch (error) {
       const normalized = publishError(error);
@@ -454,6 +470,7 @@ export class FinalCutProjectPublisher {
   public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; configure FRAMEKIT_EDITOR=final-cut-live and FRAMEKIT_FCPXML_PATH, and ensure Final Cut is reachable through FRAMEKIT_FINAL_CUT_SOCKET");
     if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+    if (!request.confirmVerification) throw new Error("PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED: separately confirm headed semantic readback before direct publish");
     if (request.sourceTransactionId.startsWith("headless-rough-cut:")) {
       throw new Error("HEADLESS_ROUGH_CUT_PUBLISH_JOB_REQUIRED: use artifact.publish.preview and artifact.publish.execute to preserve the approved target binding");
     }
@@ -478,7 +495,9 @@ export class FinalCutProjectPublisher {
       ...(targetLibraryPath ? { targetLibraryPath } : {}),
     };
     try {
-      return await this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+      const result = await this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+      if (!result) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_PENDING: separate verification is required");
+      return result;
     } catch (error) {
       if (!runtime.importAttempted) throw error;
 
@@ -556,7 +575,7 @@ export class FinalCutProjectPublisher {
     beforeLive: EditorLiveState,
     runtime?: PublishJobRuntime,
     publishJob?: FinalCutProjectPublishJob,
-  ): Promise<FinalCutProjectPublishResult> {
+  ): Promise<FinalCutProjectPublishResult | undefined> {
     if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
     if (!this.targetBinding) throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
     if (!this.readCanonicalSnapshot) throw new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted");
@@ -640,6 +659,7 @@ export class FinalCutProjectPublisher {
       if (runtime) runtime.delivery = delivery;
       if (publishJob) publishJob.delivery = structuredClone(delivery);
       this.persistRuntimeForJob(publishJob, runtime);
+      if (publishJob) return undefined;
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
         async (targetPath, targetIdentity) => {

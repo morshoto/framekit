@@ -145,7 +145,10 @@ new `.fcpbundle` is a separate operation with an explicit destination and
 confirmation; a dispatch acknowledgment is not proof that Final Cut imported
 it. Pending publish status may include a `delivery` dispatch acknowledgment;
 that evidence remains unverified and does not include a created target or
-verified result. Native acceptance requires matching project and sequence readback.
+verified result. A second, explicit confirmation on the same job authorizes
+headed semantic readback; direct publishing requires separate creation and
+readback confirmation fields. Native acceptance requires matching project and
+sequence readback.
 
 ## Persistence and synchronization
 

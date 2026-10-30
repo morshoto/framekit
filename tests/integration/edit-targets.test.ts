@@ -193,9 +193,15 @@ test("MCP publishing requires the verified artifact target and returns the creat
       assert.equal(route.status, "editor-selected");
       assert.equal(route.provider.backend, "fcpxml-publisher");
       assert.equal(route.provider.guarantee, "verified");
-      const published = await client.callTool({
+      const missingReadbackApproval = await client.callTool({
         name: "artifact.publish",
         arguments: { artifactPath, targetLibraryPath, transactionId: transaction.id, confirm: true },
+      });
+      assert.equal(missingReadbackApproval.isError, true);
+      assert.match(textFrom(missingReadbackApproval), /PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED/);
+      const published = await client.callTool({
+        name: "artifact.publish",
+        arguments: { artifactPath, targetLibraryPath, transactionId: transaction.id, confirm: true, confirmVerification: true },
       });
       assert.equal(published.isError, undefined);
       const result = JSON.parse(textFrom(published));
@@ -441,7 +447,7 @@ test("MCP refuses publishing when the verified artifact changes before publish",
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     const published = await client.callTool({
       name: "artifact.publish",
-      arguments: { artifactPath, targetLibraryPath: join(directory, "Target.fcpbundle"), transactionId: transaction.id, confirm: true },
+      arguments: { artifactPath, targetLibraryPath: join(directory, "Target.fcpbundle"), transactionId: transaction.id, confirm: true, confirmVerification: true },
     });
     assert.equal(published.isError, true);
     assert.match(textFrom(published), /PUBLISH_SOURCE_CHANGED/);
