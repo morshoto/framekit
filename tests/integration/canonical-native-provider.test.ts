@@ -1482,7 +1482,13 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     await runtime.inspectContext();
     await runtime.inspectContext({});
     assert.equal(snapshotReads, 0, "runtime context inspection must default to a passive capability check");
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const unconfirmedProject = await client.callTool({ name: "project.inspect", arguments: {} });
+    assert.equal(unconfirmedProject.isError, true, "headed project reads require explicit confirmation and target IDs");
+    assert.equal(snapshotReads, 0, "unconfirmed project inspection must not export a headed snapshot");
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
     assert.equal(project.isError, undefined);
     const readsAfterExplicitRequest = snapshotReads;
     assert.ok(readsAfterExplicitRequest > 0);
