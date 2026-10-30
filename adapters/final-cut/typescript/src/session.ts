@@ -375,6 +375,15 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     validateProjectCatalog(catalog);
     const after = await optionalLiveState(this.options.live);
     const identity = before && after ? await optionalIdentity(this.options.live) : undefined;
+    const selectionCapabilities = await optionalCapabilities(this.options.live, { probeCanonicalSnapshot: false });
+    const selectionMode = selectionCapabilities
+      ? projectSelectionMode(selectionCapabilities.editor)
+      : "unavailable";
+    const selectionAvailable = Boolean(
+      this.options.live?.selectProject
+      && selectionCapabilities?.editor.projectSelection
+      && selectionMode !== "unavailable",
+    );
     return reconcileProjectCatalog(catalog, {
       ...(before && after ? { before, after } : {}),
       provenance: {
@@ -391,9 +400,11 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
           },
         } : {}),
         selection: {
-          available: false,
-          mode: "unavailable",
-          unavailableReason: "project selection is not exposed by the background provider",
+          available: selectionAvailable,
+          mode: selectionAvailable ? selectionMode : "unavailable",
+          ...(!selectionAvailable ? {
+            unavailableReason: "project selection is not exposed by the background provider",
+          } : {}),
         },
       },
     });

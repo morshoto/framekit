@@ -158,6 +158,9 @@ the observed revision is stale. Background Final Cut inspection does not use
 System Events or UI automation to select a project; an unavailable provider
 remains unavailable. The project, source artifact, and active editor state
 retain separate identities and evidence guarantees.
+Project catalog provenance reports selection as available only when the
+configured live provider exposes project selection with a supported mode;
+background catalog access alone does not make a project selectable.
 
 FCPXML editing is an explicit artifact operation. Publishing an artifact to a
 new `.fcpbundle` is a separate operation with an explicit destination and
