@@ -2079,8 +2079,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       live.project?.id === expectedTarget.projectId && live.sequence?.id === expectedTarget.sequenceId;
     if (!matches(await runtime.inspectLiveEditor())) throw new Error("TARGET_MISMATCH: active project or sequence differs from expected target");
     const context = await runtime.inspectContext({ probeCanonicalSnapshot: true });
-    if (!matches(await runtime.inspectLiveEditor()) || (context.project &&
-      (context.project.projectId !== expectedTarget.projectId || context.project.timeline.id !== expectedTarget.sequenceId))) {
+    if (!context.project) throw new Error("CAPABILITY_UNAVAILABLE: headed canonical context could not be read");
+    if (!matches(await runtime.inspectLiveEditor()) ||
+      context.project.projectId !== expectedTarget.projectId || context.project.timeline.id !== expectedTarget.sequenceId) {
       throw new Error("TARGET_MISMATCH: context target changed during headed read");
     }
     return context;
