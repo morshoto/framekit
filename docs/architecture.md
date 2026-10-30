@@ -143,7 +143,9 @@ retain separate identities and evidence guarantees.
 FCPXML editing is an explicit artifact operation. Publishing an artifact to a
 new `.fcpbundle` is a separate operation with an explicit destination and
 confirmation; a dispatch acknowledgment is not proof that Final Cut imported
-it. Native acceptance requires matching project and sequence readback.
+it. Pending publish status may include a `delivery` dispatch acknowledgment;
+that evidence remains unverified and does not include a created target or
+verified result. Native acceptance requires matching project and sequence readback.
 
 ## Persistence and synchronization
 

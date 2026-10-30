@@ -129,6 +129,8 @@ export interface FinalCutProjectPublishJob {
     backgroundSupported: boolean;
     reason: string;
   };
+  /** Dispatch acknowledgement alone does not prove a native project exists. */
+  delivery?: FinalCutProjectPublishDelivery;
   createdTarget?: FinalCutProjectPublishResult["createdTarget"];
   result?: FinalCutProjectPublishResult;
   error?: {
@@ -636,6 +638,7 @@ export class FinalCutProjectPublisher {
         throw new Error("FINAL_CUT_DELIVERY_UNAVAILABLE: selected background document-open route is not configured; no import was attempted");
       }
       if (runtime) runtime.delivery = delivery;
+      if (publishJob) publishJob.delivery = structuredClone(delivery);
       this.persistRuntimeForJob(publishJob, runtime);
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
@@ -837,6 +840,7 @@ export class FinalCutProjectPublisher {
       if (job.handoff.route !== "background-document-open" && job.handoff.route !== "headed-apple-event") {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish route in ${path}`);
       }
+      if (!job.delivery && persisted.runtime?.delivery) job.delivery = structuredClone(persisted.runtime.delivery);
       this.publishJobs.set(job.jobId, job);
       if (persisted.runtime) this.publishJobRuntime.set(job.jobId, persisted.runtime);
     }
