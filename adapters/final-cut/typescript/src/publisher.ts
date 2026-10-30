@@ -332,6 +332,22 @@ export class FinalCutProjectPublisher {
     if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
     if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
 
+    // Once a dispatch may have occurred, unavailable providers must never
+    // transition the job back to a state that can dispatch again.
+    if (job.state === "verification-pending") {
+      if (!this.enabled || !this.liveState || !this.targetBinding || !this.readCanonicalSnapshot) {
+        job.nextAction = "retry";
+        job.retryable = true;
+        job.error = {
+          code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+          message: "Verification is unavailable; retain this job and resume verification without dispatching again",
+        };
+        this.persistPublishJob(job);
+        return clonePublishJob(job);
+      }
+      return this.resumePublishVerification(job);
+    }
+
     if (!this.enabled) {
       job.state = "awaiting-final-cut";
       job.nextAction = "retry";
@@ -353,8 +369,6 @@ export class FinalCutProjectPublisher {
     if (!this.readCanonicalSnapshot) {
       return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted"));
     }
-
-    if (job.state === "verification-pending") return this.resumePublishVerification(job);
 
     let validated: Awaited<ReturnType<FinalCutProjectPublisher["readValidatedSource"]>>;
     try {
