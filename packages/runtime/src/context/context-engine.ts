@@ -34,7 +34,7 @@ export class ContextEngine {
   }
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
-    const capabilities = await this.editor.getCapabilities();
+    const capabilities = await this.editor.getCapabilities({ probeCanonicalSnapshot: false });
     if (capabilities.editor.incrementalChanges) {
       const incremental = await this.editor.readChanges?.(revision);
       if (incremental?.timeline) return incremental.timeline;
@@ -50,7 +50,7 @@ export class ContextEngine {
 
   public async timelineChangesSince(request: TimelineChangesRequest): Promise<TimelineChangesResult> {
     const identity = await this.editor.getIdentity();
-    const capabilities = await this.editor.getCapabilities();
+    const capabilities = await this.editor.getCapabilities({ probeCanonicalSnapshot: false });
     const canonical = capabilities.editor.canonicalTimelineMode !== "metadata-only"
       && (capabilities.editor.timelineSnapshotRead || capabilities.editor.incrementalChanges);
     const source = {
@@ -167,7 +167,7 @@ export class ContextEngine {
     const revision = isContextCursor(cursorOrRevision) ? cursorOrRevision.revision : cursorOrRevision;
     if (cursor?.target) await this.validateCursorTarget(revision, cursor.target);
     const identity = await this.editor.getIdentity();
-    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities(), {
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities({ probeCanonicalSnapshot: false }), {
       backend: identity.backend,
     }));
     const incremental = capabilities.editor.incrementalChanges
@@ -320,7 +320,7 @@ export class ContextEngine {
   }
 
   private async optionalTimelineChanges(revision: ContextRevision): Promise<TimelineDiff | undefined> {
-    const capabilities = await this.editor.getCapabilities();
+    const capabilities = await this.editor.getCapabilities({ probeCanonicalSnapshot: false });
     if (!capabilities.editor.timelineSnapshotRead) return undefined;
     return this.changesSince(revision);
   }

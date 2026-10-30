@@ -1275,7 +1275,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
       return jsonResult({ sessionId, readback: decision, ...resynced });
     }
-    const inspected = await inspectMcpEditor(runtime, options);
+    const inspected = await inspectMcpEditor(runtime, options, true);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
       return capabilityErrorResult("project.inspect", "canonicalDocument.read", capability);
@@ -2069,7 +2069,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("context.inspect", {
     description: "Read the queryable agent editing context and its current revision.",
     inputSchema: {},
-  }, async () => jsonResult(await runtime.inspectContext()));
+  }, async () => jsonResult(await runtime.inspectContext({ probeCanonicalSnapshot: false })));
 
   server.registerTool("context.changes", {
     description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
@@ -2139,7 +2139,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         session: resynced.session,
       });
     }
-    const inspected = await inspectMcpEditor(runtime, options);
+    const inspected = await inspectMcpEditor(runtime, options, true);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
       return capabilityErrorResult("timeline.inspect", "canonicalDocument.read", capability);
@@ -2155,7 +2155,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Enrich timeline occurrences with source-range-bound semantic speech, visual, and metadata context without mutating the timeline.",
     inputSchema: timelineSemanticContextQuerySchema.shape,
   }, async (query) => {
-    const inspected = await inspectMcpEditor(runtime, options);
+    const inspected = await inspectMcpEditor(runtime, options, true);
     const capability = inspected.capabilities.families.canonicalDocument.read;
     if (!capability.available) {
       return capabilityErrorResult("timeline.semantic.inspect", "canonicalDocument.read", capability);
@@ -2252,6 +2252,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sequence: z.number().int().nonnegative().optional(),
     },
   }, async ({ projectId, sequenceId, revision, sequence }) => {
+    if (!(projectId && sequenceId && revision)) {
+      const inspected = await inspectMcpEditor(runtime, options);
+      const capability = inspected.capabilities.families.canonicalDocument.read;
+      if (!capability.available) return capabilityErrorResult("timeline.changes", "canonicalDocument.read", capability);
+    }
     const project = projectId && sequenceId && revision
       ? undefined
       : await runtime.inspectProject();
@@ -2688,8 +2693,8 @@ async function effectiveConnectionStatus(
   }
 }
 
-async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
-  const inspected = await runtime.inspectEditor({ probeCanonicalSnapshot: false });
+async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions, probeCanonicalSnapshot = false) {
+  const inspected = await runtime.inspectEditor({ probeCanonicalSnapshot });
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   const buildAlignment = assessBuildAlignment(
     fingerprint,

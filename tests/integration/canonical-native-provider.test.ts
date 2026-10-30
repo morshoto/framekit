@@ -1479,6 +1479,13 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(snapshotReads, 0, "timeline changes must not run a headed snapshot export");
     await runtime.inspectContext();
     assert.equal(snapshotReads, 0, "runtime context inspection must default to a passive capability check");
+    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    assert.equal(project.isError, undefined);
+    const readsAfterExplicitRequest = snapshotReads;
+    assert.ok(readsAfterExplicitRequest > 0);
+    const afterRead = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(afterRead.capabilities.editor.timelineSnapshotRead, true);
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "passive status should reuse validated capability evidence");
   } finally {
     await client.close();
     await server.close();

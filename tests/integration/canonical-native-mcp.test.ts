@@ -141,11 +141,11 @@ test("canonical native provider exposes reads without selection", async () => {
   try {
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.identity.backend, "final-cut-native-canonical");
-    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-read");
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "metadata-only");
     assert.equal(editor.capabilities.editor.projectCatalogRead, true);
     assert.equal(editor.capabilities.editor.projectSelection, false);
-    assert.equal(editor.capabilities.editor.projectRead, true);
-    assert.equal(editor.capabilities.editor.timelineSnapshotRead, true);
+    assert.equal(editor.capabilities.editor.projectRead, false);
+    assert.equal(editor.capabilities.editor.timelineSnapshotRead, false);
     assert.equal(editor.capabilities.editor.timelineWrite, false);
 
     const selection = await client.callTool({
@@ -225,7 +225,7 @@ test("MCP fails closed when canonical Export XML snapshot is unavailable", async
     assert.equal(editor.capabilities.families.canonicalDocument.read.available, false);
     assert.match(
       editor.capabilities.families.canonicalDocument.read.unavailableReason,
-      /FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE/,
+      /canonical snapshot availability was not checked/,
     );
 
     const route = JSON.parse(textFrom(await client.callTool({

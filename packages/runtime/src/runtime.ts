@@ -143,8 +143,8 @@ export class AgentVideoRuntime {
     return this.projects.inspectEditor(options);
   }
 
-  public async inspectContext(): Promise<AgentContext> {
-    const editor = await this.inspectEditor();
+  public async inspectContext(options: CapabilityInspectionOptions = { probeCanonicalSnapshot: false }): Promise<AgentContext> {
+    const editor = await this.inspectEditor(options);
     return this.contexts.inspectContext(editor.capabilities);
   }
 
