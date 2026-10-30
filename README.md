@@ -19,7 +19,8 @@ For repository development, you need:
 
 Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
 Consumer runtime: Node.js >=20.
-- Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
+
+Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
 
 The Xcode requirement is only needed for the native Workflow Extension. For the
 pinned Node and shell toolchain, enter the optional Nix shell first:

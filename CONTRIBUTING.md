@@ -21,7 +21,8 @@ Requirements:
 
 Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
 Consumer runtime: Node.js >=20.
-- Xcode 16.4 and the macOS 15.5 SDK for native work.
+
+Xcode 16.4 and the macOS 15.5 SDK for native work.
 
 Install dependencies and run the standard checks:
 

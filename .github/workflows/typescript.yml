@@ -47,7 +47,9 @@ jobs:
         run: pnpm run check:scripts
 
       - name: Toolchain consistency
-        run: node scripts/check-toolchain.mjs
+        run: |
+          node --test tests/documentation/toolchain-consistency.test.mjs
+          node scripts/check-toolchain.mjs
 
       - name: Documentation structure and links
         run: pnpm run check:docs
