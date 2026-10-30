@@ -1412,3 +1412,11 @@ test("canonical revision changes when live revision changes despite identical sn
   assert.ok(changed.revision.sequence > before.revision.sequence);
   await assert.rejects(provider.previewTransaction([{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }], before.revision), /STALE_CONTEXT/);
 });
+
+test("canonical revisions from a prior provider instance cannot authorize edits", async () => {
+  const first = providerFor([snapshot("Original")], []);
+  const second = providerFor([snapshot("Original")], []);
+  const before = await first.readProject();
+  const restarted = await second.readProject();
+  assert.notEqual(restarted.revision.id, before.revision.id);
+});
