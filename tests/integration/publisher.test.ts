@@ -800,7 +800,7 @@ test("FCPXML publisher keeps malformed, legacy and live-process reservations", a
     const reservationPath = await reservationPathFor(targetLibraryPath);
     const contents = index === 0
       ? "not-json"
-      : JSON.stringify({ reservationId: "protected-reservation", targetLibraryPath, pid: index === 1 ? process.pid : 2_147_483_647 });
+      : JSON.stringify({ reservationId: "protected-reservation", targetLibraryPath, pid: index === 1 ? process.pid : 2_147_483_647, ...(index === 1 ? { phase: "reserved" } : {}) });
     await writeFile(reservationPath, contents);
     const publisher = createPublisherForTest({
       enabled: true,
