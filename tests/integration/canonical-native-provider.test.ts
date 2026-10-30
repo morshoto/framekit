@@ -21,6 +21,7 @@ import type {
   ContextRevision,
   EditorChange,
   EditorIdentity,
+  EditorPort,
   EditorLiveState,
   ProjectSelectionResult,
   ProjectSnapshot,
@@ -283,6 +284,74 @@ test("canonical project listing requires a background catalog", async () => {
     /CAPABILITY_UNAVAILABLE: project\.list requires editor\.projectCatalogRead: background project catalog is unavailable; canonical timeline snapshot export \(File > Export XML\) requires a headed Final Cut UI/,
   );
   assert.equal(snapshotReads, 0);
+});
+
+test("session selection capability requires an exposed selection method", async () => {
+  const provider = providerFor([snapshot("Original")], [], undefined, liveState(), {
+    listProjects: async () => ({
+      projects: [{
+        id: "final-cut:project:project-1",
+        name: "Canonical E2E",
+        sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }],
+      }],
+      activeProjectId: "final-cut:project:project-1",
+      activeSequenceId: "final-cut:sequence:sequence-1",
+    }),
+  });
+  const live = {
+    getIdentity: () => provider.getIdentity(),
+    getCapabilities: async () => {
+      const capabilities = await provider.getCapabilities();
+      return {
+        ...capabilities,
+        editor: {
+          ...capabilities.editor,
+          projectSelection: true,
+          projectSelectionMode: "headed-only" as const,
+        },
+      };
+    },
+    readLiveState: () => provider.readLiveState(),
+    liveChangesSince: (revision: ContextRevision, waitMs?: number) => provider.liveChangesSince(revision, waitMs),
+  };
+  const session = new FinalCutSessionAdapter({
+    live,
+    backgroundCatalog: {
+      listProjects: async () => ({
+        projects: [{
+          id: "final-cut:project:project-1",
+          name: "Canonical E2E",
+          sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }],
+        }],
+        activeProjectId: "final-cut:project:project-1",
+        activeSequenceId: "final-cut:sequence:sequence-1",
+      }),
+    },
+  });
+
+  const capabilities = await session.getCapabilities();
+  const catalog = await session.listProjects();
+
+  assert.equal(capabilities.editor.projectSelection, false);
+  assert.equal(capabilities.editor.projectSelectionMode, "unavailable");
+  assert.equal(catalog.provenance?.selection.available, false);
+  assert.equal(catalog.provenance?.selection.mode, "unavailable");
+
+  const claimedCapabilities = await provider.getCapabilities();
+  const snapshotAdapter = {
+    getCapabilities: async () => ({
+      ...claimedCapabilities,
+      editor: {
+        ...claimedCapabilities.editor,
+        projectSelection: true,
+        projectSelectionMode: "headed-only" as const,
+      },
+    }),
+  } as unknown as EditorPort;
+  const snapshotCapabilities = await new FinalCutSessionAdapter({ snapshot: snapshotAdapter }).getCapabilities();
+
+  assert.equal(snapshotCapabilities.editor.projectSelection, false);
+  assert.equal(snapshotCapabilities.editor.projectSelectionMode, "unavailable");
 });
 
 test("canonical capabilities fail closed when Export XML snapshot is unavailable", async () => {
