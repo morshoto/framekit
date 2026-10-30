@@ -46,6 +46,9 @@ jobs:
       - name: Script references and package entrypoints
         run: pnpm run check:scripts
 
+      - name: Toolchain consistency
+        run: node scripts/check-toolchain.mjs
+
       - name: Documentation structure and links
         run: pnpm run check:docs
 

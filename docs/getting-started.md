@@ -6,7 +6,8 @@ headless fixture; it does not launch or activate Final Cut Pro.
 
 ## Development setup
 
-Requirements are Node.js 20 or newer and the repository-pinned pnpm version.
+Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
+Consumer runtime: Node.js >=20.
 Xcode 16.4 with the macOS 15.5 SDK is required only for native extension work.
 For the pinned shell toolchain, enter the optional Nix environment first:
 

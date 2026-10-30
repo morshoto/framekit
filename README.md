@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white" alt="Node.js 20 or newer" />
-  <img src="https://img.shields.io/badge/pnpm-12.3.4-F69220?logo=pnpm&logoColor=white" alt="pnpm 12.3.4" />
+  <img src="https://img.shields.io/badge/pnpm-12.14.0-F69220?logo=pnpm&logoColor=white" alt="pnpm 12.14.0" />
   <img src="https://img.shields.io/badge/Final%20Cut%20Pro-macOS-000000?logo=apple&logoColor=white" alt="Final Cut Pro on macOS" />
   <a href="https://discord.gg/Dmp8FSF4vg"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white" alt="Join the Framekit Discord" /></a>
 </p>
@@ -17,8 +17,8 @@ Agentic video editing runtime and MCP server for Final Cut Pro.
 
 For repository development, you need:
 
-- Node.js 20 or newer;
-- pnpm 12.3.4;
+Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
+Consumer runtime: Node.js >=20.
 - Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
 
 The Xcode requirement is only needed for the native Workflow Extension. For the
