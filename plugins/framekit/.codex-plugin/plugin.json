@@ -1,6 +1,6 @@
 {
   "name": "framekit",
-  "version": "0.1.18",
+  "version": "0.2.0",
   "description": "Connect Codex to Framekit's headless video production and Final Cut MCP tools",
   "author": {
     "name": "Framekit Contributors",
