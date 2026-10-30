@@ -1497,12 +1497,30 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(passiveChanges.provenance[0].source, "live-metadata");
     await client.callTool({ name: "timeline.changes", arguments: {} });
     assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize headed change inspection");
+    const explicitlyRequested = await runtime.inspectContext({ probeCanonicalSnapshot: true });
+    assert.ok(explicitlyRequested.project);
+    assert.ok(snapshotReads > readsAfterExplicitRequest);
+    const readsAfterExplicitContext = snapshotReads;
     currentLive = { ...currentLive, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
     const staleStatus = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(staleStatus.capabilities.editor.timelineSnapshotRead, false);
-    assert.equal(snapshotReads, readsAfterExplicitRequest, "stale cache detection must remain passive");
+    assert.equal(snapshotReads, readsAfterExplicitContext, "stale cache detection must remain passive");
   } finally {
     await client.close();
     await server.close();
   }
+});
+
+test("canonical capability probe rejects a snapshot for another active target", async () => {
+  const wrong = snapshot("Original");
+  wrong.projectId = "wrong-project";
+  const provider = providerFor([wrong], [], undefined, liveState(), {
+    listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+      activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
+    }),
+  });
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(capabilities.editor.timelineSnapshotRead, false);
+  assert.match(capabilities.families!.canonicalDocument.read.unavailableReason ?? "", /TARGET_MISMATCH/);
 });
