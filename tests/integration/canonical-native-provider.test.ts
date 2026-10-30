@@ -1390,3 +1390,25 @@ test("canonical native edit allows refreshed observation timestamps for the same
   await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision);
   assert.equal(edited, true);
 });
+
+test("canonical revision changes when live revision changes despite identical snapshot", async () => {
+  let current = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(current),
+      liveChangesSince: async () => [],
+    },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => snapshot("Original"),
+    resolveTarget: async () => {},
+  });
+  const before = await provider.readProject();
+  current = { ...current, revision: { ...current.revision, timestamp: new Date(2000).toISOString() } };
+  const same = await provider.readProject();
+  assert.equal(same.revision.sequence, before.revision.sequence);
+  current = { ...current, revision: { id: "live-changed", sequence: 2, timestamp: new Date(3000).toISOString() } };
+  const changed = await provider.readProject();
+  assert.ok(changed.revision.sequence > before.revision.sequence);
+  await assert.rejects(provider.previewTransaction([{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }], before.revision), /STALE_CONTEXT/);
+});
