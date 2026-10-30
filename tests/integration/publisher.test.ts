@@ -2306,8 +2306,15 @@ test("direct publish exposes dispatch evidence while readback is pending", async
       calls++;
       return { status: "dispatched", route: "background-document-open", attempted: true, imported: false, requestedActivates: false, activation: "preserved", ui: "unknown", target: { requestedLibraryLocation: targetLibraryPath, guarantee: "requested-unverified" } };
     } },
-    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: not yet visible"); },
-    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+    targetBinding: async () => ({ projectId: "observed-project", sequenceId: "observed-sequence", libraryPath: targetLibraryPath }),
+    liveState: async () => calls === 0
+      ? { revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }
+      : {
+        project: { id: "observed-project", name: "Pending" },
+        sequence: { id: "observed-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        revision: { id: "after", sequence: 2, timestamp: new Date(1).toISOString() },
+      },
+    readCanonicalSnapshot: async () => { throw new Error("READBACK_UNAVAILABLE: retry later"); },
   });
   let error: Error | undefined;
   try {
@@ -2320,5 +2327,7 @@ test("direct publish exposes dispatch evidence while readback is pending", async
   assert.equal(job.delivery?.status, "dispatched");
   assert.equal(job.delivery?.target.guarantee, "requested-unverified");
   assert.equal(job.createdTarget, undefined);
+  assert.equal(job.observedTarget?.projectId, "observed-project");
+  assert.equal(job.observedTarget?.sequenceId, "observed-sequence");
   assert.equal(calls, 1);
 });
