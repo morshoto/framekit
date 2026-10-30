@@ -177,7 +177,10 @@ test("canonical native provider exposes reads without selection", async () => {
     assert.equal(catalog.activeSequenceId, "final-cut:sequence:canonical-mcp");
     assert.equal(catalog.provenance.catalog.source, "background-library");
 
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
     assert.equal(project.isError, undefined);
     const inspected = JSON.parse(textFrom(project));
     assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
@@ -197,7 +200,10 @@ test("canonical native provider disables preview transactions without canonical-
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.capabilities.editor.compositeTransactions, false);
     assert.equal(editor.capabilities.families.editing.compositeTransactions.available, false);
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
     assert.equal(project.isError, undefined);
     const inspected = JSON.parse(textFrom(project));
     assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
@@ -237,7 +243,10 @@ test("MCP fails closed when canonical Export XML snapshot is unavailable", async
     assert.ok(route.missingCapabilities.includes("editor.timelineSnapshotRead"));
     assert.ok(route.missingCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
 
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
     assert.equal(project.isError, true);
     assert.deepEqual(JSON.parse(textFrom(project)), {
       code: "CAPABILITY_UNAVAILABLE",

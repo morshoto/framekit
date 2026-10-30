@@ -1502,6 +1502,19 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
       expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
     } });
     assert.equal(project.isError, undefined);
+    const expectedTarget = { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" };
+    const timeline = await client.callTool({ name: "timeline.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget,
+    } });
+    assert.equal(timeline.isError, undefined);
+    assert.equal(JSON.parse(textFrom(timeline)).id, expectedTarget.sequenceId);
+    const semantic = await client.callTool({ name: "timeline.semantic.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget,
+    } });
+    assert.equal(semantic.isError, undefined);
+    assert.equal(JSON.parse(textFrom(semantic)).timelineId, expectedTarget.sequenceId);
     const readsAfterExplicitRequest = snapshotReads;
     assert.ok(readsAfterExplicitRequest > 0);
     const afterRead = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
