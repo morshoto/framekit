@@ -1611,6 +1611,15 @@ test("MCP canonical session resync requires headed target confirmation", async (
     assert.equal(unconfirmed.isError, true);
     assert.equal(JSON.parse(textFrom(unconfirmed)).code, "HEADED_READ_CONFIRMATION_REQUIRED");
     assert.equal(snapshotReads, 0);
+    const confirmed = await client.callTool({ name: "project.inspect", arguments: {
+      sessionId: "resync-session",
+      requestedCanonical: true,
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(confirmed.isError, undefined);
+    assert.equal(JSON.parse(textFrom(confirmed)).snapshot.projectId, "final-cut:project:project-1");
+    assert.ok(snapshotReads > 0, "confirmed session resync performs the canonical read");
   } finally {
     await client.close();
     await server.close();

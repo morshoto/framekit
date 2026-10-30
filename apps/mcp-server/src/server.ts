@@ -1276,8 +1276,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
           snapshot: stored.document.base,
         });
       }
-      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
-      return jsonResult({ sessionId, readback: decision, ...resynced });
+      return inspectCanonicalReadForMcp(runtime, options, "project.inspect", confirmHeadedRead, expectedTarget,
+        async () => ({ sessionId, readback: decision, ...await canonicalResyncSession(sessionId, stored.document.provider?.id) }),
+        (result) => ({ projectId: result.snapshot.projectId, sequenceId: result.snapshot.timeline.id }));
     }
     return inspectCanonicalReadForMcp(runtime, options, "project.inspect", confirmHeadedRead, expectedTarget,
       () => runtime.inspectProject(), (result) => ({ projectId: result.projectId, sequenceId: result.timeline.id }));
@@ -2143,13 +2144,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
           timeline: stored.document.base,
         });
       }
-      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
-      return jsonResult({
-        sessionId,
-        readback: decision,
-        snapshot: resynced.snapshot.timeline,
-        session: resynced.session,
-      });
+      return inspectCanonicalReadForMcp(runtime, options, "timeline.inspect", confirmHeadedRead, expectedTarget,
+        async () => {
+          const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
+          return { sessionId, readback: decision, snapshot: resynced.snapshot.timeline, session: resynced.session };
+        },
+        (result) => ({ sequenceId: result.snapshot.id }));
     }
     return inspectCanonicalReadForMcp(runtime, options, "timeline.inspect", confirmHeadedRead, expectedTarget,
       () => runtime.inspectTimeline(), (result) => ({ sequenceId: result.id }));
