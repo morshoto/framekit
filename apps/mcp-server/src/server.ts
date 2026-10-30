@@ -2256,6 +2256,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       const inspected = await inspectMcpEditor(runtime, options);
       const capability = inspected.capabilities.families.canonicalDocument.read;
       if (!capability.available) return capabilityErrorResult("timeline.changes", "canonicalDocument.read", capability);
+      if (capability.evidenceTier === "headed-native") {
+        return capabilityErrorResult("timeline.changes", "canonicalDocument.read", {
+          available: false, backend: capability.backend, guarantee: "none",
+          unavailableReason: "canonical timeline changes require an explicitly authorized headed read",
+        });
+      }
     }
     const project = projectId && sequenceId && revision
       ? undefined

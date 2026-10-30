@@ -776,16 +776,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
     const backgroundCatalog = await this.resolveBackgroundCatalog();
-    const snapshotProbe = backgroundCatalog && options.probeCanonicalSnapshot !== false
-      ? await this.probeCanonicalSnapshot()
-      : {
-          available: false as const,
-          reason: backgroundCatalog
-            ? "canonical snapshot availability was not checked"
-            : "canonical timeline snapshot requires a background project catalog",
-        };
+    const snapshotProbe = !backgroundCatalog
+      ? { available: false as const, reason: "canonical timeline snapshot requires a background project catalog" }
+      : options.probeCanonicalSnapshot !== false
+        ? await this.probeCanonicalSnapshot()
+        : await this.cachedCanonicalSnapshotAvailability();
     const canonicalSnapshotCapability = snapshotProbe.available
-      ? true
+      ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-read" as const, evidenceTier: "headed-native" as const }
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
     const capabilities = withCapabilityFamilies({
       editor: {
@@ -856,7 +853,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         },
       }, {
         canonicalDocument: {
-          read: true,
+          read: canonicalSnapshotCapability,
           write: false,
           artifactWrite: false,
         },
@@ -877,6 +874,22 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         compositeTransactions: false,
       },
     });
+  }
+
+  private async cachedCanonicalSnapshotAvailability(): Promise<{ available: true } | { available: false; reason: string }> {
+    if (!this.lastSnapshot || !this.lastLiveRevision) {
+      return { available: false, reason: "canonical snapshot availability was not checked" };
+    }
+    try {
+      const live = await this.live.readLiveState();
+      if (live.project?.id === this.lastSnapshot.projectId
+        && live.sequence?.id === this.lastSnapshot.timeline.id
+        && live.revision?.id === this.lastLiveRevision.id
+        && live.revision.sequence === this.lastLiveRevision.sequence) return { available: true };
+    } catch {
+      // A missing live observation cannot validate the cached target.
+    }
+    return { available: false, reason: "canonical snapshot evidence is stale or live state is unavailable" };
   }
 
   private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {

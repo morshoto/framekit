@@ -80,6 +80,8 @@ selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP
 capability and routing inspection does not initiate a headed snapshot export;
 an unprobed canonical provider reports its snapshot capability unavailable.
+Validated evidence may be reused only while the live target and revision match;
+it does not authorize a later headed context or change read.
 
 An incremental result must match its target and revision cursor. Concurrency
 conflicts and stale-write errors, ambiguous or incomplete observations, and
