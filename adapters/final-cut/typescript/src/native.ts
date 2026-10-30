@@ -4204,9 +4204,10 @@ using terms from application "System Events"
     return parts
   end splitText
 
-  on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
-    if depth > 6 then return ""
-    set output to ""
+  on selectedTimelineSelection(containerItem, depth, mainOrigin, mainSize)
+    if depth > 6 then return {0, ""}
+    set selectedCount to 0
+    set selectedRecord to ""
     repeat with candidateRef in UI elements of containerItem
       try
         set candidate to contents of candidateRef
@@ -4224,32 +4225,37 @@ using terms from application "System Events"
             set candidateSelected to (selected of candidate) is true
           end try
           if candidateSelected then
-            set candidateRole to role of candidate as text
-            set candidateName to ""
-            try
-              set candidateName to description of candidate as text
-            end try
-            if candidateName is "" then
+            set selectedCount to selectedCount + 1
+            if selectedRecord is "" then
+              set candidateRole to role of candidate as text
+              set candidateName to ""
               try
-                set candidateName to value of candidate as text
+                set candidateName to description of candidate as text
               end try
+              if candidateName is "" then
+                try
+                  set candidateName to value of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              set candidateIdentity to ""
+              try
+                set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set selectedRecord to candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
             end if
-            if candidateName is "missing value" then set candidateName to ""
-            set candidateIdentity to ""
-            try
-              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
-            end try
-            return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+          else
+            set nestedSelection to my selectedTimelineSelection(candidate, depth + 1, mainOrigin, mainSize)
+            set selectedCount to selectedCount + (item 1 of nestedSelection)
+            if selectedRecord is "" then set selectedRecord to item 2 of nestedSelection
           end if
-          set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
-          if output is not "" then return output
         end if
       on error
         -- Ignore inaccessible descendants and continue the bounded scan.
       end try
     end repeat
-    return ""
-  end selectedTimelineItem
+    return {selectedCount, selectedRecord}
+  end selectedTimelineSelection
 
   on selectedTimelineOccurrenceIndex(timelineArea)
     set occurrenceIndex to 0
@@ -4307,14 +4313,15 @@ tell application "System Events"
     try
       set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
       set selectionLookupAvailable to true
-      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      set selectionResult to my selectedTimelineSelection(timelineArea, 0, mainOrigin, mainSize)
+      set selectedCount to item 1 of selectionResult
+      set selectedRecord to item 2 of selectionResult
       set selectedOccurrenceIndex to my selectedTimelineOccurrenceIndex(timelineArea)
-      if selectedRecord is not "" then
+      if selectedCount is 1 and selectedRecord is not "" then
         set selectedFields to my splitText(selectedRecord, ASCII character 31)
         set selectedName to item 1 of selectedFields
         set selectedRole to item 2 of selectedFields
         set selectedIdentity to item 3 of selectedFields
-        set selectedCount to 1
       end if
     end try
     if not selectionLookupAvailable then set selectedCount to -1
@@ -4657,9 +4664,10 @@ function inspectScript(): string {
       return parts
     end splitText
 
-    on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
-      if depth > 12 then return ""
-      set output to ""
+    on selectedTimelineSelection(containerItem, depth, mainOrigin, mainSize)
+      if depth > 12 then return {0, ""}
+      set selectedCount to 0
+      set selectedRecord to ""
       repeat with candidateRef in UI elements of containerItem
         try
           set candidate to contents of candidateRef
@@ -4678,32 +4686,37 @@ function inspectScript(): string {
               set candidateSelected to (selected of candidate) is true
             end try
             if candidateSelected then
-              set candidateRole to role of candidate as text
-              set candidateName to ""
-              try
-                set candidateName to description of candidate as text
-              end try
-              if candidateName is "" then
+              set selectedCount to selectedCount + 1
+              if selectedRecord is "" then
+                set candidateRole to role of candidate as text
+                set candidateName to ""
                 try
-                  set candidateName to value of candidate as text
+                  set candidateName to description of candidate as text
                 end try
+                if candidateName is "" then
+                  try
+                    set candidateName to value of candidate as text
+                  end try
+                end if
+                if candidateName is "missing value" then set candidateName to ""
+                set candidateIdentity to ""
+                try
+                  set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+                end try
+                set selectedRecord to candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
               end if
-              if candidateName is "missing value" then set candidateName to ""
-              set candidateIdentity to ""
-              try
-                set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
-              end try
-              return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+            else
+              set nestedSelection to my selectedTimelineSelection(candidate, depth + 1, mainOrigin, mainSize)
+              set selectedCount to selectedCount + (item 1 of nestedSelection)
+              if selectedRecord is "" then set selectedRecord to item 2 of nestedSelection
             end if
-            set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
-            if output is not "" then return output
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
         end try
       end repeat
-      return ""
-    end selectedTimelineItem
+      return {selectedCount, selectedRecord}
+    end selectedTimelineSelection
 
     on selectedTimelineOccurrenceIndex(timelineArea)
       set occurrenceIndex to 0
@@ -4787,15 +4800,16 @@ function inspectScript(): string {
     try
     set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
       set selectionLookupAvailable to true
-      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      set selectionResult to my selectedTimelineSelection(timelineArea, 0, mainOrigin, mainSize)
+      set selectedCount to item 1 of selectionResult
+      set selectedRecord to item 2 of selectionResult
       set selectedOccurrenceIndex to my selectedTimelineOccurrenceIndex(timelineArea)
     end try
-    if selectedRecord is not "" then
+    if selectedCount is 1 and selectedRecord is not "" then
       set selectedFields to my splitText(selectedRecord, ASCII character 31)
       set selectedName to item 1 of selectedFields
       set selectedRole to item 2 of selectedFields
       set selectedIdentity to item 3 of selectedFields
-      set selectedCount to 1
     end if
     set inspectorName to my findInspectorName(frontWindow, 0)
     if inspectorName is not "" and selectedCount is 1 then set selectedName to inspectorName

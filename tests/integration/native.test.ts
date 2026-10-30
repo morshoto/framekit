@@ -1407,6 +1407,37 @@ test("native inspect fails closed when a selected occurrence has no stable ident
   assert.equal(inspected.readiness.selectedTarget, false);
 });
 
+test("native selection probes count multiple occurrences and fail closed", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT") || script.includes("on findInspectorName")
+        ? context(true, "Final Cut Pro", "Interview", 2, true, true, true, "timeline", 1, "Undo", "native-occurrence-1")
+        : context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1);
+    },
+  });
+
+  const inspected = await adapter.inspect();
+  assert.equal(inspected.target.kind, "unknown");
+  assert.equal(inspected.readiness.state, "unavailable");
+  assert.equal(inspected.readiness.firstMissing, "target");
+
+  await assert.rejects(
+    adapter.edit({ type: "rename-selected-clip", name: "Unsafe first match" }),
+    /FINAL_CUT_NATIVE_SELECTION_REQUIRED/,
+  );
+  assert.equal(scripts.some((script) => script.includes("Apply Custom Name")), false);
+
+  const selectionProbes = scripts.filter((script) => script.includes("on selectedTimelineSelection"));
+  assert.ok(selectionProbes.length >= 2);
+  for (const script of selectionProbes) {
+    assert.match(script, /set selectedCount to selectedCount \+ 1/);
+    assert.match(script, /set selectedCount to item 1 of selectionResult/);
+  }
+});
+
 test("native inspect retries a transient partial result after focus recovery", async () => {
   let passiveCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
