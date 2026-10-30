@@ -36,3 +36,9 @@ test('detects a changed hook comparison even if its message is unchanged', () =>
 test('checks the consumer smoke version against the declared minimum', () => {
   assert.ok(checkToolchain({ ...consistent, consumerWorkflow: 'CONSUMER_NODE_VERSION: 22.0.0' }).some((error) => error.includes('consumerWorkflow')));
 });
+
+
+test('reports absent version pins as drift instead of throwing', () => {
+  assert.ok(checkToolchain({ ...consistent, packageManager: undefined }).some((error) => error.includes('packageManager')));
+  assert.ok(checkToolchain({ ...consistent, contributorNode: undefined }).some((error) => error.includes('contributorNode')));
+});
