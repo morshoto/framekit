@@ -1455,7 +1455,8 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
       activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
     }) },
   });
-  const server = createMcpServer(new Runtime(new FinalCutSessionAdapter({ live: provider })), { processMode: "headed" });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const server = createMcpServer(runtime, { processMode: "headed" });
   const client = new Client({ name: "passive-inspection", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   try {
@@ -1476,6 +1477,8 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(snapshotReads, 0, "context changes must not run a headed snapshot export");
     await client.callTool({ name: "timeline.changes", arguments: {} });
     assert.equal(snapshotReads, 0, "timeline changes must not run a headed snapshot export");
+    await runtime.inspectContext();
+    assert.equal(snapshotReads, 0, "runtime context inspection must default to a passive capability check");
   } finally {
     await client.close();
     await server.close();
