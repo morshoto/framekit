@@ -75,7 +75,9 @@ stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
 revision after target resolution. Canonical revision tokens are scoped to the
-provider session and change when the live revision changes.
+provider session and change when the live revision changes. Where live project
+selection is supported, subsequent canonical reads remain bound to the selected
+project and sequence until an explicit new selection succeeds.
 
 An incremental result must match its target and revision cursor. Concurrency
 conflicts and stale-write errors, ambiguous or incomplete observations, and

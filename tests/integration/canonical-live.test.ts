@@ -1213,7 +1213,7 @@ test("live canonical reads do not silently retarget after explicit selection", a
       result: {
         identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
         capabilities: canonicalReadCapabilities,
-        ...(request.method === "select-project" ? { catalog: catalogFor(selectedSnapshot), revision: selectedSnapshot.revision } : {}),
+        ...(request.method === "select-project" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot), revision: selectedSnapshot.revision } : {}),
         ...(request.method === "snapshot" ? { snapshot: switched ? switchedSnapshot : selectedSnapshot } : {}),
         ...(request.method === "projects" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot) } : {}),
       },
@@ -1223,4 +1223,6 @@ test("live canonical reads do not silently retarget after explicit selection", a
   assert.equal((await adapter.readProject()).projectId, selectedSnapshot.projectId);
   switched = true;
   await assert.rejects(adapter.readProject(), /TARGET_MISMATCH|STALE_CONTEXT/);
+  await adapter.selectProject({ projectId: switchedSnapshot.projectId, sequenceId: switchedSnapshot.timeline.id });
+  assert.equal((await adapter.readProject()).projectId, switchedSnapshot.projectId);
 });

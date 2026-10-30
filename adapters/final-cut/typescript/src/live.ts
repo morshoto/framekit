@@ -176,6 +176,8 @@ export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
 }
 
 export class FinalCutLiveAdapter implements LiveEditorStatePort {
+  private selectedTarget?: { projectId: string; sequenceId: string };
+
   public constructor(
     private readonly transport: FinalCutLiveTransport,
     private readonly socketPath = "configured-socket",
@@ -215,6 +217,11 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     if (!response.snapshot) throw new Error("FINAL_CUT_LIVE_PROTOCOL: snapshot response was empty");
     validateCanonicalSnapshot(response.snapshot);
     validateSnapshotTarget(response.snapshot, await this.listProjects());
+    if (this.selectedTarget
+      && (response.snapshot.projectId !== this.selectedTarget.projectId
+        || response.snapshot.timeline.id !== this.selectedTarget.sequenceId)) {
+      throw new Error("TARGET_MISMATCH: live canonical snapshot differs from the explicitly selected project and sequence");
+    }
     return response.snapshot;
   }
 
@@ -297,7 +304,9 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     validateProjectSelection(response.catalog, selection);
     if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response revision was empty");
     validateRevision(response.revision, "project selection response revision");
-    return createProjectSelectionResult(response.catalog, selection, response.revision);
+    const result = createProjectSelectionResult(response.catalog, selection, response.revision);
+    this.selectedTarget = { ...result.observedActiveTarget };
+    return result;
   }
 
   private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "artifactPath" | "targetLibraryLocation" | "activates" | "operation" | "expectedRevision" | "snapshot">) {
