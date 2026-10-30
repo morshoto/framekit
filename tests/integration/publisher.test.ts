@@ -2237,3 +2237,17 @@ test("dispatch and headed readback require separate confirmations", async () => 
   assert.equal(readbacks, 1);
   assert.equal(deliveries, 1);
 });
+
+test("direct publish refuses import without explicit readback authorization", async () => {
+  let calls = 0;
+  const publisher = createPublisherForTest({
+    enabled: true,
+    sourcePath: "/nonexistent/artifact.fcpxml",
+    executor: async () => { calls++; return ""; },
+  });
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn", artifactPath: "/nonexistent/artifact.fcpxml",
+    artifactDigest: "digest", confirm: true,
+  }), /PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED/);
+  assert.equal(calls, 0);
+});
