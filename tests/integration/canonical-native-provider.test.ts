@@ -1485,6 +1485,18 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     const unconfirmedProject = await client.callTool({ name: "project.inspect", arguments: {} });
     assert.equal(unconfirmedProject.isError, true, "headed project reads require explicit confirmation and target IDs");
     assert.equal(snapshotReads, 0, "unconfirmed project inspection must not export a headed snapshot");
+    const unconfirmedTimeline = await client.callTool({ name: "timeline.inspect", arguments: {} });
+    assert.equal(unconfirmedTimeline.isError, true, "headed timeline reads require explicit confirmation and target IDs");
+    const unconfirmedSemantic = await client.callTool({ name: "timeline.semantic.inspect", arguments: {} });
+    assert.equal(unconfirmedSemantic.isError, true, "headed semantic reads require explicit confirmation and target IDs");
+    assert.equal(snapshotReads, 0, "unconfirmed timeline inspections must not export a headed snapshot");
+    const wrongProjectTarget = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "wrong", sequenceId: "wrong" },
+    } });
+    assert.equal(wrongProjectTarget.isError, true);
+    assert.equal(JSON.parse(textFrom(wrongProjectTarget)).code, "TARGET_MISMATCH");
+    assert.equal(snapshotReads, 0, "mismatched targets must fail before a headed snapshot export");
     const project = await client.callTool({ name: "project.inspect", arguments: {
       confirmHeadedRead: true,
       expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },

@@ -143,6 +143,10 @@ import or overwrite the target without a fresh approved operation.
 context read uses `confirmHeadedRead` and an `expectedTarget` containing the
 project and sequence IDs; a mismatch fails before the export. This confirmation
 does not itself establish user authorization or provide atomic target binding.
+Direct `project.inspect`, `timeline.inspect`, and `timeline.semantic.inspect`
+calls use the same confirmation and target fields when they require a headed
+canonical snapshot. Missing confirmation or a mismatched target fails before
+export, and the active IDs are checked again after the read.
 
 `EditingSession` keeps desired edits provider-neutral and bound to a versioned
 editable project. Reconcile changes against the original project before
