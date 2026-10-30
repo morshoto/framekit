@@ -1829,12 +1829,13 @@ test("native Final Cut allows a non-playhead retry when focus recovery changes t
   let editCalls = 0;
   let renamed = false;
   let playhead = "0";
+  let observations = 0;
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
     sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
     playheadTime: { value: playhead, timescale: "1" },
     sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" } },
-    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(++observations * 1000).toISOString() },
   });
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
