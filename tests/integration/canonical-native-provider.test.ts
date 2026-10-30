@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -24,7 +24,7 @@ import type {
   EditorLiveState,
   ProjectSnapshot,
 } from "@framekit/runtime";
-import { AgentVideoRuntime as Runtime } from "@framekit/runtime";
+import { AgentVideoRuntime as Runtime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
@@ -1578,4 +1578,42 @@ test("canonical capability probe rejects a snapshot for another active target", 
   const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
   assert.equal(capabilities.editor.timelineSnapshotRead, false);
   assert.match(capabilities.families!.canonicalDocument.read.unavailableReason ?? "", /TARGET_MISMATCH/);
+});
+
+test("MCP canonical session resync requires headed target confirmation", async () => {
+  let snapshotReads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(liveState()) },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => { snapshotReads++; return snapshot("Original"); },
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+      activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
+    }) },
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const sessionDirectory = await mkdtemp(join(tmpdir(), "framekit-headed-resync-"));
+  const server = createMcpServer(runtime, { processMode: "headed", sessionDirectory });
+  const client = new Client({ name: "headed-session-resync", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const base = createTimelineIrFromProjectSnapshot(await runtime.inspectProject(), { id: "final-cut" });
+    const created = await client.callTool({ name: "session.create", arguments: {
+      sessionId: "resync-session", provider: { id: "final-cut" }, base,
+    } });
+    assert.equal(created.isError, undefined, textFrom(created));
+    snapshotReads = 0;
+    const unconfirmed = await client.callTool({ name: "project.inspect", arguments: {
+      sessionId: "resync-session", requestedCanonical: true,
+    } });
+    assert.equal(unconfirmed.isError, true);
+    assert.equal(JSON.parse(textFrom(unconfirmed)).code, "HEADED_READ_CONFIRMATION_REQUIRED");
+    assert.equal(snapshotReads, 0);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(sessionDirectory, { recursive: true, force: true });
+  }
 });
