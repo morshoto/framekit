@@ -4,19 +4,19 @@ import { resolve } from 'node:path';
 
 export function checkToolchain(input) {
   const errors = [];
-  const pnpm = input.packageManager.match(/^pnpm@(\d+\.\d+\.\d+)$/)?.[1];
+  const pnpm = input.packageManager?.match(/^pnpm@(\d+\.\d+\.\d+)$/)?.[1];
   if (!pnpm) errors.push('packageManager must pin an exact pnpm version');
-  const node = input.contributorNode;
+  const node = input.contributorNode ?? '';
   if (!/^\d+\.\d+\.\d+$/.test(node)) errors.push('contributorNode must be an exact version');
   for (const field of ['readme', 'contributing', 'gettingStarted']) {
-    if (!input[field].includes(`Contributor toolchain: Node.js ${node} and pnpm ${pnpm}.`)) errors.push(`${field}: contributor versions differ`);
-    if (!input[field].includes(`Consumer runtime: Node.js ${input.consumerNode}.`)) errors.push(`${field}: consumer runtime differs`);
+    if (!(input[field] ?? '').includes(`Contributor toolchain: Node.js ${node} and pnpm ${pnpm}.`)) errors.push(`${field}: contributor versions differ`);
+    if (!(input[field] ?? '').includes(`Consumer runtime: Node.js ${input.consumerNode}.`)) errors.push(`${field}: consumer runtime differs`);
   }
-  if (!input.workflow.includes(`NODE_VERSION: ${node}`)) errors.push('workflow: contributor Node differs');
+  if (!(input.workflow ?? '').includes(`NODE_VERSION: ${node}`)) errors.push('workflow: contributor Node differs');
   const [major, minor] = node.split('.');
-  if (!input.hook.includes(`minimum_node_major=${major}`) || !input.hook.includes(`minimum_node_minor=${minor}`) || !input.hook.includes(`Node.js >=${major}.${minor}`)) errors.push('hook: contributor Node minimum differs');
-  const consumerMajor = input.consumerNode.match(/^>=(\d+)$/)?.[1];
-  if (!consumerMajor || !input.consumerWorkflow.includes(`CONSUMER_NODE_VERSION: ${consumerMajor}.0.0`)) errors.push('consumerWorkflow: consumer minimum differs');
+  if (!(input.hook ?? '').includes(`minimum_node_major=${major}`) || !(input.hook ?? '').includes(`minimum_node_minor=${minor}`) || !(input.hook ?? '').includes(`Node.js >=${major}.${minor}`)) errors.push('hook: contributor Node minimum differs');
+  const consumerMajor = input.consumerNode?.match(/^>=(\d+)$/)?.[1];
+  if (!consumerMajor || !(input.consumerWorkflow ?? '').includes(`CONSUMER_NODE_VERSION: ${consumerMajor}.0.0`)) errors.push('consumerWorkflow: consumer minimum differs');
   return errors;
 }
 

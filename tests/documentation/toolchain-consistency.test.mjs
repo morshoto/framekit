@@ -27,7 +27,6 @@ test('checks the consumer minimum independently of contributor Node', () => {
   assert.ok(checkToolchain({ ...consistent, consumerNode: '>=22' }).some((error) => error.includes('consumer')));
 });
 
-
 test('detects a changed hook comparison even if its message is unchanged', () => {
   const hook = consistent.hook.replace('minimum_node_minor=14', 'minimum_node_minor=15');
   assert.ok(checkToolchain({ ...consistent, hook }).some((error) => error.includes('hook')));
@@ -36,7 +35,6 @@ test('detects a changed hook comparison even if its message is unchanged', () =>
 test('checks the consumer smoke version against the declared minimum', () => {
   assert.ok(checkToolchain({ ...consistent, consumerWorkflow: 'CONSUMER_NODE_VERSION: 22.0.0' }).some((error) => error.includes('consumerWorkflow')));
 });
-
 
 test('reports absent version pins as drift instead of throwing', () => {
   assert.ok(checkToolchain({ ...consistent, packageManager: undefined }).some((error) => error.includes('packageManager')));
