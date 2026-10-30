@@ -957,7 +957,45 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       // Timeline focus and target selection are separate Accessibility states.
       // Re-read the bounded selection tree after focus so a selected occurrence
       // is not reported as a playhead-only target.
-      return await this.inspectRawNative(undefined, passiveTimelinePreflightScript());
+      const reread = await this.inspectRawNative(undefined, passiveTimelinePreflightScript());
+      if (!reread.available) return reread;
+
+      const targetScope = (context: NativeFinalCutContext) => {
+        const target = context.target as NativeFinalCutContext["target"] & {
+          projectId?: string;
+          sequenceId?: string;
+          revision?: { id?: string; sequence?: number };
+        };
+        if (!target.projectId || !target.sequenceId || !target.revision?.id || !Number.isInteger(target.revision.sequence)) {
+          return undefined;
+        }
+        return {
+          projectId: target.projectId,
+          sequenceId: target.sequenceId,
+          revisionId: target.revision.id,
+          revisionSequence: target.revision.sequence,
+        };
+      };
+      const beforeScope = targetScope(focused);
+      const afterScope = targetScope(reread);
+      if (!beforeScope || !afterScope) {
+        return unavailableContext(
+          "FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE",
+          "Final Cut project, sequence, and revision could not be confirmed across focus recovery",
+          reread,
+        );
+      }
+      if (beforeScope.projectId !== afterScope.projectId
+        || beforeScope.sequenceId !== afterScope.sequenceId
+        || beforeScope.revisionId !== afterScope.revisionId
+        || beforeScope.revisionSequence !== afterScope.revisionSequence) {
+        return unavailableContext(
+          "STALE_CONTEXT",
+          "Final Cut project, sequence, or revision changed while resolving the selected occurrence",
+          reread,
+        );
+      }
+      return reread;
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }

@@ -1290,22 +1290,26 @@ test("native inspect distinguishes missing target from operation Undo readiness"
 });
 
 test("native focus resolves the selected occurrence and binds live target scope", async () => {
-  const liveState = async () => ({
-    project: { id: "project-1", name: "Interview" },
-    sequence: {
-      id: "sequence-1",
-      name: "Main Edit",
-      startTime: { value: "0", timescale: "1" },
-      duration: { value: "20", timescale: "1" },
-      frameDuration: { value: "1", timescale: "24" },
-    },
-    playheadTime: { value: "4", timescale: "1" },
-    sequenceTimeRange: {
-      start: { value: "0", timescale: "1" },
-      duration: { value: "20", timescale: "1" },
-    },
-    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
-  });
+  let liveStateCalls = 0;
+  const liveState = async () => {
+    liveStateCalls += 1;
+    return {
+      project: { id: "project-1", name: "Interview" },
+      sequence: {
+        id: "sequence-1",
+        name: "Main Edit",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+      },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(liveStateCalls).toISOString() },
+    };
+  };
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     liveState,
@@ -1331,7 +1335,7 @@ test("native focus resolves the selected occurrence and binds live target scope"
   assert.deepEqual(target.revision, {
     id: "rev-1",
     sequence: 1,
-    timestamp: new Date(0).toISOString(),
+    timestamp: new Date(2).toISOString(),
   });
 
   const indexOnly = new FinalCutNativeAutomationAdapter({
@@ -1343,6 +1347,48 @@ test("native focus resolves the selected occurrence and binds live target scope"
   assert.equal(indexed.target.kind, "selected-clip");
   assert.equal(indexed.target.occurrenceIndex, 1);
   assert.equal(indexed.readiness.targetBound, false);
+});
+
+test("native focus rejects a revision change during target reread", async () => {
+  let liveStateCalls = 0;
+  const liveState = async () => {
+    liveStateCalls += 1;
+    const revision = liveStateCalls === 1
+      ? { id: "rev-before", sequence: 1, timestamp: new Date(0).toISOString() }
+      : { id: "rev-after", sequence: 2, timestamp: new Date(1).toISOString() };
+    return {
+      project: { id: "project-1", name: "Interview" },
+      sequence: {
+        id: "sequence-1",
+        name: "Main Edit",
+        startTime: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+        frameDuration: { value: "1", timescale: "24" },
+      },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: {
+        start: { value: "0", timescale: "1" },
+        duration: { value: "20", timescale: "1" },
+      },
+      revision,
+    };
+  };
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", "native-occurrence-2")
+      : script.includes("semanticPoints")
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1)
+        : "",
+  });
+
+  const focused = await adapter.focusTimeline();
+
+  assert.equal(liveStateCalls, 2);
+  assert.equal(focused.available, false);
+  assert.equal(focused.error?.code, "STALE_CONTEXT");
+  assert.equal(focused.readiness.state, "stale");
 });
 
 test("native inspect fails closed when a selected occurrence has no stable identity", async () => {
