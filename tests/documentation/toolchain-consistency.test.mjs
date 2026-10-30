@@ -40,3 +40,21 @@ test('reports absent version pins as drift instead of throwing', () => {
   assert.ok(checkToolchain({ ...consistent, packageManager: undefined }).some((error) => error.includes('packageManager')));
   assert.ok(checkToolchain({ ...consistent, contributorNode: undefined }).some((error) => error.includes('contributorNode')));
 });
+
+test('does not accept the consumer Node key as the contributor workflow pin', () => {
+  const contributorNode = '20.0.0';
+  const contributorDocs = `Contributor toolchain: Node.js ${contributorNode} and pnpm 12.14.0. Consumer runtime: Node.js >=20.`;
+  const hook = 'minimum_node_major=20\nminimum_node_minor=0\nNode.js >=20.0';
+
+  const errors = checkToolchain({
+    ...consistent,
+    contributorNode,
+    readme: contributorDocs,
+    contributing: contributorDocs,
+    gettingStarted: contributorDocs,
+    workflow: 'NODE_VERSION: 22.14.0\nCONSUMER_NODE_VERSION: 20.0.0',
+    hook,
+  });
+
+  assert.ok(errors.some((error) => error.includes('workflow')), errors.join('\n'));
+});

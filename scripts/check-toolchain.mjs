@@ -12,7 +12,8 @@ export function checkToolchain(input) {
     if (!(input[field] ?? '').includes(`Contributor toolchain: Node.js ${node} and pnpm ${pnpm}.`)) errors.push(`${field}: contributor versions differ`);
     if (!(input[field] ?? '').includes(`Consumer runtime: Node.js ${input.consumerNode}.`)) errors.push(`${field}: consumer runtime differs`);
   }
-  if (!(input.workflow ?? '').includes(`NODE_VERSION: ${node}`)) errors.push('workflow: contributor Node differs');
+  const workflowNode = (input.workflow ?? '').match(/^\s*NODE_VERSION:\s*(\S+)\s*$/m)?.[1];
+  if (workflowNode !== node) errors.push('workflow: contributor Node differs');
   const [major, minor] = node.split('.');
   if (!(input.hook ?? '').includes(`minimum_node_major=${major}`) || !(input.hook ?? '').includes(`minimum_node_minor=${minor}`) || !(input.hook ?? '').includes(`Node.js >=${major}.${minor}`)) errors.push('hook: contributor Node minimum differs');
   const consumerMajor = input.consumerNode?.match(/^>=(\d+)$/)?.[1];
