@@ -1208,9 +1208,11 @@ test("live canonical reads do not silently retarget after explicit selection", a
   });
   let switched = false;
   let applyCalls = 0;
+  let restoreCalls = 0;
   const adapter = new FinalCutLiveAdapter({
     request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
       if (request.method === "apply") applyCalls++;
+      if (request.method === "restore") restoreCalls++;
       return {
       version: 1, id: request.id, ok: true,
       result: {
@@ -1229,6 +1231,8 @@ test("live canonical reads do not silently retarget after explicit selection", a
   await assert.rejects(adapter.readProject(), /TARGET_MISMATCH|STALE_CONTEXT/);
   await assert.rejects(adapter.apply({ type: "rename-clip", clipId: selectedSnapshot.timeline.clips[0]!.id, name: "New" }, selectedSnapshot.revision), /TARGET_MISMATCH|STALE_CONTEXT/);
   assert.equal(applyCalls, 0);
+  await assert.rejects(adapter.restore(selectedSnapshot, selectedSnapshot.revision), /TARGET_MISMATCH|STALE_CONTEXT/);
+  assert.equal(restoreCalls, 0);
   await adapter.selectProject({ projectId: switchedSnapshot.projectId, sequenceId: switchedSnapshot.timeline.id });
   assert.equal((await adapter.readProject()).projectId, switchedSnapshot.projectId);
 });
