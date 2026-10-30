@@ -1421,3 +1421,21 @@ test("canonical revisions from a prior provider instance cannot authorize edits"
   const restarted = await second.readProject();
   assert.notEqual(restarted.revision.id, before.revision.id);
 });
+
+test("canonical reads reject live revision changes during snapshot export", async () => {
+  let current = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(current),
+      liveChangesSince: async () => [],
+    },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => {
+      current = { ...current, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+      return snapshot("Original");
+    },
+    resolveTarget: async () => {},
+  });
+  await assert.rejects(provider.readProject(), /STALE|TARGET_MISMATCH/);
+});
