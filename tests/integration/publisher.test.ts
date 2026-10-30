@@ -2269,3 +2269,24 @@ test("direct publish refuses import without explicit readback authorization", as
   }), /PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED/);
   assert.equal(calls, 0);
 });
+
+test("a spent import reservation survives publisher death and prevents another dispatch", async () => {
+  const fixture = await createCheckpointFailureFixture("framekit-publisher-spent-reservation-");
+  const first = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(first.state, "verification-pending");
+  assert.equal(fixture.deliveryCalls(), 1);
+  assert.ok(fixture.job.targetLibraryPath);
+  const reservationPath = await reservationPathFor(fixture.job.targetLibraryPath);
+  const reservation = JSON.parse(await readFile(reservationPath, "utf8"));
+  await writeFile(reservationPath, JSON.stringify({ ...reservation, pid: 2147483647 }));
+  const second = await fixture.publisher.preparePublish({
+    sourceTransactionId: fixture.job.sourceTransactionId,
+    artifactPath: fixture.job.sourcePath,
+    artifactDigest: fixture.job.artifactDigest,
+    targetLibraryPath: fixture.job.targetLibraryPath,
+  });
+  const rejected = await fixture.publisher.executePublishJob(second.jobId, true);
+  assert.equal(rejected.state, "failed");
+  assert.equal(rejected.error?.code, "PUBLISH_TARGET_LIBRARY_RESERVED");
+  assert.equal(fixture.deliveryCalls(), 1);
+});
