@@ -822,7 +822,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       connectionBackend: "workflow-extension-ipc",
       canonicalDocument: {
         read: canonicalSnapshotCapability,
-        write: canonicalSnapshotCapability,
+        write: snapshotProbe.available
+          ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-write", evidenceTier: "headed-native" }
+          : canonicalSnapshotCapability,
         artifactWrite: false,
       },
       observation: {
@@ -894,7 +896,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {
     try {
-      await this.readSnapshotSource();
+      await this.readProject();
       return { available: true };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
