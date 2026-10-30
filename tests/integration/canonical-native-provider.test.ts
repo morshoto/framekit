@@ -1369,3 +1369,24 @@ test("canonical native edit rejects live revision drift during target resolution
   await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision), /STALE|TARGET_MISMATCH/);
   assert.equal(mutations, 0);
 });
+
+test("canonical native edit allows refreshed observation timestamps for the same live revision", async () => {
+  let reads = 0;
+  let edited = false;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => ({ ...liveState(), revision: { ...liveState().revision, timestamp: new Date(++reads * 1000).toISOString() } }),
+      liveChangesSince: async () => [],
+    },
+    native: {
+      renameSelectedClip: async () => { edited = true; return { operationId: "op", undoAvailable: true }; },
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => snapshot(edited ? "New" : "Original"),
+    resolveTarget: async () => {},
+  });
+  const before = await provider.readProject();
+  await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision);
+  assert.equal(edited, true);
+});
