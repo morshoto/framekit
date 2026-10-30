@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { chmodSync, constants, createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, createReadStream, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
@@ -887,6 +887,7 @@ export class FinalCutProjectPublisher {
       runtime.importAttempted = false;
       throw error;
     }
+    markReservationDispatchAttempt(runtime);
   }
 
   private persistPublishJob(job: FinalCutProjectPublishJob): void {
@@ -1073,6 +1074,7 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   const reservationContents = JSON.stringify({
     reservationId,
     targetLibraryPath: canonicalTarget,
+    phase: "reserved",
     pid: process.pid,
     createdAt: new Date().toISOString(),
   });
@@ -1148,13 +1150,14 @@ async function reclaimAbandonedTargetLibraryReservation(
     return false;
   }
 
-  let reservation: { reservationId?: unknown; targetLibraryPath?: unknown; pid?: unknown };
+  let reservation: { reservationId?: unknown; targetLibraryPath?: unknown; pid?: unknown; phase?: unknown };
   try {
     reservation = JSON.parse(reservationContents) as typeof reservation;
   } catch {
     return false;
   }
-  if (typeof reservation.reservationId !== "string" || !reservation.reservationId
+  if (reservation.phase !== "reserved"
+    || typeof reservation.reservationId !== "string" || !reservation.reservationId
     || typeof reservation.targetLibraryPath !== "string"
     || resolve(reservation.targetLibraryPath) !== requestedTarget
     || !Number.isSafeInteger(reservation.pid) || (reservation.pid as number) <= 0
@@ -1197,6 +1200,28 @@ function processIsRunning(pid: number): boolean {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException)?.code !== "ESRCH";
+  }
+}
+
+function markReservationDispatchAttempt(runtime: PublishJobRuntime): void {
+  if (!runtime.reservationPath || !runtime.reservationId) return;
+  const fd = openSync(runtime.reservationPath, constants.O_RDWR | constants.O_NOFOLLOW);
+  try {
+    const reservation = JSON.parse(readFileSync(fd, "utf8")) as { reservationId?: unknown; phase?: unknown };
+    if (reservation.reservationId !== runtime.reservationId || reservation.phase !== "reserved") {
+      throw new Error("PUBLISH_TARGET_LIBRARY_RESERVED: reservation changed before dispatch");
+    }
+    const content = Buffer.from(JSON.stringify({ ...reservation, phase: "dispatch-attempted" }));
+    ftruncateSync(fd, 0);
+    let written = 0;
+    while (written < content.length) {
+      const count = writeSync(fd, content, written, content.length - written, written);
+      if (count <= 0) throw new Error("PUBLISH_TARGET_RESERVATION_WRITE_FAILED: unable to persist dispatch marker");
+      written += count;
+    }
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
   }
 }
 

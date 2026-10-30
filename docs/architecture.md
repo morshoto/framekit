@@ -149,7 +149,9 @@ verified result. A pending job may report an `observedTarget` after matching
 live identity; that observation alone is not semantic verification. A second,
 explicit confirmation on the same job authorizes
 headed semantic readback; direct publishing requires separate creation and
-readback confirmation fields. Native acceptance requires matching project and
+readback confirmation fields. A reservation with an attempted or unknown
+dispatch cannot be reclaimed just because its owner exited or the library has
+not appeared. Native acceptance requires matching project and
 sequence readback.
 
 ## Persistence and synchronization

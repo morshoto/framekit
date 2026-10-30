@@ -638,6 +638,7 @@ test("FCPXML publisher recovers a dead reservation only when its target is absen
   const reservationPath = await reservationPathFor(targetLibraryPath);
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-reservation",
+    phase: "reserved",
     targetLibraryPath: join(await realpath(aliasedTargetParent), basename(targetLibraryPath)),
     // This is outside the PID range used by supported macOS and Linux runners.
     pid: 2_147_483_647,
@@ -683,6 +684,7 @@ test("FCPXML publisher allows only one process to recover a stale library reserv
   const reservationPath = await reservationPathFor(targetLibraryPath);
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-concurrent-reservation",
+    phase: "reserved",
     targetLibraryPath: join(await realpath(dirname(targetLibraryPath)), basename(targetLibraryPath)),
     pid: 2_000_000_000,
     createdAt: new Date(0).toISOString(),
@@ -787,18 +789,18 @@ test("FCPXML publisher allows only one process to recover a stale library reserv
   }
 });
 
-test("FCPXML publisher keeps malformed and live-process reservations", async () => {
+test("FCPXML publisher keeps malformed, legacy and live-process reservations", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-protected-reservation-"));
   const sourcePath = join(directory, "project.fcpxml");
   const source = '<fcpxml version="1.11"><library><event><project name="Protected Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
 
-  for (const index of [0, 1]) {
+  for (const index of [0, 1, 2]) {
     const targetLibraryPath = join(directory, `Protected Library ${index}.fcpbundle`);
     const reservationPath = await reservationPathFor(targetLibraryPath);
     const contents = index === 0
       ? "not-json"
-      : JSON.stringify({ reservationId: "live-reservation", targetLibraryPath, pid: process.pid });
+      : JSON.stringify({ reservationId: "protected-reservation", targetLibraryPath, pid: index === 1 ? process.pid : 2_147_483_647 });
     await writeFile(reservationPath, contents);
     const publisher = createPublisherForTest({
       enabled: true,
