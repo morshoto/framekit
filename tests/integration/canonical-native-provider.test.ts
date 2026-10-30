@@ -1486,6 +1486,10 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     const afterRead = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(afterRead.capabilities.editor.timelineSnapshotRead, true);
     assert.equal(snapshotReads, readsAfterExplicitRequest, "passive status should reuse validated capability evidence");
+    const laterContext = await client.callTool({ name: "context.inspect", arguments: {} });
+    assert.equal(laterContext.isError, undefined);
+    assert.equal(JSON.parse(textFrom(laterContext)).project, undefined);
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize another headed export");
   } finally {
     await client.close();
     await server.close();
