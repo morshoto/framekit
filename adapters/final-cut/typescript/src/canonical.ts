@@ -932,6 +932,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    const baselineLive = await this.live.readLiveState();
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
@@ -956,6 +957,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     resolveTimelineTarget(before, timelineTarget);
     if (targetClip) await this.resolveTarget(targetClip, before);
     assertCanonicalOperationAvailable(this.native, supported);
+    const currentLive = await this.live.readLiveState();
+    if (!baselineLive.project?.id || !baselineLive.sequence?.id
+      || baselineLive.project.id !== before.projectId || baselineLive.sequence.id !== before.timeline.id
+      || currentLive.project?.id !== baselineLive.project.id || currentLive.sequence?.id !== baselineLive.sequence.id
+      || !baselineLive.revision?.id || currentLive.revision?.id !== baselineLive.revision.id
+      || currentLive.revision.sequence !== baselineLive.revision.sequence
+      || currentLive.revision.timestamp !== baselineLive.revision.timestamp) {
+      throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during edit preparation");
+    }
     const nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
       : supported.type === "trim-clip"
