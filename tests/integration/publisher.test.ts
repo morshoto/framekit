@@ -1636,6 +1636,10 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   const pending = await firstPublisher.executePublishJob(prepared.jobId, true);
 
   assert.equal(pending.state, "verification-pending");
+  assert.equal(pending.delivery?.status, "dispatched");
+  assert.equal(pending.delivery?.target.guarantee, "requested-unverified");
+  assert.equal(pending.createdTarget, undefined);
+  assert.equal(pending.result, undefined);
   assert.equal(deliveryCalls, 1);
   const disabledPublisher = createPublisherForTest({
     ...publisherOptions,
@@ -1653,7 +1657,10 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
     ...publisherOptions,
     liveState: async () => createdState,
   });
-  assert.equal(restartedPublisher.getPublishJob(prepared.jobId).state, "verification-pending");
+  const recovered = restartedPublisher.getPublishJob(prepared.jobId);
+  assert.equal(recovered.state, "verification-pending");
+  assert.equal(recovered.delivery?.status, "dispatched", "dispatch evidence survives restart");
+  assert.equal(recovered.createdTarget, undefined);
 
   const resumed = await restartedPublisher.executePublishJob(prepared.jobId, true);
 
