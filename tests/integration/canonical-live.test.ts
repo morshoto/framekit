@@ -1235,4 +1235,6 @@ test("live canonical reads do not silently retarget after explicit selection", a
   assert.equal(restoreCalls, 0);
   await adapter.selectProject({ projectId: switchedSnapshot.projectId, sequenceId: switchedSnapshot.timeline.id });
   assert.equal((await adapter.readProject()).projectId, switchedSnapshot.projectId);
+  await assert.rejects(adapter.restore(selectedSnapshot, selectedSnapshot.revision), /TARGET_MISMATCH/);
+  assert.equal(restoreCalls, 0);
 });
