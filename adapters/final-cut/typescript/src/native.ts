@@ -3280,6 +3280,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.readiness.selectedTarget) {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead or select a timeline target in Final Cut Pro");
     }
+    if (context.target.kind === "selected-clip" && !context.readiness.targetBound) {
+      throw new Error("FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE: selected occurrence is not bound to the active project, sequence, and revision");
+    }
   }
 
   private assertNativeRollbackReady(operationId: string, operation: string, record: NativeOperationRecord): void {
@@ -7347,8 +7350,9 @@ function readinessForContext(context: {
   const selectedTarget = context.target.kind !== "none" && context.target.kind !== "unknown";
   const targetBound = context.target.kind === "selected-clip"
     && Boolean(context.target.identity && context.target.projectId && context.target.sequenceId && context.target.revision);
+  const targetReady = selectedTarget && (context.target.kind !== "selected-clip" || targetBound);
   const state = context.error?.state
-    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget
+    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && targetReady
       ? "ready"
       : "unavailable");
   const overlay = context.overlayBlocked
@@ -7370,7 +7374,7 @@ function readinessForContext(context: {
             ? "frontmost"
             : !context.timelineFocused
           ? "timeline-focus"
-            : !selectedTarget
+            : !targetReady
               ? "target"
                 : undefined;
   const retryable = context.error?.retryable ?? state !== "ready";
@@ -7389,7 +7393,9 @@ function readinessForContext(context: {
           : firstMissing === "timeline-focus"
             ? "Focus the Final Cut Pro timeline and retry"
             : firstMissing === "target"
-              ? "Select a single timeline target and retry"
+              ? context.target.kind === "selected-clip"
+                ? "Re-read the selected occurrence after its live project, sequence, and revision are available"
+                : "Select a single timeline target and retry"
               : state === "ready"
                 ? "Native Final Cut is ready for a guarded mutation; verify operation-specific Undo after execution"
                 : state === "timeout"

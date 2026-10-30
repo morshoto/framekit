@@ -15,6 +15,25 @@ import { finalCutBrowserSearchAccessibilityFixture } from "../fixtures/final-cut
 
 const separator = String.fromCharCode(31);
 
+function boundNativeLiveState() {
+  return {
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "0", timescale: "1" },
+    sequenceTimeRange: {
+      start: { value: "0", timescale: "1" },
+      duration: { value: "20", timescale: "1" },
+    },
+    revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+  };
+}
+
 function serializeBrowserFixture(): string {
   const recordSeparator = String.fromCharCode(30);
   return finalCutBrowserAccessibilityFixture.media
@@ -137,6 +156,7 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   ];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       scripts.push(script);
       return script.includes("entire contents") || script.includes("timelineWindowAvailable") ? contextOutputs.shift()! : "";
@@ -171,6 +191,7 @@ test("headed clip rename uses Final Cut's native Rename Clip action and Unicode 
   ];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => script.includes("entire contents") || script.includes("timelineWindowAvailable")
       ? contextOutputs.shift()!
       : "",
@@ -194,6 +215,7 @@ test("native Final Cut adapter allows the first edit to establish operation Undo
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("Apply Custom Name")) renamed = true;
       if (script.includes('click menu item "Undo Rename"')) renamed = false;
@@ -825,6 +847,7 @@ test("native Final Cut Undo recovers when frontmost is lost after preflight", as
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("on selectedTimelineOccurrenceIndex")) {
         return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo" : "Undo Existing Change");
@@ -945,12 +968,21 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   const recordSeparator = String.fromCharCode(30);
   const scripts: string[] = [];
   let bladed = false;
+  let revision = 1;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => ({
+      ...boundNativeLiveState(),
+      revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+    }),
     executor: async (script) => {
       scripts.push(script);
       if (script.includes('click menu item "Blade" of menu "Trim"')) {
         bladed = true;
+        revision = 2;
+      } else if (script.includes('click menu item "Undo Blade" of menu "Edit"')) {
+        bladed = false;
+        revision = 3;
       }
       if (script.includes('set frontWindow to window "Final Cut Pro"')) {
         return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
@@ -979,6 +1011,7 @@ test("native edit fails closed when operation Undo is unavailable after mutation
   let failure: unknown;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("Apply Custom Name")) renamed = true;
       return script.includes('set frontWindow to window "Final Cut Pro"')
@@ -1003,6 +1036,7 @@ test("native edit rejects a pre-existing Undo command that remains unchanged aft
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("Apply Custom Name")) renamed = true;
       return script.includes('set frontWindow to window "Final Cut Pro"')
@@ -1053,6 +1087,7 @@ test("native Undo rejects when Final Cut changes the current Undo command", asyn
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("Apply Custom Name")) {
         renamed = true;
@@ -1277,6 +1312,7 @@ test("native inspect distinguishes missing target from operation Undo readiness"
 
   const noUndo = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
       ? context(true, "Final Cut Pro", "Interview", 1, false)
       : "",
@@ -1405,6 +1441,39 @@ test("native inspect fails closed when a selected occurrence has no stable ident
   assert.equal(inspected.readiness.state, "unavailable");
   assert.equal(inspected.readiness.firstMissing, "target");
   assert.equal(inspected.readiness.selectedTarget, false);
+});
+
+test("native readiness fails closed when occurrence identity has no live scope", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => script.includes("FRAMEKIT_NATIVE_PASSIVE_PREFLIGHT")
+      ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", "native-occurrence-1")
+      : "",
+  });
+
+  const inspected = await adapter.inspect();
+
+  assert.equal(inspected.target.kind, "selected-clip");
+  assert.equal(inspected.readiness.targetBound, false);
+  assert.equal(inspected.readiness.state, "unavailable");
+  assert.equal(inspected.readiness.firstMissing, "target");
+});
+
+test("native selected-clip writes fail before mutation without live target scope", async () => {
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      scripts.push(script);
+      return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", "native-occurrence-1");
+    },
+  });
+
+  await assert.rejects(
+    adapter.edit({ type: "rename-selected-clip", name: "Unsafe Rename" }),
+    /FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE/,
+  );
+  assert.equal(scripts.some((script) => script.includes("Apply Custom Name")), false);
 });
 
 test("native selection probes count multiple occurrences and fail closed", async () => {
@@ -1844,6 +1913,7 @@ test("native timeline preflight retries a focus race before editing", async () =
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     now: () => clock,
     sleep: async (milliseconds) => { clock += milliseconds; },
     executor: async (script) => {
@@ -1875,6 +1945,7 @@ test("native Final Cut recovers when frontmost is lost after preflight", async (
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("on selectedTimelineOccurrenceIndex")) {
         return context(true, "Final Cut Pro", renamed ? "Interview Clean" : "Interview", 1, true, true, true, "timeline", 0, renamed ? "Undo Rename" : "Undo Existing Change");
@@ -1950,6 +2021,7 @@ test("native Final Cut refuses a retry when focus recovery changes the selection
   let editCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
@@ -1977,6 +2049,7 @@ test("native Final Cut refuses a retry when duplicate-name occurrence changes", 
   let editCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("timelineWindowAvailable")) {
         preflightCalls += 1;
@@ -2971,7 +3044,7 @@ test("native Final Cut media targeting preserves Browser search failures", async
   assert.equal(scripts.some((script) => script.includes('set targetIdentity to "')), false);
 });
 
-test("native Final Cut refuses a Blade retry without live state", async () => {
+test("native Final Cut refuses a Blade write without live target scope", async () => {
   const recordSeparator = String.fromCharCode(30);
   let bladeCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
@@ -2994,8 +3067,8 @@ test("native Final Cut refuses a Blade retry without live state", async () => {
   (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
 
   const preview = await adapter.previewBlade(occurrence.handle);
-  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED/);
-  assert.equal(bladeCalls, 1);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE/);
+  assert.equal(bladeCalls, 0);
 });
 
 test("native Final Cut media selection refocuses Final Cut without closing the extension window", async () => {
