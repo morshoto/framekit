@@ -1445,8 +1445,9 @@ test("canonical reads reject live revision changes during snapshot export", asyn
 
 test("MCP editor inspection never probes a headed canonical snapshot", async () => {
   let snapshotReads = 0;
+  let currentLive = liveState();
   const provider = new FinalCutCanonicalNativeProvider({
-    live: liveWithoutBackgroundCatalog(),
+    live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(currentLive) },
     native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
     readSnapshot: async () => { snapshotReads++; return snapshot("Original"); },
     resolveTarget: async () => {},
@@ -1488,11 +1489,18 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(snapshotReads, readsAfterExplicitRequest, "passive status should reuse validated capability evidence");
     const laterContext = await client.callTool({ name: "context.inspect", arguments: {} });
     assert.equal(laterContext.isError, undefined);
-    assert.equal(JSON.parse(textFrom(laterContext)).project, undefined);
+    const passiveContext = JSON.parse(textFrom(laterContext));
+    assert.equal(passiveContext.project, undefined);
+    assert.equal(passiveContext.provenance.source, "live-metadata");
     assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize another headed export");
-    await client.callTool({ name: "context.changes", arguments: { revision: metadata.revision } });
+    const passiveChanges = JSON.parse(textFrom(await client.callTool({ name: "context.changes", arguments: { revision: metadata.revision } })));
+    assert.equal(passiveChanges.provenance[0].source, "live-metadata");
     await client.callTool({ name: "timeline.changes", arguments: {} });
     assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize headed change inspection");
+    currentLive = { ...currentLive, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+    const staleStatus = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(staleStatus.capabilities.editor.timelineSnapshotRead, false);
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "stale cache detection must remain passive");
   } finally {
     await client.close();
     await server.close();
