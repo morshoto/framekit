@@ -518,6 +518,7 @@ export class FinalCutProjectPublisher {
         projectName: identity.projectName,
         sequenceName: identity.sequenceName,
         confirmationRequired: false,
+        ...(runtime.delivery ? { delivery: structuredClone(runtime.delivery) } : {}),
         handoff: {
           mode: "headed-only",
           route: this.publishRoute,
