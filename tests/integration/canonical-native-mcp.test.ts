@@ -278,3 +278,34 @@ test("MCP fails closed when canonical Export XML snapshot is unavailable", async
     await server.close();
   }
 });
+
+test("confirmed headed context inspection fails when the canonical snapshot probe is unavailable", async () => {
+  const calls: string[] = [];
+  const runtime = createRuntime(calls, async () => {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear");
+  });
+  const { client, server } = await connect(runtime);
+
+  try {
+    const context = await client.callTool({
+      name: "context.inspect",
+      arguments: {
+        confirmHeadedRead: true,
+        expectedTarget: {
+          projectId: "final-cut:project:canonical-mcp",
+          sequenceId: "final-cut:sequence:canonical-mcp",
+        },
+      },
+    });
+
+    assert.equal(context.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(context)), {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "CAPABILITY_UNAVAILABLE: headed canonical context could not be read",
+    });
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
