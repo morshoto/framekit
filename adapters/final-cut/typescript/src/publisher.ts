@@ -132,6 +132,8 @@ export interface FinalCutProjectPublishJob {
   };
   /** Dispatch acknowledgement alone does not prove a native project exists. */
   delivery?: FinalCutProjectPublishDelivery;
+  /** Matching live target observation; this does not prove semantic readback. */
+  observedTarget?: FinalCutProjectPublishTargetBinding;
   createdTarget?: FinalCutProjectPublishResult["createdTarget"];
   result?: FinalCutProjectPublishResult;
   error?: {
@@ -727,6 +729,8 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      job.observedTarget = structuredClone(verifiedTarget.targetBinding);
+      this.persistPublishJob(job);
       await assertSourceMediaUnchanged(runtime.sourceMediaDigests);
       const semanticReadback = await this.readAndVerifyCanonicalTarget(
         runtime.expectedSnapshot,
