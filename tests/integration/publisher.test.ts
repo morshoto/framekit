@@ -2292,3 +2292,33 @@ test("a spent import reservation survives publisher death and prevents another d
   assert.equal(rejected.error?.code, "PUBLISH_TARGET_LIBRARY_RESERVED");
   assert.equal(fixture.deliveryCalls(), 1);
 });
+
+test("direct publish exposes dispatch evidence while readback is pending", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-direct-delivery-evidence-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Pending.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Pending"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let calls = 0;
+  const publisher = createPublisherForTest({
+    enabled: true, sourcePath, verificationTimeoutMs: 0, pollIntervalMs: 0,
+    documentDelivery: { deliverFcpxml: async () => {
+      calls++;
+      return { status: "dispatched", route: "background-document-open", attempted: true, imported: false, requestedActivates: false, activation: "preserved", ui: "unknown", target: { requestedLibraryLocation: targetLibraryPath, guarantee: "requested-unverified" } };
+    } },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: not yet visible"); },
+    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+  });
+  let error: Error | undefined;
+  try {
+    await publisher.publishNewProject({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath, confirm: true, confirmVerification: true });
+  } catch (caught) { error = caught as Error; }
+  const jobId = error?.message.match(/publish job ([\w-]+)/)?.[1];
+  assert.ok(jobId);
+  const job = publisher.getPublishJob(jobId);
+  assert.equal(job.state, "verification-pending");
+  assert.equal(job.delivery?.status, "dispatched");
+  assert.equal(job.delivery?.target.guarantee, "requested-unverified");
+  assert.equal(job.createdTarget, undefined);
+  assert.equal(calls, 1);
+});
