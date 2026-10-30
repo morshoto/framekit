@@ -1442,3 +1442,31 @@ test("canonical reads reject live revision changes during snapshot export", asyn
   });
   await assert.rejects(provider.readProject(), /STALE|TARGET_MISMATCH/);
 });
+
+test("MCP editor inspection never probes a headed canonical snapshot", async () => {
+  let snapshotReads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: liveWithoutBackgroundCatalog(),
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => { snapshotReads++; return snapshot("Original"); },
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+      activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
+    }) },
+  });
+  const server = createMcpServer(new Runtime(new FinalCutSessionAdapter({ live: provider })), { processMode: "headed" });
+  const client = new Client({ name: "passive-inspection", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: "editor.inspect", arguments: {} });
+    assert.equal(result.isError, undefined);
+    assert.equal(snapshotReads, 0, "passive inspection must not run a headed snapshot export");
+    const inspected = JSON.parse(textFrom(result));
+    assert.equal(inspected.capabilities.editor.timelineSnapshotRead, false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
