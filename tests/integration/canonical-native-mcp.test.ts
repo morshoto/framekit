@@ -141,11 +141,11 @@ test("canonical native provider exposes reads without selection", async () => {
   try {
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.identity.backend, "final-cut-native-canonical");
-    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "canonical-read");
+    assert.equal(editor.capabilities.editor.canonicalTimelineMode, "metadata-only");
     assert.equal(editor.capabilities.editor.projectCatalogRead, true);
     assert.equal(editor.capabilities.editor.projectSelection, false);
-    assert.equal(editor.capabilities.editor.projectRead, true);
-    assert.equal(editor.capabilities.editor.timelineSnapshotRead, true);
+    assert.equal(editor.capabilities.editor.projectRead, false);
+    assert.equal(editor.capabilities.editor.timelineSnapshotRead, false);
     assert.equal(editor.capabilities.editor.timelineWrite, false);
 
     const selection = await client.callTool({
@@ -177,11 +177,45 @@ test("canonical native provider exposes reads without selection", async () => {
     assert.equal(catalog.activeSequenceId, "final-cut:sequence:canonical-mcp");
     assert.equal(catalog.provenance.catalog.source, "background-library");
 
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
     assert.equal(project.isError, undefined);
     const inspected = JSON.parse(textFrom(project));
     assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
     assert.equal(inspected.timeline.id, "final-cut:sequence:canonical-mcp");
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("confirmed headed project inspection exports one canonical snapshot", async () => {
+  const calls: string[] = [];
+  let snapshotReads = 0;
+  const runtime = createRuntime(calls, async () => {
+    snapshotReads += 1;
+    return snapshot("Original");
+  });
+  const { client, server } = await connect(runtime);
+
+  try {
+    const project = await client.callTool({
+      name: "project.inspect",
+      arguments: {
+        confirmHeadedRead: true,
+        expectedTarget: {
+          projectId: "final-cut:project:canonical-mcp",
+          sequenceId: "final-cut:sequence:canonical-mcp",
+        },
+      },
+    });
+
+    assert.equal(project.isError, undefined);
+    assert.equal(JSON.parse(textFrom(project)).projectId, "final-cut:project:canonical-mcp");
+    assert.equal(snapshotReads, 1);
     assert.deepEqual(calls, []);
   } finally {
     await client.close();
@@ -197,7 +231,10 @@ test("canonical native provider disables preview transactions without canonical-
     const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
     assert.equal(editor.capabilities.editor.compositeTransactions, false);
     assert.equal(editor.capabilities.families.editing.compositeTransactions.available, false);
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
     assert.equal(project.isError, undefined);
     const inspected = JSON.parse(textFrom(project));
     assert.equal(inspected.projectId, "final-cut:project:canonical-mcp");
@@ -225,7 +262,7 @@ test("MCP fails closed when canonical Export XML snapshot is unavailable", async
     assert.equal(editor.capabilities.families.canonicalDocument.read.available, false);
     assert.match(
       editor.capabilities.families.canonicalDocument.read.unavailableReason,
-      /FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE/,
+      /canonical snapshot availability was not checked/,
     );
 
     const route = JSON.parse(textFrom(await client.callTool({
@@ -237,7 +274,10 @@ test("MCP fails closed when canonical Export XML snapshot is unavailable", async
     assert.ok(route.missingCapabilities.includes("editor.timelineSnapshotRead"));
     assert.ok(route.missingCapabilities.includes("editor.timelineWrite|editor.timelineArtifactWrite"));
 
-    const project = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
     assert.equal(project.isError, true);
     assert.deepEqual(JSON.parse(textFrom(project)), {
       code: "CAPABILITY_UNAVAILABLE",
@@ -263,6 +303,37 @@ test("MCP fails closed when canonical Export XML snapshot is unavailable", async
     });
     assert.equal(edit.isError, true);
     assert.match(textFrom(edit), /CAPABILITY_UNAVAILABLE/);
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("confirmed headed context inspection fails when the canonical snapshot probe is unavailable", async () => {
+  const calls: string[] = [];
+  const runtime = createRuntime(calls, async () => {
+    throw new Error("FINAL_CUT_CANONICAL_EXPORT_WINDOW_UNAVAILABLE: Export XML window did not appear");
+  });
+  const { client, server } = await connect(runtime);
+
+  try {
+    const context = await client.callTool({
+      name: "context.inspect",
+      arguments: {
+        confirmHeadedRead: true,
+        expectedTarget: {
+          projectId: "final-cut:project:canonical-mcp",
+          sequenceId: "final-cut:sequence:canonical-mcp",
+        },
+      },
+    });
+
+    assert.equal(context.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(context)), {
+      code: "CAPABILITY_UNAVAILABLE",
+      message: "CAPABILITY_UNAVAILABLE: headed canonical context could not be read",
+    });
     assert.deepEqual(calls, []);
   } finally {
     await client.close();

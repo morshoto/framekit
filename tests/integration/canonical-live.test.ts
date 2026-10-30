@@ -1195,3 +1195,46 @@ function reverseObjectKeys(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).reverse().map(([key, child]) => [key, reverseObjectKeys(child)]));
 }
+
+test("live canonical reads do not silently retarget after explicit selection", async () => {
+  const selectedSnapshot = structuredClone(canonicalSnapshot);
+  const switchedSnapshot = structuredClone(canonicalSnapshot);
+  switchedSnapshot.projectId = "other-project";
+  switchedSnapshot.timeline.id = "other-sequence";
+  const catalogFor = (project: ProjectSnapshot) => ({
+    projects: [{ id: project.projectId, name: project.projectName, sequences: [{ id: project.timeline.id, name: project.timeline.name }] }],
+    activeProjectId: project.projectId,
+    activeSequenceId: project.timeline.id,
+  });
+  let switched = false;
+  let applyCalls = 0;
+  let restoreCalls = 0;
+  const adapter = new FinalCutLiveAdapter({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      if (request.method === "apply") applyCalls++;
+      if (request.method === "restore") restoreCalls++;
+      return {
+      version: 1, id: request.id, ok: true,
+      result: {
+        identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
+        capabilities: canonicalWriteCapabilities,
+        ...(request.method === "apply" ? { revision: selectedSnapshot.revision } : {}),
+        ...(request.method === "select-project" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot), revision: selectedSnapshot.revision } : {}),
+        ...(request.method === "snapshot" ? { snapshot: switched ? switchedSnapshot : selectedSnapshot } : {}),
+        ...(request.method === "projects" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot) } : {}),
+      },
+    }; },
+  });
+  await adapter.selectProject({ projectId: selectedSnapshot.projectId, sequenceId: selectedSnapshot.timeline.id });
+  assert.equal((await adapter.readProject()).projectId, selectedSnapshot.projectId);
+  switched = true;
+  await assert.rejects(adapter.readProject(), /TARGET_MISMATCH|STALE_CONTEXT/);
+  await assert.rejects(adapter.apply({ type: "rename-clip", clipId: selectedSnapshot.timeline.clips[0]!.id, name: "New" }, selectedSnapshot.revision), /TARGET_MISMATCH|STALE_CONTEXT/);
+  assert.equal(applyCalls, 0);
+  await assert.rejects(adapter.restore(selectedSnapshot, selectedSnapshot.revision), /TARGET_MISMATCH|STALE_CONTEXT/);
+  assert.equal(restoreCalls, 0);
+  await adapter.selectProject({ projectId: switchedSnapshot.projectId, sequenceId: switchedSnapshot.timeline.id });
+  assert.equal((await adapter.readProject()).projectId, switchedSnapshot.projectId);
+  await assert.rejects(adapter.restore(selectedSnapshot, selectedSnapshot.revision), /TARGET_MISMATCH/);
+  assert.equal(restoreCalls, 0);
+});

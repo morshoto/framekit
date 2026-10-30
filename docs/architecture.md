@@ -72,7 +72,16 @@ revision, and the affected media or occurrence identity when applicable.
 `frameDuration` and timeline times preserve frame-accurate values.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
-against the same target and revision contract.
+against the same target and revision contract. Canonical Final Cut reads reject
+live target or revision changes during export; native edits recheck the live
+revision after target resolution. Canonical revision tokens are scoped to the
+provider session and change when the live revision changes. Where live project
+selection is supported, subsequent canonical reads remain bound to the selected
+project and sequence until an explicit new selection succeeds. Passive MCP
+capability and routing inspection does not initiate a headed snapshot export;
+an unprobed canonical provider reports its snapshot capability unavailable.
+Validated evidence may be reused only while the live target and revision match;
+it does not authorize a later headed context or change read.
 
 An incremental result must match its target and revision cursor. Concurrency
 conflicts and stale-write errors, ambiguous or incomplete observations, and
@@ -132,6 +141,14 @@ stable identity and live project, sequence, and revision. An occurrence index
 alone is not bound-target proof. Background inspection must not click, type, activate Final Cut, or select a
 project through the UI. A locked native console is a blocker; do not retry the
 import or overwrite the target without a fresh approved operation.
+`context.inspect` is passive by default. An explicitly authorized headed
+context read uses `confirmHeadedRead` and an `expectedTarget` containing the
+project and sequence IDs; a mismatch fails before the export. This confirmation
+does not itself establish user authorization or provide atomic target binding.
+Direct `project.inspect`, `timeline.inspect`, and `timeline.semantic.inspect`
+calls use the same confirmation and target fields when they require a headed
+canonical snapshot. Missing confirmation or a mismatched target fails before
+export, and the active IDs are checked again after the read.
 
 `EditingSession` keeps desired edits provider-neutral and bound to a versioned
 editable project. Reconcile changes against the original project before

@@ -480,7 +480,7 @@ async function optionalProjectSelectionCapability(
   live: FinalCutSessionOptions["live"],
 ): Promise<boolean> {
   try {
-    return Boolean((await live?.getCapabilities())?.editor.projectSelection);
+    return Boolean((await live?.getCapabilities({ probeCanonicalSnapshot: false }))?.editor.projectSelection);
   } catch {
     return false;
   }

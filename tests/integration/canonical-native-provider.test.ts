@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -22,9 +22,11 @@ import type {
   EditorChange,
   EditorIdentity,
   EditorLiveState,
+  ProjectSelectionResult,
   ProjectSnapshot,
+  RuntimeCapabilities,
 } from "@framekit/runtime";
-import { AgentVideoRuntime as Runtime } from "@framekit/runtime";
+import { AgentVideoRuntime as Runtime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
@@ -1345,4 +1347,448 @@ test("canonical provider rejects media identity drift during read-after-write", 
     /TARGET_MISMATCH: read-after-write changed media/,
   );
   assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("canonical native edit rejects live revision drift during target resolution", async () => {
+  let current = liveState();
+  let mutations = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(current),
+      liveChangesSince: async () => [],
+    },
+    native: {
+      renameSelectedClip: async () => { mutations++; return { operationId: "op", undoAvailable: true }; },
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => snapshot("Original"),
+    resolveTarget: async () => {
+      current = { ...current, revision: { id: "externally-changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+    },
+  });
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision), /STALE|TARGET_MISMATCH/);
+  assert.equal(mutations, 0);
+});
+
+test("canonical native edit allows refreshed observation timestamps for the same live revision", async () => {
+  let reads = 0;
+  let edited = false;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => ({ ...liveState(), revision: { ...liveState().revision, timestamp: new Date(++reads * 1000).toISOString() } }),
+      liveChangesSince: async () => [],
+    },
+    native: {
+      renameSelectedClip: async () => { edited = true; return { operationId: "op", undoAvailable: true }; },
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => snapshot(edited ? "New" : "Original"),
+    resolveTarget: async () => {},
+  });
+  const before = await provider.readProject();
+  await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision);
+  assert.equal(edited, true);
+});
+
+test("canonical revision changes when live revision changes despite identical snapshot", async () => {
+  let current = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(current),
+      liveChangesSince: async () => [],
+    },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => snapshot("Original"),
+    resolveTarget: async () => {},
+  });
+  const before = await provider.readProject();
+  current = { ...current, revision: { ...current.revision, timestamp: new Date(2000).toISOString() } };
+  const same = await provider.readProject();
+  assert.equal(same.revision.sequence, before.revision.sequence);
+  current = { ...current, revision: { id: "live-changed", sequence: 2, timestamp: new Date(3000).toISOString() } };
+  const changed = await provider.readProject();
+  assert.ok(changed.revision.sequence > before.revision.sequence);
+  assert.notEqual(changed.revision.id, before.revision.id);
+  await assert.rejects(provider.previewTransaction([{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }], before.revision), /STALE_CONTEXT/);
+});
+
+test("canonical revisions from a prior provider instance cannot authorize edits", async () => {
+  const first = providerFor([snapshot("Original")], []);
+  const calls: string[] = [];
+  const second = providerFor([snapshot("Original"), snapshot("Original")], calls);
+  const before = await first.readProject();
+  const restarted = await second.readProject();
+  assert.notEqual(restarted.revision.id, before.revision.id);
+  await assert.rejects(second.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision), /STALE_CONTEXT/);
+  assert.deepEqual(calls, []);
+});
+
+test("canonical reads reject live revision changes during snapshot export", async () => {
+  let current = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(current),
+      liveChangesSince: async () => [],
+    },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => {
+      current = { ...current, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+      return snapshot("Original");
+    },
+    resolveTarget: async () => {},
+  });
+  await assert.rejects(provider.readProject(), /STALE|TARGET_MISMATCH/);
+});
+
+test("MCP editor inspection never probes a headed canonical snapshot", async () => {
+  let snapshotReads = 0;
+  let snapshotUnavailable = false;
+  let currentLive = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(currentLive) },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => { snapshotReads++; if (snapshotUnavailable) throw new Error("snapshot unavailable"); return snapshot("Original"); },
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+      activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
+    }) },
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const server = createMcpServer(runtime, { processMode: "headed" });
+  const client = new Client({ name: "passive-inspection", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: "editor.inspect", arguments: {} });
+    assert.equal(result.isError, undefined);
+    assert.equal(snapshotReads, 0, "passive inspection must not run a headed snapshot export");
+    const inspected = JSON.parse(textFrom(result));
+    assert.equal(inspected.capabilities.editor.timelineSnapshotRead, false);
+    await client.callTool({ name: "editing.route", arguments: { operation: "project.select" } });
+    assert.equal(snapshotReads, 0, "routing inspection must not run a headed snapshot export");
+    const context = await client.callTool({ name: "context.inspect", arguments: {} });
+    assert.equal(context.isError, undefined);
+    const metadata = JSON.parse(textFrom(context));
+    assert.equal(metadata.project, undefined);
+    assert.equal(snapshotReads, 0, "context inspection must not run a headed snapshot export without authorization");
+    await client.callTool({ name: "context.changes", arguments: { revision: metadata.revision } });
+    assert.equal(snapshotReads, 0, "context changes must not run a headed snapshot export");
+    await client.callTool({ name: "timeline.changes", arguments: {} });
+    assert.equal(snapshotReads, 0, "timeline changes must not run a headed snapshot export");
+    await runtime.inspectContext();
+    await runtime.inspectContext({});
+    assert.equal(snapshotReads, 0, "runtime context inspection must default to a passive capability check");
+    const unconfirmedProject = await client.callTool({ name: "project.inspect", arguments: {} });
+    assert.equal(unconfirmedProject.isError, true, "headed project reads require explicit confirmation and target IDs");
+    assert.equal(snapshotReads, 0, "unconfirmed project inspection must not export a headed snapshot");
+    const unconfirmedTimeline = await client.callTool({ name: "timeline.inspect", arguments: {} });
+    assert.equal(unconfirmedTimeline.isError, true, "headed timeline reads require explicit confirmation and target IDs");
+    const unconfirmedSemantic = await client.callTool({ name: "timeline.semantic.inspect", arguments: {} });
+    assert.equal(unconfirmedSemantic.isError, true, "headed semantic reads require explicit confirmation and target IDs");
+    assert.equal(snapshotReads, 0, "unconfirmed timeline inspections must not export a headed snapshot");
+    const wrongProjectTarget = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "wrong", sequenceId: "wrong" },
+    } });
+    assert.equal(wrongProjectTarget.isError, true);
+    assert.equal(JSON.parse(textFrom(wrongProjectTarget)).code, "TARGET_MISMATCH");
+    assert.equal(snapshotReads, 0, "mismatched targets must fail before a headed snapshot export");
+    const project = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(project.isError, undefined);
+    const expectedTarget = { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" };
+    const timeline = await client.callTool({ name: "timeline.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget,
+    } });
+    assert.equal(timeline.isError, undefined);
+    assert.equal(JSON.parse(textFrom(timeline)).id, expectedTarget.sequenceId);
+    const semantic = await client.callTool({ name: "timeline.semantic.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget,
+    } });
+    assert.equal(semantic.isError, undefined);
+    assert.equal(JSON.parse(textFrom(semantic)).timelineId, expectedTarget.sequenceId);
+    const readsAfterExplicitRequest = snapshotReads;
+    assert.ok(readsAfterExplicitRequest > 0);
+    const afterRead = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(afterRead.capabilities.editor.timelineSnapshotRead, true);
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "passive status should reuse validated capability evidence");
+    const laterContext = await client.callTool({ name: "context.inspect", arguments: {} });
+    assert.equal(laterContext.isError, undefined);
+    const passiveContext = JSON.parse(textFrom(laterContext));
+    assert.equal(passiveContext.project, undefined);
+    assert.equal(passiveContext.provenance.source, "live-metadata");
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize another headed export");
+    const passiveChanges = JSON.parse(textFrom(await client.callTool({ name: "context.changes", arguments: { revision: metadata.revision } })));
+    assert.equal(passiveChanges.provenance[0].source, "live-metadata");
+    await client.callTool({ name: "timeline.changes", arguments: {} });
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "cached capability must not authorize headed change inspection");
+    const missingTarget = await client.callTool({ name: "context.inspect", arguments: { confirmHeadedRead: true } });
+    assert.equal(missingTarget.isError, true);
+    const wrongTarget = await client.callTool({ name: "context.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "wrong", sequenceId: "wrong" },
+    } });
+    assert.equal(wrongTarget.isError, true);
+    assert.equal(snapshotReads, readsAfterExplicitRequest, "invalid targets must fail before headed export");
+    const explicitMcpContext = await client.callTool({ name: "context.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(explicitMcpContext.isError, undefined);
+    assert.ok(JSON.parse(textFrom(explicitMcpContext)).project);
+    snapshotUnavailable = true;
+    const unavailableContext = await client.callTool({ name: "context.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(unavailableContext.isError, true);
+    assert.equal(JSON.parse(textFrom(unavailableContext)).code, "CAPABILITY_UNAVAILABLE");
+    snapshotUnavailable = false;
+    const explicitlyRequested = await runtime.inspectContext({ probeCanonicalSnapshot: true });
+    assert.ok(explicitlyRequested.project);
+    assert.ok(snapshotReads > readsAfterExplicitRequest);
+    const readsAfterExplicitContext = snapshotReads;
+    currentLive = { ...currentLive, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+    const staleStatus = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(staleStatus.capabilities.editor.timelineSnapshotRead, false);
+    assert.equal(snapshotReads, readsAfterExplicitContext, "stale cache detection must remain passive");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("canonical capability probe rejects a snapshot for another active target", async () => {
+  const wrong = snapshot("Original");
+  wrong.projectId = "wrong-project";
+  const provider = providerFor([wrong], [], undefined, liveState(), {
+    listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+      activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
+    }),
+  });
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(capabilities.editor.timelineSnapshotRead, false);
+  assert.match(capabilities.families!.canonicalDocument.read.unavailableReason ?? "", /TARGET_MISMATCH/);
+});
+
+test("canonical read refreshes a probed snapshot after the live revision changes", async () => {
+  let activeLive = liveState();
+  let snapshotReads = 0;
+  const snapshots = [snapshot("Original"), snapshot("Changed")];
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => structuredClone(activeLive),
+      liveChangesSince: async () => [],
+    },
+    native: {
+      renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }),
+      undo: async () => ({ undone: true }),
+    },
+    readSnapshot: async () => {
+      snapshotReads += 1;
+      const next = snapshots.shift();
+      assert.ok(next, "test snapshot queue must have a fresh canonical snapshot");
+      return structuredClone(next);
+    },
+    resolveTarget: async () => {},
+    backgroundCatalog: {
+      listProjects: async () => ({
+        projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+        activeProjectId: "final-cut:project:project-1",
+        activeSequenceId: "final-cut:sequence:sequence-1",
+      }),
+    },
+  });
+
+  const probed = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(probed.editor.timelineSnapshotRead, true);
+  assert.equal(snapshotReads, 1);
+
+  activeLive = {
+    ...activeLive,
+    revision: { id: "live-revision-2", sequence: 2, timestamp: new Date(2).toISOString() },
+  };
+  const refreshed = await provider.readProject();
+
+  assert.equal(refreshed.timeline.clips[0]?.name, "Changed");
+  assert.equal(snapshotReads, 2);
+});
+
+test("canonical provider delegates supported project selection and binds later reads", async () => {
+  let activeLive = liveState();
+  let snapshotReads = 0;
+  let selectionCalls = 0;
+  const projects = [
+    { id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] },
+    { id: "final-cut:project:project-2", name: "Second Project", sequences: [{ id: "final-cut:sequence:sequence-2", name: "Second Sequence" }] },
+    { id: "final-cut:project:project-3", name: "Ambiguous Project", sequences: [
+      { id: "final-cut:sequence:sequence-3a", name: "First Sequence" },
+      { id: "final-cut:sequence:sequence-3b", name: "Second Sequence" },
+    ] },
+  ];
+  const liveCapabilities: RuntimeCapabilities = {
+    editor: {
+      canonicalTimelineMode: "metadata-only",
+      projectRead: false,
+      timelineSnapshotRead: false,
+      timelineWrite: false,
+      timelineArtifactWrite: false,
+      readAfterWrite: false,
+      incrementalChanges: true,
+      rollback: false,
+      assetDiscovery: false,
+      liveStateRead: true,
+      playheadWrite: false,
+      frameCapture: false,
+      projectCatalogRead: true,
+      projectSelection: true,
+      projectSelectionMode: "headed-only",
+      backgroundLibraryInspection: true,
+    },
+    analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+  };
+  const projectCatalog = () => ({
+    projects,
+    activeProjectId: activeLive.project!.id,
+    activeSequenceId: activeLive.sequence!.id,
+  });
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      getCapabilities: async () => liveCapabilities,
+      readLiveState: async () => structuredClone(activeLive),
+      liveChangesSince: async () => [],
+      selectProject: async (selection) => {
+        selectionCalls += 1;
+        assert.ok(selection.sequenceId, "project selection must be bound to a sequence");
+        const selectedProject = projects.find(({ id }) => id === selection.projectId)!;
+        const selectedSequence = selectedProject.sequences.find(({ id }) => id === selection.sequenceId)!;
+        activeLive = {
+          ...activeLive,
+          project: { id: selectedProject.id, name: selectedProject.name },
+          sequence: {
+            id: selectedSequence.id,
+            name: selectedSequence.name,
+            startTime: { value: "0", timescale: "24" },
+            duration: { value: "96", timescale: "24" },
+            frameDuration: { value: "1", timescale: "24" },
+          },
+          revision: { id: "live-revision-2", sequence: 2, timestamp: new Date(2).toISOString() },
+        };
+        return {
+          ...projectCatalog(),
+          requestedTarget: { projectId: selection.projectId, sequenceId: selection.sequenceId },
+          observedActiveTarget: { projectId: selection.projectId, sequenceId: selection.sequenceId },
+          observedRevision: { ...activeLive.revision },
+        } satisfies ProjectSelectionResult;
+      },
+    },
+    native: {
+      renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }),
+      undo: async () => ({ undone: true }),
+    },
+    readSnapshot: async () => {
+      snapshotReads += 1;
+      const result = snapshot("Original");
+      result.projectId = activeLive.project!.id;
+      result.projectName = activeLive.project!.name;
+      result.timeline.id = activeLive.sequence!.id;
+      result.timeline.name = activeLive.sequence!.name;
+      return result;
+    },
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => projectCatalog() },
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: false });
+  assert.equal(capabilities.editor.projectSelection, true);
+  assert.equal(capabilities.editor.projectSelectionMode, "headed-only");
+  assert.equal(snapshotReads, 0);
+
+  await assert.rejects(
+    runtime.selectProject({ projectId: "final-cut:project:project-3" }),
+    /AMBIGUOUS_PROJECT_TARGET: sequenceId is required/,
+  );
+  assert.equal(selectionCalls, 0);
+  assert.equal(snapshotReads, 0);
+
+  const selected = await runtime.selectProject({
+    projectId: "final-cut:project:project-2",
+    sequenceId: "final-cut:sequence:sequence-2",
+  });
+  assert.deepEqual(selected.observedActiveTarget, {
+    projectId: "final-cut:project:project-2",
+    sequenceId: "final-cut:sequence:sequence-2",
+  });
+  assert.equal(selectionCalls, 1);
+  assert.equal(snapshotReads, 0, "selection must not export the timeline");
+
+  const selectedSnapshot = await provider.readProject();
+  assert.equal(selectedSnapshot.projectId, "final-cut:project:project-2");
+  assert.equal(selectedSnapshot.timeline.id, "final-cut:sequence:sequence-2");
+  assert.equal(snapshotReads, 1);
+
+  activeLive = liveState();
+  await assert.rejects(provider.readProject(), /TARGET_MISMATCH: active project or sequence differs from the explicitly selected target/);
+  assert.equal(snapshotReads, 1, "a switched target must be rejected before a new export");
+});
+
+test("MCP canonical session resync requires headed target confirmation", async () => {
+  let snapshotReads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(liveState()) },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => { snapshotReads++; return snapshot("Original"); },
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
+      activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1",
+    }) },
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const sessionDirectory = await mkdtemp(join(tmpdir(), "framekit-headed-resync-"));
+  const server = createMcpServer(runtime, { processMode: "headed", sessionDirectory });
+  const client = new Client({ name: "headed-session-resync", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const base = createTimelineIrFromProjectSnapshot(await runtime.inspectProject(), { id: "final-cut" });
+    const created = await client.callTool({ name: "session.create", arguments: {
+      sessionId: "resync-session", provider: { id: "final-cut" }, base,
+    } });
+    assert.equal(created.isError, undefined, textFrom(created));
+    snapshotReads = 0;
+    const unconfirmed = await client.callTool({ name: "project.inspect", arguments: {
+      sessionId: "resync-session", requestedCanonical: true,
+    } });
+    assert.equal(unconfirmed.isError, true);
+    assert.equal(JSON.parse(textFrom(unconfirmed)).code, "HEADED_READ_CONFIRMATION_REQUIRED");
+    assert.equal(snapshotReads, 0);
+    const confirmed = await client.callTool({ name: "project.inspect", arguments: {
+      sessionId: "resync-session",
+      requestedCanonical: true,
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(confirmed.isError, undefined);
+    assert.equal(JSON.parse(textFrom(confirmed)).snapshot.projectId, "final-cut:project:project-1");
+    assert.ok(snapshotReads > 0, "confirmed session resync performs the canonical read");
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(sessionDirectory, { recursive: true, force: true });
+  }
 });
