@@ -14,7 +14,9 @@ export function checkToolchain(input) {
   }
   if (!input.workflow.includes(`NODE_VERSION: ${node}`)) errors.push('workflow: contributor Node differs');
   const [major, minor] = node.split('.');
-  if (!input.hook.includes(`Node.js >=${major}.${minor}`)) errors.push('hook: contributor Node minimum differs');
+  if (!input.hook.includes(`minimum_node_major=${major}`) || !input.hook.includes(`minimum_node_minor=${minor}`) || !input.hook.includes(`Node.js >=${major}.${minor}`)) errors.push('hook: contributor Node minimum differs');
+  const consumerMajor = input.consumerNode.match(/^>=(\d+)$/)?.[1];
+  if (!consumerMajor || !input.consumerWorkflow.includes(`CONSUMER_NODE_VERSION: ${consumerMajor}.0.0`)) errors.push('consumerWorkflow: consumer minimum differs');
   return errors;
 }
 
@@ -31,6 +33,7 @@ async function main() {
     gettingStarted: await read('docs/getting-started.md'),
     workflow: await read('.github/workflows/typescript.yml'),
     hook: await read('.githooks/pre-commit'),
+    consumerWorkflow: await read('.github/workflows/typescript.yml'),
   };
   const errors = checkToolchain(input);
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; }

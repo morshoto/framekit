@@ -19,11 +19,12 @@ For repository development, you need:
 
 Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
 Consumer runtime: Node.js >=20.
+CI tests this contributor pair; the pre-commit hook accepts Node.js 22.14 or newer.
+Install pnpm 12.14.0 using Corepack or your preferred package manager.
 
-Xcode 16.4 and the macOS 15.5 SDK for native Final Cut work.
+Xcode 16.4 and the macOS 15.5 SDK are required for native Final Cut work.
 
-The Xcode requirement is only needed for the native Workflow Extension. For the
-pinned Node and shell toolchain, enter the optional Nix shell first:
+The Xcode requirement is only needed for the native Workflow Extension. The optional Nix shell provides Node.js 22 and shell tools:
 
 ```sh
 nix develop ./nix

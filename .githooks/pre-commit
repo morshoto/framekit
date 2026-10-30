@@ -8,13 +8,15 @@ cd "$repo_root"
 # use Node.js >=22.14. Git hooks often inherit a narrower PATH than an
 # interactive shell, so select a compatible Node installation before invoking
 # pnpm.
+minimum_node_major=22
+minimum_node_minor=14
 node_bin=""
 while IFS= read -r candidate; do
   [[ -x "$candidate" ]] || continue
   version="$("$candidate" -p 'process.versions.node' 2>/dev/null || true)"
   IFS=. read -r major minor _ <<< "$version"
   minor="${minor:-0}"
-  if [[ "${major:-0}" -gt 22 || ( "${major:-0}" -eq 22 && "$minor" -ge 14 ) ]]; then
+  if [[ "${major:-0}" -gt "$minimum_node_major" || ( "${major:-0}" -eq "$minimum_node_major" && "$minor" -ge "$minimum_node_minor" ) ]]; then
     node_bin="$(dirname "$candidate")"
     break
   fi
