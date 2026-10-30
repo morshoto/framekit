@@ -1847,6 +1847,8 @@ test("FCPXML publish jobs do not report success when the native timeline differs
 
   assert.equal(result.state, "verification-pending");
   assert.equal(result.createdTarget, undefined);
+  assert.equal(result.observedTarget?.projectId, "native-project");
+  assert.equal(result.observedTarget?.sequenceId, "native-sequence");
   assert.equal(result.result, undefined);
   assert.equal(result.error?.code, "FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH");
   assert.equal(executorCalls, 1);
