@@ -2689,7 +2689,7 @@ async function effectiveConnectionStatus(
 }
 
 async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
-  const inspected = await runtime.inspectEditor();
+  const inspected = await runtime.inspectEditor({ probeCanonicalSnapshot: false });
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   const buildAlignment = assessBuildAlignment(
     fingerprint,
@@ -2805,7 +2805,7 @@ async function inspectNativeHandoffReadiness(
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   let extensionFingerprint: FramekitBuildFingerprint | undefined;
   try {
-    extensionFingerprint = (await runtime.inspectEditor()).identity.buildFingerprint;
+    extensionFingerprint = (await runtime.inspectEditor({ probeCanonicalSnapshot: false })).identity.buildFingerprint;
   } catch {
     const status = await connectionStatus(options).catch(() => undefined);
     extensionFingerprint = status?.identity?.buildFingerprint;
@@ -2913,7 +2913,7 @@ function inspectProjectPublisherReadiness(
 }
 
 async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options: McpServerOptions): Promise<void> {
-  const inspected = await runtime.inspectEditor();
+  const inspected = await runtime.inspectEditor({ probeCanonicalSnapshot: false });
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   const alignment = assessBuildAlignment(
     fingerprint,

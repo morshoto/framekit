@@ -77,7 +77,9 @@ live target or revision changes during export; native edits recheck the live
 revision after target resolution. Canonical revision tokens are scoped to the
 provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
-project and sequence until an explicit new selection succeeds.
+project and sequence until an explicit new selection succeeds. Passive MCP
+capability and routing inspection does not initiate a headed snapshot export;
+an unprobed canonical provider reports its snapshot capability unavailable.
 
 An incremental result must match its target and revision cursor. Concurrency
 conflicts and stale-write errors, ambiguous or incomplete observations, and

@@ -1465,6 +1465,11 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(snapshotReads, 0, "passive inspection must not run a headed snapshot export");
     const inspected = JSON.parse(textFrom(result));
     assert.equal(inspected.capabilities.editor.timelineSnapshotRead, false);
+    await client.callTool({ name: "editing.route", arguments: { operation: "project.select" } });
+    assert.equal(snapshotReads, 0, "routing inspection must not run a headed snapshot export");
+    const context = await client.callTool({ name: "context.inspect", arguments: {} });
+    assert.equal(context.isError, true);
+    assert.equal(snapshotReads, 0, "context inspection must not run a headed snapshot export without authorization");
   } finally {
     await client.close();
     await server.close();
