@@ -158,6 +158,22 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
             guarantee: "observed" as const,
           }
       : false;
+    const snapshotSelection = Boolean(
+      snapshot?.editor.projectSelection
+      && this.options.snapshot?.selectProject
+      && projectSelectionMode(snapshot.editor) !== "unavailable",
+    );
+    const liveSelection = Boolean(
+      !this.options.snapshot
+      && live?.editor.projectSelection
+      && this.options.live?.selectProject
+      && projectSelectionMode(live.editor) !== "unavailable",
+    );
+    const projectSelection = snapshotSelection || liveSelection;
+    const selectionCapabilities = this.options.snapshot ? snapshot?.editor : live?.editor;
+    const selectionMode = projectSelection && selectionCapabilities
+      ? projectSelectionMode(selectionCapabilities)
+      : "unavailable";
     return withCapabilityFamilies({
       editor: {
         ...operationCapabilities,
@@ -181,7 +197,8 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
           || (!this.options.snapshot && live?.editor.projectCatalogRead)
           || this.options.backgroundCatalog,
         ),
-        projectSelection: Boolean(snapshot?.editor.projectSelection || (!this.options.snapshot && live?.editor.projectSelection)),
+        projectSelection,
+        projectSelectionMode: selectionMode,
         compositeTransactions,
       },
       analyzers: {
