@@ -1445,11 +1445,12 @@ test("canonical reads reject live revision changes during snapshot export", asyn
 
 test("MCP editor inspection never probes a headed canonical snapshot", async () => {
   let snapshotReads = 0;
+  let snapshotUnavailable = false;
   let currentLive = liveState();
   const provider = new FinalCutCanonicalNativeProvider({
     live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(currentLive) },
     native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
-    readSnapshot: async () => { snapshotReads++; return snapshot("Original"); },
+    readSnapshot: async () => { snapshotReads++; if (snapshotUnavailable) throw new Error("snapshot unavailable"); return snapshot("Original"); },
     resolveTarget: async () => {},
     backgroundCatalog: { listProjects: async () => ({
       projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }],
@@ -1512,6 +1513,14 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     } });
     assert.equal(explicitMcpContext.isError, undefined);
     assert.ok(JSON.parse(textFrom(explicitMcpContext)).project);
+    snapshotUnavailable = true;
+    const unavailableContext = await client.callTool({ name: "context.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1" },
+    } });
+    assert.equal(unavailableContext.isError, true);
+    assert.equal(JSON.parse(textFrom(unavailableContext)).code, "CAPABILITY_UNAVAILABLE");
+    snapshotUnavailable = false;
     const explicitlyRequested = await runtime.inspectContext({ probeCanonicalSnapshot: true });
     assert.ok(explicitlyRequested.project);
     assert.ok(snapshotReads > readsAfterExplicitRequest);
