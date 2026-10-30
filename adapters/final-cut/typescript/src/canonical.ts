@@ -897,8 +897,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async readProject(): Promise<ProjectSnapshot> {
+    const beforeLive = await this.live.readLiveState();
     const snapshot = await this.readSnapshotSource();
     const live = await this.assertActiveTarget(snapshot);
+    if (!beforeLive.project?.id || !beforeLive.sequence?.id
+      || beforeLive.project.id !== live.project?.id || beforeLive.sequence.id !== live.sequence?.id
+      || !beforeLive.revision?.id || beforeLive.revision.id !== live.revision.id
+      || beforeLive.revision.sequence !== live.revision.sequence) {
+      throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during snapshot export");
+    }
     const digest = canonicalSnapshotDigest(snapshot);
     if (digest !== this.lastDigest || !this.revision
       || live.revision.id !== this.lastLiveRevision?.id
