@@ -962,8 +962,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       || baselineLive.project.id !== before.projectId || baselineLive.sequence.id !== before.timeline.id
       || currentLive.project?.id !== baselineLive.project.id || currentLive.sequence?.id !== baselineLive.sequence.id
       || !baselineLive.revision?.id || currentLive.revision?.id !== baselineLive.revision.id
-      || currentLive.revision.sequence !== baselineLive.revision.sequence
-      || currentLive.revision.timestamp !== baselineLive.revision.timestamp) {
+      || currentLive.revision.sequence !== baselineLive.revision.sequence) {
       throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during edit preparation");
     }
     const nativeResult = supported.type === "rename-clip"
