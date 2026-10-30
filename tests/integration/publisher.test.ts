@@ -2200,3 +2200,40 @@ test("FCPXML publisher rejects native IDs that disagree with catalog readback", 
   assert.equal(result.result, undefined);
   assert.equal(executorCalls, 1);
 });
+
+test("dispatch and headed readback require separate confirmations", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-separated-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Separate"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveries = 0;
+  let readbacks = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true, sourcePath, verificationTimeoutMs: 0, pollIntervalMs: 0,
+    executor: async () => { deliveries++; return "dispatched"; },
+    targetBinding: async () => ({ projectId: "created", sequenceId: "created-sequence" }),
+    liveState: async () => ({
+      project: deliveries ? { id: "created", name: "Separate" } : { id: "before", name: "Before" },
+      sequence: deliveries
+        ? { id: "created-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } }
+        : { id: "before-sequence", name: "Before", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: `revision-${deliveries}`, sequence: deliveries, timestamp: new Date(0).toISOString() },
+    }),
+    readCanonicalSnapshot: async () => {
+      readbacks++;
+      return new FcpxmlDocumentAdapter(sourcePath, undefined, { allowMissingImmutableIdsForReadback: true }).readProject();
+    },
+  });
+  const job = await publisher.preparePublish({ sourceTransactionId: "separate", artifactPath: sourcePath, artifactDigest: digest(source) });
+  const dispatched = await publisher.executePublishJob(job.jobId, true);
+  assert.equal(dispatched.state, "verification-pending");
+  assert.equal(deliveries, 1);
+  assert.equal(readbacks, 0, "dispatch confirmation cannot authorize headed readback");
+  const stillPending = await publisher.executePublishJob(job.jobId, true);
+  assert.equal(stillPending.state, "verification-pending");
+  assert.equal(readbacks, 0);
+  const verified = await publisher.executePublishJob(job.jobId, true, true);
+  assert.equal(verified.state, "verified");
+  assert.equal(readbacks, 1);
+  assert.equal(deliveries, 1);
+});
