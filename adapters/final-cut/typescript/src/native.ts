@@ -3037,8 +3037,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const scopeChanged = expected.target.projectId !== recovered.target.projectId
       || expected.target.sequenceId !== recovered.target.sequenceId
       || expected.target.revision?.id !== recovered.target.revision?.id
-      || expected.target.revision?.sequence !== recovered.target.revision?.sequence
-      || expected.target.revision?.timestamp !== recovered.target.revision?.timestamp;
+      || expected.target.revision?.sequence !== recovered.target.revision?.sequence;
     const playheadChanged = requirePlayhead
       && (!expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime);
     if (targetChanged || occurrenceChanged || scopeChanged || playheadChanged) {
