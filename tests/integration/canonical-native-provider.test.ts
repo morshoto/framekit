@@ -1410,6 +1410,7 @@ test("canonical revision changes when live revision changes despite identical sn
   current = { ...current, revision: { id: "live-changed", sequence: 2, timestamp: new Date(3000).toISOString() } };
   const changed = await provider.readProject();
   assert.ok(changed.revision.sequence > before.revision.sequence);
+  assert.notEqual(changed.revision.id, before.revision.id);
   await assert.rejects(provider.previewTransaction([{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }], before.revision), /STALE_CONTEXT/);
 });
 
