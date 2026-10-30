@@ -1207,22 +1207,28 @@ test("live canonical reads do not silently retarget after explicit selection", a
     activeSequenceId: project.timeline.id,
   });
   let switched = false;
+  let applyCalls = 0;
   const adapter = new FinalCutLiveAdapter({
-    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => ({
+    request: async (request: FinalCutLiveRequest): Promise<FinalCutLiveResponse> => {
+      if (request.method === "apply") applyCalls++;
+      return {
       version: 1, id: request.id, ok: true,
       result: {
         identity: { name: "Final Cut Pro", version: "test", backend: "canonical-live-ipc" },
-        capabilities: canonicalReadCapabilities,
+        capabilities: canonicalWriteCapabilities,
+        ...(request.method === "apply" ? { revision: selectedSnapshot.revision } : {}),
         ...(request.method === "select-project" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot), revision: selectedSnapshot.revision } : {}),
         ...(request.method === "snapshot" ? { snapshot: switched ? switchedSnapshot : selectedSnapshot } : {}),
         ...(request.method === "projects" ? { catalog: catalogFor(switched ? switchedSnapshot : selectedSnapshot) } : {}),
       },
-    }),
+    }; },
   });
   await adapter.selectProject({ projectId: selectedSnapshot.projectId, sequenceId: selectedSnapshot.timeline.id });
   assert.equal((await adapter.readProject()).projectId, selectedSnapshot.projectId);
   switched = true;
   await assert.rejects(adapter.readProject(), /TARGET_MISMATCH|STALE_CONTEXT/);
+  await assert.rejects(adapter.apply({ type: "rename-clip", clipId: selectedSnapshot.timeline.clips[0]!.id, name: "New" }, selectedSnapshot.revision), /TARGET_MISMATCH|STALE_CONTEXT/);
+  assert.equal(applyCalls, 0);
   await adapter.selectProject({ projectId: switchedSnapshot.projectId, sequenceId: switchedSnapshot.timeline.id });
   assert.equal((await adapter.readProject()).projectId, switchedSnapshot.projectId);
 });
