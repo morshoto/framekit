@@ -139,6 +139,10 @@ identity, revision, or readback is missing, stop without claiming success.
 Background inspection must not click, type, activate Final Cut, or select a
 project through the UI. A locked native console is a blocker; do not retry the
 import or overwrite the target without a fresh approved operation.
+`context.inspect` is passive by default. An explicitly authorized headed
+context read uses `confirmHeadedRead` and an `expectedTarget` containing the
+project and sequence IDs; a mismatch fails before the export. This confirmation
+does not itself establish user authorization or provide atomic target binding.
 
 `EditingSession` keeps desired edits provider-neutral and bound to a versioned
 editable project. Reconcile changes against the original project before

@@ -2067,9 +2067,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("context.inspect", {
-    description: "Read the queryable agent editing context and its current revision.",
-    inputSchema: {},
-  }, async () => jsonResult(await runtime.inspectContext({ probeCanonicalSnapshot: false })));
+    description: "Read editing context passively, or explicitly confirm a headed read for the expected project and sequence.",
+    inputSchema: {
+      confirmHeadedRead: z.boolean().optional(),
+      expectedTarget: contextTargetSchema.optional(),
+    },
+  }, async ({ confirmHeadedRead, expectedTarget }) => sessionResult(async () => {
+    if (!confirmHeadedRead) return runtime.inspectContext({ probeCanonicalSnapshot: false });
+    if (!expectedTarget) throw new Error("EXPECTED_TARGET_REQUIRED: headed context read requires a project and sequence");
+    const matches = (live: Awaited<ReturnType<typeof runtime.inspectLiveEditor>>) =>
+      live.project?.id === expectedTarget.projectId && live.sequence?.id === expectedTarget.sequenceId;
+    if (!matches(await runtime.inspectLiveEditor())) throw new Error("TARGET_MISMATCH: active project or sequence differs from expected target");
+    const context = await runtime.inspectContext({ probeCanonicalSnapshot: true });
+    if (!matches(await runtime.inspectLiveEditor()) || (context.project &&
+      (context.project.projectId !== expectedTarget.projectId || context.project.timeline.id !== expectedTarget.sequenceId))) {
+      throw new Error("TARGET_MISMATCH: context target changed during headed read");
+    }
+    return context;
+  }));
 
   server.registerTool("context.changes", {
     description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
