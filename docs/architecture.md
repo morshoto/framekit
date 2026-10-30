@@ -72,7 +72,10 @@ revision, and the affected media or occurrence identity when applicable.
 `frameDuration` and timeline times preserve frame-accurate values.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
-against the same target and revision contract.
+against the same target and revision contract. Canonical Final Cut reads reject
+live target or revision changes during export; native edits recheck the live
+revision after target resolution. Canonical revision tokens are scoped to the
+provider session and change when the live revision changes.
 
 An incremental result must match its target and revision cursor. Concurrency
 conflicts and stale-write errors, ambiguous or incomplete observations, and
