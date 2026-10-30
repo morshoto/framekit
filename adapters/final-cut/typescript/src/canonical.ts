@@ -907,7 +907,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       this.lastDigest = digest;
       this.lastLiveRevision = { id: live.revision.id, sequence: live.revision.sequence };
       this.revision = {
-        id: `canonical:${this.revisionEpoch}:${digest}`,
+        id: `canonical:${this.revisionEpoch}:${this.revisionSequence}:${digest}`,
         sequence: this.revisionSequence,
         timestamp: new Date().toISOString(),
       };
