@@ -195,6 +195,7 @@ interface PublishJobRuntime {
   importedPath?: string;
   importedDigest?: string;
   delivery?: FinalCutProjectPublishDelivery;
+  observedTarget?: FinalCutProjectPublishTargetBinding;
   reservationPath?: string;
   reservationId?: string;
   importAttempted?: boolean;
@@ -519,6 +520,7 @@ export class FinalCutProjectPublisher {
         sequenceName: identity.sequenceName,
         confirmationRequired: false,
         ...(runtime.delivery ? { delivery: structuredClone(runtime.delivery) } : {}),
+        ...(runtime.observedTarget ? { observedTarget: structuredClone(runtime.observedTarget) } : {}),
         handoff: {
           mode: "headed-only",
           route: this.publishRoute,
@@ -674,6 +676,7 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      if (runtime) runtime.observedTarget = structuredClone(verifiedTarget.targetBinding);
       await assertSourceMediaUnchanged(sourceMediaDigests);
       const semanticReadback = await this.readAndVerifyCanonicalTarget(
         expectedSnapshot,
