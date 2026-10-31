@@ -34,7 +34,8 @@ export class ContextEngine {
   }
 
   public async changesSince(revision: ContextRevision): Promise<TimelineDiff> {
-    const capabilities = await this.editor.getCapabilities();
+    const capabilities = await this.editor.getCapabilities({ probeCanonicalSnapshot: false });
+    if (requiresHeadedCanonicalRead(capabilities)) throw new Error("CAPABILITY_UNAVAILABLE: canonical timeline changes require an explicitly authorized headed read");
     if (capabilities.editor.incrementalChanges) {
       const incremental = await this.editor.readChanges?.(revision);
       if (incremental?.timeline) return incremental.timeline;
@@ -50,8 +51,9 @@ export class ContextEngine {
 
   public async timelineChangesSince(request: TimelineChangesRequest): Promise<TimelineChangesResult> {
     const identity = await this.editor.getIdentity();
-    const capabilities = await this.editor.getCapabilities();
-    const canonical = capabilities.editor.canonicalTimelineMode !== "metadata-only"
+    const capabilities = await this.editor.getCapabilities({ probeCanonicalSnapshot: false });
+    const canonical = !requiresHeadedCanonicalRead(capabilities)
+      && capabilities.editor.canonicalTimelineMode !== "metadata-only"
       && (capabilities.editor.timelineSnapshotRead || capabilities.editor.incrementalChanges);
     const source = {
       source: identity.name,
@@ -167,20 +169,20 @@ export class ContextEngine {
     const revision = isContextCursor(cursorOrRevision) ? cursorOrRevision.revision : cursorOrRevision;
     if (cursor?.target) await this.validateCursorTarget(revision, cursor.target);
     const identity = await this.editor.getIdentity();
-    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities(), {
+    const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.editor.getCapabilities({ probeCanonicalSnapshot: false }), {
       backend: identity.backend,
     }));
-    const incremental = capabilities.editor.incrementalChanges
+    const incremental = capabilities.editor.incrementalChanges && !requiresHeadedCanonicalRead(capabilities)
       ? await this.editor.readChanges?.(revision)
       : undefined;
-    const timeline = canonicalTimelineAvailable(capabilities)
+    const timeline = canonicalTimelineAvailable(capabilities) && !requiresHeadedCanonicalRead(capabilities)
       ? incremental?.timeline ?? await this.optionalTimelineChanges(revision)
       : undefined;
     const stateChanges = [
       ...(incremental?.stateChanges ?? []),
       ...(await this.liveChangesSince(revision, waitMs)),
     ];
-    const assetChanges = canonicalTimelineAvailable(capabilities)
+    const assetChanges = canonicalTimelineAvailable(capabilities) && !requiresHeadedCanonicalRead(capabilities)
       ? incremental?.assetChanges ?? []
       : [];
     // Canonical timeline revisions and live metadata revisions may come from
@@ -231,9 +233,9 @@ export class ContextEngine {
     }
   }
 
-  public async inspectContext(capabilities: RuntimeCapabilities): Promise<AgentContext> {
+  public async inspectContext(capabilities: RuntimeCapabilities, options: { includeCanonicalSnapshot?: boolean } = {}): Promise<AgentContext> {
     const identity = await this.editor.getIdentity();
-    const project = canonicalTimelineAvailable(capabilities)
+    const project = options.includeCanonicalSnapshot !== false && canonicalTimelineAvailable(capabilities)
       ? await this.inspectProject()
       : undefined;
     const editorState = await this.optionalLiveState();
@@ -242,7 +244,7 @@ export class ContextEngine {
     const target = contextTarget(project, editorState ? [
       { kind: "active-sequence-changed", revision: editorState.revision, state: editorState },
     ] : []);
-    const provenance = primaryContextProvenance(identity.backend, capabilities, target);
+    const provenance = primaryContextProvenance(identity.backend, capabilities, target, Boolean(project));
     const cursor: ContextCursor = { revision, ...(target ? { target } : {}) };
     return {
       revision,
@@ -320,8 +322,8 @@ export class ContextEngine {
   }
 
   private async optionalTimelineChanges(revision: ContextRevision): Promise<TimelineDiff | undefined> {
-    const capabilities = await this.editor.getCapabilities();
-    if (!capabilities.editor.timelineSnapshotRead) return undefined;
+    const capabilities = await this.editor.getCapabilities({ probeCanonicalSnapshot: false });
+    if (!capabilities.editor.timelineSnapshotRead || requiresHeadedCanonicalRead(capabilities)) return undefined;
     return this.changesSince(revision);
   }
 
@@ -376,6 +378,10 @@ export class ContextEngine {
   }
 }
 
+function requiresHeadedCanonicalRead(capabilities: RuntimeCapabilities): boolean {
+  return capabilities.families?.canonicalDocument.read.evidenceTier === "headed-native";
+}
+
 function canonicalTimelineAvailable(capabilities: RuntimeCapabilities): boolean {
   return Boolean(
     capabilities.editor.projectRead
@@ -388,10 +394,11 @@ function primaryContextProvenance(
   provider: string,
   capabilities: RuntimeCapabilities,
   target?: ContextTarget,
+  canonicalObserved = true,
 ): ContextProvenance {
   const artifact = capabilities.editor.timelineArtifactWrite && !capabilities.editor.timelineWrite;
-  const canonical = capabilities.editor.canonicalTimelineMode === "canonical-read"
-    || capabilities.editor.canonicalTimelineMode === "canonical-write";
+  const canonical = canonicalObserved && (capabilities.editor.canonicalTimelineMode === "canonical-read"
+    || capabilities.editor.canonicalTimelineMode === "canonical-write");
   const headedNative = canonical && provider.includes("native");
   const source = provider === "fixture"
     ? "deterministic-fixture" as const
@@ -427,7 +434,7 @@ function contextProvenanceSet(
     assetChanges: ContextDiff["assetChanges"];
   },
 ): ContextProvenance[] {
-  const base = primaryContextProvenance(provider, capabilities, target);
+  const base = primaryContextProvenance(provider, capabilities, target, !requiresHeadedCanonicalRead(capabilities));
   const result: ContextProvenance[] = [];
   if (changes.timeline || changes.assetChanges.length > 0) result.push(base);
   if (changes.stateChanges.length > 0) {

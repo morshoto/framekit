@@ -143,9 +143,10 @@ export class AgentVideoRuntime {
     return this.projects.inspectEditor(options);
   }
 
-  public async inspectContext(): Promise<AgentContext> {
-    const editor = await this.inspectEditor();
-    return this.contexts.inspectContext(editor.capabilities);
+  public async inspectContext(options: CapabilityInspectionOptions = {}): Promise<AgentContext> {
+    const editor = await this.inspectEditor({ ...options, probeCanonicalSnapshot: options.probeCanonicalSnapshot === true });
+    const headedRead = editor.capabilities.families?.canonicalDocument.read.evidenceTier === "headed-native";
+    return this.contexts.inspectContext(editor.capabilities, { includeCanonicalSnapshot: !headedRead || options.probeCanonicalSnapshot === true });
   }
 
   public async inspectLiveEditor(): Promise<EditorLiveState> {

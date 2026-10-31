@@ -158,6 +158,22 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
             guarantee: "observed" as const,
           }
       : false;
+    const snapshotSelection = Boolean(
+      snapshot?.editor.projectSelection
+      && this.options.snapshot?.selectProject
+      && projectSelectionMode(snapshot.editor) !== "unavailable",
+    );
+    const liveSelection = Boolean(
+      !this.options.snapshot
+      && live?.editor.projectSelection
+      && this.options.live?.selectProject
+      && projectSelectionMode(live.editor) !== "unavailable",
+    );
+    const projectSelection = snapshotSelection || liveSelection;
+    const selectionCapabilities = this.options.snapshot ? snapshot?.editor : live?.editor;
+    const selectionMode = projectSelection && selectionCapabilities
+      ? projectSelectionMode(selectionCapabilities)
+      : "unavailable";
     return withCapabilityFamilies({
       editor: {
         ...operationCapabilities,
@@ -181,7 +197,8 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
           || (!this.options.snapshot && live?.editor.projectCatalogRead)
           || this.options.backgroundCatalog,
         ),
-        projectSelection: Boolean(snapshot?.editor.projectSelection || (!this.options.snapshot && live?.editor.projectSelection)),
+        projectSelection,
+        projectSelectionMode: selectionMode,
         compositeTransactions,
       },
       analyzers: {
@@ -375,6 +392,15 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     validateProjectCatalog(catalog);
     const after = await optionalLiveState(this.options.live);
     const identity = before && after ? await optionalIdentity(this.options.live) : undefined;
+    const selectionCapabilities = await optionalCapabilities(this.options.live, { probeCanonicalSnapshot: false });
+    const selectionMode = selectionCapabilities
+      ? projectSelectionMode(selectionCapabilities.editor)
+      : "unavailable";
+    const selectionAvailable = Boolean(
+      this.options.live?.selectProject
+      && selectionCapabilities?.editor.projectSelection
+      && selectionMode !== "unavailable",
+    );
     return reconcileProjectCatalog(catalog, {
       ...(before && after ? { before, after } : {}),
       provenance: {
@@ -391,9 +417,11 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
           },
         } : {}),
         selection: {
-          available: false,
-          mode: "unavailable",
-          unavailableReason: "project selection is not exposed by the background provider",
+          available: selectionAvailable,
+          mode: selectionAvailable ? selectionMode : "unavailable",
+          ...(!selectionAvailable ? {
+            unavailableReason: "project selection is not exposed by the background provider",
+          } : {}),
         },
       },
     });
@@ -480,7 +508,7 @@ async function optionalProjectSelectionCapability(
   live: FinalCutSessionOptions["live"],
 ): Promise<boolean> {
   try {
-    return Boolean((await live?.getCapabilities())?.editor.projectSelection);
+    return Boolean((await live?.getCapabilities({ probeCanonicalSnapshot: false }))?.editor.projectSelection);
   } catch {
     return false;
   }
