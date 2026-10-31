@@ -57,62 +57,7 @@ test('CodeQL runs on ready pull requests without scanning each draft push', asyn
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 	assert.match(workflow, /^\s+pull_request:\s*$/m);
 	for (const action of ['opened', 'reopened', 'synchronize', 'ready_for_review']) {
-		assert.match(workflow, new RegExp(`^\\s+- ${action}import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-
-async function readRepositoryFile(relativePath: string): Promise<string> {
-	return readFile(resolve(repository, relativePath), 'utf8');
-}
-
-/** Extract a job without assuming two-space or four-space YAML indentation. */
-function getJob(workflow: string, jobName: string): string | undefined {
-	const lines = workflow.split(/\r?\n/);
-	const jobsLine = lines.findIndex((line) => /^jobs:\s*$/.test(line));
-	if (jobsLine < 0) return undefined;
-
-	let start = -1;
-	let indentation = -1;
-	for (let i = jobsLine + 1; i < lines.length; i++) {
-		const match = lines[i].match(/^([ \t]+)([a-z][a-z0-9-]*):\s*$/);
-		if (match?.[2] === jobName) {
-			start = i;
-			indentation = match[1].length;
-			break;
-		}
-	}
-	if (start < 0) return undefined;
-
-	let end = lines.length;
-	for (let i = start + 1; i < lines.length; i++) {
-		const match = lines[i].match(/^([ \t]+)([a-z][a-z0-9-]*):\s*$/);
-		if (match && match[1].length === indentation) {
-			end = i;
-			break;
-		}
-	}
-	return lines.slice(start, end).join('\n');
-}
-
-test('CodeQL keeps default-branch runs from being cancelled', async () => {
-	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
-
-	assert.match(workflow, /push:\s+branches:\s+- main/);
-	assert.match(
-		workflow,
-		/group:\s+codeql-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/,
-	);
-	assert.match(
-		workflow,
-		/cancel-in-progress:\s+\$\{\{ github\.event_name == 'pull_request' \}\}/,
-	);
-});
-
-, 'm'));
+		assert.match(workflow, new RegExp('^\\s+- ' + action + '$', 'm'));
 	}
 	assert.match(workflow, /push:\s+branches:\s+- main/);
 	assert.match(workflow, /^\s*workflow_dispatch:/m);
