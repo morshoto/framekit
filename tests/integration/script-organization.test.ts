@@ -41,9 +41,9 @@ test("reports missing package commands, workflow commands, links, and executable
     await writeFile(join(root, "tests/README.md"), "Run `node scripts/missing-test-command.mjs`.\n");
 
     assert.deepEqual(await checkScriptReferences(root), [
+      ".github/action/fixture/action.yml runs missing script scripts/missing-action.mjs",
       ".github/workflows/ci.yml runs missing script scripts/missing-direct-workflow.sh",
       ".github/workflows/ci.yml runs missing script scripts/missing-workflow.mjs",
-      ".github/action/fixture/action.yml runs missing script scripts/missing-action.mjs",
       "CONTRIBUTING.md runs missing script scripts/missing-contributing-command.mjs",
       "docs/testing.md links to missing script ../scripts/missing-link.mjs",
       "docs/testing.md runs missing script scripts/missing-doc-command.mjs",

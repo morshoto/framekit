@@ -1,0 +1,43 @@
+name: Lint and static checks
+description: Install the contributor toolchain and run repository static checks.
+inputs:
+  node-version:
+    description: Contributor Node.js version.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - name: TypeScript build
+      shell: bash
+      run: pnpm run build
+
+    - name: Package boundary checks
+      shell: bash
+      run: pnpm run check:boundaries
+
+    - name: Script references and package entrypoints
+      shell: bash
+      run: pnpm run check:scripts
+
+    - name: Toolchain consistency
+      shell: bash
+      run: |
+        node --test tests/documentation/toolchain-consistency.test.mjs
+        node scripts/check-toolchain.mjs
+
+    - name: Documentation structure and links
+      shell: bash
+      run: pnpm run check:docs

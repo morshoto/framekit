@@ -112,7 +112,7 @@ test('detect-changes gates Swift while preserving full weekly and manual scans',
 		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift',
 		'.github/codeql/FinalCutWorkflowExtensionShim.swift',
 		'.github/workflows/codeql.yml',
-      '.github/workflows/ci.yml',
+		'.github/workflows/ci.yml',
 		'other/SomeFeature.swift',
 	]) {
 		assert.equal(detector.affectsSwift([file]), true, file);

@@ -1,0 +1,27 @@
+name: Swift type-check
+description: Validate the Xcode project and type-check the Workflow Extension.
+runs:
+  using: composite
+  steps:
+    - name: Show Apple toolchain
+      shell: bash
+      run: |
+        xcodebuild -version
+        xcrun --sdk macosx --show-sdk-version
+
+    - name: Validate Xcode project
+      shell: bash
+      run: >-
+        xcodebuild
+        -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FramekitFinalCutWorkflow.xcodeproj
+        -list
+
+    - name: Type-check Workflow Extension against the checked-in shim
+      shell: bash
+      run: >-
+        xcrun swiftc
+        -typecheck
+        -parse-as-library
+        -target arm64-apple-macos15.0
+        -I adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/ProExtensionHostShim
+        adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
