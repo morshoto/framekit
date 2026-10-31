@@ -38,7 +38,6 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
-            pull-requests: read
         outputs:
             run_codeql: ${{ steps.scope.outputs.run_codeql }}
             swift: ${{ steps.scope.outputs.swift }}
@@ -52,7 +51,6 @@ jobs:
               run: node .github/codeql/detect-changes.mjs
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   PUSH_BEFORE: ${{ github.event.before }}
 
@@ -90,8 +88,9 @@ jobs:
 
     analyze-swift:
         name: Analyze (swift)
-        # Skip the expensive macOS scan on PRs and pushes without Swift inputs.
+        # Run the expensive Swift scan only after relevant main pushes.
         # Manual and weekly scans still cover Swift unconditionally.
+        # PRs rely on the independent fast Swift type-check instead.
         needs: detect-changes
         if: ${{ needs.detect-changes.outputs.run_codeql == 'true' && needs.detect-changes.outputs.swift == 'true' }}
         runs-on: macos-26
