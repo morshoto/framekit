@@ -35,9 +35,9 @@ npm trust github @morshoto/framekit \
 3. Hosted validation runs the release gate and publishes the package through
    npm Trusted Publishing. It verifies the public registry version and a
    clean client installation before publishing the GitHub release.
-4. Publishing the GitHub release starts native packaging in the same workflow.
-   Native signing and verification run separately on the trusted Final Cut-capable
-   macOS runner and do not block npm publication.
+4. Publishing the GitHub release starts a native packaging run from
+   `release.yml`. Native signing and verification run separately on the trusted
+   Final Cut-capable macOS runner and do not block npm publication.
 5. Download the uploaded extension archive and checksum, verify the archive,
    signature, version, and source commit, then run
    `pnpm run verify-release-provenance`.
