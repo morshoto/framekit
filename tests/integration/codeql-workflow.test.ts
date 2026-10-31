@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -112,7 +112,7 @@ test('detect-changes gates Swift while preserving full weekly and manual scans',
 		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift',
 		'.github/codeql/FinalCutWorkflowExtensionShim.swift',
 		'.github/workflows/codeql.yml',
-		'.github/workflows/swift.yml',
+      '.github/workflows/ci.yml',
 		'other/SomeFeature.swift',
 	]) {
 		assert.equal(detector.affectsSwift([file]), true, file);
@@ -225,13 +225,42 @@ test('CodeQL substitutes host declarations without changing the native import', 
 	assert.match(project, /FinalCutWorkflowExtensionShim\.swift/);
 });
 
-test('Swift CI remains an independent native validation gate', async () => {
-	const workflow = await readRepositoryFile('.github/workflows/swift.yml');
+test('pull request CI is consolidated in local composite actions', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/ci.yml');
+	const expectedJobs = [
+		['lint', 'Lint / static checks', './.github/action/lint-static'],
+		['test', 'Unit / integration tests', './.github/action/test'],
+		['consumer-runtime', 'Published package consumer minimum', './.github/action/consumer-runtime'],
+		['swift', 'Swift type-check', './.github/action/swift'],
+	] as const;
 
-	assert.match(workflow, /name: Swift CI/);
-	assert.match(workflow, /xcodebuild[\s\S]*-list/);
-	assert.match(workflow, /xcrun swiftc/);
-	assert.match(workflow, /ProExtensionHostShim/);
+	assert.match(workflow, /name: CI/);
+	assert.match(workflow, /pull_request:/);
+	assert.match(workflow, /cancel-in-progress: true/);
+	for (const [jobName, checkName, actionPath] of expectedJobs) {
+		const job = getJob(workflow, jobName);
+		assert.ok(job, `${jobName} job is present`);
+		assert.match(job, new RegExp(`name: ${checkName.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}`));
+		assert.match(job, new RegExp(`uses: \\.?/?${actionPath.replaceAll('/', '\\/')}`));
+		const action = await readRepositoryFile(`${actionPath.slice(2)}/action.yml`);
+		assert.match(action, /using: composite/);
+	}
+	const workflows = await readdir(resolve(repository, '.github/workflows'));
+	assert.equal(workflows.includes('typescript.yml'), false);
+	assert.equal(workflows.includes('swift.yml'), false);
+});
+
+test('Swift type-check remains a native validation gate in combined CI', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/ci.yml');
+	const swiftJob = getJob(workflow, 'swift');
+	const action = await readRepositoryFile('.github/action/swift/action.yml');
+
+	assert.ok(swiftJob);
+	assert.match(swiftJob, /name: Swift type-check/);
+	assert.match(swiftJob, /runs-on: macos-26/);
+	assert.match(action, /xcodebuild[\s\S]*-list/);
+	assert.match(action, /xcrun swiftc/);
+	assert.match(action, /ProExtensionHostShim/);
 });
 
 test('Swift bridge documents the separate bounded CodeQL path', async () => {
