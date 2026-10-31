@@ -120,7 +120,7 @@ test('CodeQL preserves JavaScript analysis and adds a bounded Swift job', async 
 	assert.match(workflow, /timeout-minutes: 25/);
 	assert.match(
 		workflow,
-		/\n[ \t]+- name: Type-check Swift sources for CodeQL extraction\n[ \t]+timeout-minutes: 25\n[ \t]+run: \|/,
+		/\n[ \t]+- name: Type-check Swift sources for CodeQL extraction\n[ \t]+timeout-minutes: 25\n[ \t]+run: bash \.github\/codeql\/typecheck-swift\.sh/,
 	);
 });
 
@@ -141,26 +141,33 @@ test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml',
 	);
 	const swiftJob = getJob(workflow, 'analyze-swift');
+	const compilerScript = await readRepositoryFile('.github/codeql/typecheck-swift.sh');
 
 	assert.ok(swiftJob, 'Swift CodeQL job should be present');
 
-	assert.match(swiftJob, /xcrun --sdk macosx swiftc/);
-	assert.match(swiftJob, /-typecheck/);
-	assert.match(swiftJob, /-parse-as-library/);
-	assert.match(swiftJob, /-target \"\$\(uname -m\)-apple-macos15\.0\"/);
-	assert.match(swiftJob, /-swift-version 5/);
+	assert.match(swiftJob, /run: bash \.github\/codeql\/typecheck-swift\.sh/);
+	assert.match(compilerScript, /xcrun --sdk macosx swiftc/);
+	assert.match(compilerScript, /-typecheck/);
+	assert.match(compilerScript, /-parse-as-library/);
+	assert.match(compilerScript, /-target \"\$\(uname -m\)-apple-macos15\.0\"/);
+	assert.match(compilerScript, /-swift-version 5/);
 	assert.match(swiftJob, /timeout-minutes: 40/);
 	assert.match(swiftJob, /timeout-minutes: 25/);
-	assert.match(swiftJob, /-D FRAMEKIT_CODEQL/);
-	assert.doesNotMatch(swiftJob, /xcodebuild/);
+
+	assert.match(compilerScript, /-D FRAMEKIT_CODEQL/);
+	assert.match(compilerScript, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
+	assert.match(compilerScript, /FinalCutLiveWorkflowExtension\.swift/);
+	assert.match(swiftJob, /Benchmark Swift compiler without CodeQL tracing\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}/);
+	// The opt-in profiling step may query the Xcode version, but never builds.
+	assert.doesNotMatch(compilerScript, /xcodebuild/);
 	assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
 	assert.doesNotMatch(swiftJob, /-destination/);
-	assert.doesNotMatch(swiftJob, /-emit-module/);
-	assert.doesNotMatch(swiftJob, /ProExtensionHostShim/);
-	assert.doesNotMatch(swiftJob, /Final Cut Pro\.app/);
-	assert.doesNotMatch(swiftJob, /ProExtensionHost\.framework/);
-	assert.doesNotMatch(swiftJob, /\/tmp\/framekit-finalcut-frameworks/);
-	assert.doesNotMatch(swiftJob, /build\.sh/);
+	assert.doesNotMatch(compilerScript, /-emit-module/);
+	assert.doesNotMatch(compilerScript, /ProExtensionHostShim/);
+	assert.doesNotMatch(compilerScript, /Final Cut Pro\.app/);
+	assert.doesNotMatch(compilerScript, /ProExtensionHost\.framework/);
+	assert.doesNotMatch(compilerScript, /\/tmp\/framekit-finalcut-frameworks/);
+	assert.doesNotMatch(compilerScript, /build\.sh/);
 	assert.match(project, /FramekitFinalCutWorkflowCodeQL:/);
 	assert.match(project, /type: library\.static/);
 	assert.match(project, /FinalCutLiveWorkflowExtension\.swift/);
