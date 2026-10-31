@@ -535,6 +535,7 @@ test("editor inspection preserves each configured analyzer provider backend", as
 
 
 
+
 test("MCP connection status normalizes injected capability payloads", async () => {
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
     projectId: "project-1",

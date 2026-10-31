@@ -196,7 +196,7 @@ test("native masking rolls back when post-command context observation fails", as
         if (maskApplied && preflightCalls === 3) throw new Error("post-command context unavailable");
         return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
       }
-      if (script.includes("selectedTimelineItem")) return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
+      if (script.includes("selectedTimelineSelection")) return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
       if (script.includes("Apply native Draw Mask")) {
         maskApplied = true;
         revision = 2;
@@ -231,7 +231,7 @@ test("native masking rolls back when Final Cut exposes no new apply revision", a
     sleep: async (milliseconds) => { clock += milliseconds; },
     liveState: async () => liveState(revision),
     executor: async (script) => {
-      if (script.includes("on preflightResult") || script.includes("selectedTimelineItem")) {
+      if (script.includes("on preflightResult") || script.includes("selectedTimelineSelection")) {
         return context("Subject", maskApplied ? "Undo Add Draw Mask" : "Undo");
       }
       if (script.includes("Apply native Draw Mask")) {

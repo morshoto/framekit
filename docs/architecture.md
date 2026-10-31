@@ -136,7 +136,9 @@ operation. Bind the preview to the exact project, sequence, occurrence, and
 revision; verify the intended target and foreground state before execution;
 require canonical readback; and verify Undo or rollback. If a required capability,
 identity, revision, or readback is missing, stop without claiming success.
-Background inspection must not click, type, activate Final Cut, or select a
+Native readiness reports `targetBound` only for a selected occurrence with a
+stable identity and live project, sequence, and revision. An occurrence index
+alone is not bound-target proof. Background inspection must not click, type, activate Final Cut, or select a
 project through the UI. A locked native console is a blocker; do not retry the
 import or overwrite the target without a fresh approved operation.
 `context.inspect` is passive by default. An explicitly authorized headed
