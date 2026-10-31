@@ -225,13 +225,9 @@ test('release workflow validates the package before publishing', async () => {
 	assert.match(workflow, /releases\/\$\{release_id\}/);
 });
 
-test('automatic release keeps native packaging off the publication critical path', async () => {
+test('published releases package native assets independently of npm publication', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
-		'utf8',
-	);
-	const nativeWorkflow = await readFile(
-		resolve(repository, '.github/workflows/native-release.yml'),
 		'utf8',
 	);
 	const verifier = await readFile(
@@ -255,38 +251,41 @@ test('automatic release keeps native packaging off the publication critical path
 	assert.match(workflow, /FRAMEKIT_CLEAN_MCP_EVIDENCE_OUTPUT: artifacts\/release-candidate\/clean-mcp-clients\.json/);
 
 	assert.doesNotMatch(workflow, /release-runner-preflight:/);
-	assert.doesNotMatch(workflow, /native-release-assets:/);
-	assert.doesNotMatch(workflow, /framekit-release/);
-	assert.doesNotMatch(workflow, /scripts\/package-final-cut-release\.sh/);
 	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
 	assert.doesNotMatch(workflow, /node scripts\/check-release-runner\.mjs/);
+	assert.match(workflow, /release:\s*\n\s*types: \[published\]/);
+	assert.match(workflow, /repository_dispatch:\s*\n\s*types: \[framekit-native-release-published\]/);
+	assert.match(workflow, /name: Dispatch native release packaging/);
+	assert.match(workflow, /repos\/\$\{GITHUB_REPOSITORY\}\/dispatches/);
+	assert.match(workflow, /framekit-native-release-published/);
+	assert.match(workflow, /client_payload/);
+	assert.match(workflow, /package-native-assets:[\s\S]*?runs-on:\s*\[self-hosted, macOS, framekit-release\]/);
+	assert.match(workflow, /scripts\/package-final-cut-release\.sh/);
+	assert.match(workflow, /name: Upload native release assets/);
+	assert.match(workflow, /name: Verify downloaded native release installation/);
+	assert.match(workflow, /name: Verify complete release provenance/);
+	assert.match(workflow, /pnpm run verify-release-provenance/);
 	assert.match(workflow, /pnpm run test:codex-plugin/);
 	assert.match(
 		await readFile(resolve(repository, 'scripts/validate-release-contract.mjs'), 'utf8'),
 		/git", \["status", "--porcelain", "--untracked-files=all"\]/,
 	);
+	const publishJob = workflow.slice(workflow.indexOf('publish-npm:'), workflow.indexOf('validate-codex-plugin:'));
 	assert.match(
-		workflow,
+		publishJob,
 		/publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin\n\s+- milestone-report/,
 	);
+	assert.doesNotMatch(publishJob, /validate-native-release|package-native-assets|verify-release-provenance/);
 
 	assert.match(
-		nativeWorkflow,
-		/workflow_dispatch:[\s\S]*?release_tag:[\s\S]*?required: true[\s\S]*?type: string/,
+		workflow,
+		/native-release-trigger:[\s\S]*?github\.event_name == 'release'[\s\S]*?github\.event_name == 'repository_dispatch'/,
 	);
-	assert.match(
-		nativeWorkflow,
-		/runs-on:\s*\[self-hosted, macOS, framekit-release\]/,
-	);
-	assert.match(nativeWorkflow, /scripts\/package-final-cut-release\.sh/);
-	assert.match(nativeWorkflow, /gh release upload "\$\{RELEASE_TAG\}"/);
-	assert.match(nativeWorkflow, /--clobber/);
-	assert.match(nativeWorkflow, /name: Verify complete release provenance/);
-	assert.match(nativeWorkflow, /name: Package signed native assets/);
-	assert.match(nativeWorkflow, /pnpm run verify-release-provenance/);
-	assert.match(nativeWorkflow, /actions:\s*read/);
-	assert.match(nativeWorkflow, /if: always\(\) && needs\.validate-release\.result == 'success'/);
-	assert.doesNotMatch(nativeWorkflow, /NATIVE_RELEASE_PACKAGING_RESULT/);
+	assert.match(workflow, /gh release upload "\$\{RELEASE_TAG\}"/);
+	assert.match(workflow, /--clobber/);
+	assert.match(workflow, /actions:\s*read/);
+	assert.match(workflow, /if: always\(\) && needs\.validate-native-release\.result == 'success'/);
+	assert.doesNotMatch(workflow, /NATIVE_RELEASE_PACKAGING_RESULT/);
 	assert.match(verifier, /"run", "list"/);
 	assert.match(verifier, /GITHUB_RUN_ID/);
 	assert.match(verifier, /Package signed native assets/);
@@ -299,7 +298,7 @@ test('automatic release keeps native packaging off the publication critical path
 
 test('native release verifies the uploaded archive from a clean download before provenance', async () => {
 	const workflow = await readFile(
-		resolve(repository, '.github/workflows/native-release.yml'),
+		resolve(repository, '.github/workflows/release.yml'),
 		'utf8',
 	);
 	const upload = workflow.indexOf('name: Upload native release assets');
@@ -327,30 +326,27 @@ test('native release checksum names the portable archive basename', async () => 
 	assert.doesNotMatch(packaging, /shasum -a 256 "\$output_dir\/\$archive_name"/);
 });
 
-test('native release is an explicit retry without runner preflight', async () => {
+test('native release is automatic and validates the published tag', async () => {
 	const workflow = await readFile(
 		resolve(repository, '.github/workflows/release.yml'),
-		'utf8',
-	);
-	const nativeWorkflow = await readFile(
-		resolve(repository, '.github/workflows/native-release.yml'),
 		'utf8',
 	);
 
 	assert.doesNotMatch(workflow, /release-runner-preflight:/);
 	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
-	assert.doesNotMatch(nativeWorkflow, /actions\/runners\?per_page=100/);
-	assert.doesNotMatch(nativeWorkflow, /check-release-runner\.mjs/);
 	assert.match(
-		nativeWorkflow,
-		/concurrency:\s+group: native-release-\$\{\{ inputs\.release_tag \}\}\s+cancel-in-progress: false/,
+		workflow,
+		/concurrency:[\s\S]*?native-release-\$\{\{ github\.event\.release\.tag_name \}\}/,
 	);
-	assert.match(nativeWorkflow, /name: Validate release tag/);
-	assert.match(nativeWorkflow, /gh release view "\$\{RELEASE_TAG\}"/);
+	assert.match(workflow, /name: Validate release tag/);
+	assert.match(workflow, /gh release view "\$\{RELEASE_TAG\}"/);
 	assert.match(
-		nativeWorkflow,
+		workflow,
 		/git merge-base --is-ancestor "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}" origin\/main/,
 	);
+	assert.match(workflow, /gh api --method POST "repos\/\$\{GITHUB_REPOSITORY\}\/dispatches"/);
+	assert.match(workflow, /GITHUB_TOKEN: $\{\{ github\.token \}\}/);
+	assert.doesNotMatch(workflow, /native-release\.yml/);
 });
 
 test('release workflow can retry an exact existing tag', async () => {
