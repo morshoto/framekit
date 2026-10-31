@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.2.1](https://github.com/morshoto/framekit/compare/v0.2.0...v0.2.1) - 2026-10-31
+
+### New Features
+- fix: separate native publish verification consent by @morshoto in https://github.com/morshoto/framekit/pull/639
+### Documentation
+- chore: align contributor toolchain requirements by @morshoto in https://github.com/morshoto/framekit/pull/638
+- chore: gate CodeQL on PR readiness and Swift changes by @morshoto in https://github.com/morshoto/framekit/pull/644
+### Other changes
+- chore: instrument Swift CodeQL build bottleneck by @morshoto in https://github.com/morshoto/framekit/pull/643
+
 ## [v0.2.0](https://github.com/morshoto/framekit/compare/v0.1.18...v0.2.0) - 2026-10-30
 
 ### Bug Fixes
