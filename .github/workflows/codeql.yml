@@ -15,6 +15,12 @@ on:
     schedule:
         - cron: '30 1 * * 0'
     workflow_dispatch:
+        inputs:
+            profile_swift:
+                description: Benchmark the Swift compiler without and with CodeQL extraction
+                required: false
+                type: boolean
+                default: false
 
 permissions:
     contents: read
@@ -95,6 +101,20 @@ jobs:
             - name: Check out repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+            - name: Capture Swift profiling environment
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              run: |
+                  uname -a
+                  xcodebuild -version
+                  xcrun --sdk macosx --show-sdk-version
+                  git rev-parse HEAD
+
+            # Before CodeQL init, no extractor/tracing environment has been installed.
+            # Compare this with the same script after init in the next type-check step.
+            - name: Benchmark Swift compiler without CodeQL tracing
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              run: bash .github/codeql/typecheck-swift.sh
+
             - name: Initialize CodeQL
               uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
               with:
@@ -103,16 +123,7 @@ jobs:
 
             - name: Type-check Swift sources for CodeQL extraction
               timeout-minutes: 25
-              run: |
-                  xcrun --sdk macosx swiftc \
-                    -typecheck \
-                    -parse-as-library \
-                    -module-name FramekitFinalCutWorkflowCodeQL \
-                    -target "$(uname -m)-apple-macos15.0" \
-                    -swift-version 5 \
-                    -D FRAMEKIT_CODEQL \
-                    adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift \
-                    .github/codeql/FinalCutWorkflowExtensionShim.swift
+              run: bash .github/codeql/typecheck-swift.sh
 
             - name: Analyze with CodeQL
               uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
