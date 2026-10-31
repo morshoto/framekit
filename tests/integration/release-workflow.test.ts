@@ -259,6 +259,7 @@ test('published releases package native assets independently of npm publication'
 	assert.match(workflow, /repos\/\$\{GITHUB_REPOSITORY\}\/dispatches/);
 	assert.match(workflow, /framekit-native-release-published/);
 	assert.match(workflow, /client_payload/);
+	assert.match(workflow, /dispatch-native-release:[\s\S]*?continue-on-error: true/);
 	assert.match(workflow, /package-native-assets:[\s\S]*?runs-on:\s*\[self-hosted, macOS, framekit-release\]/);
 	assert.match(workflow, /scripts\/package-final-cut-release\.sh/);
 	assert.match(workflow, /name: Upload native release assets/);
@@ -279,7 +280,7 @@ test('published releases package native assets independently of npm publication'
 
 	assert.match(
 		workflow,
-		/native-release-trigger:[\s\S]*?github\.event_name == 'release'[\s\S]*?github\.event_name == 'repository_dispatch'/,
+		/validate-native-release:[\s\S]*?github\.event_name == 'release'[\s\S]*?github\.event_name == 'repository_dispatch'/,
 	);
 	assert.match(workflow, /gh release upload "\$\{RELEASE_TAG\}"/);
 	assert.match(workflow, /--clobber/);
@@ -336,7 +337,7 @@ test('native release is automatic and validates the published tag', async () => 
 	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
 	assert.match(
 		workflow,
-		/concurrency:[\s\S]*?native-release-\$\{\{ github\.event\.release\.tag_name \}\}/,
+		/concurrency:[\s\S]*?group: native-release-\$\{\{ github\.event_name == 'release' && github\.event\.release\.tag_name/,
 	);
 	assert.match(workflow, /name: Validate release tag/);
 	assert.match(workflow, /gh release view "\$\{RELEASE_TAG\}"/);
@@ -345,7 +346,7 @@ test('native release is automatic and validates the published tag', async () => 
 		/git merge-base --is-ancestor "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}" origin\/main/,
 	);
 	assert.match(workflow, /gh api --method POST "repos\/\$\{GITHUB_REPOSITORY\}\/dispatches"/);
-	assert.match(workflow, /GITHUB_TOKEN: $\{\{ github\.token \}\}/);
+	assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
 	assert.doesNotMatch(workflow, /native-release\.yml/);
 });
 
@@ -366,7 +367,7 @@ test('release workflow can retry an exact existing tag', async () => {
 	);
 	assert.match(
 		workflow,
-		/concurrency:\s+group: release\s+cancel-in-progress: false/,
+		/tagpr:[\s\S]*?concurrency:\s+group: release\s+cancel-in-progress: false/,
 	);
 	assert.match(workflow, /fetch-depth: 0/);
 	assert.match(
@@ -618,17 +619,20 @@ test('release documentation explains npm lifecycle verification fallback', async
 	assert.match(documentation, /16\s+minutes/i);
 });
 
-test('release documentation explains manual native asset recovery', async () => {
+test('release documentation explains automatic native asset packaging', async () => {
 	const documentation = await readFile(
 		resolve(repository, 'docs/release.md'),
 		'utf8',
 	);
 
 	assert.match(documentation, /Native release assets/);
-	assert.match(documentation, /release_tag/);
+	assert.match(documentation, /release\.published/);
+	assert.match(documentation, /repository_dispatch/);
 	assert.match(documentation, /self-hosted.*macOS.*framekit-release/s);
 	assert.match(documentation, /does not block/i);
+	assert.match(documentation, /rerun/i);
 	assert.match(documentation, /verify-release-provenance/);
+	assert.doesNotMatch(documentation, /Run `native-release\.yml`/);
 	assert.doesNotMatch(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
 });
 
