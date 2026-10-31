@@ -131,7 +131,7 @@ test("FCPXML publisher imports a validated artifact as a new project", async () 
     sourceTransactionId: "txn-publish-1",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.equal(result.verified, true);
@@ -216,7 +216,7 @@ test("native FCPXML handoff targets a new library and preserves the approved sou
     artifactPath: sourcePath,
     artifactDigest: digest(source),
     targetLibraryPath,
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.ok(deliveredPath);
@@ -360,7 +360,7 @@ test("FCPXML publisher uses the native document-open delivery boundary", async (
     artifactPath: sourcePath,
     artifactDigest: digest(source),
     targetLibraryPath,
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.equal(result.verified, true);
@@ -416,7 +416,7 @@ test("FCPXML publisher does not fallback after an attempted background open", as
     artifactPath: sourcePath,
     artifactDigest: digest(source),
     targetLibraryPath: disabledTargetLibraryPath,
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_VERIFICATION_PENDING/);
   assert.deepEqual(fallbackScripts, []);
   assert.equal(liveStateCalls, 1);
@@ -488,7 +488,8 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
     publishRoute: "background-document-open",
   });
   assert.equal(restartedPublisher.getPublishJob(preview.jobId).handoff.route, "headed-apple-event");
-  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true)).state, "verified");
+  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true)).state, "verification-pending");
+  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true, true)).state, "verified");
   assert.equal(backgroundDeliveries, 0);
   assert.equal(appleScripts.length, 1);
   assert.match(appleScripts[0] ?? "", /open POSIX file ".*selected route\.fcpxml"/);
@@ -538,7 +539,7 @@ test("FCPXML publisher requires exact live identity for a library-bound target",
       artifactPath: sourcePath,
       artifactDigest: digest(source),
       targetLibraryPath,
-      confirm: true,
+      confirm: true, confirmVerification: true,
     }), /FINAL_CUT_PUBLISH_(?:TARGET_MISMATCH|VERIFICATION_FAILED)/);
   }
 });
@@ -613,7 +614,9 @@ test("FCPXML publisher reserves a library path across independent publisher inst
   } finally {
     releaseDispatch();
   }
-  const firstResult = await firstExecution;
+  const firstPending = await firstExecution;
+  assert.equal(firstPending.state, "verification-pending");
+  const firstResult = await firstPublisher.executePublishJob(firstJob.jobId, true, true);
 
   assert.equal(secondResult.state, "failed");
   assert.equal(secondResult.retryable, false);
@@ -635,6 +638,7 @@ test("FCPXML publisher recovers a dead reservation only when its target is absen
   const reservationPath = await reservationPathFor(targetLibraryPath);
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-reservation",
+    phase: "reserved",
     targetLibraryPath: join(await realpath(aliasedTargetParent), basename(targetLibraryPath)),
     // This is outside the PID range used by supported macOS and Linux runners.
     pid: 2_147_483_647,
@@ -662,7 +666,7 @@ test("FCPXML publisher recovers a dead reservation only when its target is absen
     artifactPath: sourcePath,
     artifactDigest: digest(source),
     targetLibraryPath,
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.equal(result.verified, true);
@@ -680,6 +684,7 @@ test("FCPXML publisher allows only one process to recover a stale library reserv
   const reservationPath = await reservationPathFor(targetLibraryPath);
   await writeFile(reservationPath, JSON.stringify({
     reservationId: "abandoned-concurrent-reservation",
+    phase: "reserved",
     targetLibraryPath: join(await realpath(dirname(targetLibraryPath)), basename(targetLibraryPath)),
     pid: 2_000_000_000,
     createdAt: new Date(0).toISOString(),
@@ -725,7 +730,7 @@ test("FCPXML publisher allows only one process to recover a stale library reserv
         artifactPath: sourcePath,
         artifactDigest: ${JSON.stringify(digest(source))},
         targetLibraryPath,
-        confirm: true,
+        confirm: true, confirmVerification: true,
       });
       process.stdout.write("verified:" + result.createdTarget.projectId);
     } catch (error) {
@@ -784,18 +789,18 @@ test("FCPXML publisher allows only one process to recover a stale library reserv
   }
 });
 
-test("FCPXML publisher keeps malformed and live-process reservations", async () => {
+test("FCPXML publisher keeps malformed, legacy and live-process reservations", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-protected-reservation-"));
   const sourcePath = join(directory, "project.fcpxml");
   const source = '<fcpxml version="1.11"><library><event><project name="Protected Project"><sequence name="Main" /></project></event></library></fcpxml>';
   await writeFile(sourcePath, source);
 
-  for (const index of [0, 1]) {
+  for (const index of [0, 1, 2]) {
     const targetLibraryPath = join(directory, `Protected Library ${index}.fcpbundle`);
     const reservationPath = await reservationPathFor(targetLibraryPath);
     const contents = index === 0
       ? "not-json"
-      : JSON.stringify({ reservationId: "live-reservation", targetLibraryPath, pid: process.pid });
+      : JSON.stringify({ reservationId: "protected-reservation", targetLibraryPath, pid: index === 1 ? process.pid : 2_147_483_647, ...(index === 1 ? { phase: "reserved" } : {}) });
     await writeFile(reservationPath, contents);
     const publisher = createPublisherForTest({
       enabled: true,
@@ -810,7 +815,7 @@ test("FCPXML publisher keeps malformed and live-process reservations", async () 
       artifactPath: sourcePath,
       artifactDigest: digest(source),
       targetLibraryPath,
-      confirm: true,
+      confirm: true, confirmVerification: true,
     }), /PUBLISH_TARGET_LIBRARY_RESERVED/);
     assert.equal(await readFile(reservationPath, "utf8"), contents);
   }
@@ -846,7 +851,7 @@ test("FCPXML direct publish transfers an ambiguous reservation to a resumable jo
       artifactPath: sourcePath,
       artifactDigest: digest(source),
       targetLibraryPath,
-      confirm: true,
+      confirm: true, confirmVerification: true,
     });
   } catch (error) {
     publishError = error as Error;
@@ -856,7 +861,7 @@ test("FCPXML direct publish transfers an ambiguous reservation to a resumable jo
   assert.ok(jobId, "direct publish failure should expose its verification job id");
   assert.equal(publisher.getPublishJob(jobId).state, "verification-pending");
   assert.match(await readFile(await reservationPathFor(targetLibraryPath), "utf8"), /reservationId/);
-  const resumed = await publisher.executePublishJob(jobId, true);
+  const resumed = await publisher.executePublishJob(jobId, true, true);
   assert.equal(resumed.state, "verified");
   await assert.rejects(readFile(await reservationPathFor(targetLibraryPath)), { code: "ENOENT" });
 });
@@ -884,7 +889,7 @@ test("retained direct publish reports headed verification when document delivery
       artifactPath: sourcePath,
       artifactDigest: digest(source),
       targetLibraryPath,
-      confirm: true,
+      confirm: true, confirmVerification: true,
     });
   } catch (error) {
     publishError = error as Error;
@@ -949,7 +954,7 @@ test("FCPXML publisher exposes target selection as an interaction-required bound
     artifactPath: sourcePath,
     artifactDigest: digest(source),
     targetLibraryPath,
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_DELIVERY_TARGET_UNAVAILABLE/);
 
   assert.equal(liveStateCalls, 1);
@@ -979,7 +984,7 @@ test("FCPXML publisher rejects a stale active project with matching names", asyn
     sourceTransactionId: "txn-stale",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_TARGET_MISMATCH/);
 });
 
@@ -997,7 +1002,7 @@ test("FCPXML publisher requires live project and sequence verification", async (
     sourceTransactionId: "txn-no-state",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE/);
 });
 
@@ -1032,7 +1037,7 @@ test("FCPXML publisher refuses to import without headed semantic readback", asyn
     sourceTransactionId: "txn-readback-unavailable",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE/);
   assert.equal(executorCalled, false);
 });
@@ -1059,7 +1064,7 @@ test("FCPXML publisher refuses to import when approved source media is missing",
     sourceTransactionId: "txn-media-missing",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_SOURCE_MEDIA_UNAVAILABLE/);
   assert.equal(executorCalled, false);
 });
@@ -1100,7 +1105,7 @@ test("FCPXML publisher detects source media mutation during native publishing", 
     sourceTransactionId: "txn-media-changed",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_SOURCE_MEDIA_CHANGED/);
 });
 
@@ -1136,7 +1141,7 @@ test("FCPXML publish success includes unchanged source media hashes", async () =
     sourceTransactionId: "txn-media-intact",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.deepEqual(result.sourceMediaIntegrity, {
@@ -1191,7 +1196,7 @@ test("FCPXML publisher refuses a direct import without a target-binding provider
     sourceTransactionId: "txn-unbound",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE/);
   assert.equal(executorCalled, false);
 });
@@ -1232,7 +1237,7 @@ test("FCPXML publisher waits for the imported project identity to settle", async
     sourceTransactionId: "txn-poll",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.equal(result.createdTarget.projectId, "imported-project");
@@ -1274,7 +1279,7 @@ test("FCPXML publisher retries transient live-state errors", async () => {
     sourceTransactionId: "txn-transient",
     artifactPath: sourcePath,
     artifactDigest: digest(source),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   });
 
   assert.equal(result.createdTarget.projectId, "imported-project");
@@ -1299,7 +1304,7 @@ test("FCPXML publisher rejects invalid artifacts before automation", async () =>
     sourceTransactionId: "txn-invalid",
     artifactPath: sourcePath,
     artifactDigest: digest("not fcpxml"),
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /PUBLISH_VALIDATION_FAILED/);
   assert.equal(called, false);
 });
@@ -1336,7 +1341,7 @@ test("FCPXML publisher names the supported runtime configuration when disabled",
     sourceTransactionId: "txn-disabled",
     artifactPath: "/tmp/project.fcpxml",
     artifactDigest: "unused",
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /FRAMEKIT_EDITOR.*FRAMEKIT_FCPXML_PATH.*FRAMEKIT_FINAL_CUT_SOCKET/);
 });
 
@@ -1358,7 +1363,7 @@ test("FCPXML publisher rejects an artifact path outside its managed source", asy
     sourceTransactionId: "txn-publish-3",
     artifactPath: join(directory, "other.fcpxml"),
     artifactDigest: "unused",
-    confirm: true,
+    confirm: true, confirmVerification: true,
   }), /PUBLISH_TARGET_MISMATCH/);
   assert.equal(called, false);
 });
@@ -1468,7 +1473,9 @@ test("FCPXML publish jobs report success only after live target verification", a
     artifactDigest: digest(source),
   });
 
-  const verified = await publisher.executePublishJob(prepared.jobId, true);
+  const dispatched = await publisher.executePublishJob(prepared.jobId, true);
+  assert.equal(dispatched.state, "verification-pending");
+  const verified = await publisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(verified.state, "verified");
   assert.equal(verified.nextAction, "none");
@@ -1526,7 +1533,9 @@ test("FCPXML publish jobs resume verification without importing twice", async ()
     artifactDigest: digest(source),
   });
 
-  const pending = await publisher.executePublishJob(prepared.jobId, true);
+  const dispatched = await publisher.executePublishJob(prepared.jobId, true);
+  assert.equal(dispatched.nextAction, "confirm-verification");
+  const pending = await publisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(pending.state, "verification-pending");
   assert.equal(pending.nextAction, "retry");
@@ -1534,7 +1543,7 @@ test("FCPXML publish jobs resume verification without importing twice", async ()
   assert.equal(pending.createdTarget, undefined);
   assert.match(pending.error?.code ?? "", /FINAL_CUT_PUBLISH_STATE_UNAVAILABLE/);
 
-  const resumed = await publisher.executePublishJob(prepared.jobId, true);
+  const resumed = await publisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(resumed.state, "verified");
   assert.equal(resumed.result?.verified, true);
@@ -1636,14 +1645,33 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   const pending = await firstPublisher.executePublishJob(prepared.jobId, true);
 
   assert.equal(pending.state, "verification-pending");
+  assert.equal(pending.delivery?.status, "dispatched");
+  assert.equal(pending.delivery?.target.guarantee, "requested-unverified");
+  assert.equal(pending.createdTarget, undefined);
+  assert.equal(pending.result, undefined);
+  assert.equal(deliveryCalls, 1);
+  const disabledPublisher = createPublisherForTest({
+    ...publisherOptions,
+    enabled: false,
+    liveState: async () => createdState,
+  });
+  const unavailable = await disabledPublisher.executePublishJob(prepared.jobId, true, true);
+  assert.equal(unavailable.state, "verification-pending", "provider loss must retain the spent import state");
+  assert.equal(deliveryCalls, 1);
+  const missingLivePublisher = createPublisherForTest({ ...publisherOptions });
+  const missingLive = await missingLivePublisher.executePublishJob(prepared.jobId, true, true);
+  assert.equal(missingLive.state, "verification-pending", "missing live state must not re-arm dispatch");
   assert.equal(deliveryCalls, 1);
   const restartedPublisher = createPublisherForTest({
     ...publisherOptions,
     liveState: async () => createdState,
   });
-  assert.equal(restartedPublisher.getPublishJob(prepared.jobId).state, "verification-pending");
+  const recovered = restartedPublisher.getPublishJob(prepared.jobId);
+  assert.equal(recovered.state, "verification-pending");
+  assert.equal(recovered.delivery?.status, "dispatched", "dispatch evidence survives restart");
+  assert.equal(recovered.createdTarget, undefined);
 
-  const resumed = await restartedPublisher.executePublishJob(prepared.jobId, true);
+  const resumed = await restartedPublisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(resumed.state, "verified");
   assert.deepEqual(resumed.createdTarget, {
@@ -1734,7 +1762,9 @@ test("publish job state rolls back when its pre-import checkpoint fails", async 
   assert.equal(fixture.deliveryCalls(), 0);
 
   internals.publishJobsDirectory = originalDirectory;
-  const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  const dispatched = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(dispatched.state, "verification-pending");
+  const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true, true);
   assert.equal(verified.state, "verified");
   assert.equal(fixture.deliveryCalls(), 1);
 });
@@ -1761,7 +1791,9 @@ test("publish retries when the pre-dispatch import marker cannot persist", async
   assert.equal(persisted.runtime?.importAttempted, false);
 
   internals.persistPublishJob = originalPersist;
-  const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  const dispatched = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(dispatched.state, "verification-pending");
+  const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true, true);
   assert.equal(verified.state, "verified");
   assert.equal(fixture.deliveryCalls(), 1);
 });
@@ -1812,10 +1844,13 @@ test("FCPXML publish jobs do not report success when the native timeline differs
     artifactDigest: digest(source),
   });
 
-  const result = await publisher.executePublishJob(prepared.jobId, true);
+  await publisher.executePublishJob(prepared.jobId, true);
+  const result = await publisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(result.state, "verification-pending");
   assert.equal(result.createdTarget, undefined);
+  assert.equal(result.observedTarget?.projectId, "native-project");
+  assert.equal(result.observedTarget?.sequenceId, "native-sequence");
   assert.equal(result.result, undefined);
   assert.equal(result.error?.code, "FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH");
   assert.equal(executorCalls, 1);
@@ -1945,7 +1980,8 @@ test("headless FCPXML destination UIDs cannot substitute for native target bindi
     artifactDigest: digest(source),
     targetLibraryPath: join(directory, "Target.fcpbundle"),
   });
-  const result = await publisher.executePublishJob(job.jobId, true);
+  await publisher.executePublishJob(job.jobId, true);
+  const result = await publisher.executePublishJob(job.jobId, true, true);
 
   assert.equal("targetBinding" in job, false);
   assert.equal(result.state, "failed");
@@ -2003,7 +2039,8 @@ test("headless library UID may differ from a new native library identity", async
     targetLibraryPath,
   });
 
-  const result = await publisher.executePublishJob(job.jobId, true);
+  await publisher.executePublishJob(job.jobId, true);
+  const result = await publisher.executePublishJob(job.jobId, true, true);
 
   assert.equal(result.state, "verified");
   assert.equal(result.createdTarget?.libraryId, "generated-native-library-uuid");
@@ -2120,7 +2157,8 @@ test("native publish verifies copied media against approved source digests", asy
       artifactDigest: digest(source),
       targetLibraryPath,
     });
-    const result = await publisher.executePublishJob(prepared.jobId, true);
+    await publisher.executePublishJob(prepared.jobId, true);
+    const result = await publisher.executePublishJob(prepared.jobId, true, true);
     assert.equal(executorCalls, 1);
     await rm(directory, { recursive: true, force: true });
     return result;
@@ -2174,10 +2212,122 @@ test("FCPXML publisher rejects native IDs that disagree with catalog readback", 
     artifactDigest: digest(source),
   });
 
-  const result = await publisher.executePublishJob(job.jobId, true);
+  await publisher.executePublishJob(job.jobId, true);
+  const result = await publisher.executePublishJob(job.jobId, true, true);
 
   assert.equal(result.state, "verification-pending");
   assert.equal(result.error?.code, "FINAL_CUT_PUBLISH_TARGET_MISMATCH");
   assert.equal(result.result, undefined);
   assert.equal(executorCalls, 1);
+});
+
+test("dispatch and headed readback require separate confirmations", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-separated-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Separate"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveries = 0;
+  let readbacks = 0;
+  const publisher = new FinalCutProjectPublisher({
+    enabled: true, sourcePath, verificationTimeoutMs: 0, pollIntervalMs: 0,
+    executor: async () => { deliveries++; return "dispatched"; },
+    targetBinding: async () => ({ projectId: "created", sequenceId: "created-sequence" }),
+    liveState: async () => ({
+      project: deliveries ? { id: "created", name: "Separate" } : { id: "before", name: "Before" },
+      sequence: deliveries
+        ? { id: "created-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } }
+        : { id: "before-sequence", name: "Before", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: `revision-${deliveries}`, sequence: deliveries, timestamp: new Date(0).toISOString() },
+    }),
+    readCanonicalSnapshot: async () => {
+      readbacks++;
+      return new FcpxmlDocumentAdapter(sourcePath, undefined, { allowMissingImmutableIdsForReadback: true }).readProject();
+    },
+  });
+  const job = await publisher.preparePublish({ sourceTransactionId: "separate", artifactPath: sourcePath, artifactDigest: digest(source) });
+  const dispatched = await publisher.executePublishJob(job.jobId, true);
+  assert.equal(dispatched.state, "verification-pending");
+  assert.equal(deliveries, 1);
+  assert.equal(readbacks, 0, "dispatch confirmation cannot authorize headed readback");
+  const stillPending = await publisher.executePublishJob(job.jobId, true);
+  assert.equal(stillPending.state, "verification-pending");
+  assert.equal(readbacks, 0);
+  const verified = await publisher.executePublishJob(job.jobId, true, true);
+  assert.equal(verified.state, "verified");
+  assert.equal(readbacks, 1);
+  assert.equal(deliveries, 1);
+});
+
+test("direct publish refuses import without explicit readback authorization", async () => {
+  let calls = 0;
+  const publisher = createPublisherForTest({
+    enabled: true,
+    sourcePath: "/nonexistent/artifact.fcpxml",
+    executor: async () => { calls++; return ""; },
+  });
+  await assert.rejects(publisher.publishNewProject({
+    sourceTransactionId: "txn", artifactPath: "/nonexistent/artifact.fcpxml",
+    artifactDigest: "digest", confirm: true,
+  }), /PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED/);
+  assert.equal(calls, 0);
+});
+
+test("a spent import reservation survives publisher death and prevents another dispatch", async () => {
+  const fixture = await createCheckpointFailureFixture("framekit-publisher-spent-reservation-");
+  const first = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+  assert.equal(first.state, "verification-pending");
+  assert.equal(fixture.deliveryCalls(), 1);
+  assert.ok(fixture.job.targetLibraryPath);
+  const reservationPath = await reservationPathFor(fixture.job.targetLibraryPath);
+  const reservation = JSON.parse(await readFile(reservationPath, "utf8"));
+  await writeFile(reservationPath, JSON.stringify({ ...reservation, pid: 2147483647 }));
+  const second = await fixture.publisher.preparePublish({
+    sourceTransactionId: fixture.job.sourceTransactionId,
+    artifactPath: fixture.job.sourcePath,
+    artifactDigest: fixture.job.artifactDigest,
+    targetLibraryPath: fixture.job.targetLibraryPath,
+  });
+  const rejected = await fixture.publisher.executePublishJob(second.jobId, true);
+  assert.equal(rejected.state, "failed");
+  assert.equal(rejected.error?.code, "PUBLISH_TARGET_LIBRARY_RESERVED");
+  assert.equal(fixture.deliveryCalls(), 1);
+});
+
+test("direct publish exposes dispatch evidence while readback is pending", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-direct-delivery-evidence-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "Pending.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project name="Pending"><sequence name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let calls = 0;
+  const publisher = createPublisherForTest({
+    enabled: true, sourcePath, verificationTimeoutMs: 0, pollIntervalMs: 0,
+    documentDelivery: { deliverFcpxml: async () => {
+      calls++;
+      return { status: "dispatched", route: "background-document-open", attempted: true, imported: false, requestedActivates: false, activation: "preserved", ui: "unknown", target: { requestedLibraryLocation: targetLibraryPath, guarantee: "requested-unverified" } };
+    } },
+    targetBinding: async () => ({ projectId: "observed-project", sequenceId: "observed-sequence", libraryPath: targetLibraryPath }),
+    liveState: async () => calls === 0
+      ? { revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }
+      : {
+        project: { id: "observed-project", name: "Pending" },
+        sequence: { id: "observed-sequence", name: "Main", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        revision: { id: "after", sequence: 2, timestamp: new Date(1).toISOString() },
+      },
+    readCanonicalSnapshot: async () => { throw new Error("READBACK_UNAVAILABLE: retry later"); },
+  });
+  let error: Error | undefined;
+  try {
+    await publisher.publishNewProject({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath, confirm: true, confirmVerification: true });
+  } catch (caught) { error = caught as Error; }
+  const jobId = error?.message.match(/publish job ([\w-]+)/)?.[1];
+  assert.ok(jobId);
+  const job = publisher.getPublishJob(jobId);
+  assert.equal(job.state, "verification-pending");
+  assert.equal(job.delivery?.status, "dispatched");
+  assert.equal(job.delivery?.target.guarantee, "requested-unverified");
+  assert.equal(job.createdTarget, undefined);
+  assert.equal(job.observedTarget?.projectId, "observed-project");
+  assert.equal(job.observedTarget?.sequenceId, "observed-sequence");
+  assert.equal(calls, 1);
 });

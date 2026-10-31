@@ -191,6 +191,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.ok(artifactPublishPreviewTool?.inputSchema.properties?.headlessExecutionId);
     const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
     assert.deepEqual(artifactPublishExecuteTool?.inputSchema.required?.slice().sort(), ["confirm", "jobId"]);
+    assert.ok(artifactPublishExecuteTool?.inputSchema.properties?.confirmVerification);
     const artifactPublishStatusTool = tools.tools.find((tool) => tool.name === "artifact.publish.status");
     assert.deepEqual(artifactPublishStatusTool?.inputSchema.required?.slice().sort(), ["jobId"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");

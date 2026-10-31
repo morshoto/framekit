@@ -70,12 +70,16 @@ Call `artifact.publish.preview` with the exact FCPXML `artifactPath`,
 whose parent directory exists. Show the user its source proof, artifact digest,
 target project/sequence, and new library path. Require explicit user authorization for that
 import before calling `artifact.publish.execute` with the returned `jobId` and
-`confirm: true`. Verify the same job with `artifact.publish.status`.
+`confirm: true`. Inspect the same job with `artifact.publish.status`. For a
+`verification-pending` job, obtain separate user authorization for headed
+semantic readback of that exact job, target, and artifact digest before calling
+`artifact.publish.execute` again with `confirm: true` and
+`confirmVerification: true`.
 
 If the job is `awaiting-final-cut`, report that it is pending and wait until the
 user makes Final Cut ready; inspect the same job before retrying it. If the job
-is `verification-pending`, continue verification for that job and never create
-a second import job. Claim successful delivery only when status is `verified`
+is `verification-pending`, request the separate readback authorization above
+and never create a second import job. Claim successful delivery only when status is `verified`
 and includes matching target readback. Never infer an import from a queued,
 pending, dispatched, or unverifiable result.
 
