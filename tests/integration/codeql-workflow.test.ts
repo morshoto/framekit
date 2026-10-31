@@ -95,7 +95,7 @@ test('detect-changes gates Swift while preserving full weekly and manual scans',
 	const swiftJob = getJob(workflow, 'analyze-swift');
 	assert.ok(detectorJob && javascriptJob && swiftJob);
 	assert.match(detectorJob, /name: Detect CodeQL scope/);
-	assert.match(detectorJob, /pull-requests: read/);
+	assert.doesNotMatch(detectorJob, /pull-requests: read/);
 	assert.match(detectorJob, /node \.github\/codeql\/detect-changes\.mjs/);
 	assert.match(javascriptJob, /needs\.detect-changes\.outputs\.run_codeql == 'true'/);
 	assert.match(swiftJob, /needs\.detect-changes\.outputs\.swift == 'true'/);
