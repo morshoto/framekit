@@ -53,14 +53,16 @@ test('CodeQL keeps default-branch runs from being cancelled', async () => {
 	);
 });
 
-test('CodeQL does not trigger on pull requests', async () => {
+test('CodeQL runs on ready pull requests without scanning each draft push', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
-	// Ignore commented-out YAML, including the old pull_request configuration.
-	const activeWorkflow = workflow.replace(/^[ \t]*#.*$/gm, '');
-	assert.doesNotMatch(activeWorkflow, /^\s*pull_request:/m);
-	assert.match(activeWorkflow, /^\s*push:/m);
-	assert.match(activeWorkflow, /^\s*workflow_dispatch:/m);
-	assert.match(activeWorkflow, /^\s*schedule:/m);
+	assert.match(workflow, /^\s+pull_request:\s*$/m);
+	for (const action of ['opened', 'reopened', 'synchronize', 'ready_for_review']) {
+		assert.match(workflow, new RegExp('^\\s+- ' + action + '$', 'm'));
+	}
+	assert.match(workflow, /push:\s+branches:\s+- main/);
+	assert.match(workflow, /^\s*workflow_dispatch:/m);
+	assert.match(workflow, /^\s*schedule:/m);
+	assert.doesNotMatch(workflow, /\n\s+- converted_to_draft\n/);
 });
 
 test('CodeQL retains both analysis jobs for default-branch runs', async () => {
@@ -78,31 +80,51 @@ test('CodeQL retains both analysis jobs for default-branch runs', async () => {
 		/name: Analyze \(\$\{\{ matrix\.language \}\}\)/,
 	);
 	assert.match(javascriptJob, /language: javascript-typescript/);
-	assert.match(javascriptJob, /^\s+if: \$\{\{ !cancelled\(\) \}\}/m);
+	assert.match(javascriptJob, /needs: detect-changes/);
+	assert.match(javascriptJob, /needs\.detect-changes\.outputs\.run_codeql == 'true'/);
 	assert.match(swiftJob, /name: Analyze \(swift\)/);
-	assert.match(swiftJob, /^\s+if: \$\{\{ !cancelled\(\) \}\}/m);
+	assert.match(swiftJob, /needs: detect-changes/);
+	assert.match(swiftJob, /needs\.detect-changes\.outputs\.swift == 'true'/);
 	assert.doesNotMatch(workflow, /\n  changes:\n|needs: changes/);
 });
 
-test('Swift CodeQL publishes its required analysis when unchanged', async () => {
+test('detect-changes gates Swift while preserving full weekly and manual scans', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const detectorJob = getJob(workflow, 'detect-changes');
+	const javascriptJob = getJob(workflow, 'analyze');
 	const swiftJob = getJob(workflow, 'analyze-swift');
-
-	assert.ok(swiftJob, 'Swift CodeQL job should be present');
-	assert.match(swiftJob, /^\s+if: \$\{\{ !cancelled\(\) \}\}/m);
-	assert.doesNotMatch(
-		swiftJob,
-		/Skip Swift CodeQL analysis \(no Swift changes\)/,
-	);
-	assert.doesNotMatch(
-		swiftJob,
-		/if: \$\{\{ needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true' \}\}/,
-	);
+	assert.ok(detectorJob && javascriptJob && swiftJob);
+	assert.match(detectorJob, /name: Detect CodeQL scope/);
+	assert.match(detectorJob, /pull-requests: read/);
+	assert.match(detectorJob, /node \.github\/codeql\/detect-changes\.mjs/);
+	assert.match(javascriptJob, /needs\.detect-changes\.outputs\.run_codeql == 'true'/);
+	assert.match(swiftJob, /needs\.detect-changes\.outputs\.swift == 'true'/);
 	assert.match(swiftJob, /category: \/language:swift/);
-	assert.doesNotMatch(
-		swiftJob,
-		/needs: changes\n    if: \$\{\{ !cancelled\(\) && \(needs\.changes\.result != 'success' \|\| needs\.changes\.outputs\.swift == 'true'\) \}\}/,
-	);
+
+	const detector = await import(new URL('../../.github/codeql/detect-changes.mjs', import.meta.url).href) as {
+		affectsSwift: (paths: string[]) => boolean;
+		selectScans: (options: { eventName: string; draft?: boolean; paths?: string[] | null }) => {
+			runCodeQL: boolean; swift: boolean;
+		};
+	};
+	for (const file of [
+		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml',
+		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift',
+		'.github/codeql/FinalCutWorkflowExtensionShim.swift',
+		'.github/workflows/codeql.yml',
+		'.github/workflows/swift.yml',
+		'other/SomeFeature.swift',
+	]) {
+		assert.equal(detector.affectsSwift([file]), true, file);
+	}
+	assert.equal(detector.affectsSwift(['README.md', 'packages/runtime/src/model.ts']), false);
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', draft: true, paths: ['file.swift'] }), { runCodeQL: false, swift: false });
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: ['packages/runtime/src/model.ts'] }), { runCodeQL: true, swift: false });
+	assert.deepEqual(detector.selectScans({ eventName: 'push', paths: ['README.md'] }), { runCodeQL: true, swift: false });
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: [] }), { runCodeQL: true, swift: true });
+	for (const eventName of ['schedule', 'workflow_dispatch']) {
+		assert.deepEqual(detector.selectScans({ eventName }), { runCodeQL: true, swift: true });
+	}
 });
 
 test('CodeQL preserves JavaScript analysis and adds a bounded Swift job', async () => {
