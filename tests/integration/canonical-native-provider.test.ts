@@ -1781,6 +1781,11 @@ test("canonical provider delegates supported project selection and binds later r
     backgroundCatalog: { listProjects: async () => projectCatalog() },
   });
   const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const sessionCapabilities = await new FinalCutSessionAdapter({ live: provider }).getCapabilities({
+    probeCanonicalSnapshot: false,
+  });
+  assert.equal(sessionCapabilities.editor.projectSelection, true);
+  assert.equal(sessionCapabilities.editor.projectSelectionMode, "headed-only");
 
   const catalog = await runtime.listProjects();
   assert.equal(catalog.provenance?.selection.available, true);
