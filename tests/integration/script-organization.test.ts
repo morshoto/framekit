@@ -13,15 +13,18 @@ test("package, workflow, and documentation script references resolve", async () 
   const packageJson = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
-  const workflow = await readFile(resolve(repository, ".github/workflows/typescript.yml"), "utf8");
+  const workflow = await readFile(resolve(repository, ".github/workflows/ci.yml"), "utf8");
+  const lintAction = await readFile(resolve(repository, ".github/action/lint-static/action.yml"), "utf8");
   assert.equal(packageJson.scripts?.["check:scripts"], "node scripts/check-script-references.mjs");
-  assert.match(workflow, /run: pnpm run check:scripts/);
+  assert.match(workflow, /\.github\/action\/lint-static/);
+  assert.match(lintAction, /run: pnpm run check:scripts/);
 });
 
 test("reports missing package commands, workflow commands, links, and executables", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-script-references-"));
   try {
     await mkdir(join(root, ".github/workflows"), { recursive: true });
+    await mkdir(join(root, ".github/action/fixture"), { recursive: true });
     await mkdir(join(root, "docs"), { recursive: true });
     await mkdir(join(root, "tests"), { recursive: true });
     await writeFile(join(root, "package.json"), JSON.stringify({
@@ -32,11 +35,13 @@ test("reports missing package commands, workflow commands, links, and executable
       bin: { framekit: "./bin/missing-executable.mjs" },
     }));
     await writeFile(join(root, ".github/workflows/ci.yml"), "steps:\n  - run: node scripts/missing-workflow.mjs\n  - run: ./scripts/missing-direct-workflow.sh\n");
+    await writeFile(join(root, ".github/action/fixture/action.yml"), "runs:\n  using: composite\n  steps:\n    - run: node scripts/missing-action.mjs\n");
     await writeFile(join(root, "CONTRIBUTING.md"), "Run `node scripts/missing-contributing-command.mjs`.\n");
     await writeFile(join(root, "docs/testing.md"), "[missing](../scripts/missing-link.mjs)\n\nRun `node scripts/missing-doc-command.mjs`.\n");
     await writeFile(join(root, "tests/README.md"), "Run `node scripts/missing-test-command.mjs`.\n");
 
     assert.deepEqual(await checkScriptReferences(root), [
+      ".github/action/fixture/action.yml runs missing script scripts/missing-action.mjs",
       ".github/workflows/ci.yml runs missing script scripts/missing-direct-workflow.sh",
       ".github/workflows/ci.yml runs missing script scripts/missing-workflow.mjs",
       "CONTRIBUTING.md runs missing script scripts/missing-contributing-command.mjs",

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22.14.0
+  CONSUMER_NODE_VERSION: 20.0.0
+
+jobs:
+  lint:
+    name: Lint / static checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run lint and static checks
+        uses: ./.github/action/lint-static
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+  test:
+    name: Unit / integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run unit and integration checks
+        uses: ./.github/action/test
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+  consumer-runtime:
+    name: Published package consumer minimum
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify the published package consumer minimum
+        uses: ./.github/action/consumer-runtime
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          consumer-node-version: ${{ env.CONSUMER_NODE_VERSION }}
+
+  swift:
+    name: Swift type-check
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Validate Swift Workflow Extension
+        uses: ./.github/action/swift

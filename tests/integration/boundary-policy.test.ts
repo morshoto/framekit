@@ -296,8 +296,8 @@ test("rejects experimental native modules in default production reachability", a
 });
 
 test("keeps the package-boundary gate in pull request CI", async () => {
-  const workflow = await readFile(new URL("../../.github/workflows/typescript.yml", import.meta.url), "utf8");
-  assert.match(workflow, /Package boundary checks[\s\S]*?run: pnpm run check:boundaries/);
+  const action = await readFile(new URL("../../.github/action/lint-static/action.yml", import.meta.url), "utf8");
+  assert.match(action, /Package boundary checks[\s\S]*?run: pnpm run check:boundaries/);
 });
 
 function assertViolation(result: { violations: Array<{ code: string }> }, code: string): void {
