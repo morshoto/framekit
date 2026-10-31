@@ -16,12 +16,14 @@ export function affectsSwift(paths) {
 }
 
 export function selectScans({ eventName, draft = false, paths = null }) {
-  if (eventName === 'pull_request' && draft) {
-    return { runCodeQL: false, swift: false };
+  // PRs retain JavaScript/TypeScript CodeQL, but never launch the slow Swift
+  // extractor. The independent Swift CI type-check still gates every PR.
+  if (eventName === 'pull_request') {
+    return { runCodeQL: !draft, swift: false };
   }
-  // Weekly and manual scans retain full language coverage.
-  const forceFullScan = eventName !== 'pull_request' && eventName !== 'push';
-  // Unknown or empty diffs run Swift rather than silently skipping security.
+  // On main, scan Swift after a relevant push; scheduled/manual runs scan all.
+  const forceFullScan = eventName !== 'push';
+  // Unknown or empty push diffs run Swift rather than silently skipping security.
   return {
     runCodeQL: true,
     swift: forceFullScan || !paths?.length || affectsSwift(paths),
@@ -40,40 +42,24 @@ async function getJSON(url, token) {
   return response.json();
 }
 
-export async function getChangedPaths({ eventName, repository, prNumber, before, sha, token }) {
+export async function getChangedPaths({ repository, before, sha, token }) {
+  if (!/^[a-f0-9]{40}$/.test(before ?? '') || /^0{40}$/.test(before) ||
+      !/^[a-f0-9]{40}$/.test(sha ?? '')) return null;
   const endpoint = `https://api.github.com/repos/${repository}`;
-  if (eventName === 'pull_request') {
-    if (!/^\d+$/.test(String(prNumber))) return null;
-    const paths = [];
-    for (let page = 1; page <= 30; page++) {
-      const entries = await getJSON(`${endpoint}/pulls/${prNumber}/files?per_page=100&page=${page}`, token);
-      if (!Array.isArray(entries)) return null;
-      paths.push(...entries.map(({ filename }) => filename));
-      if (entries.length < 100) return paths;
-    }
-    return null; // GitHub caps pull request files at 3,000.
-  }
-  if (eventName === 'push') {
-    if (!/^[a-f0-9]{40}$/.test(before ?? '') || /^0{40}$/.test(before) ||
-        !/^[a-f0-9]{40}$/.test(sha ?? '')) return null;
-    const comparison = await getJSON(`${endpoint}/compare/${before}...${sha}`, token);
-    // The Compare API returns at most 300 files. Never use a truncated diff to skip.
-    if (!Array.isArray(comparison.files) || comparison.files.length >= 300) return null;
-    return comparison.files.map(({ filename }) => filename);
-  }
-  return null;
+  const comparison = await getJSON(`${endpoint}/compare/${before}...${sha}`, token);
+  // The Compare API returns at most 300 files. Never use a truncated diff to skip.
+  if (!Array.isArray(comparison.files) || comparison.files.length >= 300) return null;
+  return comparison.files.map(({ filename }) => filename);
 }
 
 async function main() {
   const eventName = process.env.GITHUB_EVENT_NAME;
   const draft = process.env.PR_DRAFT === 'true';
   let paths = null;
-  if (!(eventName === 'pull_request' && draft) && (eventName === 'pull_request' || eventName === 'push')) {
+  if (eventName === 'push') {
     try {
       paths = await getChangedPaths({
-        eventName,
         repository: process.env.GITHUB_REPOSITORY,
-        prNumber: process.env.PR_NUMBER,
         before: process.env.PUSH_BEFORE,
         sha: process.env.GITHUB_SHA,
         token: process.env.GITHUB_TOKEN,
