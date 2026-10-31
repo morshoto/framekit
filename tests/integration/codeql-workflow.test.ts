@@ -120,8 +120,13 @@ test('detect-changes gates Swift while preserving full weekly and manual scans',
 	assert.equal(detector.affectsSwift(['README.md', 'packages/runtime/src/model.ts']), false);
 	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', draft: true, paths: ['file.swift'] }), { runCodeQL: false, swift: false });
 	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: ['packages/runtime/src/model.ts'] }), { runCodeQL: true, swift: false });
+	// Swift code scanning is deferred to main, even if Swift or workflow inputs changed on the PR.
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: ['adapters/final-cut/swift-bridge/Extension.swift'] }), { runCodeQL: true, swift: false });
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: null }), { runCodeQL: true, swift: false });
 	assert.deepEqual(detector.selectScans({ eventName: 'push', paths: ['README.md'] }), { runCodeQL: true, swift: false });
-	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: [] }), { runCodeQL: true, swift: true });
+	assert.deepEqual(detector.selectScans({ eventName: 'push', paths: ['adapters/final-cut/swift-bridge/Extension.swift'] }), { runCodeQL: true, swift: true });
+	assert.deepEqual(detector.selectScans({ eventName: 'push', paths: [] }), { runCodeQL: true, swift: true });
+	assert.deepEqual(detector.selectScans({ eventName: 'push', paths: null }), { runCodeQL: true, swift: true });
 	for (const eventName of ['schedule', 'workflow_dispatch']) {
 		assert.deepEqual(detector.selectScans({ eventName }), { runCodeQL: true, swift: true });
 	}
