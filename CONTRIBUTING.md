@@ -148,9 +148,9 @@ colors and animation.
 ## Pull requests
 
 Start PRs as Draft, including agent-created PRs. Mark Ready for review once
-implementation and fast CI are complete; this triggers CodeQL. Swift CodeQL
-runs only for Swift-related changes on PRs and main pushes; scheduled and
-manual scans still cover Swift.
+implementation and fast CI are complete; this triggers JavaScript/TypeScript
+CodeQL. Swift CodeQL runs after Swift-related pushes to main, and on scheduled
+or manual scans. Swift type-check remains required before merge.
 
 Every pull request should explain the behavior or structure being changed,
 include the commands used for validation, and call out MCP, package, or native
