@@ -43,6 +43,17 @@ test("publisher QA stops on ambiguous dispatch without retrying", async () => {
   assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
 });
 
+test("publisher QA uses the existing verified rough cut without editing the artifact", async () => {
+  const calls: Array<{ name: string; args: any }> = [];
+  await runPublishStages(async (name, args) => {
+    calls.push({ name, args });
+    if (name === "artifact.publish.preview") return { jobId: "job-2", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (calls.length === 2) return { jobId: "job-2", state: "verification-pending" };
+    return { jobId: "job-2", state: "verified", result: { verified: true } };
+  }, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {});
+  assert.deepEqual(calls[0]!.args, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle" });
+});
+
 test("publisher headed E2E is a separate FCPXML workflow", async () => {
   const packageJson = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
@@ -59,6 +70,8 @@ test("publisher headed E2E is a separate FCPXML workflow", async () => {
   assert.match(publisherRunner, /runPublishStages\(/);
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST/);
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION/);
+  assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID/);
+  assert.doesNotMatch(publisherRunner, /artifact\.edit/);
   assert.doesNotMatch(publisherRunner, /edit\.undo/);
   assert.match(publisherRunner, /editor\.live\.inspect/);
   assert.equal(publisherRunner.includes("editor.native."), false);
