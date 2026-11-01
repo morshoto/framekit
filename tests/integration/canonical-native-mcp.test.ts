@@ -896,3 +896,42 @@ test("an in-flight direct native undo excludes a canonical checkpoint", async ()
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("direct disposable execute and undo exclude canonical checkpoints", async () => {
+  for (const operation of ["execute", "undo"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-disposable-route-race-"));
+    const path = join(directory, "pending.json");
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const other = new FileCanonicalRecoveryGuard(path);
+    let entered!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const workflow = {
+      preview: async () => ({}),
+      [operation]: async () => {
+        entered();
+        await held;
+        return operation === "execute"
+          ? { status: "VERIFIED", verification: { passed: true } }
+          : { undone: true, beforeDigest: "a".repeat(64), restoredDigest: "a".repeat(64), verification: { passed: true } };
+      },
+    } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["disposableNative"];
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, disposableNative: workflow });
+    const request = client.callTool({ name: `editor.native.disposable.${operation}`, arguments: operation === "execute" ? { previewToken: "token" } : { operationId: "operation-1" } });
+    try {
+      await started;
+      await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      finish();
+      const result = await request;
+      assert.equal(result.isError ?? false, false, textFrom(result));
+      await guard.assertClear();
+    } finally {
+      finish();
+      await request;
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
