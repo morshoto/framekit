@@ -2656,3 +2656,26 @@ test("source-bound edits reject resolvers without an explicit capability", async
     assert.deepEqual(calls, [], capability);
   }
 });
+
+test("canonical resolver binds the observed Browser source to the snapshot source", async () => {
+  for (const source of [undefined, "/other/clip.mov", "file:///tmp/clip.mov"] as const) {
+    let locateCalls = 0;
+    const native = {
+      searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", ...(source ? { source } : {}) }],
+      locateOccurrence: async () => {
+        locateCalls += 1;
+        return { status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] };
+      },
+      selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+    };
+    const project = snapshot("Original");
+    const resolve = () => createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project);
+    if (source === "file:///tmp/clip.mov") {
+      await resolve();
+      assert.equal(locateCalls, 1);
+    } else {
+      await assert.rejects(resolve(), /TARGET_MISMATCH.*source/i);
+      assert.equal(locateCalls, 0);
+    }
+  }
+});
