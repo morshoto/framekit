@@ -83,12 +83,13 @@ function liveState(): EditorLiveState {
 function createRuntime(
   calls: string[],
   readSnapshot?: () => Promise<ProjectSnapshot>,
+  currentLiveState: () => EditorLiveState = liveState,
 ) {
   let clipName = "Original";
   const snapshotReader = readSnapshot ?? (async () => snapshot(clipName));
   const live = {
     getIdentity: async () => identity,
-    readLiveState: async () => liveState(),
+    readLiveState: async () => structuredClone(currentLiveState()),
     liveChangesSince: async (_revision: ContextRevision, _waitMs?: number): Promise<EditorChange[]> => [],
   };
   const provider = new FinalCutCanonicalNativeProvider({
@@ -267,6 +268,36 @@ test("MCP recovery preview rejects a canonical snapshot with a different target"
     const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
     assert.equal(result.isError, true);
     assert.match(textFrom(result), /TARGET_MISMATCH/);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery preview rejects live revision drift around the snapshot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-drift-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const original = snapshot("Original");
+  const target = { projectId: original.projectId, sequenceId: original.timeline.id };
+  await guard.begin({ ...target, baseRevision: "baseline", beforeDigest: canonicalSnapshotDigest(original), operation: "rename-clip" });
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  const active = liveState();
+  const runtime = createRuntime([], undefined, () => active);
+  const inspectProject = runtime.inspectProject.bind(runtime);
+  runtime.inspectProject = async () => {
+    const result = await inspectProject();
+    assert.ok(active.revision);
+    active.revision.id = "external-change";
+    active.revision.sequence += 1;
+    return result;
+  };
+  const { client, server } = await connect(runtime, { canonicalRecovery: guard });
+  try {
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /STALE_CONTEXT/);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
