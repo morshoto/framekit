@@ -113,3 +113,44 @@ test("Final Cut live transport retries bounded read-only requests after a transi
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("document delivery waits beyond the ordinary read timeout without retrying", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-live-ipc-delivery-"));
+  const socketPath = join(directory, "bridge.sock");
+  let requests = 0;
+  const server = createServer((socket) => {
+    socket.on("data", (chunk) => {
+      requests++;
+      const request = JSON.parse(String(chunk).trim());
+      setTimeout(() => socket.end(`${JSON.stringify({ version: request.version, id: request.id, ok: true, result: { delivery: { status: "dispatched" } } })}\n`), 120);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    const response = await new UnixSocketFinalCutLiveTransport(socketPath, 40).request({
+      version: FINAL_CUT_LIVE_PROTOCOL_VERSION, id: "delivery-1", method: "deliver-fcpxml", artifactPath: "/fixture.fcpxml", activates: false,
+    });
+    assert.equal(response.ok, true);
+    assert.equal(requests, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("document delivery does not retry after the bridge disconnects", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-live-ipc-no-redelivery-"));
+  const socketPath = join(directory, "bridge.sock");
+  let requests = 0;
+  const server = createServer((socket) => {
+    socket.on("data", () => { requests++; socket.destroy(); });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    await assert.rejects(new UnixSocketFinalCutLiveTransport(socketPath, 40).request({
+      version: FINAL_CUT_LIVE_PROTOCOL_VERSION, id: "delivery-1", method: "deliver-fcpxml", artifactPath: "/fixture.fcpxml", activates: false,
+    }), /FINAL_CUT_LIVE_PROTOCOL|FINAL_CUT_LIVE_UNAVAILABLE/);
+    assert.equal(requests, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

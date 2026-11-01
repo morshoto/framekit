@@ -796,6 +796,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/live-timing-diagnostics.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/local-media-registration.test.ts",
       "owner": "shared",
       "tags": [
