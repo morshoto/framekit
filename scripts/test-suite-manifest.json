@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "tests": [
     {
+      "path": "apps/cli/test/dev-doctor.test.ts",
+      "owner": "apps/cli",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
       "path": "packages/runtime/test/project-store.test.ts",
       "owner": "packages/runtime",
       "tags": [
