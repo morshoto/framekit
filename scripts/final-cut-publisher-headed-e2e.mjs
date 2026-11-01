@@ -1,4 +1,4 @@
-import { basename, isAbsolute } from "node:path";
+import { isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
@@ -8,7 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "../adapters/final-cut/typescript/src/fcpxml.ts";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget, verifyPublisherPreflight } from "./final-cut-publisher-verification.mjs";
+import { buildPublisherEvidence, runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget, verifyPublisherPreflight } from "./final-cut-publisher-verification.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
@@ -108,19 +108,7 @@ try {
   verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence, targetLibraryPath });
   if (!(await stat(targetLibraryPath)).isDirectory()) throw new Error("FINAL_CUT_E2E_LIBRARY_MISSING: created library is not a directory");
 
-  process.stdout.write(`${JSON.stringify({
-    passed: true,
-    workflow: "fcpxml-publisher",
-    candidateCommit,
-    artifact: basename(artifactPath),
-    sourceTarget: { kind: result.sourceTarget.kind, artifactPath: basename(result.sourceTarget.artifactPath) },
-    createdTarget: result.createdTarget,
-    activeProject: result.activeProject,
-    semanticReadback: result.semanticReadback,
-    sourceMediaIntegrity: { unchanged: result.sourceMediaIntegrity.unchanged, digests: result.sourceMediaIntegrity.digests.map(({ sha256 }) => sha256) },
-    beforeLive: { projectId: beforeLive.project.id, sequenceId: beforeLive.sequence.id },
-    afterLive: { projectId: afterLive.project.id, sequenceId: afterLive.sequence.id },
-  }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(buildPublisherEvidence({ candidateCommit, artifactDigest: approvedDigest, executionId, job, beforeLive, afterLive, editor }), null, 2)}\n`);
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});

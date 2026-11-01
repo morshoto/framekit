@@ -1,6 +1,25 @@
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
+export function buildPublisherEvidence({ candidateCommit, artifactDigest, executionId, job, beforeLive, afterLive, editor }) {
+  const result = job.result;
+  const target = result.createdTarget;
+  return {
+    workflow: "fcpxml-publisher",
+    issueVerdict: "NO_GO",
+    outstanding: ["plugin-and-package-identities", "unrelated-project-integrity", "independent-native-acceptance-review"],
+    candidateCommit, artifactDigest, executionId, jobId: job.jobId,
+    sourceTransactionId: result.sourceTransactionId,
+    importedDigest: result.importedDigest,
+    createdTarget: { libraryId: target.libraryId, eventId: target.eventId, projectId: target.projectId, sequenceId: target.sequenceId },
+    semanticReadback: result.semanticReadback,
+    sourceMediaIntegrity: { unchanged: result.sourceMediaIntegrity.unchanged, digests: result.sourceMediaIntegrity.digests.map(({ sha256 }) => sha256) },
+    beforeLive: beforeLive && { projectId: beforeLive.project?.id, sequenceId: beforeLive.sequence?.id, revision: beforeLive.revision },
+    afterLive: afterLive && { projectId: afterLive.project?.id, sequenceId: afterLive.sequence?.id, revision: afterLive.revision },
+    editor: editor && { backend: editor.identity?.backend, version: editor.identity?.version, extensionFingerprint: editor.identity?.buildFingerprint, mcpFingerprint: editor.preflight?.fingerprint },
+  };
+}
+
 export function verifyPublisherPreflight(editor, expectedCommit) {
   if (!/^[a-f0-9]{40}$/.test(expectedCommit ?? "") || editor?.capabilities?.editor?.artifactPublish !== true
     || editor.preflight?.fingerprint?.commit !== expectedCommit

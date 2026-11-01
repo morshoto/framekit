@@ -14,3 +14,4 @@ export declare function verifyPublishedTarget(input: {
 }): void;
 export declare function verifyAcceptanceFixture(snapshot: any): void;
 export declare function verifyPublisherPreflight(editor: any, expectedCommit: string): void;
+export declare function buildPublisherEvidence(input: any): any;
