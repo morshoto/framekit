@@ -2593,3 +2593,21 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
   assert.equal(createFinalCutNativeTargetResolver(withoutDedicatedLocator).sourceBindingAvailable, false);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => ({ timelineOccurrenceSourceBinding: false }) as never }).sourceBindingAvailable, false);
 });
+
+test("loss of source binding during preparation prevents canonical dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-source-capability-drift-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  let sourceAvailable = true;
+  const resolveTarget = Object.assign(async () => { sourceAvailable = false; }, {});
+  Object.defineProperty(resolveTarget, "sourceBindingAvailable", { get: () => sourceAvailable });
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], calls, resolveTarget, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*source/i);
+    assert.deepEqual(calls, []);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
