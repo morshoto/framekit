@@ -995,8 +995,9 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
     const roleAttributeName = kind === "audio" ? "role" : kind === "asset-clip" ? "audioRole" : undefined;
-    const roleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
-    const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music"
+    const rawRoleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
+    const roleAttribute = rawRoleAttribute === undefined ? undefined : String(rawRoleAttribute);
+    const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music" || roleAttribute?.startsWith("dialogue.")
       ? audioRoleFromXml(node, roleAttributeName ?? "role")
       : undefined;
     const sourceStartValue = attribute(node, "start");
@@ -1012,6 +1013,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
       ...(role !== undefined ? { role } : {}),
+      ...(roleAttribute?.startsWith("dialogue.") ? { nativeAudioRole: roleAttribute } : {}),
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       startTime,
       durationTime,
@@ -1205,8 +1207,9 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
 }
 
 function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "music" {
-  const role = attribute(node, attributeName);
-  if (role === undefined || role === "audio") return "audio";
+  const value = attribute(node, attributeName);
+  const role = value === undefined ? undefined : String(value);
+  if (role === undefined || role === "audio" || /^dialogue\.[^.]+$/.test(role)) return "audio";
   if (role === "music") return "music";
   throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);
 }

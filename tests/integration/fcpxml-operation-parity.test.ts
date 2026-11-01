@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { WorkflowOperation } from "@framekit/runtime";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 
 const documentWithOperations = `<?xml version="1.0" encoding="UTF-8"?>
@@ -48,6 +48,8 @@ test("FCPXML snapshots preserve native dialogue subroles", async () => {
   const clip = snapshot.timeline.clips.find((item) => item.id === "clip-a");
   assert.equal(clip?.role, "audio");
   assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+  const ir = createTimelineIrFromProjectSnapshot(snapshot);
+  assert.equal(ir.sequence.occurrences.find((item) => item.id === "clip-a")?.nativeAudioRole, "dialogue.dialogue-1");
 });
 
 test("FCPXML capabilities advertise only the documented safe operation matrix", async () => {

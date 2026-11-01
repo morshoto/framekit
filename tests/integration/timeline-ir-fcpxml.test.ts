@@ -78,6 +78,28 @@ const target: TimelineIrToFcpxmlTarget = {
   eventName: "Framekit Event",
 };
 
+test("materialization retains native dialogue subroles", async () => {
+  const value = timeline();
+  value.sequence.markers = [];
+  value.sequence.captions = [];
+  value.sequence.occurrences[0]!.role = "audio";
+  value.sequence.occurrences[0]!.nativeAudioRole = "dialogue.dialogue-1";
+  value.resources[0]!.mediaKind = "audio";
+  value.resources[0]!.metadata = { durationTime: { value: "24", timescale: "1" }, streams: [{ kind: "audio", channels: 2, sampleRate: 48000 }] };
+  const result = compileTimelineIrToFcpxml(value, { target });
+  assert.match(result.xml, /audioRole="dialogue\.dialogue-1"/);
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-dialogue-role-"));
+  const path = join(directory, "role.fcpxml");
+  try {
+    await writeFile(path, result.xml);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.equal(snapshot.timeline.clips[0]?.nativeAudioRole, "dialogue.dialogue-1");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
 const finalCutDtd = "/Applications/Final Cut Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_11.dtd";
 
 function validateWithInstalledFinalCut(path: string): void {

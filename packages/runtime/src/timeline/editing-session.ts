@@ -70,6 +70,7 @@ export interface TimelineIrOccurrence {
   sourceStartTime?: RationalTime;
   track: number;
   role?: TimelineIrRole;
+  nativeAudioRole?: string;
   mediaId?: string;
   gainDb?: number;
   fadeIn?: number;
@@ -422,6 +423,7 @@ export function createTimelineIrFromProjectSnapshot(
     ...(clip.sourceStartTime ? { sourceStartTime: normalizeRationalTime(clip.sourceStartTime) } : {}),
     track: clip.track,
     ...(clip.role ? { role: clip.role } : {}),
+    ...(clip.nativeAudioRole ? { nativeAudioRole: clip.nativeAudioRole } : {}),
     ...(clip.mediaId ? { mediaId: clip.mediaId } : {}),
     ...(clip.gainDb !== undefined ? { gainDb: clip.gainDb } : {}),
     ...(clip.scale !== undefined || clip.position ? {
