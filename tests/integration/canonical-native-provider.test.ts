@@ -1036,6 +1036,27 @@ test("recovery checkpoint inspection reports the bound evidence and rejects corr
   }
 });
 
+test("checkpoint evidence distinguishes replacement with identical target data", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-checkpoint-version-"));
+  try {
+    const path = join(directory, "pending.json");
+    const first = new FileCanonicalRecoveryGuard(path);
+    const second = new FileCanonicalRecoveryGuard(path);
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" };
+    await first.begin(checkpoint);
+    const initial = await first.inspectVersioned();
+    assert.deepEqual(initial?.checkpoint, checkpoint);
+    await first.complete();
+    await second.begin(checkpoint);
+    const replaced = await second.inspectVersioned();
+    assert.deepEqual(replaced?.checkpoint, checkpoint);
+    assert.notEqual(replaced?.checkpointId, initial?.checkpointId);
+    await second.complete();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("durable canonical recovery checkpoint blocks other instances until its owner completes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-recovery-"));
   try {
