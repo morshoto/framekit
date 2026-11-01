@@ -886,6 +886,32 @@ test("failed verification recovery blocks subsequent canonical edits", async () 
   assert.deepEqual(calls, ["edit", "undo"]);
 });
 
+test("missing native Undo blocks a second edit after mutation", async () => {
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original], calls, undefined, liveState(), undefined, {
+    renameSelectedClip: async () => { calls.push("edit"); return { operationId: "native-without-undo", undoAvailable: false }; },
+  });
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE/);
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit"]);
+});
+
+test("uncertain native edit failure blocks another mutation", async () => {
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original], calls, undefined, liveState(), undefined, {
+    renameSelectedClip: async () => { calls.push("edit"); throw new Error("native dispatch failed after possible mutation"); },
+  });
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(provider.apply(operation, before.revision), /native dispatch failed after possible mutation/);
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit"]);
+});
+
 test("unverified explicit Undo blocks subsequent canonical edits", async () => {
   const original = snapshot("Original");
   const renamed = snapshot("Renamed");
