@@ -12,7 +12,7 @@ export interface EditorIdentity {
   buildFingerprint?: BuildFingerprint;
 }
 
-export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";
+export type ProjectSelectionMode = "background-capable" | "active-target-only" | "headed-only" | "unavailable";
 export type ArtifactPublishMode = "background-capable" | "headed-only" | "unavailable";
 
 export interface CapabilityInspectionOptions {

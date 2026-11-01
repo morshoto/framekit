@@ -481,6 +481,7 @@ test("an unresolved checkpoint blocks native jobs and publishing but permits sta
   const projectPublisher = {
     isAvailable: () => false,
     getPublishJob: () => ({ state: "verification-pending" }),
+    loadPublishJob: async () => ({ state: "verification-pending" }),
     executePublishJob: async () => { calls.push("publish"); return {}; },
   };
   const publisher = { publish: async () => { calls.push("materialize"); return { state: "blocked" }; } };

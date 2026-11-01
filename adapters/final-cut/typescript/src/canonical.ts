@@ -198,6 +198,7 @@ export function assessCanonicalLiveReadiness(capabilities: RuntimeCapabilities):
     ...(mode === "canonical-write" ? [] : ["canonical-write"]),
     ...(!editor.projectCatalogRead ? ["projectCatalogRead"] : []),
     ...(!editor.projectSelection ? ["projectSelection"] : []),
+    ...(editor.projectSelectionMode === "active-target-only" ? ["projectSelectionTransition"] : []),
     ...(!editor.timelineSnapshotRead ? ["timelineSnapshotRead"] : []),
     ...(!editor.timelineWrite ? ["timelineWrite"] : []),
     ...(!editor.readAfterWrite ? ["readAfterWrite"] : []),
@@ -832,12 +833,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
     const backgroundCatalog = await this.resolveBackgroundCatalog();
-    const selection = await this.projectSelectionCapability();
+    const liveSelection = await this.projectSelectionCapability();
     const snapshotProbe = !backgroundCatalog
       ? { available: false as const, reason: "canonical timeline snapshot requires a background project catalog" }
       : options.probeCanonicalSnapshot !== false
         ? await this.probeCanonicalSnapshot()
         : await this.cachedCanonicalSnapshotAvailability();
+    const selection = liveSelection.available ? liveSelection : backgroundCatalog && snapshotProbe.available
+      ? { available: true, mode: "active-target-only" as const }
+      : liveSelection;
     const canonicalSnapshotCapability = snapshotProbe.available
       ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-read" as const, evidenceTier: "headed-native" as const }
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
@@ -1333,7 +1337,30 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
     const capability = await this.projectSelectionCapability();
     if (!capability.available || !this.live.selectProject) {
-      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the live provider");
+      if (!(await this.cachedCanonicalSnapshotAvailability()).available) {
+        throw new Error("CAPABILITY_UNAVAILABLE: active-target-only rebind requires a current canonical snapshot");
+      }
+      const catalog = await this.listProjects();
+      const project = catalog.projects.find((candidate) => candidate.id === selection.projectId);
+      if (!project || catalog.activeProjectId !== selection.projectId) {
+        throw new Error("TARGET_MISMATCH: requested project is not the active catalog target");
+      }
+      const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+      if (!sequenceId) throw new Error("AMBIGUOUS_PROJECT_TARGET: sequenceId is required");
+      if (!project.sequences.some((sequence) => sequence.id === sequenceId) || catalog.activeSequenceId !== sequenceId) {
+        throw new Error("TARGET_MISMATCH: requested sequence is not the active catalog target");
+      }
+      if (!(await this.cachedCanonicalSnapshotAvailability()).available) {
+        throw new Error("STALE_CONTEXT: canonical snapshot changed during active target rebind");
+      }
+      const live = await this.live.readLiveState();
+      if (live.project?.id !== selection.projectId || live.sequence?.id !== sequenceId
+        || !live.revision || live.revision.id !== this.lastLiveRevision?.id
+        || live.revision.sequence !== this.lastLiveRevision.sequence) {
+        throw new Error("STALE_CONTEXT: active target changed during rebind");
+      }
+      this.selectedTarget = { projectId: selection.projectId, sequenceId };
+      return createProjectSelectionResult(catalog, this.selectedTarget, live.revision);
     }
     if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
     if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
@@ -1449,7 +1476,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     validateProjectCatalog(catalog);
     const after = await this.readLiveStateSafely();
     const liveIdentity = before && after ? await this.live.getIdentity() : undefined;
-    const selection = await this.projectSelectionCapability();
+    const liveSelection = await this.projectSelectionCapability();
+    const cached = await this.cachedCanonicalSnapshotAvailability();
+    const selection = liveSelection.available ? liveSelection : cached.available
+      ? { available: true, mode: "active-target-only" as const } : liveSelection;
     return reconcileProjectCatalog(catalog, {
       ...(before && after ? { before, after } : {}),
       provenance: {

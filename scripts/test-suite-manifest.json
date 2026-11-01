@@ -570,6 +570,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/final-cut-runtime-config.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/final-cut-shadow-mutation.test.ts",
       "owner": "shared",
       "tags": [

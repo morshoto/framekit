@@ -155,7 +155,7 @@ test("background catalogs reject duplicate and inconsistent identities", async (
   await assert.rejects(provider.listProjects(), /PROJECT_CATALOG_INVALID: duplicate project id background-project/);
 });
 
-test("canonical provider fails closed when background project selection is unavailable", async () => {
+test("canonical provider fails closed when canonical rebind snapshot is unavailable", async () => {
   const provider = providerFor({
     backend: "final-cut-background-library",
     listProjects: async () => catalog(),
@@ -165,7 +165,7 @@ test("canonical provider fails closed when background project selection is unava
 
   await assert.rejects(
     provider.selectProject({ projectId: "background-project", sequenceId: "background-sequence" }),
-    /CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the live provider/,
+    /CAPABILITY_UNAVAILABLE: active-target-only rebind requires a current canonical snapshot/,
   );
 });
 

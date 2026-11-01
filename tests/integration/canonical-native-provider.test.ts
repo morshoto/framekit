@@ -254,7 +254,8 @@ test("canonical native provider exposes one explicit active project and sequence
   const capabilities = await provider.getCapabilities();
   assert.equal(capabilities.editor.canonicalTimelineMode, "canonical-read");
   assert.equal(capabilities.editor.projectCatalogRead, true);
-  assert.equal(capabilities.editor.projectSelection, false);
+  assert.equal(capabilities.editor.projectSelection, true);
+  assert.equal(capabilities.editor.projectSelectionMode, "active-target-only");
   assert.equal(capabilities.editor.projectRead, true);
   assert.equal(capabilities.editor.timelineSnapshotRead, true);
   assert.equal(capabilities.editor.timelineWrite, false);
@@ -262,6 +263,31 @@ test("canonical native provider exposes one explicit active project and sequence
   assert.equal(capabilities.editor.rollback, false);
   assert.equal(capabilities.families?.canonicalDocument.read?.guarantee, "canonical-read");
   assert.equal(capabilities.families?.canonicalDocument.write?.available, false);
+  const selected = await provider.selectProject({ projectId: "final-cut:project:project-1" });
+  assert.deepEqual(selected.observedActiveTarget, {
+    projectId: "final-cut:project:project-1", sequenceId: "final-cut:sequence:sequence-1",
+  });
+  await assert.rejects(provider.selectProject({ projectId: "other" }), /TARGET_MISMATCH/);
+});
+
+test("active-only rebind rejects a stale snapshot without exporting again", async () => {
+  const active = liveState();
+  const provider = providerFor([snapshot("Original")], [], undefined, active, {
+    listProjects: async () => ({
+      projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [
+        { id: "final-cut:sequence:sequence-1", name: "Canonical E2E" },
+      ] }],
+      activeProjectId: "final-cut:project:project-1",
+      activeSequenceId: "final-cut:sequence:sequence-1",
+    }),
+  });
+  await provider.getCapabilities();
+  assert.ok(active.revision);
+  active.revision.id = "external-revision";
+  await assert.rejects(
+    provider.selectProject({ projectId: "final-cut:project:project-1" }),
+    /CAPABILITY_UNAVAILABLE: active-target-only rebind requires a current canonical snapshot/,
+  );
 });
 
 test("canonical project listing requires a background catalog", async () => {
