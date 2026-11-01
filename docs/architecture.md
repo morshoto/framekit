@@ -88,7 +88,8 @@ available. Those entry checks do not serialize a concurrently starting direct
 native operation with checkpoint creation; the shared exclusion boundary is not
 proven. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
-`editor.native.recovery.inspect` MCP tool reports the checkpoint in the
+`editor.native.recovery.inspect` MCP tool reports a canonical checkpoint or a
+native-operation reservation without inventing a target or baseline digest, in the
 configured state directory without contacting Final Cut or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
 other directories. `editor.native.recovery.preview` requires the inspected
