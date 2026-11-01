@@ -727,6 +727,20 @@ test("canonical native provider previews and applies a revision-guarded marker",
   assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
 });
 
+test("direct marker edit rejects a duplicate marker identity before mutation", async () => {
+  const original = markerSnapshots().after;
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original, original], calls, undefined, liveState(), undefined, {
+    addMarkerAtTime: async () => { calls.push("marker"); return { operationId: "native-marker", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({
+    type: "add-marker", timelineId: before.timeline.id,
+    marker: { id: "marker-1", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } },
+  }, before.revision), /MARKER_ALREADY_EXISTS/);
+  assert.deepEqual(calls, []);
+});
+
 test("marker accepts a distinct native identity and reordered marker list", async () => {
   const { before: original, after } = markerSnapshots();
   const existing = { id: "existing-marker", start: 3, duration: 0, name: "Existing", startTime: { value: "72", timescale: "24" }, durationTime: { value: "0", timescale: "24" } };
