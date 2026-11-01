@@ -18,7 +18,7 @@ import { bindSpeechAnalysis } from "../speech/analysis.js";
 import { mapSourceRangeToSequenceRange } from "../speech/mapping.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
-import { TransactionStore } from "../application/transaction-store.js";
+import type { TransactionStore } from "../application/transaction-store.js";
 
 export class FillerRemovalService {
   private readonly previews = new Map<string, FillerRemovalPreviewRecord>();

@@ -6,9 +6,9 @@ import {
   type TimelineIrPreview,
 } from "../timeline/editing-session.js";
 import {
-  FramekitProjectStore,
   ProjectPersistenceError,
   type FramekitProjectDocument,
+  type ProjectStore,
 } from "./project-store.js";
 
 export const PROJECT_EDIT_COMMAND_SCHEMA_VERSION = 1 as const;
@@ -69,7 +69,7 @@ export class ProjectTransactionService {
   private readonly clock: () => string;
 
   public constructor(
-    private readonly store: FramekitProjectStore,
+    private readonly store: ProjectStore,
     options: { clock?: () => string } = {},
   ) {
     this.clock = options.clock ?? (() => new Date().toISOString());
