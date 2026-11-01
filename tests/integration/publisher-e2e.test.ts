@@ -4,9 +4,13 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { FcpxmlDocumentAdapter } from "../../adapters/final-cut/typescript/src/fcpxml.js";
-import { runPublishStages, verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
+import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("publisher QA rejects a gap-only artifact as the acceptance fixture", () => {
+  assert.throws(() => verifyAcceptanceFixture({ timeline: { clips: [], storyElements: [] }, media: [] }), /PUBLISH_FIXTURE_MISMATCH/);
+});
 
 test("publisher QA dispatches once and separately confirms native verification", async () => {
   const calls: Array<{ name: string; args: any }> = [];
