@@ -113,6 +113,8 @@ jobs:
             # Compare this with the same script after init in the next type-check step.
             - name: Benchmark Swift compiler without CodeQL tracing
               if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              env:
+                  FRAMEKIT_SWIFT_TYPECHECK_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift && 'true' || 'false' }}
               run: bash .github/codeql/typecheck-swift.sh
 
             - name: Initialize CodeQL
@@ -123,6 +125,8 @@ jobs:
 
             - name: Type-check Swift sources for CodeQL extraction
               timeout-minutes: 25
+              env:
+                  FRAMEKIT_SWIFT_TYPECHECK_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift && 'true' || 'false' }}
               run: bash .github/codeql/typecheck-swift.sh
 
             - name: Analyze with CodeQL
