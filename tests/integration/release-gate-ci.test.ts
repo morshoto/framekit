@@ -22,6 +22,7 @@ test("release gate is wired into local and CI validation", async () => {
   assert.match(compatibilityRunner, /\.\/release\/run-release-gate\.js/);
   assert.equal(packageJson.scripts?.["verify-release-provenance"], "tsx scripts/verify-release-provenance.ts");
   assert.match(workflow, /name: Run v0\.1\.6 native-editing release gate/);
+  assert.match(workflow, /if: \$\{\{ inputs\.validation-level == 'full' \}\}[\s\S]*?name: Run v0\.1\.6 native-editing release gate/);
   assert.match(runner, /runRepositoryChecks/);
   assert.match(runner, /repositoryChecks/);
   assert.match(workflow, /pnpm run release-gate --output-dir artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/);

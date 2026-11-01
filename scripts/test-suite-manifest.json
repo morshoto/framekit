@@ -92,6 +92,7 @@
       "path": "tests/integration/basic-editing-mvp.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -158,6 +159,7 @@
       "path": "tests/integration/canonical-provider-readiness.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -263,6 +265,7 @@
       "path": "tests/integration/codeql-workflow.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -291,6 +294,7 @@
       "path": "tests/integration/composite-transactions.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -300,6 +304,7 @@
       "path": "tests/integration/connection.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -385,6 +390,7 @@
       "path": "tests/integration/editing-intent.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -403,6 +409,7 @@
       "path": "tests/integration/editor-first-routing.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -611,6 +618,7 @@
       "path": "tests/integration/finalcut-routing.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1066,6 +1074,7 @@
       "path": "tests/integration/project-transactions.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1093,6 +1102,7 @@
       "path": "tests/integration/range-validation.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1140,6 +1150,7 @@
       "path": "tests/integration/release-workflow.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1244,6 +1255,7 @@
       "path": "tests/integration/runtime.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1331,6 +1343,7 @@
       "path": "tests/integration/test-state-isolation.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],

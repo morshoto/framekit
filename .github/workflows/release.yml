@@ -224,12 +224,63 @@ jobs:
                     --repo "${GITHUB_REPOSITORY}" \
                     --clobber
 
+    resolve-swift-release:
+        if: needs.tagpr.outputs.release-tag != ''
+        needs: tagpr
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        outputs:
+            sha: ${{ steps.commit.outputs.sha }}
+        steps:
+            - name: Check out release tag
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ needs.tagpr.outputs.release-tag }}
+                  persist-credentials: false
+            - name: Resolve release commit
+              id: commit
+              run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    swift-release-scan:
+        if: needs.tagpr.outputs.release-tag != ''
+        needs: [tagpr, resolve-swift-release]
+        uses: ./.github/workflows/codeql.yml
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+            security-events: write
+        with:
+            swift_only: true
+            scan_ref: refs/tags/${{ needs.tagpr.outputs.release-tag }}
+            scan_sha: ${{ needs.resolve-swift-release.outputs.sha }}
+
+    swift-release-gate:
+        needs: [tagpr, resolve-swift-release, swift-release-scan]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            security-events: read
+        steps:
+            - name: Check out trusted policy
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Check release Swift findings
+              run: node .github/codeql/verify-release-policy.mjs
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+                  RELEASE_SHA: ${{ needs.resolve-swift-release.outputs.sha }}
+
     publish-npm:
         if: needs.tagpr.outputs.release-tag != ''
         needs:
             - tagpr
             - validate-codex-plugin
             - milestone-report
+            - swift-release-gate
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -538,6 +589,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
+            security-events: read
         outputs:
             release-tag: ${{ steps.validate.outputs.tag }}
         steps:
@@ -568,6 +620,14 @@ jobs:
                   fi
                   gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
                   echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+                  echo "sha=$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" >> "$GITHUB_OUTPUT"
+
+            - name: Check Swift security evidence for native assets
+              run: node .github/codeql/verify-release-policy.mjs
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+                  RELEASE_SHA: ${{ steps.validate.outputs.sha }}
 
     package-native-assets:
         name: Package signed native assets

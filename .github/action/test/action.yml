@@ -1,9 +1,13 @@
 name: Unit and integration checks
-description: Run deterministic, integration, evaluation, and release-gate CI checks.
+description: Run fast pull request or full Security validation.
 inputs:
   node-version:
     description: Contributor Node.js version.
     required: true
+  validation-level:
+    description: Select fast pull request checks or full Security validation.
+    required: false
+    default: full
 runs:
   using: composite
   steps:
@@ -24,11 +28,28 @@ runs:
       shell: bash
       run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
 
+    - name: Validate test mode
+      shell: bash
+      env:
+        VALIDATION_LEVEL: ${{ inputs.validation-level }}
+      run: |
+        if [[ "$VALIDATION_LEVEL" != "fast" && "$VALIDATION_LEVEL" != "full" ]]; then
+          echo "Unsupported validation level: $VALIDATION_LEVEL" >&2
+          exit 1
+        fi
+
+    - name: Run fast tests
+      if: ${{ inputs.validation-level == 'fast' }}
+      shell: bash
+      run: pnpm run test:fast
+
     - name: Validate clean Codex plugin installation
+      if: ${{ inputs.validation-level == 'full' }}
       shell: bash
       run: pnpm run test:codex-plugin
 
     - name: Run unit and integration tests
+      if: ${{ inputs.validation-level == 'full' }}
       shell: bash
       env:
         FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR: artifacts/headless-release-gate/${{ github.run_id }}
@@ -36,7 +57,7 @@ runs:
       run: pnpm run test
 
     - name: Upload v0.1.15 headless release-gate evidence
-      if: always()
+      if: ${{ always() && inputs.validation-level == 'full' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: headless-release-gate-${{ github.run_id }}
@@ -44,20 +65,22 @@ runs:
         if-no-files-found: warn
 
     - name: Run Basic Final Cut Editing MVP gate
-      if: ${{ always() }}
+      if: ${{ always() && inputs.validation-level == 'full' }}
       shell: bash
       run: pnpm exec tsx --test tests/integration/basic-editing-mvp.test.ts
 
     - name: Run deterministic MCP evaluation
+      if: ${{ inputs.validation-level == 'full' }}
       shell: bash
       run: pnpm run evaluate
 
     - name: Run filler-removal benchmark
+      if: ${{ inputs.validation-level == 'full' }}
       shell: bash
       run: pnpm run benchmark:filler-removal --output-dir artifacts/filler-removal/${{ github.run_id }}
 
     - name: Upload filler-removal benchmark evidence
-      if: always()
+      if: ${{ always() && inputs.validation-level == 'full' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: filler-removal-benchmark-${{ github.run_id }}
@@ -65,11 +88,12 @@ runs:
         if-no-files-found: warn
 
     - name: Run v0.1.6 native-editing release gate
+      if: ${{ inputs.validation-level == 'full' }}
       shell: bash
       run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
 
     - name: Upload release gate evidence
-      if: always()
+      if: ${{ always() && inputs.validation-level == 'full' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: release-gate-${{ github.run_id }}
