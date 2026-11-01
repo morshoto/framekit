@@ -90,6 +90,10 @@ test("project selection capabilities expose their execution mode", () => {
     ...artifactCapabilities,
     editor: { ...artifactCapabilities.editor, projectSelectionMode: "headed-only" },
   }, { backend: "final-cut-accessibility" });
+  const activeOnly = withCapabilityFamilies({
+    ...artifactCapabilities,
+    editor: { ...artifactCapabilities.editor, projectSelectionMode: "active-target-only" },
+  }, { backend: "final-cut-native-canonical" });
   const unavailable = withCapabilityFamilies({
     ...metadataOnlyCapabilities,
     editor: { ...metadataOnlyCapabilities.editor, projectSelectionMode: "unavailable" },
@@ -101,6 +105,7 @@ test("project selection capabilities expose their execution mode", () => {
   assert.equal(background.editor.timelineWrite, false);
   assert.notEqual(background.editor.canonicalTimelineMode, "canonical-write");
   assert.equal(headed.editor.projectSelectionMode, "headed-only");
+  assert.equal(activeOnly.editor.projectSelectionMode, "active-target-only");
   assert.equal(unavailable.editor.projectSelectionMode, "unavailable");
   assert.equal(legacyBackground.editor.projectSelectionMode, "background-capable");
   assert.equal(legacyUnavailable.editor.projectSelectionMode, "unavailable");

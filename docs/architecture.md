@@ -161,14 +161,18 @@ the observed revision is stale. Background Final Cut inspection does not use
 System Events or UI automation to select a project; an unavailable provider
 remains unavailable. The project, source artifact, and active editor state
 retain separate identities and evidence guarantees.
-Project catalog provenance reports selection as available only when the
-configured live provider exposes project selection with a supported mode;
-background catalog access alone does not make a project selectable.
+Project catalog provenance reports selection as available when the live provider
+exposes a supported selection mode, or for active-target-only rebind when a
+complete cached canonical snapshot still matches the live target and revision.
+That rebind does not activate a project or export a snapshot. Background
+catalog access alone does not make a project selectable.
 
 FCPXML editing is an explicit artifact operation. Publishing an artifact to a
 new `.fcpbundle` is a separate operation with an explicit destination and
 confirmation; a dispatch acknowledgment is not proof that Final Cut imported
-it. Pending publish status may include a `delivery` dispatch acknowledgment;
+it. Verified publish jobs can be recovered after restart; handoff readiness
+revalidates the saved library, event, project, and sequence against the live
+target before reporting them as rebound. Pending publish status may include a `delivery` dispatch acknowledgment;
 that evidence remains unverified and does not include a created target or
 verified result. An unacknowledged import attempt retains its `dispatchError`
 even if a later verification produces a different error. A pending job may

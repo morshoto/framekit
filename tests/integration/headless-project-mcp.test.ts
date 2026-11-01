@@ -11,6 +11,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
+import { compileTimelineIrToFcpxml } from "../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
 import { type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
@@ -639,8 +640,10 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     };
     const preview = await service.previewRoughCut(request);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
-    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "1", timescale: "4" });
+    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
     assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");
+    assert.deepEqual(preview.provenance[0]?.sourceRange.startTime, { value: "4", timescale: "15" });
+    assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "1", timescale: "1" });
     assert.equal(preview.provenance[0]?.rationale, "contains the approved speech highlight");
     assert.equal(preview.outputIntent.fcpxml.target.projectUid, "project-v017");
     await assert.rejects(
@@ -698,6 +701,120 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("inferred rough-cut ranges align duration to the sequence frame grid", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-rough-cut-frame-grids-"));
+  const sourcePath = join(directory, "source-24fps.mp4");
+  try {
+    await generateVideoAtFrameRate(sourcePath, 24, 2);
+    const timeline = emptyTimeline();
+    timeline.sequence.frameDuration = { value: "1", timescale: "30" };
+    const service = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+    });
+    const created = await service.create(timeline);
+    const registered = await service.registerMedia(created.timeline.project.id, sourcePath, created.timeline.revision);
+    const source = registered.resource;
+    assert.deepEqual(source.metadata?.streams.find((stream) => stream.kind === "video")?.frameRate, {
+      value: "24",
+      timescale: "1",
+    });
+    const sourceDuration = Number(source.metadata!.durationTime.value) / Number(source.metadata!.durationTime.timescale);
+    const makeRequest = (range: { start: number; end: number }) => ({
+      projectId: created.timeline.project.id,
+      sequenceId: created.timeline.sequence.id,
+      plan: {
+        planner: { id: "framekit.rough-cut", version: 1 },
+        revision: registered.project.timeline.revision,
+        query: { query: "frame grid" },
+        shots: [{
+          order: 1,
+          sourceIdentity: {
+            mediaId: source.id,
+            source: source.source!,
+            sourceDigest: source.sourceDigest!,
+            mediaKind: "video" as const,
+            duration: sourceDuration,
+          },
+          range,
+          confidence: 0.9,
+          matchedProperties: ["query:frame grid"],
+          rationale: "verify common source and sequence frame timing",
+        }],
+        warnings: [],
+      },
+      render: {
+        outputPath: join(directory, "rough-cut.mp4"),
+        format: "mp4" as const,
+        width: 320,
+        height: 180,
+        frameRate: { value: "30", timescale: "1" },
+      },
+      fcpxml: {
+        path: join(directory, "rough-cut.fcpxml"),
+        target: {
+          provider: "final-cut" as const,
+          libraryUid: "library-frame-grid",
+          eventUid: "event-frame-grid",
+          projectUid: "project-frame-grid",
+          sequenceUid: "sequence-frame-grid",
+        },
+      },
+    });
+
+    const preview = await service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }));
+    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "23", timescale: "30" });
+    assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "23", timescale: "30" });
+
+    // 24 fps and 24000/1001 fps share a frame only every 41.7 seconds.
+    // A short valid range must not be rounded to that common interval.
+    const fractionalTimeline = emptyTimeline();
+    fractionalTimeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    const fractionalService = new HeadlessProjectService({ directory: join(directory, "fractional-projects"), mediaProbe: new FfmpegMediaMetadataProbe() });
+    const fractionalCreated = await fractionalService.create(fractionalTimeline);
+    const fractionalRegistered = await fractionalService.registerMedia(fractionalCreated.timeline.project.id, sourcePath, fractionalCreated.timeline.revision);
+    const fractionalRequest = makeRequest({ start: 0, end: 0.75 });
+    fractionalRequest.projectId = fractionalCreated.timeline.project.id;
+    fractionalRequest.sequenceId = fractionalCreated.timeline.sequence.id;
+    fractionalRequest.plan.revision = fractionalRegistered.project.timeline.revision;
+    fractionalRequest.plan.shots[0]!.sourceIdentity.mediaId = fractionalRegistered.resource.id;
+    const fractionalPreview = await fractionalService.previewRoughCut(fractionalRequest);
+    assert.deepEqual(fractionalPreview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "3003", timescale: "4000" });
+    const nearEnd = await fractionalService.previewRoughCut({ ...fractionalRequest, plan: { ...fractionalRequest.plan, shots: [{ ...fractionalRequest.plan.shots[0]!, range: { start: 1.5, end: sourceDuration } }] } });
+    assert.ok(rationalSeconds(nearEnd.provenance[0]!.sourceRange.startTime!) + rationalSeconds(nearEnd.provenance[0]!.sourceRange.durationTime!) <= sourceDuration);
+
+    // The FCPXML compiler also rounds source starts to the sequence grid.
+    // A long range ending at the media boundary must remain within the source
+    // after that second rounding step, not just in the canonical timeline.
+    const longSourcePath = join(directory, "long-source.mp4");
+    await generateVideoAtFrameRate(longSourcePath, 24, 1002 / 24);
+    const longRegistered = await fractionalService.registerMedia(fractionalCreated.timeline.project.id, longSourcePath, fractionalRegistered.project.timeline.revision);
+    const longSource = longRegistered.resource;
+    const longDuration = rationalSeconds(longSource.metadata!.durationTime);
+    const longRequest = { ...fractionalRequest, plan: { ...fractionalRequest.plan, revision: longRegistered.project.timeline.revision, shots: [{ ...fractionalRequest.plan.shots[0]!, sourceIdentity: { mediaId: longSource.id, source: longSource.source!, sourceDigest: longSource.sourceDigest!, mediaKind: "video" as const, duration: longDuration }, range: { start: 1 / 24, end: longDuration } }] } };
+    const longPreview = await fractionalService.previewRoughCut(longRequest);
+    const compiled = compileTimelineIrToFcpxml(longPreview.after.timeline, { target: longRequest.fcpxml.target });
+    const clip = compiled.xml.match(/<asset-clip\b[^>]*>/)?.[0];
+    assert.ok(clip);
+    const start = clip.match(/\bstart="(\d+)(?:\/(\d+))?s"/)?.slice(1);
+    const duration = clip.match(/\bduration="(\d+)(?:\/(\d+))?s"/)?.slice(1);
+    assert.ok(start && duration);
+    const renderedEnd = Number(start[0]) / Number(start[1] ?? 1) + Number(duration[0]) / Number(duration[1] ?? 1);
+    assert.ok(renderedEnd <= longDuration, `exported source end ${renderedEnd} exceeds ${longDuration}`);
+
+    await assert.rejects(
+      service.previewRoughCut(makeRequest({ start: -0.01, end: 0.75 })),
+      /HEADLESS_ROUGH_CUT_RANGE_INVALID: source range must be finite and non-empty/,
+    );
+    await assert.rejects(
+      service.previewRoughCut(makeRequest({ start: sourceDuration - 0.5, end: sourceDuration + 0.01 })),
+      /HEADLESS_ROUGH_CUT_RANGE_INVALID: source range exceeds/,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -795,6 +912,15 @@ async function generateSegmentedSource(
     "-c:a", "aac", "-b:a", "128k", path,
   );
   await execFileAsync("ffmpeg", args);
+}
+
+async function generateVideoAtFrameRate(path: string, frameRate: number, duration: number): Promise<void> {
+  await execFileAsync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", `color=c=red:s=320x180:r=${frameRate}:d=${duration}`,
+    "-an", "-t", String(duration), "-c:v", "libx264", "-preset", "ultrafast",
+    "-threads", "1", "-pix_fmt", "yuv420p", path,
+  ]);
 }
 
 async function readVideoFrame(path: string, seconds: number): Promise<Buffer> {

@@ -708,9 +708,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       const resource = resourceByMediaId.get(shot.sourceIdentity.mediaId);
       if (!resource) throw new Error(`HEADLESS_ROUGH_CUT_SOURCE_NOT_FOUND: ${shot.sourceIdentity.mediaId}`);
       assertSourceIdentity(resource, shot.sourceIdentity);
-      const sourceStartTime = shot.range.startTime ?? secondsToRational(shot.range.start);
-      const durationTime = shot.range.durationTime ?? secondsToRational(shot.range.end - shot.range.start);
-      assertSourceRange(resource, shot.range, sourceStartTime, durationTime);
+      assertSourceRange(resource, shot.range);
+      const sourceRange = alignInferredRoughCutRange(resource, shot.range, project.timeline.sequence.frameDuration);
+      assertSourceRange(resource, sourceRange);
+      const sourceStartTime = sourceRange.startTime ?? secondsToRational(sourceRange.start);
+      const durationTime = sourceRange.durationTime ?? secondsToRational(sourceRange.end - sourceRange.start);
       const appendToPrimaryStoryline = hasPrimaryStoryContent || planOperations.length > 0;
       planOperations.push({
         type: "insert-occurrence",
@@ -732,7 +734,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         occurrenceId,
         mediaId: resource.id,
         sourceIdentity: structuredClone(shot.sourceIdentity),
-        sourceRange: structuredClone(shot.range),
+        sourceRange: structuredClone(sourceRange),
         confidence: shot.confidence,
         matchedProperties: [...shot.matchedProperties],
         rationale: shot.rationale,
@@ -819,8 +821,6 @@ function assertSourceIdentity(resource: TimelineIr["resources"][number], source:
 function assertSourceRange(
   resource: TimelineIr["resources"][number],
   range: RoughCutPlan["shots"][number]["range"],
-  sourceStartTime: TimelineIr["sequence"]["frameDuration"],
-  durationTime: TimelineIr["sequence"]["frameDuration"],
 ): void {
   if (!Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: source range must be finite and non-empty");
@@ -828,11 +828,123 @@ function assertSourceRange(
   if (resource.metadata?.durationTime !== undefined && range.end > rationalSeconds(resource.metadata.durationTime) + 0.001) {
     throw new Error(`HEADLESS_ROUGH_CUT_RANGE_INVALID: source range exceeds ${resource.id}`);
   }
+  const sourceStartTime = range.startTime ?? secondsToRational(range.start);
+  const durationTime = range.durationTime ?? secondsToRational(range.end - range.start);
   if (rationalSeconds(sourceStartTime) < 0 || rationalSeconds(durationTime) <= 0
     || Math.abs(rationalSeconds(sourceStartTime) - range.start) > 0.001
     || Math.abs(rationalSeconds(durationTime) - (range.end - range.start)) > 0.001) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: rational source range must be non-negative and non-empty");
   }
+}
+
+function alignInferredRoughCutRange(
+  resource: TimelineIr["resources"][number],
+  range: RoughCutPlan["shots"][number]["range"],
+  sequenceFrameDuration: TimelineIr["sequence"]["frameDuration"],
+): RoughCutPlan["shots"][number]["range"] {
+  if (range.startTime !== undefined || range.durationTime !== undefined
+    || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.end <= range.start) {
+    return structuredClone(range);
+  }
+  const frameRate = resource.metadata?.streams.find((stream) => stream.kind === "video" && stream.frameRate)?.frameRate;
+  if (!frameRate || BigInt(frameRate.value) <= 0n || BigInt(frameRate.timescale) <= 0n
+    || BigInt(sequenceFrameDuration.value) <= 0n || BigInt(sequenceFrameDuration.timescale) <= 0n) {
+    return structuredClone(range);
+  }
+  const sourceFrameDuration = { value: frameRate.timescale, timescale: frameRate.value };
+  const startTime = nearestFrameTime(secondsToRational(range.start), sourceFrameDuration);
+  const sourceEndTime = nearestFrameTime(secondsToRational(range.end), sourceFrameDuration);
+  let durationTime = nearestFrameTime(subtractRationalTimes(sourceEndTime, startTime), sequenceFrameDuration);
+  if (resource.metadata?.durationTime !== undefined) {
+    // The FCPXML compiler rounds source starts to the sequence grid. Bound
+    // both the canonical and exported ranges when that rounding moves later.
+    const exportedStartTime = nearestFrameTime(startTime, sequenceFrameDuration);
+    const latestStartTime = compareRationalTimes(startTime, exportedStartTime) >= 0 ? startTime : exportedStartTime;
+    const available = subtractRationalTimes(resource.metadata.durationTime, latestStartTime);
+    const maxDuration = floorFrameTime(available, sequenceFrameDuration);
+    if (compareRationalTimes(durationTime, maxDuration) > 0) durationTime = maxDuration;
+  }
+  if (BigInt(durationTime.value) <= 0n) {
+    throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: frame alignment produced an empty source range");
+  }
+  const endTime = addRationalTimes(startTime, durationTime);
+  return {
+    ...structuredClone(range),
+    start: rationalSeconds(startTime),
+    end: rationalSeconds(endTime),
+    startTime,
+    durationTime,
+  };
+}
+
+function floorFrameTime(
+  time: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const numerator = BigInt(time.value) * BigInt(frameDuration.timescale);
+  const denominator = BigInt(time.timescale) * BigInt(frameDuration.value);
+  const frames = numerator > 0n ? numerator / denominator : 0n;
+  return normalizeRationalTime(frames * BigInt(frameDuration.value), BigInt(frameDuration.timescale));
+}
+
+function nearestFrameTime(
+  time: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const timeValue = BigInt(time.value);
+  const timeScale = BigInt(time.timescale);
+  const frameValue = BigInt(frameDuration.value);
+  const frameScale = BigInt(frameDuration.timescale);
+  const numerator = timeValue * frameScale;
+  const denominator = timeScale * frameValue;
+  const frameCount = (numerator * 2n + denominator) / (denominator * 2n);
+  return normalizeRationalTime(frameCount * frameValue, frameScale);
+}
+
+function compareRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): number {
+  const difference = BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale);
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function subtractRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRationalTime(leftValue * rightScale - rightValue * leftScale, leftScale * rightScale);
+}
+
+function addRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRationalTime(leftValue * rightScale + rightValue * leftScale, leftScale * rightScale);
+}
+
+function normalizeRationalTime(value: bigint, timescale: bigint): { value: string; timescale: string } {
+  const divisor = greatestCommonDivisorBigInt(value < 0n ? -value : value, timescale);
+  return { value: String(value / divisor), timescale: String(timescale / divisor) };
+}
+
+function greatestCommonDivisorBigInt(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
 }
 
 function secondsToRational(seconds: number): { value: string; timescale: string } {
