@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AgentVideoRuntime, type SkillDefinition } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { registerSkillTools } from "../../apps/mcp-server/src/tools/skills/register.js";
 
 function textFrom(value: unknown): string {
   const content = (value as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -52,6 +54,44 @@ function adapter(projectId: string): InMemoryEditorAdapter {
     clips: [],
   });
 }
+
+test("skill tools register independently with the same names, schemas, and error mapping", async () => {
+  const runtime = new AgentVideoRuntime(adapter("mcp-skill-family-project"));
+  runtime.registerSkill(markerSkill());
+  const server = new McpServer({ name: "skill-tools", version: "1.0.0" });
+  registerSkillTools(server, runtime);
+  const client = new Client({ name: "skill-tools-contract", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = (await client.listTools()).tools;
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    assert.deepEqual([...byName.keys()].filter((name) => name.startsWith("skill.")).sort(), [
+      "skill.execute",
+      "skill.inspect",
+      "skill.list",
+      "skill.preview",
+    ]);
+    assert.deepEqual(byName.get("skill.inspect")?.inputSchema.required, ["skill"]);
+    assert.deepEqual(byName.get("skill.preview")?.inputSchema.required, ["skill", "arguments"]);
+    assert.deepEqual(byName.get("skill.execute")?.inputSchema.required, ["previewToken"]);
+
+    const malformedPreview = await client.callTool({
+      name: "skill.preview",
+      arguments: {
+        skill: "fixture.mcp-marker",
+        arguments: { baseRevision: { id: "stale", sequence: -1, timestamp: "" }, name: "Review" },
+      },
+    });
+    assert.equal(malformedPreview.isError, true);
+    assert.equal(JSON.parse(textFrom(malformedPreview)).code, "SKILL_INPUT_INVALID");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
 
 test("generic MCP Skill tools delegate discovery, inspection, preview, and token-only execution", async () => {
   const runtime = new AgentVideoRuntime(adapter("mcp-skill-project"));
