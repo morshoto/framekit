@@ -801,3 +801,28 @@ test("recovery inspection reports a native reservation without inventing a targe
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("uncertain direct native outcomes retain their reservation", async () => {
+  for (const outcome of ["error", "unverified"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-direct-uncertain-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    const nativeEditor = {
+      capabilities: () => ({}),
+      edit: async () => {
+        if (outcome === "error") throw new Error("native dispatch outcome unknown");
+        return { operationId: "native-edit", verification: { verified: false } };
+      },
+    } as unknown as NativeFinalCutEditor;
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+    try {
+      await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+      const reservation = await guard.inspectNativeReservation();
+      assert.equal(reservation?.operation, "native.edit", outcome);
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
