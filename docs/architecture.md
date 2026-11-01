@@ -80,7 +80,11 @@ edits. Production native sessions create an exclusive checkpoint under the
 configured Framekit state directory before mutation; an unresolved checkpoint
 continues to block sessions that use that directory after a restart. Restarting
 or changing state directories does not establish that recovery succeeded. There
-is no automatic checkpoint reset or supported recovery flow yet. Canonical
+is no automatic checkpoint reset or supported recovery flow yet. The read-only
+`editor.native.recovery.inspect` MCP tool reports the checkpoint in the
+configured state directory without contacting Final Cut or clearing it; a
+clear result is point-in-time and does not establish recovery or the state of
+other directories. Canonical
 revision tokens are scoped to the provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP

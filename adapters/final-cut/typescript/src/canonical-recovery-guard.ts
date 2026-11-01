@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { CanonicalRecoveryGuard } from "./canonical.js";
@@ -17,6 +18,37 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery checkpoint", { cause: error });
     }
     throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved canonical edit checkpoint exists");
+  }
+
+  /** Return evidence only; inspection never clears or claims recovery. */
+  public async inspect(): Promise<{ projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string } | undefined> {
+    let handle;
+    try {
+      handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > 16_384) throw new Error("invalid checkpoint file");
+      const record = JSON.parse(await handle.readFile("utf8")) as Record<string, unknown>;
+      if (record.version !== 1 || typeof record.owner !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.owner)
+        || !record.checkpoint || typeof record.checkpoint !== "object" || Array.isArray(record.checkpoint)) {
+        throw new Error("invalid checkpoint record");
+      }
+      const checkpoint = record.checkpoint as Record<string, unknown>;
+      const { projectId, sequenceId, baseRevision, beforeDigest, operation } = checkpoint;
+      if (typeof projectId !== "string" || !projectId.trim()
+        || typeof sequenceId !== "string" || !sequenceId.trim()
+        || typeof baseRevision !== "string" || !baseRevision.trim()
+        || typeof beforeDigest !== "string" || !/^[a-f0-9]{64}$/i.test(beforeDigest)
+        || typeof operation !== "string" || !["rename-clip", "trim-clip", "add-marker", "ripple-delete", "set-gain", "undo"].includes(operation)) {
+        throw new Error("incomplete checkpoint evidence");
+      }
+      return { projectId, sequenceId, baseRevision, beforeDigest, operation };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery evidence", { cause: error });
+    } finally {
+      await handle?.close();
+    }
   }
 
   public async begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string }): Promise<void> {

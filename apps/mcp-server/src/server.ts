@@ -34,6 +34,7 @@ import {
   type FinalCutProjectPublishJobState,
   type FinalCutProjectPublishReadiness,
   type FinalCutProjectPublisher,
+  type FileCanonicalRecoveryGuard,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
@@ -959,6 +960,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspect">;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1174,6 +1176,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
+
+  server.registerTool("editor.native.recovery.inspect", {
+    description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",
+    inputSchema: {},
+  }, async () => sessionResult(async () => {
+    if (!options.canonicalRecovery) throw new Error("CAPABILITY_UNAVAILABLE: canonical recovery checkpoint inspection is not configured");
+    const checkpoint = await options.canonicalRecovery.inspect();
+    return checkpoint
+      ? { status: "recovery-required", scope: "configured-state-directory", checkpoint }
+      : { status: "clear", scope: "configured-state-directory" };
+  }));
 
   registerSkillTools(server, runtime);
 

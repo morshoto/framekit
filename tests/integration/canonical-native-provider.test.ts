@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -926,6 +926,12 @@ test("recovery checkpoint inspection reports the bound evidence and rejects corr
     await owner.begin(checkpoint);
     assert.deepEqual(await observer.inspect(), checkpoint);
     await writeFile(path, JSON.stringify({ version: 1, owner: "invalid", checkpoint: { ...checkpoint, beforeDigest: "invalid" } }));
+    await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await rm(path);
+    const target = join(directory, "other.json");
+    await writeFile(target, "{}");
+    await symlink(target, path);
     await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {

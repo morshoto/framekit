@@ -126,9 +126,12 @@ const canonicalNativeTargetResolver = canonicalNativeProviderEnabled
   ? createFinalCutNativeTargetResolver(nativeEditor!)
   : undefined;
 
+const canonicalRecovery = canonicalNativeProviderEnabled
+  ? new FileCanonicalRecoveryGuard(join(framekitStateDirectory, "canonical-recovery", "pending.json"))
+  : undefined;
 const canonicalNativeProvider = canonicalNativeProviderEnabled
   ? new FinalCutCanonicalNativeProvider({
-      recoveryGuard: new FileCanonicalRecoveryGuard(join(framekitStateDirectory, "canonical-recovery", "pending.json")),
+      recoveryGuard: canonicalRecovery,
       live: liveAdapter!,
       native: {
         renameSelectedClip: async (name) => {
@@ -300,6 +303,7 @@ const server = createMcpServer(runtime, {
   disposableNative,
   nativeOperationSession,
   projectPublisher,
+  canonicalRecovery,
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
   requireBuildAlignment: process.env.FRAMEKIT_REQUIRE_BUILD_ALIGNMENT === "1",

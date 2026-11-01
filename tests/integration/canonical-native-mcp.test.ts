@@ -164,6 +164,18 @@ test("MCP recovery inspection reports checkpoint evidence without touching the e
   }
 });
 
+test("MCP recovery inspection reports unavailable without a configured checkpoint", async () => {
+  const { client, server } = await connect(createRuntime([]));
+  try {
+    const response = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.equal(response.isError, true);
+    assert.match(textFrom(response), /CAPABILITY_UNAVAILABLE/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("canonical native provider exposes reads without selection", async () => {
   const calls: string[] = [];
   const { client, server } = await connect(createRuntime(calls));
