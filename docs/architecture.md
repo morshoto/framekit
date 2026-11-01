@@ -100,7 +100,9 @@ cannot claim that reservation, and a direct publish cannot transfer its
 reservation to a subsequently created recovery job. Until a supported recovery path exists, even a verified publish
 therefore leaves subsequent guarded operations blocked. Configured session
 materialization reserves the checkpoint at the provider boundary; if acquisition
-fails, it records that the provider was not called. A provider that proves it
+fails, it records that the provider was not called. Before invoking the provider,
+the job persists a `dispatch-intent` phase; this is not proof the call occurred.
+A provider that proves it
 did not dispatch can release the reservation and retain a safe retry. After a
 dispatch or an unknown outcome, the reservation remains and automatic retry is
 disabled even if canonical readback matches, until native quiescence can be

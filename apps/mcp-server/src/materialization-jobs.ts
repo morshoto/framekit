@@ -105,6 +105,7 @@ export interface SessionMaterializationJob {
   claim?: { id: string; claimedAt: string };
   recoveryReservation?: { reservationId: string; reason: "native-quiescence-unproven" };
   providerError?: { code: string; message: string; retryable: boolean };
+  providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
     artifact: { verified: true; format: "fcpxml"; digest: string };
     providerRequested: boolean;
@@ -319,13 +320,20 @@ export class SessionMaterializationJobs {
         coverage: structuredClone(claimed.coverage!),
         provenance: structuredClone(claimed.provenance!),
       };
-      const invoke = () => {
+      const invoke = async () => {
+        const intent: SessionMaterializationJob = {
+          ...claimed, providerRequestPhase: "dispatch-intent",
+          evidence: { ...claimed.evidence, providerRequested: true },
+        };
+        await this.save(intent);
+        claimed = intent;
         providerRequested = true;
         return this.publisher!.publish(request);
       };
       const result = this.publisher.trackNativeDispatch
         ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
         : await invoke();
+      claimed = { ...claimed, providerRequestPhase: "returned" };
       if (reservation && !dispatched) {
         await reservation.release();
         reservation = undefined;
