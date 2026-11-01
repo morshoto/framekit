@@ -47,8 +47,12 @@ export function verifyAcceptanceFixture(snapshot) {
     try { return basename(path.startsWith("file:") ? fileURLToPath(path) : path); } catch { return ""; }
   };
   const timeline = snapshot.timeline;
-  if (!timeline || !Array.isArray(timeline.clips) || !Array.isArray(timeline.storyElements)
-    || timeline.frameDuration?.value !== "1" || timeline.frameDuration?.timescale !== "24") fail();
+  let validTimebase = false;
+  try {
+    validTimebase = BigInt(timeline?.frameDuration?.value) > 0n
+      && BigInt(timeline.frameDuration.value) * 24n === BigInt(timeline.frameDuration.timescale);
+  } catch { /* Missing or invalid frame timebase is not acceptable. */ }
+  if (!timeline || !Array.isArray(timeline.clips) || !Array.isArray(timeline.storyElements) || !validTimebase) fail();
   const clips = timeline.clips.filter((clip) => clip.track === 0).sort((a, b) => a.start - b.start);
   const expected = [["clip-b.mp4", 0, 5, 8], ["clip-a.mp4", 8, 10, 12], ["clip-c.mp4", 20, 2, 10]];
   if (clips.length !== expected.length || !clips.every((clip, i) => {
