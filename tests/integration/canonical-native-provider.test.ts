@@ -1037,6 +1037,23 @@ test("uncertain edit remains blocked after provider restart", async () => {
   }
 });
 
+test("automatic recovery does not Undo a different live target", async () => {
+  const original = snapshot("Original");
+  const active = liveState();
+  const calls: string[] = [];
+  const provider = providerFor([original, original], calls, undefined, active, undefined, {
+    renameSelectedClip: async () => {
+      calls.push("edit");
+      assert.ok(active.sequence);
+      active.sequence.id = "different-sequence";
+      return { operationId: "native-edit", undoAvailable: true };
+    },
+  });
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
+  assert.deepEqual(calls, ["edit"]);
+});
+
 test("unverified explicit Undo blocks subsequent canonical edits", async () => {
   const original = snapshot("Original");
   const renamed = snapshot("Renamed");
