@@ -196,10 +196,50 @@ test('trusted policy reports failures on head and merge commits', async () => {
 		globalThis.fetch = originalFetch;
 	}
 	assert.deepEqual(posts.map(({ path, body }) => [path, body.state, body.context]), [
-		[`/repos/o/r/statuses/${head}`, 'pending', 'CodeQL policy gate'],
-		[`/repos/o/r/statuses/${merge}`, 'pending', 'CodeQL policy gate'],
-		[`/repos/o/r/statuses/${head}`, 'failure', 'CodeQL policy gate'],
-		[`/repos/o/r/statuses/${merge}`, 'failure', 'CodeQL policy gate'],
+		[`/repos/o/r/statuses/${head}`, 'pending', 'CodeQL PR policy'],
+		[`/repos/o/r/statuses/${merge}`, 'pending', 'CodeQL PR policy'],
+		[`/repos/o/r/statuses/${head}`, 'failure', 'CodeQL PR policy'],
+		[`/repos/o/r/statuses/${merge}`, 'failure', 'CodeQL PR policy'],
+	]);
+});
+
+test('trusted policy reports success only after current analysis is verified', async () => {
+	const { evaluatePullRequest } = await import(
+		new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
+	) as { evaluatePullRequest: (input: Record<string, unknown>) => Promise<void> };
+	const head = 'a'.repeat(40), merge = 'b'.repeat(40), base = 'c'.repeat(40);
+	const pull = { state: 'open', draft: false, base: { ref: 'main', sha: base }, head: { sha: head }, merge_commit_sha: merge };
+	const posts: Array<{ path: string; state: string }> = [];
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+		const url = new URL(String(input));
+		if (url.pathname.endsWith('/pulls/7')) return Response.json(pull);
+		if (url.pathname.endsWith('/branches/main')) return Response.json({ commit: { sha: base } });
+		if (url.pathname.endsWith('/code-scanning/alerts')) return Response.json([]);
+		if (url.pathname.endsWith('/code-scanning/analyses/42')) return Response.json({ runs: [{ tool: { driver: { name: 'CodeQL' } }, results: [] }] });
+		if (url.pathname.endsWith('/code-scanning/analyses')) {
+			const ref = url.searchParams.get('ref');
+			return Response.json([{ id: 42, ref, commit_sha: ref === 'refs/heads/main' ? base : merge,
+				category: '/language:javascript-typescript', tool: { name: 'CodeQL' }, rules_count: 87, results_count: 0 }]);
+		}
+		if (url.pathname.includes('/statuses/')) {
+			posts.push({ path: url.pathname, state: JSON.parse(String(init?.body)).state });
+			return Response.json({});
+		}
+		throw new Error(`Unexpected URL: ${url}`);
+	}) as typeof fetch;
+	try {
+		await evaluatePullRequest({ apiUrl: 'https://api.github.com', repository: 'o/r', token: 'test',
+			workflowRun: { head_sha: head, conclusion: 'success', html_url: 'https://example.com/run' },
+			pullRequestNumber: 7, expectedHeadSha: head });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+	assert.deepEqual(posts, [
+		{ path: `/repos/o/r/statuses/${head}`, state: 'pending' },
+		{ path: `/repos/o/r/statuses/${merge}`, state: 'pending' },
+		{ path: `/repos/o/r/statuses/${head}`, state: 'success' },
+		{ path: `/repos/o/r/statuses/${merge}`, state: 'success' },
 	]);
 });
 

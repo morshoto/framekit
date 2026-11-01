@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyCurrentPullRequestPolicy } from './verify-policy.mjs';
 
-const POLICY_CHECK = 'CodeQL policy gate';
+const POLICY_CHECK = 'CodeQL PR policy';
 const CODEQL_WORKFLOW_PATH = '.github/workflows/codeql.yml';
 
 export function pullRequestsForCodeQLRun(workflowRun) {
@@ -30,14 +30,7 @@ async function request(apiUrl, repository, path, token, method = 'GET', body) {
   return response.json();
 }
 
-function checkOutput(conclusion, reasons) {
-  const summary = conclusion === 'success'
-    ? 'The current JavaScript/TypeScript CodeQL analysis passed the pull request policy.'
-    : reasons.map((reason) => `- ${reason}`).join('\n').slice(0, 60_000) || 'CodeQL analysis or policy evidence is unavailable.';
-  return { title: 'JavaScript/TypeScript security policy', summary };
-}
-
-async function evaluatePullRequest({ apiUrl, repository, token, workflowRun, pullRequestNumber, expectedHeadSha }) {
+export async function evaluatePullRequest({ apiUrl, repository, token, workflowRun, pullRequestNumber, expectedHeadSha }) {
   const pullRequest = await request(apiUrl, repository, `/pulls/${pullRequestNumber}`, token);
   if (pullRequest.state !== 'open' || pullRequest.draft || pullRequest.base?.ref !== 'main' ||
       pullRequest.head?.sha !== expectedHeadSha || workflowRun.head_sha !== expectedHeadSha) {
@@ -45,18 +38,22 @@ async function evaluatePullRequest({ apiUrl, repository, token, workflowRun, pul
     return;
   }
 
-  const check = await request(apiUrl, repository, '/check-runs', token, 'POST', {
-    name: POLICY_CHECK,
-    head_sha: expectedHeadSha,
-    external_id: `codeql-policy:${workflowRun.id}:${workflowRun.run_attempt}:${pullRequestNumber}`,
-    details_url: workflowRun.html_url,
-    status: 'in_progress',
-    started_at: new Date().toISOString(),
-    output: {
-      title: 'JavaScript/TypeScript security policy',
-      summary: 'Evaluating the current pull request analysis and alert evidence.',
-    },
-  });
+  const mergeSha = pullRequest.merge_commit_sha;
+  if (![expectedHeadSha, mergeSha].every((sha) => typeof sha === 'string' && /^[a-f0-9]{40}$/.test(sha))) {
+    throw new Error('The pull request head or merge commit is unavailable');
+  }
+  const targets = [...new Set([expectedHeadSha, mergeSha])];
+  const targetUrl = process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
+    ? `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`
+    : workflowRun.html_url;
+  const publish = async (state, description) => {
+    for (const sha of targets) {
+      await request(apiUrl, repository, `/statuses/${sha}`, token, 'POST', {
+        state, context: POLICY_CHECK, target_url: targetUrl, description: description.slice(0, 140),
+      });
+    }
+  };
+  await publish('pending', 'Evaluating current JavaScript/TypeScript CodeQL evidence');
 
   let conclusion = 'failure';
   let reasons = [];
@@ -79,12 +76,10 @@ async function evaluatePullRequest({ apiUrl, repository, token, workflowRun, pul
     reasons = [error instanceof Error ? error.message : 'CodeQL policy evaluation failed.'];
   }
 
-  await request(apiUrl, repository, `/check-runs/${check.id}`, token, 'PATCH', {
-    status: 'completed',
-    conclusion,
-    completed_at: new Date().toISOString(),
-    output: checkOutput(conclusion, reasons),
-  });
+  if (conclusion === 'failure') console.error(reasons.join('\n'));
+  await publish(conclusion, conclusion === 'success'
+    ? 'Current JavaScript/TypeScript CodeQL analysis passed the pull request policy'
+    : reasons.join('; ') || 'CodeQL analysis or policy evidence is unavailable');
   console.log(`Published ${POLICY_CHECK} as ${conclusion} for pull request #${pullRequestNumber}.`);
 }
 
