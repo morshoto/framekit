@@ -2391,3 +2391,20 @@ test("canonical target preparation is protected by the recovery checkpoint", asy
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("uncertain target preparation keeps its checkpoint without dispatching an edit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-failure-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, async () => {
+    throw new Error("native selection outcome unknown");
+  }, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, []);
+    assert.equal((await guard.inspectVersioned())?.checkpoint.operation, "rename-clip");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
