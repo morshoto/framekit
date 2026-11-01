@@ -2574,8 +2574,9 @@ test("production canonical resolver reports source binding unavailable", () => {
 test("canonical source binding is enabled only for an explicitly capable nonselecting provider", async () => {
   const occurrence = { handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" };
   const locate = async () => ({ status: "unique" as const, occurrences: [occurrence] });
+  let sourceAvailable = true;
   const native = {
-    capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    capabilities: () => ({ timelineOccurrenceSourceBinding: sourceAvailable }) as never,
     searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
     locateOccurrence: locate,
     locateOccurrenceForCanonicalTarget: locate,
@@ -2585,6 +2586,9 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
   const resolver = createFinalCutNativeTargetResolver(native);
   assert.equal(resolver.sourceBindingAvailable, true);
   await resolver(project.timeline.clips[0]!, project);
+  sourceAvailable = false;
+  assert.equal(resolver.sourceBindingAvailable, false);
+  sourceAvailable = true;
   const { locateOccurrenceForCanonicalTarget: _removed, ...withoutDedicatedLocator } = native;
   assert.equal(createFinalCutNativeTargetResolver(withoutDedicatedLocator).sourceBindingAvailable, false);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => ({ timelineOccurrenceSourceBinding: false }) as never }).sourceBindingAvailable, false);
