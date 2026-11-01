@@ -4187,12 +4187,15 @@ test("canonical native occurrence discovery does not select before target valida
   // Simulate the production adapter's native-selection capability with a fake executor.
   Object.defineProperty(adapter, "canDriveNativeMouse", { value: true });
   const [match] = await adapter.searchMedia("Interview");
+  assert.equal(adapter.capabilities().timelineOccurrenceSourceBinding, false);
+  const capabilities = adapter.capabilities.bind(adapter);
+  Object.defineProperty(adapter, "capabilities", { value: () => ({ ...capabilities(), timelineOccurrenceSourceBinding: true }) });
   const located = await adapter.locateOccurrenceForCanonicalTarget(match.handle);
   assert.equal(located.status, "unique");
-  assert.equal(adapter.capabilities().timelineOccurrenceSourceBinding, false);
   assert.equal(located.occurrences[0]?.identity, "native-occurrence-1");
   assert.equal(mouseCalls, 0);
   assert.doesNotMatch(discoveryScript, /candidateRole & \(ASCII character 31\) & sourceIdentity &/);
+  assert.doesNotMatch(discoveryScript, /Zoom to Fit/);
 });
 
 test("native target lookup rejects an occurrence with unobserved source identity", async () => {
@@ -4214,4 +4217,29 @@ test("native target lookup rejects an occurrence with unobserved source identity
     },
   });
   await assert.rejects(adapter.targetMedia("Interview.mov"), /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE.*source/i);
+});
+
+
+test("canonical occurrence discovery stops before UI when source binding is unavailable", async () => {
+  let calls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true, executor: async () => { calls += 1; return ""; } });
+  await assert.rejects(adapter.locateOccurrenceForCanonicalTarget("media"), /CAPABILITY_UNAVAILABLE.*source/i);
+  assert.equal(calls, 0);
+});
+
+test("canonical occurrence discovery does not retry a failed scan", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let scans = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true, executor: async (script) => {
+    if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+    if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
+    if (script.includes("collectTimelineClipMatches")) { scans += 1; throw new Error("scan interrupted"); }
+    return "";
+  } });
+  const capabilities = adapter.capabilities.bind(adapter);
+  Object.defineProperty(adapter, "capabilities", { value: () => ({ ...capabilities(), timelineOccurrenceSourceBinding: true }) });
+  const [match] = await adapter.searchMedia("Interview");
+  await assert.rejects(adapter.locateOccurrenceForCanonicalTarget(match.handle), /scan interrupted/);
+  assert.equal(scans, 1);
 });
