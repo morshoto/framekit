@@ -2942,11 +2942,12 @@ test("MCP canonical operations verify exact semantics and restore after failures
   trimAfter.timeline.clips[0] = { ...trimAfter.timeline.clips[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
   trimAfter.timeline.storyElements[0] = { ...trimAfter.timeline.storyElements[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
   const marker = markerSnapshots();
+  marker.after.timeline.markers[0]!.id = "native-marker-id";
   const ripple = rippleSnapshots();
   const gain = gainSnapshots();
   const cases = [
     { label: "trim-clip", before: trimBefore, after: trimAfter, operation: { type: "trim-clip", clipId: trimBefore.timeline.clips[0]!.id, duration: 3, durationTime: { value: "72", timescale: "24" } } },
-    { label: "add-marker", before: marker.before, after: marker.after, operation: { type: "add-marker", timelineId: marker.before.timeline.id, marker: marker.after.timeline.markers[0] } },
+    { label: "add-marker", before: marker.before, after: marker.after, operation: { type: "add-marker", timelineId: marker.before.timeline.id, marker: { ...marker.after.timeline.markers[0], id: "requested-marker-id" } } },
     { label: "ripple-delete", before: ripple.before, after: ripple.after, operation: { type: "ripple-delete", timelineId: ripple.before.timeline.id, range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
     { label: "set-gain", before: gain.before, after: gain.after, operation: { type: "set-gain", clipId: gain.before.timeline.clips[0]!.id, gainDb: 3 } },
   ];
