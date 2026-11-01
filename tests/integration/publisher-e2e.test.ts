@@ -91,7 +91,7 @@ test("publisher QA dispatches once and separately confirms native verification",
   const result = await runPublishStages(async (name, args) => {
     calls.push({ name, args });
     if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
-    if (calls.length === 2) return { jobId: "job-1", state: "verification-pending", delivery: { route: "headed-apple-event" } };
+    if (calls.length === 2) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched", route: "headed-apple-event" } };
     return { jobId: "job-1", state: "verified", result: { verified: true } };
   }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (stage) => stages.push(stage));
   assert.equal(result.state, "verified");
@@ -129,13 +129,23 @@ test("publisher QA stops on ambiguous dispatch without retrying", async () => {
   assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
 });
 
+test("publisher QA does not start verification without dispatch acknowledgement", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    return { jobId: "job-1", state: "verification-pending", nextAction: "retry", error: { code: "DELIVERY_TIMEOUT" } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_DISPATCH_INCOMPLETE/);
+  assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
+});
+
 test("publisher QA uses the existing verified rough cut without editing the artifact", async () => {
   const calls: Array<{ name: string; args: any }> = [];
   const digests = ["a", "b", "c", "d"].map((value) => ({ source: `/fixture/${value}`, sha256: value.repeat(64) }));
   await runPublishStages(async (name, args) => {
     calls.push({ name, args });
     if (name === "artifact.publish.preview") return { jobId: "job-2", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle", sourceProof: { sourceMediaDigests: digests } };
-    if (calls.length === 2) return { jobId: "job-2", state: "verification-pending" };
+    if (calls.length === 2) return { jobId: "job-2", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
     return { jobId: "job-2", state: "verified", result: { verified: true, sourceMediaIntegrity: { unchanged: true, digests } } };
   }, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {});
   assert.deepEqual(calls[0]!.args, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle" });
