@@ -62,7 +62,7 @@ test("publisher QA recognizes the acceptance edit from a parsed FCPXML artifact"
   <asset id="m" name="generated-music.wav" src="file:///fixture/generated-music.wav" duration="30s" hasAudio="1"/>
   <effect id="t" name="Basic Title" uid="basic"/>
   </resources><library><event><project uid="p" name="Fixture"><sequence format="f" duration="30s"><spine>
-  <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="0s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="0s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
+  <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="5s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="5s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
   <asset-clip ref="a" offset="8s" start="10s" duration="12s"/><asset-clip ref="c" offset="20s" start="2s" duration="10s"/>
   </spine></sequence></project></event></library></fcpxml>`;
   try {
