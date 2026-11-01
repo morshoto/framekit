@@ -146,15 +146,28 @@ test('CodeQL preserves JavaScript analysis and adds a bounded Swift job', async 
 	);
 });
 
-test('JavaScript CodeQL uploads without waiting on remote processing', async () => {
+test('CodeQL waits for remote processing before policy evaluation', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 	const javascriptJob = getJob(workflow, 'analyze');
+	const swiftJob = getJob(workflow, 'analyze-swift');
 
-	assert.ok(javascriptJob, 'JavaScript CodeQL job should be present');
+	assert.ok(javascriptJob && swiftJob, 'CodeQL analysis jobs should be present');
 	assert.match(
 		javascriptJob,
-		/name: Analyze with CodeQL[\s\S]*?wait-for-processing: false/,
+		/name: Analyze with CodeQL[\s\S]*?wait-for-processing: true/,
 	);
+	assert.match(swiftJob, /name: Analyze with CodeQL[\s\S]*?wait-for-processing: true/);
+	assert.doesNotMatch(javascriptJob, /wait-for-processing: false/);
+});
+
+test('CodeQL policy gate runs from a trusted workflow-run event', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql-policy.yml');
+	assert.match(workflow, /^name: CodeQL Policy Gate$/m);
+	assert.match(workflow, /workflow_run:\s+workflows:\s+- CodeQL\s+types:\s+- completed/);
+	assert.match(workflow, /checks: write/);
+	assert.match(workflow, /security-events: read/);
+	assert.match(workflow, /node \.github\/codeql\/verify-policy\.mjs/);
+	assert.doesNotMatch(workflow, /^\s+pull_request:/m);
 });
 
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
