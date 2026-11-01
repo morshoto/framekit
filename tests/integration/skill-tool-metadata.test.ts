@@ -46,7 +46,7 @@ test("skill tool catalog matches public tools/list and carries typed metadata", 
   const byName = new Map(result.catalog.tools.map((tool) => [tool.name, tool]));
   assert.deepEqual(byName.get("skill.inspect")?.inputSchema.required, ["skill"]);
   assert.deepEqual(byName.get("skill.preview")?.inputSchema.required, ["skill", "arguments"]);
-  assert.deepEqual(byName.get("skill.execute")?.approval, { kind: "runtime-preview-token" });
+  assert.deepEqual(byName.get("skill.execute")?.approval, { kind: "runtime-preview-token", required: true });
   assert.equal(byName.get("skill.preview")?.effect, "preview");
   assert.ok(byName.get("skill.list")?.examples.length);
 });
