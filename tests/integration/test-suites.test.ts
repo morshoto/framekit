@@ -80,16 +80,17 @@ test("test suites report unavailable prerequisites before execution", async () =
 
 test("fast CI and post-merge validation preserve reviewed test coverage", async () => {
   const workflow = await readFile(resolve(repository, ".github/action/test/action.yml"), "utf8");
-  const deepWorkflow = await readFile(resolve(repository, ".github/action/deep-validation/action.yml"), "utf8");
   const security = await readFile(resolve(repository, ".github/workflows/security.yml"), "utf8");
   const packageJson = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
   const documentation = await readFile(resolve(repository, "tests/README.md"), "utf8");
 
+  assert.match(workflow, /validation-level:/);
   assert.match(workflow, /run: pnpm run test:fast/);
-  assert.match(deepWorkflow, /run: pnpm run test\s*$/m);
-  assert.match(security, /uses: \.\/\.github\/action\/deep-validation/);
+  assert.match(workflow, /run: pnpm run test\s*$/m);
+  assert.match(security, /uses: \.\/\.github\/action\/test/);
+  assert.match(security, /validation-level: full/);
   assert.match(workflow, /Install FFmpeg fixture toolchain/);
   const manifest = await loadTestSuiteManifest(repository);
   const fast = selectTestFiles(manifest, "fast");

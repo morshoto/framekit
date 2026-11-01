@@ -172,8 +172,8 @@ test("Security CI runs the clean Codex plugin installation smoke test", async ()
   const packageManifest = await readJson("package.json") as { scripts?: Record<string, string> };
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
 
-  const workflow = await readFile(resolve(repository, ".github/action/deep-validation/action.yml"), "utf8");
-  assert.match(workflow, /pnpm run test:codex-plugin/);
+  const workflow = await readFile(resolve(repository, ".github/action/test/action.yml"), "utf8");
+  assert.match(workflow, /if: \$\{\{ inputs\.validation-level == 'full' \}\}[\s\S]*?pnpm run test:codex-plugin/);
   assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
 
   const smoke = await readFile(resolve(repository, "scripts/codex-plugin-smoke.mjs"), "utf8");

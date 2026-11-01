@@ -6,7 +6,7 @@ test("release gate is wired into local and CI validation", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
     scripts?: Record<string, string>;
   };
-  const workflow = await readFile(".github/action/deep-validation/action.yml", "utf8");
+  const workflow = await readFile(".github/action/test/action.yml", "utf8");
   const runner = await readFile("scripts/release/run-release-gate.ts", "utf8");
   const compatibilityRunner = await readFile("scripts/run-release-gate.ts", "utf8");
   const testRunner = await readFile("scripts/run-tests-with-isolated-home.mjs", "utf8");
@@ -22,6 +22,7 @@ test("release gate is wired into local and CI validation", async () => {
   assert.match(compatibilityRunner, /\.\/release\/run-release-gate\.js/);
   assert.equal(packageJson.scripts?.["verify-release-provenance"], "tsx scripts/verify-release-provenance.ts");
   assert.match(workflow, /name: Run v0\.1\.6 native-editing release gate/);
+  assert.match(workflow, /if: \$\{\{ inputs\.validation-level == 'full' \}\}[\s\S]*?name: Run v0\.1\.6 native-editing release gate/);
   assert.match(runner, /runRepositoryChecks/);
   assert.match(runner, /repositoryChecks/);
   assert.match(workflow, /pnpm run release-gate --output-dir artifacts\/release-gate\/\$\{\{ github\.run_id \}\}/);
