@@ -6,7 +6,7 @@ test("release gate is wired into local and CI validation", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
     scripts?: Record<string, string>;
   };
-  const workflow = await readFile(".github/workflows/typescript.yml", "utf8");
+  const workflow = await readFile(".github/action/test/action.yml", "utf8");
   const runner = await readFile("scripts/release/run-release-gate.ts", "utf8");
   const compatibilityRunner = await readFile("scripts/run-release-gate.ts", "utf8");
   const testRunner = await readFile("scripts/run-tests-with-isolated-home.mjs", "utf8");

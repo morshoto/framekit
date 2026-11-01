@@ -79,7 +79,7 @@ test("test suites report unavailable prerequisites before execution", async () =
 });
 
 test("CI keeps the inventory-driven aggregate suite as a required gate", async () => {
-  const workflow = await readFile(resolve(repository, ".github/workflows/typescript.yml"), "utf8");
+  const workflow = await readFile(resolve(repository, ".github/action/test/action.yml"), "utf8");
   const packageJson = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };

@@ -32,9 +32,9 @@ async function main() {
     readme: await read('README.md'),
     contributing: await read('CONTRIBUTING.md'),
     gettingStarted: await read('docs/getting-started.md'),
-    workflow: await read('.github/workflows/typescript.yml'),
+    workflow: await read('.github/workflows/ci.yml'),
     hook: await read('.githooks/pre-commit'),
-    consumerWorkflow: await read('.github/workflows/typescript.yml'),
+    consumerWorkflow: await read('.github/workflows/ci.yml'),
   };
   const errors = checkToolchain(input);
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; }

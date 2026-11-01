@@ -1,0 +1,77 @@
+name: Unit and integration checks
+description: Run deterministic, integration, evaluation, and release-gate CI checks.
+inputs:
+  node-version:
+    description: Contributor Node.js version.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - name: Install FFmpeg fixture toolchain
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
+
+    - name: Validate clean Codex plugin installation
+      shell: bash
+      run: pnpm run test:codex-plugin
+
+    - name: Run unit and integration tests
+      shell: bash
+      env:
+        FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR: artifacts/headless-release-gate/${{ github.run_id }}
+        FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: pnpm run test
+
+    - name: Upload v0.1.15 headless release-gate evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: headless-release-gate-${{ github.run_id }}
+        path: artifacts/headless-release-gate/${{ github.run_id }}
+        if-no-files-found: warn
+
+    - name: Run Basic Final Cut Editing MVP gate
+      if: ${{ always() }}
+      shell: bash
+      run: pnpm exec tsx --test tests/integration/basic-editing-mvp.test.ts
+
+    - name: Run deterministic MCP evaluation
+      shell: bash
+      run: pnpm run evaluate
+
+    - name: Run filler-removal benchmark
+      shell: bash
+      run: pnpm run benchmark:filler-removal --output-dir artifacts/filler-removal/${{ github.run_id }}
+
+    - name: Upload filler-removal benchmark evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: filler-removal-benchmark-${{ github.run_id }}
+        path: artifacts/filler-removal/${{ github.run_id }}
+        if-no-files-found: warn
+
+    - name: Run v0.1.6 native-editing release gate
+      shell: bash
+      run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
+
+    - name: Upload release gate evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: release-gate-${{ github.run_id }}
+        path: artifacts/release-gate/${{ github.run_id }}
+        if-no-files-found: warn
