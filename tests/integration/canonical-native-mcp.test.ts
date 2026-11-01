@@ -251,6 +251,30 @@ test("MCP recovery preview rejects a live target mismatch before canonical read"
   }
 });
 
+test("MCP recovery preview rejects a canonical snapshot with a different target", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-wrong-snapshot-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const original = snapshot("Original");
+  const other = structuredClone(original);
+  other.projectId = "different-project";
+  const target = { projectId: original.projectId, sequenceId: original.timeline.id };
+  await guard.begin({ ...target, baseRevision: "baseline", beforeDigest: canonicalSnapshotDigest(other), operation: "rename-clip" });
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  const runtime = createRuntime([]);
+  runtime.inspectProject = async () => structuredClone(other);
+  const { client, server } = await connect(runtime, { canonicalRecovery: guard });
+  try {
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /TARGET_MISMATCH/);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("MCP recovery preview rejects a checkpoint replaced during read", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-replaced-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
