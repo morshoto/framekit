@@ -1162,3 +1162,43 @@ test("publish verification rejects a replaced reservation", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("native target preparation routes exclude concurrent canonical edits", async () => {
+  const cases = [
+    { tool: "editor.native.focus", method: "focusTimeline", args: {}, result: { available: true } },
+    { tool: "editor.native.media.select", method: "selectMedia", args: { mediaHandle: "media-1" }, result: { available: true } },
+    { tool: "editor.native.media.search", method: "searchMedia", args: { query: "clip.mov" }, result: [] },
+    { tool: "editor.native.timeline.locate", method: "locateOccurrence", args: { mediaHandle: "media-1" }, result: { status: "none", occurrences: [] } },
+    { tool: "editor.native.blade.preview", method: "previewBlade", args: { occurrenceHandle: "occurrence-1" }, result: { previewToken: "preview-1" } },
+    { tool: "editor.native.disposable.preview", method: "preview", args: { clipId: "clip-1", name: "Renamed" }, result: { previewToken: "preview-1" }, disposable: true },
+  ];
+  for (const item of cases) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-native-preparation-"));
+    const path = join(directory, "pending.json");
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const other = new FileCanonicalRecoveryGuard(path);
+    let entered!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const provider = { capabilities: () => ({}), [item.method]: async () => { entered(); await held; return item.result; } };
+    const options = item.disposable
+      ? { canonicalRecovery: guard, disposableNative: provider as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["disposableNative"] }
+      : { canonicalRecovery: guard, nativeEditor: provider as unknown as NativeFinalCutEditor };
+    const { client, server } = await connect(createRuntime([]), options);
+    const request = client.callTool({ name: item.tool, arguments: item.args });
+    try {
+      await started;
+      await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, item.tool);
+      finish();
+      assert.equal((await request).isError ?? false, false, item.tool);
+      await guard.assertClear();
+    } finally {
+      finish();
+      await request;
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
