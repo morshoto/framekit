@@ -748,3 +748,33 @@ test("canonical headed runner never retries an uncertain undo", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
   assert.equal((runner.match(/callJson\("edit\.undo"/g) ?? []).length, 1);
 });
+
+test("canonical rename executes only its verified non-mutating preview", async () => {
+  const { previewAndExecuteCanonicalRename } = await import("../../scripts/final-cut-canonical-rename.mjs");
+  const before = structuredClone(rawRun.before);
+  const calls: Array<[string, any]> = [];
+  const expectedName = "Interview [Framekit E2E]";
+  const preview = {
+    previewToken: "preview-once", target: { kind: "editor.timeline", projectId: before.projectId, sequenceId: before.timeline.id },
+    baseRevision: before.revision, operations: [{ type: "rename-clip", clipId: "final-cut:occurrence:one", name: expectedName }], warnings: [],
+    expectedDiff: { added: [], removed: [], modified: [{ itemId: "final-cut:occurrence:one", before: { name: "Interview" }, after: { name: expectedName } }], durationDelta: 0, markerChanges: [], captionChanges: [], storyElementChanges: [], mediaChanges: [] },
+  };
+  const call = async (name: string, args: any) => { calls.push([name, args]); return name.endsWith(".preview") ? structuredClone(preview) : { status: "VERIFIED" }; };
+  const result = await previewAndExecuteCanonicalRename(call, async () => structuredClone(before), before, "final-cut:occurrence:one", expectedName);
+  assert.equal(result.status, "VERIFIED");
+  assert.deepEqual(calls.map(([name]) => name), ["editor.timeline.edit.preview", "editor.timeline.edit.execute"]);
+  assert.deepEqual(calls[1][1], { previewToken: "preview-once", path: "headed" });
+  for (const fault of ["target", "operation", "diff", "warning", "changed", "revision"] as const) {
+    const badPreview = structuredClone(preview);
+    const observed = structuredClone(before);
+    if (fault === "target") badPreview.target.sequenceId = "other";
+    if (fault === "operation") badPreview.operations[0]!.name = "other";
+    if (fault === "diff") badPreview.expectedDiff.mediaChanges.push({} as never);
+    if (fault === "warning") badPreview.warnings.push("warning" as never);
+    if (fault === "changed") observed.timeline.clips[0]!.name = "changed";
+    if (fault === "revision") observed.revision.id = "changed";
+    const attempted: string[] = [];
+    await assert.rejects(previewAndExecuteCanonicalRename(async (name: string) => { attempted.push(name); return badPreview; }, async () => observed, before, "final-cut:occurrence:one", expectedName), /PREVIEW|STALE/);
+    assert.deepEqual(attempted, ["editor.timeline.edit.preview"]);
+  }
+});
