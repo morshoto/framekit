@@ -1,6 +1,13 @@
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
+export function verifyBaselineTarget(live, expected) {
+  if (!expected?.projectId || !expected?.sequenceId || !expected?.revisionId
+    || live?.project?.id !== expected.projectId || live?.sequence?.id !== expected.sequenceId || live?.revision?.id !== expected.revisionId) {
+    throw new Error("PUBLISH_BASELINE_MISMATCH: live project, sequence, or revision differs from the approved baseline");
+  }
+}
+
 export function buildPublisherEvidence({ candidateCommit, artifactDigest, executionId, job, beforeLive, afterLive, editor }) {
   const result = job.result;
   const target = result.createdTarget;

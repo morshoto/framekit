@@ -100,6 +100,9 @@ async function runPreflight(lockProbe: string, mode = "canonical-read"): Promise
       FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID: "execution",
       FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST: "a".repeat(64),
       FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT: "b".repeat(40),
+      FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID: "project",
+      FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID: "sequence",
+      FRAMEKIT_FINAL_CUT_E2E_REVISION_ID: "revision",
     };
     try {
       const result = await exec("bash", [preflight, mode], {
