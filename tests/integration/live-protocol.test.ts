@@ -136,3 +136,21 @@ test("document delivery waits beyond the ordinary read timeout without retrying"
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("document delivery does not retry after the bridge disconnects", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-live-ipc-no-redelivery-"));
+  const socketPath = join(directory, "bridge.sock");
+  let requests = 0;
+  const server = createServer((socket) => {
+    socket.on("data", () => { requests++; socket.destroy(); });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    await assert.rejects(new UnixSocketFinalCutLiveTransport(socketPath, 40).request({
+      version: FINAL_CUT_LIVE_PROTOCOL_VERSION, id: "delivery-1", method: "deliver-fcpxml", artifactPath: "/fixture.fcpxml", activates: false,
+    }), /FINAL_CUT_LIVE_PROTOCOL|FINAL_CUT_LIVE_UNAVAILABLE/);
+    assert.equal(requests, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
