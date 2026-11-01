@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -122,4 +123,23 @@ test("CLI exposes fixture doctor JSON without requiring native tools", () => {
   assert.equal(checkNamed(report, "Node.js").status, "pass");
   assert.equal(checkNamed(report, "pnpm").status, "pass");
   assert.ok(!report.checks.some((check) => check.name === "Xcode"));
+});
+
+test("CI exercises the Linux Nix fixture bootstrap and stdio smoke", async () => {
+  const [workflow, nixReadme, packageJsonText] = await Promise.all([
+    readFile(join(repositoryRoot, ".github/workflows/ci.yml"), "utf8"),
+    readFile(join(repositoryRoot, "nix/README.md"), "utf8"),
+    readFile(join(repositoryRoot, "package.json"), "utf8"),
+  ]);
+  const packageJson = JSON.parse(packageJsonText) as { scripts?: Record<string, string> };
+
+  assert.match(workflow, /Linux Nix fixture bootstrap/);
+  assert.match(workflow, /nix develop \.\/nix/);
+  assert.match(workflow, /doctor dev --profile fixture/);
+  assert.match(workflow, /pnpm run test:fixtures/);
+  assert.match(workflow, /pnpm run smoke:fixture-mcp/);
+  assert.equal(packageJson.scripts?.["smoke:fixture-mcp"], "node scripts/fixture-mcp-smoke.mjs");
+  assert.match(nixReadme, /pnpm install --frozen-lockfile/);
+  assert.match(nixReadme, /pnpm run test:fixtures/);
+  assert.match(nixReadme, /pnpm run smoke:fixture-mcp/);
 });
