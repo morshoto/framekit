@@ -997,9 +997,10 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const roleAttributeName = kind === "audio" ? "role" : kind === "asset-clip" ? "audioRole" : undefined;
     const rawRoleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
     const roleAttribute = rawRoleAttribute === undefined ? undefined : String(rawRoleAttribute);
-    const role = kind === "audio" || roleAttribute !== undefined
+    const audioRole = kind === "audio" || roleAttribute !== undefined
       ? audioRoleFromXml(node, roleAttributeName ?? "role")
       : undefined;
+    const role = kind === "asset-clip" && roleAttribute?.startsWith("dialogue.") ? undefined : audioRole;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
