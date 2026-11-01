@@ -110,6 +110,15 @@ test("publisher QA refuses a changed preview digest without dispatch", async () 
   assert.deepEqual(calls, ["artifact.publish.preview"]);
 });
 
+test("publisher QA does not dispatch if the baseline changes after preview", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name) => {
+    calls.push(name);
+    return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}, async () => { throw new Error("PUBLISH_BASELINE_MISMATCH"); }), /PUBLISH_BASELINE_MISMATCH/);
+  assert.deepEqual(calls, ["artifact.publish.preview"]);
+});
+
 test("publisher QA stops on ambiguous dispatch without retrying", async () => {
   const calls: string[] = [];
   await assert.rejects(runPublishStages(async (name) => {
