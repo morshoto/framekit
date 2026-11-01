@@ -101,7 +101,7 @@ try {
     artifactPath, headlessExecutionId: executionId, targetLibraryPath, artifactDigest: approvedDigest,
   }, (stage, snapshot) => {
     process.stderr.write(`${JSON.stringify({ stage, jobId: snapshot.jobId, state: snapshot.state, artifactDigest: approvedDigest })}\n`);
-  });
+  }, async () => verifyBaselineTarget(await callJson("editor.live.inspect"), baseline));
   const result = job.result;
 
   const afterLive = await callJson("editor.live.inspect");

@@ -63,7 +63,7 @@ export function verifyAcceptanceFixture(snapshot) {
     || !seconds(titles[0].startTime, 0) || !seconds(titles[0].durationTime, 6)) fail();
 }
 
-export async function runPublishStages(call, input, onStage) {
+export async function runPublishStages(call, input, onStage, beforeDispatch = async () => {}) {
   const { artifactDigest, ...previewInput } = input;
   const preview = await call("artifact.publish.preview", previewInput);
   if (!preview.jobId || preview.state !== "awaiting-confirmation"
@@ -77,6 +77,7 @@ export async function runPublishStages(call, input, onStage) {
     throw new Error("PUBLISH_SOURCE_PROOF_INCOMPLETE: the fixture requires four distinct hashed media sources");
   }
   onStage("prepared", preview);
+  await beforeDispatch();
   let dispatched;
   try {
     dispatched = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true });
