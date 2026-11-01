@@ -6,7 +6,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
-import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
+import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -57,6 +57,7 @@ async function connect(
     }>;
   },
   sessionChangeSourceOverride: "omit" | "default" = "default",
+  canonicalRecovery?: FileCanonicalRecoveryGuard,
 ) {
   const changeSource = sessionChangeSourceOverride === "omit"
     ? undefined
@@ -67,6 +68,7 @@ async function connect(
     sessionDirectory: join(directory, "sessions"),
     materializationDirectory: join(directory, "materializations"),
     ...(publisher ? { sessionMaterializationPublisher: publisher } : {}),
+    ...(canonicalRecovery ? { canonicalRecovery } : {}),
     ...(changeSource ? { sessionChangeSource: changeSource } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -659,6 +661,51 @@ test("rejects a tampered persisted desired snapshot before retry publication", a
     await second.client.close();
     await second.server.close();
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("materialization excludes canonical edits and never retries an uncertain publication", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-reservation-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  let started!: () => void;
+  let finish!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  let publishes = 0;
+  let execution: ReturnType<Client["callTool"]> | undefined;
+  const connected = await connect(directory, {
+    publish: async (request) => {
+      publishes += 1;
+      started();
+      await held;
+      return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+    },
+  }, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-guarded", provider: { id: "final-cut" }, base: timeline() } });
+    execution = connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-guarded", target, confirm: true } });
+    await entered;
+    try {
+      await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally { finish(); }
+    const result = payload(await execution);
+    assert.equal(result.state, "blocked");
+    assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(result.error.retryable, false);
+    assert.equal(result.evidence.providerRequested, true);
+    assert.equal(result.evidence.canonicalReadback, true);
+    assert.equal(result.verification.tier, "canonical-verified");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await connected.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+    assert.equal(publishes, 1);
+  } finally {
+    finish();
+    await execution?.catch(() => undefined);
+    await connected.client.close();
+    await connected.server.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
