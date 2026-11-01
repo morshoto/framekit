@@ -1,0 +1,116 @@
+name: Security
+
+on:
+    push:
+        branches:
+            - main
+    schedule:
+        - cron: '30 1 * * 0'
+    workflow_dispatch:
+        inputs:
+            profile_swift:
+                description: Benchmark the Swift compiler with and without CodeQL tracing
+                required: false
+                type: boolean
+                default: false
+    workflow_run:
+        workflows:
+            - CodeQL
+        types:
+            - completed
+
+permissions:
+    contents: read
+
+jobs:
+    codeql:
+        if: ${{ github.event_name != 'workflow_run' }}
+        uses: ./.github/workflows/codeql.yml
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+            security-events: write
+        with:
+            profile_swift: ${{ inputs.profile_swift || false }}
+
+    deep-validation:
+        name: Full security and integration validation
+        if: ${{ github.event_name != 'workflow_run' }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Run full validation
+              uses: ./.github/action/test
+              with:
+                  node-version: 22.14.0
+                  validation-level: full
+
+    consumer-runtime:
+        name: Published package consumer minimum
+        if: ${{ github.event_name != 'workflow_run' }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Verify the published package consumer minimum
+              uses: ./.github/action/consumer-runtime
+              with:
+                  node-version: 22.14.0
+                  consumer-node-version: 20.0.0
+
+    pull-request-policy:
+        name: Evaluate CodeQL policy for pull requests
+        if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: read
+            security-events: read
+            statuses: write
+        steps:
+            - name: Check out trusted policy from the default branch
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: refs/heads/main
+                  persist-credentials: false
+            - name: Publish CodeQL policy check on the pull request
+              run: node .github/codeql/post-codeql-policy-check.mjs
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    report-failure:
+        needs: [codeql, deep-validation, consumer-runtime]
+        if: >-
+            ${{ always() && github.ref == 'refs/heads/main' &&
+                (needs.codeql.result == 'failure' || needs.codeql.result == 'cancelled' ||
+                 needs.deep-validation.result == 'failure' || needs.deep-validation.result == 'cancelled' ||
+                 needs.consumer-runtime.result == 'failure' || needs.consumer-runtime.result == 'cancelled') }}
+        runs-on: ubuntu-latest
+        concurrency:
+            group: security-ci-failure-issue
+            queue: max
+        permissions:
+            contents: read
+            issues: write
+        steps:
+            - name: Check out reporting policy
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Report failure on main
+              run: node .github/codeql/report-security-failure.mjs
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CODEQL_RESULT: ${{ needs.codeql.result }}
+                  DEEP_RESULT: ${{ needs.deep-validation.result }}
+                  CONSUMER_RESULT: ${{ needs.consumer-runtime.result }}
