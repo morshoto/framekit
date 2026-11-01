@@ -141,6 +141,11 @@ export interface FinalCutProjectPublishJob {
     code: string;
     message: string;
   };
+  /** Retains an unacknowledged import attempt even if later verification fails differently. */
+  dispatchError?: {
+    code: string;
+    message: string;
+  };
 }
 
 export type FinalCutProjectPublishRoute = "background-document-open" | "headed-apple-event";
@@ -470,6 +475,7 @@ export class FinalCutProjectPublisher {
       job.state = "verification-pending";
       job.nextAction = "retry";
       job.retryable = true;
+      job.dispatchError = structuredClone(normalized);
       job.error = normalized;
       this.persistPublishJob(job);
       return clonePublishJob(job);
@@ -526,6 +532,7 @@ export class FinalCutProjectPublisher {
         sequenceName: identity.sequenceName,
         confirmationRequired: false,
         ...(runtime.delivery ? { delivery: structuredClone(runtime.delivery) } : {}),
+        ...(!runtime.delivery ? { dispatchError: structuredClone(normalized) } : {}),
         ...(runtime.observedTarget ? { observedTarget: structuredClone(runtime.observedTarget) } : {}),
         handoff: {
           mode: "headed-only",
@@ -616,6 +623,7 @@ export class FinalCutProjectPublisher {
     const importedDigest = hash(importedSource);
     if (runtime) runtime.importedDigest = importedDigest;
     let delivery: FinalCutProjectPublishDelivery | undefined;
+    let completed = false;
     try {
       await writeFile(importedPath, importedSource, "utf8");
       await validateTargetLibraryPath(targetLibraryPath, Boolean(this.documentDelivery));
@@ -703,6 +711,7 @@ export class FinalCutProjectPublisher {
         sourceMediaDigests,
       );
       if (runtime) await releaseTargetLibraryReservation(runtime);
+      completed = true;
       return result;
     } catch (error) {
       if (!runtime?.importAttempted) {
@@ -710,7 +719,7 @@ export class FinalCutProjectPublisher {
       }
       throw error;
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      if (completed || !runtime?.importAttempted) await rm(directory, { recursive: true, force: true });
     }
   }
 
@@ -767,6 +776,7 @@ export class FinalCutProjectPublisher {
         runtime.sourceMediaDigests,
       );
       await releaseTargetLibraryReservation(runtime);
+      await removeCompletedImportArtifact(runtime);
       return this.markVerified(job, result);
     } catch (error) {
       job.state = "verification-pending";
@@ -1251,6 +1261,13 @@ async function releaseTargetLibraryReservation(runtime: PublishJobRuntime): Prom
   }
   delete runtime.reservationPath;
   delete runtime.reservationId;
+}
+
+async function removeCompletedImportArtifact(runtime: PublishJobRuntime): Promise<void> {
+  if (!runtime.importedPath) return;
+  const directory = dirname(resolve(runtime.importedPath));
+  if (dirname(directory) !== resolve(tmpdir()) || !basename(directory).startsWith("framekit-finalcut-publish-")) return;
+  await rm(directory, { recursive: true, force: true }).catch(() => {});
 }
 
 async function validateTargetLibraryPath(path: string | undefined, required: boolean): Promise<string | undefined> {

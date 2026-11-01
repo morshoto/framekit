@@ -104,6 +104,8 @@ const READ_ONLY_LIVE_METHODS = new Set<FinalCutLiveMethod>([
   "projects",
   "snapshot",
 ]);
+// The extension waits up to five seconds for NSWorkspace's completion handler.
+const DOCUMENT_DELIVERY_TIMEOUT_MS = 7_000;
 
 /** Newline-delimited JSON transport for the local Workflow Extension socket. */
 export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
@@ -140,7 +142,7 @@ export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
       };
       const timer = setTimeout(() => {
         finish(() => reject(new Error(`FINAL_CUT_LIVE_TIMEOUT: ${this.socketPath}`)));
-      }, this.timeoutMs);
+      }, request.method === "deliver-fcpxml" ? Math.max(this.timeoutMs, DOCUMENT_DELIVERY_TIMEOUT_MS) : this.timeoutMs);
 
       socket = createConnection(this.socketPath);
       socket.setEncoding("utf8");
