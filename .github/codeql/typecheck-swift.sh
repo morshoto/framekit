@@ -14,6 +14,19 @@ args=(
   -D FRAMEKIT_CODEQL
 )
 
+# Profiling compares fresh, equivalent Swift module caches before and after
+# CodeQL initialization. Normal analysis keeps the compiler's default cache.
+if [[ "${FRAMEKIT_SWIFT_TYPECHECK_PROFILE:-false}" == "true" ]]; then
+  if [[ -z "${RUNNER_TEMP:-}" ]]; then
+    printf 'Swift CodeQL profiling requires RUNNER_TEMP\n' >&2
+    exit 2
+  fi
+  module_cache_path="${RUNNER_TEMP%/}/framekit-swift-module-cache"
+  rm -rf -- "$module_cache_path"
+  mkdir -p -- "$module_cache_path"
+  args+=(-module-cache-path "$module_cache_path")
+fi
+
 # Diagnostic output can be noisy; enable only for an explicit profiling run.
 if [[ "${FRAMEKIT_SWIFT_TYPECHECK_DIAGNOSTICS:-false}" == "true" ]]; then
   args+=(-Xfrontend -debug-time-function-bodies)
