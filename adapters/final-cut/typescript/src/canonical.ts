@@ -834,7 +834,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-read" as const, evidenceTier: "headed-native" as const }
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
-    const sourceBindingAvailable = this.resolveTarget.sourceBindingAvailable !== false;
+    const sourceBindingAvailable = hasCanonicalSourceBinding(this.resolveTarget);
     const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
@@ -1481,8 +1481,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "trim-clip" | "add-marker" | "ripple-delete" | "set-gain" }>;
 
 function assertCanonicalSourceBindingAvailable(resolver: CanonicalNativeTargetResolver, operation: CanonicalOperation): void {
-  if (operation.type !== "add-marker" && resolver.sourceBindingAvailable === false) {
+  if (operation.type !== "add-marker" && !hasCanonicalSourceBinding(resolver)) {
     throw new Error("CAPABILITY_UNAVAILABLE: native occurrence source binding cannot be independently observed");
+  }
+}
+
+function hasCanonicalSourceBinding(resolver: CanonicalNativeTargetResolver): boolean {
+  try {
+    return resolver.sourceBindingAvailable === true;
+  } catch {
+    return false;
   }
 }
 
