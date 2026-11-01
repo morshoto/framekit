@@ -379,6 +379,46 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
 
     const undone = await client.callTool({ name: "edit.undo", arguments: { transactionId: markerTransaction.id } });
     assert.equal(JSON.parse(textFrom(undone)).timeline.clips[0].name, "Interview - Clean");
+
+    const availableSkills = JSON.parse(textFrom(await client.callTool({ name: "skill.list", arguments: {} }))) as Array<{ id: string }>;
+    assert.deepEqual(availableSkills.map(({ id }) => id), [
+      "audio-noise-reduction",
+      "color-correction",
+      "dialogue-normalization",
+      "filler-removal",
+    ]);
+    const inspectedSkill = JSON.parse(textFrom(await client.callTool({
+      name: "skill.inspect",
+      arguments: { skill: "color-correction" },
+    }))) as { id: string; availability: { available: boolean } };
+    assert.equal(inspectedSkill.id, "color-correction");
+    assert.equal(inspectedSkill.availability.available, true);
+
+    const skillBaseline = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+    const malformedSkillPreview = await client.callTool({
+      name: "skill.preview",
+      arguments: {
+        skill: "color-correction",
+        arguments: { baseRevision: { id: "stale", sequence: -1, timestamp: "" }, clipId: "clip-1" },
+      },
+    });
+    assert.equal(malformedSkillPreview.isError, true);
+    assert.equal(JSON.parse(textFrom(malformedSkillPreview)).code, "SKILL_INPUT_INVALID");
+    const skillPreview = JSON.parse(textFrom(await client.callTool({
+      name: "skill.preview",
+      arguments: {
+        skill: "color-correction",
+        arguments: { baseRevision: skillBaseline.revision, clipId: "clip-1", preset: "warm" },
+      },
+    }))) as { previewToken: string; plan: { skillId: string; operations: unknown[] } };
+    assert.equal(skillPreview.plan.skillId, "color-correction");
+    assert.equal(skillPreview.plan.operations.length, 1);
+    assert.deepEqual(JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} }))).revision, skillBaseline.revision);
+    const skillExecution = JSON.parse(textFrom(await client.callTool({
+      name: "skill.execute",
+      arguments: { previewToken: skillPreview.previewToken },
+    }))) as { status: string };
+    assert.equal(skillExecution.status, "VERIFIED");
   } finally {
     await client.close();
     await transport.close();
