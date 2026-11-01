@@ -47,6 +47,7 @@
     "release-report": "tsx scripts/generate-release-report.ts",
     "verify-release-provenance": "tsx scripts/verify-release-provenance.ts",
     "test:codex-plugin": "node scripts/codex-plugin-smoke.mjs",
+    "smoke:fixture-mcp": "node scripts/fixture-mcp-smoke.mjs",
     "test:clean-mcp-clients": "node scripts/clean-mcp-client-smoke.mjs",
     "evaluate": "tsx scripts/run-mcp-evaluation.ts",
     "test:final-cut-headless": "tsx --test tests/integration/connection.test.ts tests/integration/finalcut-mcp.test.ts tests/integration/native.test.ts",

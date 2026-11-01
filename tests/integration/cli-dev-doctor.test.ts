@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -80,6 +80,49 @@ test("headless doctor reports missing render prerequisites with actionable messa
   assert.equal(checkNamed(report, "SQLite").status, "fail");
   assert.ok(commands.includes("ffmpeg"));
   assert.ok(commands.includes("sqlite3"));
+});
+
+test("doctor reports unwritable state and cache paths with override guidance", async () => {
+  const report = await collectDevDoctorReport({
+    profile: "fixture",
+    rootDirectory: repositoryRoot,
+    environment: { HOME: homeDirectory },
+    homeDirectory,
+    nodeVersion: "v22.14.0",
+    runCommand: async (command) => {
+      if (command === "pnpm") return "12.14.0";
+      throw new Error("not installed");
+    },
+    isPathWritable: async () => false,
+  });
+
+  assert.equal(report.ready, false);
+  assert.match(checkNamed(report, "State directory").message, /FRAMEKIT_STATE_DIR/);
+  assert.match(checkNamed(report, "Cache directory").message, /XDG_CACHE_HOME/);
+});
+
+test("doctor checks missing state and cache paths without creating them", async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "framekit-doctor-paths-"));
+  const statePath = join(temporaryDirectory, "future-state");
+  const cachePath = join(temporaryDirectory, "future-cache");
+  try {
+    const report = await collectDevDoctorReport({
+      profile: "fixture",
+      rootDirectory: repositoryRoot,
+      environment: { HOME: temporaryDirectory, FRAMEKIT_STATE_DIR: statePath, XDG_CACHE_HOME: cachePath },
+      homeDirectory: temporaryDirectory,
+      nodeVersion: "v22.14.0",
+      runCommand: async (command) => {
+        if (command === "pnpm") return "12.14.0";
+        throw new Error("not installed");
+      },
+    });
+
+    assert.equal(report.ready, true);
+    assert.deepEqual(await readdir(temporaryDirectory), []);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test("native doctor checks Xcode only for the native profile", async () => {

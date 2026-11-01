@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { constants } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -219,7 +220,7 @@ async function defaultIsPathWritable(path: string): Promise<boolean> {
     try {
       const information = await stat(candidate);
       if (!information.isDirectory()) return false;
-      await access(candidate, 3); // W_OK | X_OK: writable and searchable directory.
+      await access(candidate, constants.W_OK | constants.X_OK);
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
