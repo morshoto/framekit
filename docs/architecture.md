@@ -58,7 +58,14 @@ permit sibling application imports or private adapter paths.
 `@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
 are available only from `@framekit/final-cut/experimental`; default CLI and MCP
-entrypoints must not reach those modules. The boundary checker also rejects
+entrypoints must not reach those modules. SQLite inspection and WAL observation
+are research-only, non-canonical evidence, not supported editor capabilities.
+The standard MCP server does not configure a SQLite provider; `session.observe`
+returns `FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE` by default. Research integrations
+must explicitly import the experimental entrypoint and inject an inspection
+provider; they must use disposable fixtures and cannot fall back to it from the
+production server. SQLite observations do not establish editor revisions or
+verify native edits. The boundary checker also rejects
 new runtime source dependency cycles. The existing Timeline IR edit/reconcile cycle
 between `editing-session.ts` and `drift-reconciliation.ts` is the only
 temporary cycle exception; removing it would require extracting shared

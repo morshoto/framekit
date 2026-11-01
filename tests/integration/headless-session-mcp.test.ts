@@ -289,6 +289,23 @@ test("preserves conflicted status during repeated provider refresh", async () =>
   }
 });
 
+test("session observation fails closed without an explicitly supplied provider", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-no-sqlite-"));
+  try {
+    const connected = await connect(directory);
+    const result = await connected.client.callTool({
+      name: "session.observe",
+      arguments: { sessionId: "missing", sourcePath: "/nonexistent/fixture.fcpevent" },
+    });
+    assert.equal(result.isError, true);
+    assert.match(JSON.stringify(result), /FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE/);
+    await connected.client.close();
+    await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("binds read-only SQLite evidence and invalidates only session freshness", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-sqlite-"));
   let digest = "a".repeat(64);
