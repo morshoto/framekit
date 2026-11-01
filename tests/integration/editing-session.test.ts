@@ -61,6 +61,18 @@ test("editing sessions retain native audio subroles across serialization", () =>
   assert.equal(restored.desired().sequence.occurrences[0]?.nativeAudioRole, "dialogue.dialogue-1");
 });
 
+test("editing sessions reject invalid native audio subroles", () => {
+  for (const nativeAudioRole of ["", "dialogue.", "custom.role"]) {
+    const base = baseTimeline();
+    base.sequence.occurrences[0]!.nativeAudioRole = nativeAudioRole;
+    assert.throws(() => EditingSession.create({ base }), /TIMELINE_IR_INVALID:.*nativeAudioRole/);
+  }
+  const base = baseTimeline();
+  base.sequence.occurrences[0]!.role = "music";
+  base.sequence.occurrences[0]!.nativeAudioRole = "dialogue.dialogue-1";
+  assert.throws(() => EditingSession.create({ base }), /TIMELINE_IR_INVALID:.*nativeAudioRole/);
+});
+
 test("serializes and loads a provider-neutral session without losing rational identity", () => {
   const session = EditingSession.create({
     base: baseTimeline(),
