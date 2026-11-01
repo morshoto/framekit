@@ -168,3 +168,18 @@ test("publisher headed E2E rejects incomplete semantic coverage", () => {
     expectedProject: "Imported", expectedSequence: "Main", sourceSequence: "Main",
   }), /PUBLISH_SEMANTIC_COVERAGE_INCOMPLETE/);
 });
+
+test("publisher headed E2E rejects a target without native library and event identities", () => {
+  assert.throws(() => verifyPublishedTarget({
+    result: {
+      verified: true,
+      semanticReadback: { verified: true, expectedDigest: "a".repeat(64), observedDigest: "a".repeat(64), checked: ["timeline-duration-and-frame-rate", "clip-order-and-source-ranges", "editable-title-content-and-timing", "connected-audio-source-role-gain-and-timing", "source-media-bindings"] },
+      sourceMediaIntegrity: { unchanged: true, digests: [] },
+      createdTarget: { projectName: "Imported", sequenceName: "Main", projectId: "project", sequenceId: "sequence" },
+      activeProject: { before: { id: "before" }, after: { id: "project" } },
+    },
+    beforeLive: { project: { id: "before" }, sequence: { id: "before-sequence" } },
+    afterLive: { project: { id: "project" }, sequence: { id: "sequence" } },
+    expectedProject: "Imported", expectedSequence: "Main", sourceSequence: "Main", targetLibraryPath: "/tmp/new.fcpbundle",
+  }), /PUBLISH_LIBRARY_IDENTITY_UNAVAILABLE/);
+});
