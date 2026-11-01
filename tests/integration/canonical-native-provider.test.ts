@@ -27,7 +27,7 @@ import type {
   ProjectSnapshot,
   RuntimeCapabilities,
 } from "@framekit/runtime";
-import { AgentVideoRuntime as Runtime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
+import { AgentVideoRuntime as Runtime, canonicalSnapshotDigest, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
@@ -846,6 +846,26 @@ test("canonical native provider undoes failed post-edit verification", async () 
       label,
     );
     assert.deepEqual(calls, ["edit", "undo"], label);
+  }
+});
+
+test("verification read failure restores trim, marker, ripple, and gain", async () => {
+  const cases = [
+    { label: "trim", before: snapshot("Original"), operation: { type: "trim-clip" as const, clipId: "final-cut:occurrence:clip-1", duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { label: "marker", before: markerSnapshots().before, operation: { type: "add-marker" as const, timelineId: "final-cut:sequence:sequence-1", marker: { id: "marker-1", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } } } },
+    { label: "ripple", before: rippleSnapshots().before, operation: { type: "ripple-delete" as const, timelineId: "final-cut:sequence:sequence-1", range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
+    { label: "gain", before: gainSnapshots().before, operation: { type: "set-gain" as const, clipId: "final-cut:occurrence:clip-1", gainDb: 3 } },
+  ];
+  for (const { label, before: original, operation } of cases) {
+    const calls: string[] = [];
+    const mutate = async () => { calls.push(label); return { operationId: `native-${label}`, undoAvailable: true }; };
+    const provider = providerFor([original, original, new Error("controlled read failure"), original, original], calls, undefined, liveState(), undefined, {
+      trimSelectedClipToRange: mutate, addMarkerAtTime: mutate, rippleDeleteRange: mutate, setSelectedClipGain: mutate,
+    });
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply(operation, before.revision), /controlled read failure/, label);
+    assert.deepEqual(calls, [label, "undo"], label);
+    assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before), label);
   }
 });
 
