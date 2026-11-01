@@ -915,6 +915,24 @@ test("uncertain native edit failure blocks another mutation", async () => {
   assert.deepEqual(calls, ["edit"]);
 });
 
+test("recovery checkpoint inspection reports the bound evidence and rejects corrupt records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-checkpoint-inspection-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const owner = new FileCanonicalRecoveryGuard(path);
+    const observer = new FileCanonicalRecoveryGuard(path);
+    assert.equal(await observer.inspect(), undefined);
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" };
+    await owner.begin(checkpoint);
+    assert.deepEqual(await observer.inspect(), checkpoint);
+    await writeFile(path, JSON.stringify({ version: 1, owner: "invalid", checkpoint: { ...checkpoint, beforeDigest: "invalid" } }));
+    await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("durable canonical recovery checkpoint blocks other instances until its owner completes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-recovery-"));
   try {
