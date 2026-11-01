@@ -675,10 +675,12 @@ test("materialization excludes canonical edits and never retries an uncertain pu
   const entered = new Promise<void>((resolve) => { started = resolve; });
   const held = new Promise<void>((resolve) => { finish = resolve; });
   let publishes = 0;
+  let runningJobId = "";
   let execution: ReturnType<Client["callTool"]> | undefined;
   const connected = await connect(directory, {
     publish: async (request) => {
       publishes += 1;
+      runningJobId = request.jobId;
       started();
       await held;
       return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
@@ -689,6 +691,9 @@ test("materialization excludes canonical edits and never retries an uncertain pu
     execution = connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-guarded", target, confirm: true } });
     await entered;
     try {
+      const running = payload(await connected.client.callTool({ name: "session.materialize.status", arguments: { jobId: runningJobId } }));
+      assert.equal(running.state, "publishing");
+      assert.equal(running.evidence.providerRequested, true);
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { finish(); }
     const result = payload(await execution);
