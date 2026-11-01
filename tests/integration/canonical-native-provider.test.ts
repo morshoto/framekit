@@ -882,7 +882,7 @@ test("failed verification recovery blocks subsequent canonical edits", async () 
   );
   const before = await provider.readProject();
   const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
-  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   const observed = await provider.readProject();
   await assert.rejects(provider.apply(operation, observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   await assert.rejects(provider.previewTransaction([operation], observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
@@ -897,7 +897,7 @@ test("missing native Undo blocks a second edit after mutation", async () => {
   });
   const before = await provider.readProject();
   const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
-  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE/);
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit"]);
 });
@@ -1064,7 +1064,7 @@ test("unverified explicit Undo blocks subsequent canonical edits", async () => {
   const before = await provider.readProject();
   const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
   const revision = await provider.apply(operation, before.revision);
-  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_UNDO_FAILED/);
+  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED:.*FINAL_CUT_CANONICAL_UNDO_FAILED/);
   await assert.rejects(provider.apply(operation, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit", "undo"]);
 });
