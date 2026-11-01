@@ -705,7 +705,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
   }
 });
 
-test("inferred rough-cut ranges align duration to both frame grids", async () => {
+test("inferred rough-cut ranges align duration to the sequence frame grid", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-rough-cut-frame-grids-"));
   const sourcePath = join(directory, "source-24fps.mp4");
   try {
@@ -767,8 +767,25 @@ test("inferred rough-cut ranges align duration to both frame grids", async () =>
     });
 
     const preview = await service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }));
-    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "5", timescale: "6" });
-    assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "5", timescale: "6" });
+    assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "23", timescale: "30" });
+    assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "23", timescale: "30" });
+
+    // 24 fps and 24000/1001 fps share a frame only every 41.7 seconds.
+    // A short valid range must not be rounded to that common interval.
+    const fractionalTimeline = emptyTimeline();
+    fractionalTimeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    const fractionalService = new HeadlessProjectService({ directory: join(directory, "fractional-projects"), mediaProbe: new FfmpegMediaMetadataProbe() });
+    const fractionalCreated = await fractionalService.create(fractionalTimeline);
+    const fractionalRegistered = await fractionalService.registerMedia(fractionalCreated.timeline.project.id, sourcePath, fractionalCreated.timeline.revision);
+    const fractionalRequest = makeRequest({ start: 0, end: 0.75 });
+    fractionalRequest.projectId = fractionalCreated.timeline.project.id;
+    fractionalRequest.sequenceId = fractionalCreated.timeline.sequence.id;
+    fractionalRequest.plan.revision = fractionalRegistered.project.timeline.revision;
+    fractionalRequest.plan.shots[0]!.sourceIdentity.mediaId = fractionalRegistered.resource.id;
+    const fractionalPreview = await fractionalService.previewRoughCut(fractionalRequest);
+    assert.deepEqual(fractionalPreview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "3003", timescale: "4000" });
+    const nearEnd = await fractionalService.previewRoughCut({ ...fractionalRequest, plan: { ...fractionalRequest.plan, shots: [{ ...fractionalRequest.plan.shots[0]!, range: { start: 1.5, end: sourceDuration } }] } });
+    assert.ok(rationalSeconds(nearEnd.provenance[0]!.sourceRange.startTime!) + rationalSeconds(nearEnd.provenance[0]!.sourceRange.durationTime!) <= sourceDuration);
 
     await assert.rejects(
       service.previewRoughCut(makeRequest({ start: -0.01, end: 0.75 })),

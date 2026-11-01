@@ -852,10 +852,14 @@ function alignInferredRoughCutRange(
     return structuredClone(range);
   }
   const sourceFrameDuration = { value: frameRate.timescale, timescale: frameRate.value };
-  const commonDurationFrame = commonFrameDuration(sourceFrameDuration, sequenceFrameDuration);
   const startTime = nearestFrameTime(secondsToRational(range.start), sourceFrameDuration);
   const sourceEndTime = nearestFrameTime(secondsToRational(range.end), sourceFrameDuration);
-  const durationTime = nearestFrameTime(subtractRationalTimes(sourceEndTime, startTime), commonDurationFrame);
+  let durationTime = nearestFrameTime(subtractRationalTimes(sourceEndTime, startTime), sequenceFrameDuration);
+  if (resource.metadata?.durationTime !== undefined) {
+    const available = subtractRationalTimes(resource.metadata.durationTime, startTime);
+    const maxDuration = floorFrameTime(available, sequenceFrameDuration);
+    if (rationalSeconds(durationTime) > rationalSeconds(maxDuration)) durationTime = maxDuration;
+  }
   if (BigInt(durationTime.value) <= 0n) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: frame alignment produced an empty source range");
   }
@@ -869,22 +873,14 @@ function alignInferredRoughCutRange(
   };
 }
 
-function commonFrameDuration(
-  left: { value: string; timescale: string },
-  right: { value: string; timescale: string },
+function floorFrameTime(
+  time: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
 ): { value: string; timescale: string } {
-  const leftValue = BigInt(left.value);
-  const leftScale = BigInt(left.timescale);
-  const rightValue = BigInt(right.value);
-  const rightScale = BigInt(right.timescale);
-  const commonScale = leastCommonMultipleBigInt(leftScale, rightScale);
-  const leftTicks = leftValue * (commonScale / leftScale);
-  const rightTicks = rightValue * (commonScale / rightScale);
-  return normalizeRationalTime(leastCommonMultipleBigInt(leftTicks, rightTicks), commonScale);
-}
-
-function leastCommonMultipleBigInt(left: bigint, right: bigint): bigint {
-  return (left / greatestCommonDivisorBigInt(left, right)) * right;
+  const numerator = BigInt(time.value) * BigInt(frameDuration.timescale);
+  const denominator = BigInt(time.timescale) * BigInt(frameDuration.value);
+  const frames = numerator > 0n ? numerator / denominator : 0n;
+  return normalizeRationalTime(frames * BigInt(frameDuration.value), BigInt(frameDuration.timescale));
 }
 
 function nearestFrameTime(
