@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   FinalCutCanonicalNativeProvider,
   FileCanonicalRecoveryGuard,
+  type NativeFinalCutEditor,
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
 import {
@@ -374,6 +375,39 @@ test("MCP recovery preview does not promote a fixture provider", async () => {
     assert.match(textFrom(result), /CAPABILITY_UNAVAILABLE/);
     assert.equal(reads, 0);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unresolved checkpoint blocks direct native edits while allowing inspection", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-direct-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const nativeEditor = {
+    capabilities: () => ({}),
+    inspect: async () => ({ available: true }),
+    edit: async () => { calls.push("edit"); return { operationId: "native-edit" }; },
+    undo: async () => { calls.push("undo"); return { undone: true }; },
+  } as unknown as NativeFinalCutEditor;
+  await guard.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    const inspection = await client.callTool({ name: "editor.native.inspect", arguments: {} });
+    assert.equal(inspection.isError ?? false, false);
+    const edit = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+    assert.equal(edit.isError, true);
+    assert.match(textFrom(edit), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const undo = await client.callTool({ name: "editor.native.undo", arguments: { operationId: "native-edit" } });
+    assert.equal(undo.isError, true);
+    assert.match(textFrom(undo), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, []);
+    await guard.complete();
+    const allowed = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+    assert.equal(allowed.isError ?? false, false, textFrom(allowed));
+    assert.deepEqual(calls, ["edit"]);
   } finally {
     await client.close();
     await server.close();
