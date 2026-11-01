@@ -617,6 +617,33 @@ test("canonical native provider reports timeline bounds for out-of-range ripple 
   assert.deepEqual(calls, []);
 });
 
+test("trim and gain reject collateral readback changes and restore the baseline", async () => {
+  const originalTrim = snapshot("Original");
+  const trimmed = structuredClone(originalTrim);
+  trimmed.timeline.duration = 3;
+  trimmed.timeline.durationTime = { value: "72", timescale: "24" };
+  trimmed.timeline.clips[0] = { ...trimmed.timeline.clips[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  trimmed.timeline.storyElements[0] = { ...trimmed.timeline.storyElements[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  const gain = gainSnapshots();
+  const cases = [
+    { label: "trim", before: originalTrim, after: trimmed, operation: { type: "trim-clip" as const, clipId: "final-cut:occurrence:clip-1", duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { label: "gain", before: gain.before, after: gain.after, operation: { type: "set-gain" as const, clipId: "final-cut:occurrence:clip-1", gainDb: 3 } },
+  ];
+  for (const { label, before: original, after, operation } of cases) {
+    const collateral = structuredClone(after);
+    collateral.timeline.markers.push({ id: "unexpected-marker", start: 1, duration: 0, name: "Collateral" });
+    const calls: string[] = [];
+    const mutate = async () => { calls.push(label); return { operationId: `native-${label}`, undoAvailable: true }; };
+    const provider = providerFor([original, original, collateral, original, original], calls, undefined, liveState(), undefined, {
+      trimSelectedClipToRange: mutate, setSelectedClipGain: mutate,
+    });
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_READBACK_FAILED/, label);
+    assert.deepEqual(calls, [label, "undo"], label);
+    assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before), label);
+  }
+});
+
 test("canonical native provider rejects collateral ripple-delete readback changes", async () => {
   const { before: original, after: deleted } = rippleSnapshots();
   const collateral = structuredClone(deleted);
