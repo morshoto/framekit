@@ -22,6 +22,19 @@ test("headed preflight accepts the current IOConsoleLocked signal", async () => 
   assert.match(result.stdout, /PREFLIGHT PASS/);
 });
 
+test("publisher preflight checks the console before any headed execution", async () => {
+  const result = await runPreflight('"IOConsoleLocked" = Yes', "publisher");
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /FINAL_CUT_NATIVE_CONSOLE_LOCKED/);
+});
+
+test("publisher preflight accepts a ready console without executing", async () => {
+  const result = await runPreflight('"IOConsoleLocked" = No', "publisher");
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /mode=publisher/);
+  assert.match(result.stdout, /no headed scenario was executed/);
+});
+
 test("headed preflight rejects a locked current console signal", async () => {
   const result = await runPreflight('"IOConsoleLocked" = Yes');
 
@@ -66,7 +79,7 @@ type PreflightResult = {
   stderr: string;
 };
 
-async function runPreflight(lockProbe: string): Promise<PreflightResult> {
+async function runPreflight(lockProbe: string, mode = "canonical-read"): Promise<PreflightResult> {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-headed-preflight-"));
   const bin = join(directory, "bin");
   await writeFile(join(directory, "ioreg-output"), `${lockProbe}\n`);
@@ -81,9 +94,15 @@ async function runPreflight(lockProbe: string): Promise<PreflightResult> {
       ...process.env,
       PATH: `${bin}:${process.env.PATH ?? ""}`,
       FRAMEKIT_FINAL_CUT_E2E_PROJECT: join(directory, "Disposable.fcpxml"),
+      FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH: join(directory, "source.fcpxml"),
+      FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT: "Disposable",
+      FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH: join(directory, "new.fcpbundle"),
+      FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID: "execution",
+      FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST: "a".repeat(64),
+      FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT: "b".repeat(40),
     };
     try {
-      const result = await exec("bash", [preflight, "canonical-read"], {
+      const result = await exec("bash", [preflight, mode], {
         cwd: repository,
         env: environment,
       });
