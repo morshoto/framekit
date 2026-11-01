@@ -698,6 +698,7 @@ test("materialization excludes canonical edits and never retries an uncertain pu
     assert.equal(result.evidence.providerRequested, true);
     assert.equal(result.evidence.canonicalReadback, true);
     assert.equal(result.verification.tier, "canonical-verified");
+    assert.match(result.continuation.reason, /recovery is required/i);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await connected.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
     assert.equal(publishes, 1);
