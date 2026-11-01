@@ -152,3 +152,7 @@ The optional `pnpm run test:final-cut-rough-cut-headed` reports
 disposable target, and records `sourceIdentity` with verified, failed,
 unavailable, or unrun statuses. It does not promote unavailable native
 capabilities into a successful result.
+
+### CodeQL baselines for stacked pull requests
+
+The JavaScript CodeQL policy requires an analysis of the exact base branch commit. Security scans pushes to branches for this baseline; full validation and Swift scanning remain limited to main on push. Existing branches must first contain this workflow change and receive a push, or run the Security workflow manually on that branch. If the child PR scan finishes before its base scan, rerun the child's CodeQL workflow after the base scan completes. Missing or stale baseline evidence fails the policy closed. The trusted policy is loaded from the default branch, so changes to it take effect only after merging.
