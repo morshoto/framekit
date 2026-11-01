@@ -2446,13 +2446,17 @@ test("target preparation revision drift remains blocked before canonical dispatc
 });
 
 test("canonical resolver rejects selection that changes a known native occurrence identity", async () => {
+  const occurrence = {
+    handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", nativeIdentity: "expected-native-identity",
+    start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1", sourceIdentity: "browser-source-1",
+  };
   const native = {
     searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
-    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{
-      handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", nativeIdentity: "expected-native-identity",
-      start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1", sourceIdentity: "browser-source-1",
-    }] }),
-    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "different-native-identity" } }) as never,
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
+    selectOccurrence: async () => {
+      occurrence.nativeIdentity = "different-native-identity";
+      return { target: { kind: "selected-clip", identity: "different-native-identity" } } as never;
+    },
   };
   const project = snapshot("Original");
   await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selected.*identity/i);

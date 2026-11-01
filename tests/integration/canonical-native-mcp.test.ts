@@ -1202,3 +1202,27 @@ test("native target preparation routes exclude concurrent canonical edits", asyn
     }
   }
 });
+
+test("uncertain native preparation keeps its reservation", async () => {
+  for (const outcome of ["error", "invalid-preview"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-native-preparation-failure-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    const nativeEditor = {
+      capabilities: () => ({}),
+      previewBlade: async () => {
+        if (outcome === "error") throw new Error("native preparation outcome unknown");
+        return {};
+      },
+    } as unknown as NativeFinalCutEditor;
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+    try {
+      await client.callTool({ name: "editor.native.blade.preview", arguments: { occurrenceHandle: "clip-1" } });
+      assert.equal((await guard.inspectNativeReservation())?.operation, "native.previewblade", outcome);
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
