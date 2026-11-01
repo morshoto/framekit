@@ -109,6 +109,14 @@ jobs:
                   xcrun --sdk macosx --show-sdk-version
                   git rev-parse HEAD
 
+            # Keep diagnostic flags out of the measured and CodeQL-traced commands.
+            - name: Profile Swift compiler functions and expressions
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              env:
+                  FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'true'
+                  FRAMEKIT_SWIFT_TYPECHECK_DIAGNOSTICS: 'true'
+              run: bash .github/codeql/typecheck-swift.sh
+
             # Before CodeQL init, no extractor/tracing environment has been installed.
             # Compare this with the same script after init in the next type-check step.
             - name: Benchmark Swift compiler without CodeQL tracing
