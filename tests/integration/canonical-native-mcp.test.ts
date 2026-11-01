@@ -1044,3 +1044,54 @@ test("native media imports reserve until verified and retain partial outcomes", 
     }
   }
 });
+
+test("publish reservation excludes edits and permits verification of only the same settled job", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-reservation-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  let state = "awaiting-confirmation";
+  let dispatches = 0;
+  let verifications = 0;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: (id: string) => ({ jobId: id, state: id === "job-1" ? state : "awaiting-confirmation" }),
+    executePublishJob: async (_id: string, _confirm: boolean, verify?: boolean) => {
+      if (verify) { verifications += 1; state = "verified"; return { jobId: "job-1", state }; }
+      dispatches += 1;
+      state = "verification-pending";
+      entered();
+      await held;
+      return { jobId: "job-1", state };
+    },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  const dispatch = client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+  try {
+    await started;
+    await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const premature = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+    assert.equal(premature.isError, true);
+    assert.equal(verifications, 0);
+    finish();
+    assert.equal((await dispatch).isError ?? false, false);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const otherJob = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-2", confirm: true } });
+    assert.equal(otherJob.isError, true);
+    const verified = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+    assert.equal(verified.isError ?? false, false, textFrom(verified));
+    assert.equal(dispatches, 1);
+    assert.equal(verifications, 1);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    finish();
+    await dispatch;
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
