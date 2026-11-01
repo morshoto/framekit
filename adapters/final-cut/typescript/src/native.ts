@@ -1584,6 +1584,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async locateOccurrenceForCanonicalTarget(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutOccurrenceSearchResult> {
+    if (this.capabilities().timelineOccurrenceSourceBinding !== true) {
+      throw new Error("CAPABILITY_UNAVAILABLE: canonical occurrence source binding is unavailable");
+    }
     return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle, false, false), options.signal);
   }
 
@@ -1672,12 +1675,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       const liveBefore = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
       let occurrenceOutput = "";
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      const maxAttempts = selectForIdentity ? 2 : 1;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         try {
-          occurrenceOutput = await this.executeNativeScript(locateOccurrenceScript(match, scanAll));
+          occurrenceOutput = await this.executeNativeScript(locateOccurrenceScript(match, scanAll, selectForIdentity));
           break;
         } catch (error) {
-          if (attempt > 0) throw error;
+          if (attempt + 1 >= maxAttempts) throw error;
           await this.sleep(300);
         }
       }
@@ -5727,7 +5731,7 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
 end tell`;
 }
 
-function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolean): string {
+function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolean, zoomToFit = true): string {
   return `
   using terms from application "System Events"
     on collectTimelineClipMatches(containerItem, depth, targetName, sourceIdentity, mainOrigin, mainSize)
@@ -5799,13 +5803,12 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
     set origin to position of mainWindow
     set windowSize to size of mainWindow
     set targetName to ${appleScriptString(match.name)}
-    -- Make every occurrence visible before scanning. This keeps discovery
-    -- independent of the current timeline zoom/playhead viewport.
+    ${zoomToFit ? `-- Make every occurrence visible before scanning.
     try
       click menu bar item "View" of menu bar 1
       click menu item "Zoom to Fit" of menu 1 of menu bar item "View" of menu bar 1
       delay 0.5
-    end try
+    end try` : "-- Canonical discovery does not change the timeline view."}
     return my collectTimelineClipMatches(mainWindow, 0, targetName, sourceIdentity, origin, windowSize)
   end tell
 end tell`;
