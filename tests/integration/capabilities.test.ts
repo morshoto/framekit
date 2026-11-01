@@ -446,7 +446,9 @@ test("MCP editor inspection exposes native, publishing, export, and analyzer fam
     assert.equal(payload.capabilities.families.native.projectCreation.available, false);
     assert.equal(payload.capabilities.families.native.clipMovement.available, false);
     assert.equal(payload.capabilities.families.publishing.projectCreation.available, true);
+    assert.equal(payload.capabilities.families.publishing.projectCreation.guarantee, "native-verified");
     assert.equal(payload.capabilities.families.publishing.projectCreation.backend, "fcpxml-publisher");
+    assert.equal(payload.capabilities.editor.artifactPublishDispatchGuarantee, "requested-unverified");
     assert.equal(payload.capabilities.families.export.timeline.available, true);
     assert.equal(payload.capabilities.families.export.timeline.backend, "final-cut-native-export");
   } finally {

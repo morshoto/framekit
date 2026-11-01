@@ -192,7 +192,7 @@ test("MCP publishing requires the verified artifact target and returns the creat
       })));
       assert.equal(route.status, "editor-selected");
       assert.equal(route.provider.backend, "fcpxml-publisher");
-      assert.equal(route.provider.guarantee, "verified");
+      assert.equal(route.provider.guarantee, "native-verified");
       const missingReadbackApproval = await client.callTool({
         name: "artifact.publish",
         arguments: { artifactPath, targetLibraryPath, transactionId: transaction.id, confirm: true },
