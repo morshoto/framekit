@@ -271,3 +271,17 @@ test("publisher headed E2E rejects a target without native library and event ide
     expectedProject: "Imported", expectedSequence: "Main", sourceSequence: "Main", targetLibraryPath: "/tmp/new.fcpbundle",
   }), /PUBLISH_LIBRARY_IDENTITY_UNAVAILABLE/);
 });
+
+test("publisher QA records readback but blocks acceptance while recovery is required", async () => {
+  const calls: string[] = [];
+  const stages: string[] = [];
+  const reservation = { status: "recovery-required", reservationId: "b".repeat(64), reason: "native-quiescence-unproven" };
+  await assert.rejects(runPublishStages(async (name) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (calls.length === 2) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" }, recoveryReservation: reservation };
+    return { jobId: "job-1", state: "verified", result: { verified: true }, recoveryReservation: reservation };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (stage) => stages.push(stage)), /PUBLISH_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute", "artifact.publish.execute"]);
+  assert.deepEqual(stages, ["prepared", "dispatched", "verification-recovery-required"]);
+});
