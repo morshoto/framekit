@@ -935,6 +935,21 @@ test("durable canonical recovery checkpoint blocks other instances until its own
   }
 });
 
+test("live revision drift during checkpoint acquisition prevents native mutation", async () => {
+  const original = snapshot("Original");
+  const active = liveState();
+  const calls: string[] = [];
+  const guard = {
+    assertClear: async () => {},
+    begin: async () => { assert.ok(active.revision); active.revision.id = "revision-after-checkpoint"; },
+    complete: async () => { calls.push("checkpoint-cleared"); },
+  };
+  const provider = providerFor([original, original], calls, undefined, active, undefined, {}, guard);
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_TARGET_STALE/);
+  assert.deepEqual(calls, ["checkpoint-cleared"]);
+});
+
 test("verified canonical edit clears its checkpoint", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-success-"));
   try {
