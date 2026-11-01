@@ -1702,6 +1702,7 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
           handle: "occurrence-target",
           mediaHandle: "media-handle",
           name: "Original",
+          identity: "native-target",
           start: "96/24",
           duration: "96/24",
           sequenceId: "final-cut:sequence:sequence-1",
@@ -1710,7 +1711,7 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
     }),
     selectOccurrence: async (handle: string) => {
       selected.push(handle);
-      return {} as never;
+      return { target: { kind: "selected-clip", identity: "native-target" } } as never;
     },
   };
   const targetSnapshot = structuredClone(snapshot("Original"));

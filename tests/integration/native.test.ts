@@ -4165,3 +4165,26 @@ test("native range execute re-runs preflight and fails closed before mutation", 
   await assert.rejects(adapter.executeDeleteRange(preview.previewToken), /FINAL_CUT_NATIVE_NO_TIMELINE_WINDOW/);
   assert.equal(deleteCommandIssued, false);
 });
+
+test("canonical native occurrence discovery does not select before target validation", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let mouseCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativeMouseExecutor: async () => { mouseCalls += 1; },
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXLayoutItem${separator}media-source-1${separator}800${separator}0/1${separator}10/1${separator}native-occurrence-1${recordSeparator}`;
+      return "";
+    },
+  });
+  // Simulate the production adapter's native-selection capability with a fake executor.
+  Object.defineProperty(adapter, "canDriveNativeMouse", { value: true });
+  const [match] = await adapter.searchMedia("Interview");
+  const located = await adapter.locateOccurrenceForCanonicalTarget(match.handle);
+  assert.equal(located.status, "unique");
+  assert.equal(located.occurrences[0]?.identity, "native-occurrence-1");
+  assert.equal(mouseCalls, 0);
+});
