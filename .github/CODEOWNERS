@@ -6,5 +6,6 @@
 /.github/workflows/ci.yml @morshoto
 /.github/workflows/release.yml @morshoto
 /.github/action/test/ @morshoto
+/.github/action/deep-validation/ @morshoto
 /scripts/test-suites.mjs @morshoto
 /scripts/test-suite-manifest.json @morshoto
