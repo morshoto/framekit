@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -101,4 +102,24 @@ test("native doctor checks Xcode only for the native profile", async () => {
   assert.equal(report.ready, true);
   assert.equal(checkNamed(report, "Xcode").status, "pass");
   assert.ok(commands.includes("xcodebuild"));
+});
+
+test("CLI exposes fixture doctor JSON without requiring native tools", () => {
+  const result = spawnSync(process.execPath, [
+    "--import", "tsx",
+    "apps/cli/src/main.ts",
+    "doctor", "dev", "--profile", "fixture", "--json",
+  ], {
+    cwd: repositoryRoot,
+    env: process.env,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout) as Awaited<ReturnType<typeof collectDevDoctorReport>>;
+  assert.equal(report.profile, "fixture");
+  assert.equal(report.ready, true);
+  assert.equal(checkNamed(report, "Node.js").status, "pass");
+  assert.equal(checkNamed(report, "pnpm").status, "pass");
+  assert.ok(!report.checks.some((check) => check.name === "Xcode"));
 });
