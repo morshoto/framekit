@@ -1,3 +1,4 @@
+import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
@@ -37,7 +38,6 @@ import {
   type FinalCutProjectPublishReadiness,
   type FinalCutProjectPublisher,
   type FileCanonicalRecoveryGuard,
-  type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
@@ -970,7 +970,7 @@ export interface McpServerOptions {
   validationCommit?: string;
   sessionDirectory?: string;
   sessionChangeSource?: EditingSessionChangeSource;
-  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
+  sqliteObservationProvider?: SessionSqliteObservationProvider;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;

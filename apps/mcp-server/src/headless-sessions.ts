@@ -9,7 +9,15 @@ import {
   type TimelineIrEditOperation,
   type TimelineIrProvider,
 } from "@framekit/runtime";
-import type { FinalCutSqliteInspectionProvider } from "@framekit/final-cut";
+export interface SessionSqliteObservationProvider {
+  inspect(path: string): Promise<
+    | { status: "partial"; observation: {
+      backend: string; databaseKind: "flexolibrary" | "fcpevent" | "unknown";
+      digest: string; schemaVersion: number; revision: { timestamp: string };
+    } }
+    | { status: "error"; error: { code: string; message: string } }
+  >;
+}
 
 export interface StoredEditingSession {
   sessionId: string;
@@ -112,7 +120,7 @@ export class EditingSessionRepository {
   public async observe(
     sessionId: string,
     sourcePath: string,
-    provider: Pick<FinalCutSqliteInspectionProvider, "inspect">,
+    provider: SessionSqliteObservationProvider,
   ) {
     const result = await provider.inspect(sourcePath);
     if (result.status !== "partial") {

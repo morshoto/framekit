@@ -9,7 +9,7 @@ import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { createCanonicalSessionChangeSource } from "../../apps/mcp-server/src/headless-sessions.js";
 import { AgentVideoRuntime, type EditorPort, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import type { FinalCutSqliteInspectionProvider } from "@framekit/final-cut";
+import type { SessionSqliteObservationProvider } from "../../apps/mcp-server/src/headless-sessions.js";
 
 function timeline(): TimelineIr {
   return {
@@ -77,7 +77,7 @@ function payload(result: unknown): any {
 
 async function connect(
   sessionDirectory: string,
-  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">,
+  sqliteObservationProvider?: SessionSqliteObservationProvider,
   sessionChangeSource?: {
     changesSince(revision: TimelineIr["revision"]): Promise<{
       from: TimelineIr["revision"];

@@ -39,6 +39,8 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
   },
   productionEntrypoints: ["apps/mcp-server/src/main.ts", "apps/cli/src/main.ts"],
   experimentalModules: [
+    "adapters/final-cut/typescript/src/sqlite-inspection.ts",
+    "adapters/final-cut/typescript/src/sqlite-wal-observation.ts",
     "adapters/final-cut/typescript/src/sqlite-experiment.ts",
     "adapters/final-cut/typescript/src/sqlite-materialization.ts",
     "adapters/final-cut/typescript/src/shadow-mutation.ts",

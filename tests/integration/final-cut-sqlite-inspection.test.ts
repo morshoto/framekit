@@ -7,7 +7,7 @@ import {
   buildFinalCutSqliteInspectionQuery,
   compareFinalCutSqliteObservations,
   parseFinalCutSqliteInspectionResponse,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/experimental";
 
 const response = JSON.stringify({
   version: 1,
