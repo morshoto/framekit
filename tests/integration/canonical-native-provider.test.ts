@@ -727,6 +727,24 @@ test("canonical native provider previews and applies a revision-guarded marker",
   assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
 });
 
+test("marker rejects collateral clip changes and restores the baseline", async () => {
+  const { before: original, after } = markerSnapshots();
+  const collateral = structuredClone(after);
+  collateral.timeline.clips[0] = { ...collateral.timeline.clips[0]!, name: "Unexpected" };
+  const calls: string[] = [];
+  const provider = providerFor([original, original, collateral, original, original], calls, undefined, liveState(), undefined, {
+    addMarkerAtTime: async () => { calls.push("marker"); return { operationId: "native-marker", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  const operation = {
+    type: "add-marker" as const, timelineId: before.timeline.id,
+    marker: { id: "marker-1", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } },
+  };
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_READBACK_FAILED/);
+  assert.deepEqual(calls, ["marker", "undo"]);
+  assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before));
+});
+
 test("canonical native provider previews and applies a revision-guarded gain", async () => {
   const { before: original, after: gained } = gainSnapshots();
   const calls: string[] = [];
