@@ -1797,6 +1797,25 @@ test("canonical provider delegates supported project selection and binds later r
   assert.equal(sessionCatalog.provenance?.selection.available, true);
   assert.equal(sessionCatalog.provenance?.selection.mode, "headed-only");
 
+  const snapshotWithoutSelection = {
+    getIdentity: () => provider.getIdentity(),
+    getCapabilities: () => provider.getCapabilities({ probeCanonicalSnapshot: false }),
+    read: () => provider.read(),
+    readProject: () => provider.readProject(),
+    apply: provider.apply.bind(provider),
+    restore: provider.restore.bind(provider),
+  };
+  const mixedSession = new FinalCutSessionAdapter({
+    live: provider,
+    snapshot: snapshotWithoutSelection,
+    backgroundCatalog: { listProjects: async () => projectCatalog() },
+  });
+  const mixedCatalog = await mixedSession.listProjects();
+  assert.equal((await mixedSession.getCapabilities({ probeCanonicalSnapshot: false })).editor.projectSelection, false);
+  assert.equal(mixedCatalog.provenance?.selection.available, false);
+  assert.equal(mixedCatalog.provenance?.selection.mode, "unavailable");
+  await assert.rejects(mixedSession.selectProject({ projectId: projects[0]!.id }), /CAPABILITY_UNAVAILABLE/);
+
   const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: false });
   assert.equal(capabilities.editor.projectSelection, true);
   assert.equal(capabilities.editor.projectSelectionMode, "headed-only");
@@ -1809,6 +1828,10 @@ test("canonical provider delegates supported project selection and binds later r
   assert.equal(selectionCalls, 0);
   assert.equal(snapshotReads, 0);
 
+  await provider.readProject();
+  assert.equal((await provider.getCapabilities({ probeCanonicalSnapshot: false })).editor.timelineSnapshotRead, true);
+  snapshotReads = 0;
+
   const selected = await runtime.selectProject({
     projectId: "final-cut:project:project-2",
     sequenceId: "final-cut:sequence:sequence-2",
@@ -1819,6 +1842,12 @@ test("canonical provider delegates supported project selection and binds later r
   });
   assert.equal(selectionCalls, 1);
   assert.equal(snapshotReads, 0, "selection must not export the timeline");
+
+  const selectedLive = activeLive;
+  activeLive = liveState();
+  assert.equal((await provider.getCapabilities({ probeCanonicalSnapshot: false })).editor.timelineSnapshotRead, false);
+  await assert.rejects(provider.readProject(), /TARGET_MISMATCH/);
+  activeLive = selectedLive;
 
   const selectedSnapshot = await provider.readProject();
   assert.equal(selectedSnapshot.projectId, "final-cut:project:project-2");
