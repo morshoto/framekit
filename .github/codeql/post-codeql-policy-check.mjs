@@ -32,7 +32,7 @@ async function request(apiUrl, repository, path, token, method = 'GET', body) {
 
 export async function evaluatePullRequest({ apiUrl, repository, token, workflowRun, pullRequestNumber, expectedHeadSha }) {
   const pullRequest = await request(apiUrl, repository, `/pulls/${pullRequestNumber}`, token);
-  if (pullRequest.state !== 'open' || pullRequest.draft || pullRequest.base?.ref !== 'main' ||
+  if (pullRequest.state !== 'open' || pullRequest.draft || 
       pullRequest.head?.sha !== expectedHeadSha || workflowRun.head_sha !== expectedHeadSha) {
     console.log(`Skipping stale or draft CodeQL run for pull request #${pullRequestNumber}.`);
     return;
