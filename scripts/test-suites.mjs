@@ -5,9 +5,29 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifestPath = "scripts/test-suite-manifest.json";
 const excludedDirectories = new Set([".git", "coverage", "dist", "node_modules"]);
+const fastIntegrationTests = new Set([
+  "tests/integration/basic-editing-mvp.test.ts",
+  "tests/integration/canonical-provider-readiness.test.ts",
+  "tests/integration/codeql-workflow.test.ts",
+  "tests/integration/composite-transactions.test.ts",
+  "tests/integration/connection.test.ts",
+  "tests/integration/editing-intent.test.ts",
+  "tests/integration/editor-first-routing.test.ts",
+  "tests/integration/finalcut-routing.test.ts",
+  "tests/integration/project-transactions.test.ts",
+  "tests/integration/range-validation.test.ts",
+  "tests/integration/release-workflow.test.ts",
+  "tests/integration/runtime.test.ts",
+  "tests/integration/test-state-isolation.test.ts",
+]);
 
 export const TEST_SUITE_DEFINITIONS = Object.freeze({
   all: { tags: [], executables: ["ffmpeg", "ffprobe", "npm"] },
+  fast: {
+    tags: ["unit", "contract", "fast-integration"],
+    exclude: ["tests/integration/finalcut-mcp.test.ts", "tests/integration/headless-project-mcp.test.ts"],
+    executables: [],
+  },
   unit: { tags: ["unit"], executables: [] },
   contract: { tags: ["contract"], executables: [] },
   fixture: { tags: ["fixture-e2e"], executables: ["ffmpeg", "ffprobe", "npm"] },
@@ -49,7 +69,7 @@ export function selectTestFiles(manifest, suiteName) {
   if (suiteName === "all") return manifest.tests.map(({ path }) => path).sort();
   const tags = new Set(definition.tags);
   return manifest.tests
-    .filter((entry) => entry.tags.some((tag) => tags.has(tag)))
+    .filter((entry) => !definition.exclude?.includes(entry.path) && entry.tags.some((tag) => tags.has(tag)))
     .map(({ path }) => path)
     .sort();
 }
@@ -58,9 +78,8 @@ export function evaluateSuitePrerequisites(suiteName, options = {}) {
   const definition = TEST_SUITE_DEFINITIONS[suiteName];
   if (!definition) throw new Error(`TEST_SUITE_UNKNOWN: ${suiteName}`);
   const available = options.availableExecutables ?? new Set();
-  const selected = options.manifest
-    ? options.manifest.tests.filter((entry) => suiteName === "all" || definition.tags.some((tag) => entry.tags.includes(tag)))
-    : [];
+  const selectedPaths = options.manifest ? new Set(selectTestFiles(options.manifest, suiteName)) : new Set();
+  const selected = options.manifest ? options.manifest.tests.filter((entry) => selectedPaths.has(entry.path)) : [];
   const executables = new Set([
     ...definition.executables,
     ...selected.flatMap((entry) => entry.requires ?? []),
@@ -118,6 +137,7 @@ async function walk(directory, rootDir, files) {
 
 function tagsForTest(file) {
   const tags = new Set();
+  if (fastIntegrationTests.has(file)) tags.add("fast-integration");
   if (file.startsWith("packages/") || file.startsWith("apps/") || file.startsWith("adapters/")) tags.add("unit");
   if (file.startsWith("tests/integration/")) {
     tags.add("integration");
