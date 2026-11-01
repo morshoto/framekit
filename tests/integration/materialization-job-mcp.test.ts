@@ -729,6 +729,7 @@ test("a checkpoint won before provider dispatch preserves truthful materializati
     assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
     assert.equal(result.error.retryable, true);
     assert.equal(result.evidence.providerRequested, false);
+    assert.match(result.verification.reason, /reservation.*provider was not called/i);
     assert.equal(publishes, 0);
     await other.complete();
   } finally {
