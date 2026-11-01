@@ -1,15 +1,18 @@
 import { basename } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
+import { runPublishStages, verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT;
 const expectedSequence = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE;
 const targetLibraryPath = process.env.FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH;
+const approvedDigest = process.env.FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST;
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -19,6 +22,8 @@ if (process.argv.includes("--help")) {
     "  FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH=/absolute/path/to/disposable.fcpxml",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT=exact-imported-project-name",
     "  FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH=/absolute/path/to/new-library.fcpbundle",
+    "  FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST=sha256-of-prepared-artifact",
+    "  FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1 (separate authorization for artifact edit, import and readback)",
     "Optional:",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE=exact-imported-sequence-name",
     "",
@@ -28,8 +33,8 @@ if (process.argv.includes("--help")) {
   process.exit(0);
 }
 
-if (!artifactPath || !expectedProject || !targetLibraryPath) {
-  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH, FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT, and FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH before running the publisher headed E2E");
+if (!artifactPath || !expectedProject || !targetLibraryPath || !/^[a-f0-9]{64}$/.test(approvedDigest ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
+  throw new Error("FINAL_CUT_E2E_AUTHORIZATION_REQUIRED: provide artifact, project, new library, approved prepared-artifact SHA-256 and separate mutation authorization");
 }
 
 const transport = new StdioClientTransport({
@@ -46,8 +51,6 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const client = new Client({ name: "framekit-publisher-headed-e2e", version: "0.1.0" });
-let artifactTransactionId;
-let published = false;
 
 try {
   await client.connect(transport);
@@ -85,18 +88,20 @@ try {
   if (edited.status !== "VERIFIED") {
     throw new Error("FINAL_CUT_E2E_PUBLISH_ARTIFACT_EDIT_FAILED: disposable artifact preparation was not verified");
   }
-  artifactTransactionId = edited.id;
-
-  const result = await callJson("artifact.publish", {
-    artifactPath,
-    transactionId: artifactTransactionId,
-    targetLibraryPath,
-    confirm: true,
+  const actualDigest = createHash("sha256").update(await readFile(artifactPath)).digest("hex");
+  if (actualDigest !== approvedDigest) {
+    throw new Error("FINAL_CUT_E2E_APPROVED_DIGEST_MISMATCH: prepared artifact differs from the approved digest; no import attempted");
+  }
+  const job = await runPublishStages(callJson, {
+    artifactPath, transactionId: edited.id, targetLibraryPath, artifactDigest: approvedDigest,
+  }, (stage, snapshot) => {
+    process.stderr.write(`${JSON.stringify({ stage, jobId: snapshot.jobId, state: snapshot.state, artifactDigest: approvedDigest })}\n`);
   });
-  published = true;
+  const result = job.result;
 
   const afterLive = await callJson("editor.live.inspect");
   verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence });
+  if (!(await stat(targetLibraryPath)).isDirectory()) throw new Error("FINAL_CUT_E2E_LIBRARY_MISSING: created library is not a directory");
 
   process.stdout.write(`${JSON.stringify({
     passed: true,
@@ -106,19 +111,10 @@ try {
     createdTarget: result.createdTarget,
     activeProject: result.activeProject,
     semanticReadback: result.semanticReadback,
-    sourceMediaIntegrity: result.sourceMediaIntegrity,
+    sourceMediaIntegrity: { unchanged: result.sourceMediaIntegrity.unchanged, digests: result.sourceMediaIntegrity.digests.map(({ sha256 }) => sha256) },
     beforeLive: { projectId: beforeLive.project.id, sequenceId: beforeLive.sequence.id },
     afterLive: { projectId: afterLive.project.id, sequenceId: afterLive.sequence.id },
   }, null, 2)}\n`);
-} catch (error) {
-  if (artifactTransactionId && !published) {
-    try {
-      await callJson("edit.undo", { transactionId: artifactTransactionId });
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "Publisher headed E2E failed and artifact cleanup also failed");
-    }
-  }
-  throw error;
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
