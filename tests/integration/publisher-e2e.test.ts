@@ -111,13 +111,23 @@ test("publisher QA stops on ambiguous dispatch without retrying", async () => {
 
 test("publisher QA uses the existing verified rough cut without editing the artifact", async () => {
   const calls: Array<{ name: string; args: any }> = [];
+  const digests = ["a", "b", "c", "d"].map((value) => ({ source: `/fixture/${value}`, sha256: value.repeat(64) }));
   await runPublishStages(async (name, args) => {
     calls.push({ name, args });
-    if (name === "artifact.publish.preview") return { jobId: "job-2", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (name === "artifact.publish.preview") return { jobId: "job-2", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle", sourceProof: { sourceMediaDigests: digests } };
     if (calls.length === 2) return { jobId: "job-2", state: "verification-pending" };
-    return { jobId: "job-2", state: "verified", result: { verified: true } };
+    return { jobId: "job-2", state: "verified", result: { verified: true, sourceMediaIntegrity: { unchanged: true, digests } } };
   }, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {});
   assert.deepEqual(calls[0]!.args, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle" });
+});
+
+test("publisher QA rejects incomplete source proof before dispatch", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name) => {
+    calls.push(name);
+    return { jobId: "job-2", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle", sourceProof: { sourceMediaDigests: [] } };
+  }, { artifactPath: "/tmp/source.fcpxml", headlessExecutionId: "execution-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_SOURCE_PROOF_INCOMPLETE/);
+  assert.deepEqual(calls, ["artifact.publish.preview"]);
 });
 
 test("publisher headed E2E is a separate FCPXML workflow", async () => {
